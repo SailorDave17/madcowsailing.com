@@ -1,0 +1,15 @@
+# Cloudflare Pages redirects, read from the output directory. One rule per line:
+#   <from>  <to>  <status>
+#
+# www redirects to the apex, not the reverse. Picked because the apex is what
+# goes on a resume and in an App Store listing, and a bare domain is shorter to
+# say out loud. Recorded here because acceptance criterion 1 of story #4 asks
+# for the direction to be chosen deliberately rather than inherited.
+#
+# Both hostnames still have to be attached to the Pages project in the
+# dashboard - this file decides what happens once a request arrives, not
+# whether it can.
+#
+# Deliberately absent: the 301 from madcowhq.com/sailing. Nothing links there,
+# and epic #1 puts it out of scope until something does.
+https://www.madcowhq.com/*  https://madcowhq.com/:splat  301
