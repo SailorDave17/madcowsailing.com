@@ -124,7 +124,22 @@ which is the correct order.
 
 It works because the eyes are separate closed contours in the traced SVG
 (`#mc-eye-left`, `#mc-eye-right`), so they translate independently inside the face
-shape. Verified at the extremes — they stay well within the head at maximum offset.
+shape.
+
+They are holes rather than white shapes, so the page colour shows through them —
+and a subpath of an even-odd path cannot be transformed on its own. So in
+`madcow-mark-ids.svg` the eyes and mouth are cut with a luminance mask and the
+mask paths carry the ids: translate `#mc-eye-left` and the hole moves with it.
+`madcow-mark.svg` has no mask and no ids — it is one even-odd path, which is why
+the header copy cannot collide with the hero's.
+
+Re-verified 2026-08-21 in Chromium, from disk, on `docs/preview/theme-preview.html`:
+pointer up-left and down-right of the face gave each eye its own vector, both
+measuring exactly 16.00 units of travel, and the eyes stayed well within the head
+at that maximum offset. The eye region really re-renders — the two pointer
+positions differ pixel-for-pixel, while a `prefers-reduced-motion: reduce` run at
+the same two positions held both transforms at zero and produced byte-identical
+pixels.
 
 This is the one bold thing on the page. Everything else stays disciplined. Under
 `prefers-reduced-motion` the transform is disabled entirely, not just shortened.
@@ -145,11 +160,39 @@ stripped so they don't collide.
 
 All SVGs use `fill="currentColor"`, so colour comes from CSS — set `color: var(--blue)`
 on the parent and the mark follows. They also use `fill-rule="evenodd"`; the eyes and
-mouth are holes, and dropping that attribute fills them solid.
+mouth are holes, and dropping that attribute fills them solid. Both confirmed
+2026-08-21 by grep across all four files, and in Chromium: the same inline mark
+computes `fill` as `--blue`, `--ensign` and `--ensign-lt` under three different
+parent colours.
 
-These were traced from the photo, not from an original vector. They're faithful at
-any size the site will use, but if the original artwork exists as a real vector file
-somewhere, that's better — swap it in and keep the ids.
+**The consequence of `currentColor` is that these marks cannot be used through
+`<img>`.** An `<img>`-loaded SVG has no parent to inherit from, so it renders
+black — measured, not assumed. Inline the SVG where the colour matters. CSS
+`mask-image` with `background: currentColor` is the other way to keep a single
+file reference, and it works over HTTP but is blocked over `file://`, which is
+why the preview inlines its header marks.
+
+These were re-traced on 2026-08-21 from `docs/source/madcow-lockup.pdf` — the
+owner's export of the earlier traced artwork, carrying it as a 1024×1024 raster.
+Not from the transom photograph, and not from an original vector. Because the
+source is the earlier vector rasterised rather than a photo, the geometry came back
+closely.
+
+`tools/trace_logo.py` is the tracer, kept in the repo so that closeness is
+checkable rather than asserted:
+
+```
+python3 tools/trace_logo.py docs/source/madcow-lockup.pdf shared/img --check
+```
+
+It rewrites all six files byte-for-byte identically to the committed ones, and
+`--check` re-renders the result against the source and reports **1.51%** of ink
+pixels disagreeing — roughly a quarter of a pixel along the outline at 1024px.
+Raise the tolerance constants in that file if a future story wants a closer trace
+at a larger file size.
+
+They're faithful at any size the site will use, but if the original artwork exists
+as a real vector file somewhere, that's better — swap it in and keep the ids.
 
 ## The sail number
 
@@ -180,16 +223,33 @@ important text on the page.
 ## Photo pipeline
 
 `tools/photos.py` replaces the untested Node sketch in the earlier spec. It is
-written in Python, has been run end to end, and does what the spec asked for:
-applies EXIF orientation then discards all metadata including GPS, emits AVIF and
-WebP at 400 / 1000 / 2000 (skipping any size larger than the source), generates the
-base64 LQIP, records real dimensions, and preserves hand-written `alt` and `caption`
-across re-runs.
+written in Python and does what the spec asked for: applies EXIF orientation then
+discards all metadata including GPS, emits AVIF and WebP at 400 / 1000 / 2000
+(skipping any size larger than the source), generates the base64 LQIP, records real
+dimensions, and preserves hand-written `alt` and `caption` across re-runs.
 
 It exits non-zero when any photo is missing alt text, so it can gate a commit hook.
 
-Verified on the 1340 photo: the two derivative sizes came out at 12 KB and 34 KB in
-AVIF, and the output files carry zero EXIF tags.
+Run end to end on 2026-08-21 against the 1340 photo (814×1001, the copy that
+survived in `Downloads/`). What that run actually showed:
+
+- **One** derivative, not two: at 814px wide, only the 400 width is under the
+  source, so 1000 and 2000 are correctly skipped. 16 KB AVIF, 15 KB WebP. The
+  earlier "two derivative sizes at 12 KB and 34 KB" cannot be reproduced from this
+  copy of the photo and is withdrawn rather than restated — it was presumably
+  measured against a larger original.
+- Zero EXIF tags on both outputs, against a source carrying `exif`, `photoshop`
+  and `xmp` blocks.
+- `python3 tools/photos.py --help` exits 0.
+- Alt preservation was tested by inserting a photo that sorts *first* and re-running.
+  It failed the first time — the new photo inherited the alt text of whatever
+  previously held its number, and the missing-alt gate passed at exit 0. Entries are
+  now keyed on a `source` field recorded in `trip.json`; the file-id match survives
+  only as a migration path for a manifest written before that field existed. Both
+  paths were then re-run and behave.
+
+That last one is the reason the manifest carries a `source` key the spec in
+`sailing-site.md` does not show. It is additive, and the gallery ignores it.
 
 ## Sailing-site notes
 
@@ -204,12 +264,22 @@ overspend. One accent element per viewport still holds.
 
 ## Preview
 
-`theme-preview.html` is a working demo: header, hero with the live eye tracking,
-work cards, an inverted sailing strip using the real 1340 photo through a proper
-`<picture>` element, and a palette reference. Open it in a browser and move the
-cursor near the face. Keep the folder together — it references `assets/`.
+`docs/preview/theme-preview.html` is a working demo: header, hero with the live eye
+tracking, work cards, an inverted sailing strip using the real 1340 photo through a
+proper `<picture>` element, and a palette reference. Open it in a browser and move
+the cursor near the face. Keep the folder together — it references `assets/`. It
+reads `shared/css/tokens.css` and `base.css` directly rather than copying them, so
+it cannot drift away from the real design system.
 
-Two honest caveats. The copy in it is placeholder and should be rewritten before any
-of it ships. And I had no browser available to render it, so the layout is
-unverified — check it at 360px and 1440px and fix what's off before treating any of
-it as final.
+The copy in it is placeholder and should be rewritten before any of it ships.
+
+The layout caveat is discharged. It was written because no browser was available;
+one was, on 2026-08-21, and the page was rendered from disk in Chromium at 360px
+and 1440px. Both widths came back with no horizontal scroll and no element
+extending past the viewport, `--hull` on the body and Bricolage Grotesque on the
+headings. One thing was off and is fixed: `base.css` resets paragraph margins and
+never puts them back, so paragraphs in the navy strip ran together. The rule lives
+in the preview's own `<style>` for now rather than in `shared/`, because a real
+page should settle it.
+
+Anything other than 360px and 1440px is still unverified.

@@ -108,6 +108,11 @@ Slug format `YYYY-MM-DD-short-name` sorts chronologically in the filesystem.
 `alt` is required and the script must not invent it. `caption` is optional — a
 caption on every photo reads as filler.
 
+Each entry also carries a `source` key naming the original filename. It is not
+shown above because nothing reads it at render time — it exists so a re-run can
+match your alt text to the right photo after one is inserted in the middle and the
+numbering shifts. Do not delete it by hand.
+
 **`log` is the most valuable field on the page.** Two or three sentences is the
 difference between a gallery and a log, and the log is the part people read.
 
@@ -118,7 +123,10 @@ the log. Reverse chronological.
 
 ## Photo pipeline
 
-`tools/photos.py` — written in Python, tested end to end.
+`tools/photos.py` — written in Python. Run end to end on 2026-08-21 against one
+photo; what that run measured, and the alt-preservation bug it found, are recorded
+in `design-brief.md` under Photo pipeline. Not yet run against a real multi-photo
+trip.
 
 ```
 python3 tools/photos.py --trip 2026-06-14-put-in-bay --src ~/Desktop/dump --root sailing
