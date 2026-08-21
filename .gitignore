@@ -1,0 +1,12 @@
+# Python bytecode from tools/
+__pycache__/
+*.py[cod]
+
+# Build output of the Cloudflare Pages copy step. Never edit these; edit shared/.
+hq/assets/shared/
+sailing/assets/shared/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.playwright-mcp/

@@ -21,8 +21,10 @@ They share tokens, logo assets, and base CSS. They do not share content.
 
 ## Current status
 
-Greenfield. `docs/design-brief.md` has the visual direction, working tokens, traced
-logo SVGs, and a rendered preview. Nothing else is built.
+Greenfield. `docs/design-brief.md` has the visual direction. What exists in the
+repo: `shared/css/tokens.css` and `base.css`, the six logo files in `shared/img/`,
+`tools/photos.py`, and the rendered demo at `docs/preview/theme-preview.html`. No
+page of either site is built yet.
 
 ## Structure
 
@@ -57,8 +59,12 @@ logo SVGs, and a rendered preview. Nothing else is built.
 │   │   └── <trip-slug>/      index.html + trip.json
 │   ├── about.html            The boat, the name, who's behind it
 │   └── assets/photos/<trip-slug>/
-├── tools/photos.py
+├── tools/
+│   ├── photos.py             Trip-log derivatives + trip.json
+│   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── docs/
+│   ├── source/               Original artwork the marks were traced from
+│   └── preview/              theme-preview.html + its assets/
 └── CLAUDE.md
 ```
 
