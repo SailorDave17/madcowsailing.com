@@ -39,6 +39,47 @@ housekeeping.
 That coupling is the reason `release` exists at all rather than deploying from
 `develop`: it puts a decision between "this is merged" and "this is live".
 
+## Hosting
+
+Two Cloudflare Pages projects from this one repo. **The dashboard is the only
+other copy of these settings** — if a project is ever deleted or recreated, this
+table is what rebuilds it.
+
+| Setting | hq project | sailing project |
+|---|---|---|
+| Production branch | `release` | `release` |
+| Root directory | `hq` | `sailing` |
+| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same |
+| Output directory | `.` | `.` |
+| Watch paths (include) | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
+| Custom domains | `madcowhq.com`, `www.madcowhq.com` | `madcowsailing.com`, `www.madcowsailing.com` |
+| Preview branches | `develop` only | `develop` only |
+| Framework preset | None | None |
+
+Both zones are already on Cloudflare nameservers (`dell.ns.cloudflare.com`,
+`lars.ns.cloudflare.com`), so attaching a custom domain creates the DNS record
+itself — there is no external registrar step.
+
+**The build command is the only build step in this repo, and it is one line.**
+It copies `shared/` into each site as `assets/shared/`, which is why every page
+links `assets/shared/css/tokens.css` rather than reaching up out of its own root.
+`assets/shared/` is generated and gitignored; never edit it, edit `shared/`.
+
+To reproduce a deploy locally, run the same command from inside `hq/` or
+`sailing/` and open `index.html` from disk.
+
+**Watch paths are not cosmetic.** Without them, adding forty photos to a trip log
+rebuilds the portfolio site too. With them, a commit touching only `sailing/`
+builds one project.
+
+**`www` redirects to the apex**, via `_redirects` in each site. Both hostnames
+must still be attached to the project — that file decides what happens once a
+request arrives, not whether it can.
+
+**Preview branches are limited to `develop`** so that a feature branch does not
+publish a world-readable copy of unmerged work on a `*.pages.dev` URL. A PR into
+`develop` still gets its preview, which is the thing that is actually useful.
+
 ## The push guard
 
 `githooks/pre-push` refuses a local push to `develop`, `main`, `master` or
