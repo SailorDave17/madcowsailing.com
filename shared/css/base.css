@@ -1,0 +1,236 @@
+/* Mad Cow — shared base. Reset, nav, buttons, cards. Used by both sites.
+   Depends on tokens.css being loaded first. Site-specific layout stays in
+   each site's own CSS; only what both sites share belongs here. */
+
+/* ---- Reset ---- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--hull);
+  color: var(--deep);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+}
+
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- Type ---- */
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-stretch: var(--display-stretch);
+  font-weight: var(--display-weight);
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+}
+
+h1 { font-size: var(--text-4xl); }
+h2 { font-size: var(--text-2xl); }
+h3 { font-size: var(--text-lg); }
+
+p,
+li {
+  max-width: var(--measure);
+}
+
+a {
+  color: var(--blue);
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  color: var(--blue-deep);
+}
+
+/* Inverted fields — the navy strips. Links and accents flip to the
+   values that clear contrast on --deep; never use --ensign here. */
+.field-deep {
+  background: var(--deep);
+  color: var(--chalk);
+}
+
+.field-deep a {
+  color: var(--chalk);
+}
+
+.field-deep .accent,
+.field-deep .sail-number {
+  color: var(--ensign-lt);
+}
+
+/* Small structural text — eyebrows, dates, stack tags, nav, the sail
+   number. The mono doing this job is what keeps the page from feeling
+   like a template. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+.sail-number {
+  font-family: var(--font-mono);
+  color: var(--ensign);
+}
+
+/* ---- Focus ----
+   Visible everywhere. Never remove without a replacement. */
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.field-deep :focus-visible {
+  outline-color: var(--chalk);
+}
+
+/* ---- Layout shell ---- */
+
+.wrap {
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+
+main > section {
+  padding-block: var(--space-7);
+}
+
+/* Hand-drawn section divider. The wobble lives in an inline SVG path in
+   the markup (stroke: currentColor); this only sizes and colours it.
+   Between major sections, nowhere else. */
+.divider {
+  color: var(--spray);
+  height: var(--space-3);
+  margin-block: var(--space-2);
+}
+
+/* ---- Nav ---- */
+
+.site-nav ul {
+  display: flex;
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+}
+
+.site-nav a {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--deep);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a[aria-current="page"] {
+  color: var(--blue-deep);
+  text-decoration: underline;
+  text-underline-offset: 0.3em;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--space-3);
+  top: var(--space-2);
+  background: var(--chalk);
+  padding: var(--space-2) var(--space-3);
+  transform: translateY(-300%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* ---- Buttons ----
+   .button is the everyday action. .button-accent is the red one — one
+   per viewport, it is the only warm thing on the page including the
+   photography. */
+
+.button {
+  display: inline-block;
+  background: var(--blue);
+  color: var(--chalk);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--blue-deep);
+  color: var(--chalk);
+}
+
+.button-accent {
+  background: var(--ensign);
+}
+
+.button-accent:hover {
+  background: var(--deep);
+}
+
+/* ---- Cards ----
+   Hard edges, offset hover into a hard blue shadow. Cut vinyl, not
+   Material Design. */
+
+.card {
+  background: var(--chalk);
+  border: var(--border-hair);
+  padding: var(--space-4);
+  transition: transform var(--ease-quick), box-shadow var(--ease-quick);
+}
+
+.card:hover {
+  transform: translate(-0.25rem, -0.25rem);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---- Footer ---- */
+
+.site-footer {
+  padding-block: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ---- Reduced motion ----
+   Disabled entirely, not shortened. The eye tracking honours this via
+   its own script check as well. */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .card:hover {
+    transform: none;
+  }
+}
