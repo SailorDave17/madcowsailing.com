@@ -1,0 +1,36 @@
+# The repo's only CI. It runs exactly what `githooks/checks` runs locally, so a
+# red push and a red build are the same event - see the comment in that file.
+#
+# There is no build step here on purpose. The sites are static files; the only
+# assembly is the one-line copy of shared/ into each site's assets/, and that
+# runs in Cloudflare Pages, not here. If this workflow ever grows a second kind
+# of step, that is the signal to reconsider Astro rather than to accumulate
+# more YAML - CLAUDE.md says so and means it.
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, release]
+  push:
+    branches: [develop, release]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      # `npm ci` and not `npm install`: it installs from package-lock.json
+      # exactly, so CI cannot silently resolve a different html-validate than
+      # the one the local gate ran.
+      - run: npm ci
+
+      - run: npm run check

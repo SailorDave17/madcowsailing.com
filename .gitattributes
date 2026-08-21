@@ -1,0 +1,27 @@
+# Line endings. LF in the repo and LF on disk.
+#
+# `core.autocrlf=true` is set on the owner's machine, so without this file the
+# working copy checks out CRLF while the index stays LF. Two things here break
+# on that, and both fail quietly:
+#
+#   - githooks/pre-push is a shell script. A CRLF shebang line is not a portable
+#     interpreter path, and the config files it reads (githooks/checks,
+#     githooks/owner-only) are compared line by line - `release\r` does not equal
+#     `release`, so the branch falls through as an ordinary feature branch and
+#     the guard is absent rather than weak. The driver strips CR defensively for
+#     exactly this reason; that is the other half of the fix, not a substitute
+#     for it, because it protects the hook and not the rest of the tree.
+#   - `git diff` cannot see the problem. autocrlf normalises both sides of the
+#     comparison, so the working tree diverges while every git command reports
+#     clean. `git ls-files --eol` is the check that works.
+#
+# Measured before adding this, on 2026-08-21: every tracked text blob was
+# already `i/lf` and the eight images and the PDF were already detected as
+# binary, so this rule alters ZERO blobs. Only the checkout was wrong - seven
+# files sat `w/crlf`. Worth stating because the usual objection to a blanket
+# rule is that it renormalises the tree in one noisy commit, and that conflates
+# files that change on disk with files that change in the commit.
+#
+# `text=auto` leaves anything git detects as binary alone, so the images and the
+# PDF need no exclusion list.
+* text=auto eol=lf
