@@ -1,3 +1,6 @@
+# Dev tooling only — html-validate, per package.json. Nothing here is served.
+node_modules/
+
 # Python bytecode from tools/
 __pycache__/
 *.py[cod]

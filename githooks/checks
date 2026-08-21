@@ -1,0 +1,20 @@
+# One shell command per line, run from the repo root by githooks/pre-push.
+# Non-zero exit refuses the push. Lines starting with # are ignored.
+#
+# This list is exactly what .github/workflows/ci.yml runs, and that is the whole
+# point: a check that fails here fails in CI too, so you learn it in seconds
+# rather than after a round trip. Adding a step to one and not the other is the
+# defect - a local gate that runs a different graph from CI reports a verdict
+# about a build nobody is shipping.
+#
+# Deliberately NOT here: a syntax check on tools/*.py. `python` and `python3` on
+# the owner's machine both resolve to the Windows Store alias stub, which exits
+# 126 and would make every line of this list fail identically for a reason that
+# has nothing to do with the repo. CI runs on Linux where it would work, so
+# adding it there alone is exactly the local/CI divergence the paragraph above
+# is about. The tools are dev utilities that ship nothing; when story #11
+# exercises photos.py for real, revisit this.
+#
+# There is no build step. The sites are static files plus the one-line copy in
+# the Cloudflare Pages config - see CLAUDE.md.
+npm run --silent check
