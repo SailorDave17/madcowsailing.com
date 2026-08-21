@@ -1,0 +1,243 @@
+/* madcowhq.com — site layout. Loaded after shared tokens.css and base.css.
+   Everything both sites share belongs in shared/css/base.css instead.
+
+   No hex value and no pixel size appears in any declaration here. Every colour,
+   type size and space is a var(--…) from tokens.css — CLAUDE.md's rule and an
+   acceptance criterion of story #5.
+
+   Two exceptions, both deliberate and both stated so nobody has to guess:
+
+   1. The four --hq-* layout constants defined below are var()s but are NOT from
+      tokens.css. They are grid track floors for this site's card grid, and
+      tokens.css is shared with the sailing site.
+   2. The @media condition is a bare length. CSS does not permit a var() in a
+      media query, so there is no form of this file where that is a token.
+
+   And one outside this file: the luminance mask in the inlined hero mark
+   carries a literal white and black, because a mask cuts its hole by luminance
+   and cannot take a token. That lives in the HTML.
+
+   A grep for this must read declarations, not comments — the paragraph above
+   names a pixel size while breaking no rule. */
+
+/* ---- hq-local layout constants ---------------------------------------
+   Grid track minimums and one max-width. Named here rather than added to
+   shared/css/tokens.css, because tokens.css is shared with the sailing site
+   and these are facts about *this* site's card grid. That keeps every value
+   in a declaration below a var(), which is what story #5's criterion asks
+   for, without pushing hq layout into a file the other site reads. */
+
+:root {
+  --hq-card-min:      16rem;   /* card grid track floor */
+  --hq-hero-mark-max: 17rem;   /* hero mark, wide layout */
+  --hq-app-what-min:  14rem;   /* apps strip description, before it wraps */
+  --hq-narrow:        46rem;   /* one-column breakpoint */
+}
+
+/* ---- Shell ---------------------------------------------------------- */
+
+.site-header {
+  border-bottom: var(--border-hair);
+  padding-block: var(--space-3);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.lockup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--blue);
+  text-decoration: none;
+}
+
+/* Inlined rather than <img>: an <img>-loaded SVG has no parent to inherit
+   currentColor from and renders black. */
+.lockup-mark { height: var(--space-4); width: auto; }
+.lockup-word { height: var(--space-3); width: auto; }
+
+/* ---- Hero ------------------------------------------------------------
+   Must answer "who is this, should I keep reading" without a scroll, at
+   1440x900 and at 360x780. That second one is the constraint that shapes
+   everything here: the mark shrinks hard and the sections below it are the
+   first thing allowed off-screen. */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, var(--hq-hero-mark-max)) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: center;
+  padding-block: var(--space-6);
+}
+
+.hero-mark {
+  color: var(--blue);
+  width: 100%;
+  max-width: var(--hq-hero-mark-max);
+  justify-self: center;
+}
+
+/* The eyes are mask paths, so 1 unit of CSS transform is 1 SVG user unit.
+   The transition is the brief's 90ms; --ease-quick carries it. */
+#mc-eye-left,
+#mc-eye-right {
+  transition: transform var(--ease-quick);
+}
+
+.hero h1 {
+  margin-bottom: var(--space-3);
+}
+
+.hero .lede {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-4);
+}
+
+.hero .actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---- Sections -------------------------------------------------------- */
+
+section h2 { margin-bottom: var(--space-2); }
+section p + p { margin-top: var(--space-3); }
+
+.section-lede {
+  margin-bottom: var(--space-4);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--hq-card-min), 1fr));
+  gap: var(--space-4);
+}
+
+/* Grid stretches the boxes to a common height already; this makes the CONTENT
+   line up too. Without it the tags and the "read the case study" link float at
+   whatever height the copy happens to end, which reads as three cards rather
+   than one row. */
+.card {
+  display: flex;
+  flex-direction: column;
+}
+
+.card h3 { margin-bottom: var(--space-2); }
+.card p { margin-bottom: var(--space-3); }
+.card > p:first-of-type { margin-bottom: auto; }
+.card > p:last-child { margin-bottom: 0; }
+
+.card a {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.tags {
+  display: flex;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* Stack tags stay --blue. Three cards with red tags is three accents in one
+   viewport, which spends the whole budget on the least important text on the
+   page — the brief is explicit about this. */
+.tags li {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--blue);
+  border: var(--border-hair);
+  padding-inline: var(--space-2);
+}
+
+/* ---- Apps strip ------------------------------------------------------
+   Compact by design: a row per app, not a card grid. The apps index is a
+   different page and owns the detail. */
+
+.apps {
+  list-style: none;
+  padding: 0;
+  border-top: var(--border-hair);
+}
+
+.apps li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding-block: var(--space-3);
+  border-bottom: var(--border-hair);
+  max-width: none;
+}
+
+.apps .name {
+  font-family: var(--font-display);
+  font-stretch: var(--display-stretch);
+  font-weight: var(--display-weight);
+}
+
+.apps .what {
+  flex: 1 1 var(--hq-app-what-min);
+  color: var(--deep);
+}
+
+.apps .where {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ---- About ------------------------------------------------------------ */
+
+.about p { margin-bottom: var(--space-3); }
+
+/* ---- Footer ----------------------------------------------------------- */
+
+.site-footer {
+  border-top: var(--border-hair);
+  margin-top: var(--space-6);
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.footer-links {
+  display: flex;
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+/* ---- Narrow ----------------------------------------------------------
+   The narrow floor from the quality floor is 360 CSS pixels wide. The hero
+   collapses to one column and the mark takes a size that keeps the name, the
+   sentence and the action above the fold at that width by 780 tall. */
+
+@media (max-width: 46rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    padding-block: var(--space-4);
+    text-align: center;
+  }
+
+  .hero-mark { max-width: var(--space-8); }
+  .hero .actions { justify-content: center; }
+  .hero .lede { font-size: var(--text-base); }
+  .hero h1 { font-size: var(--text-2xl); }
+}
