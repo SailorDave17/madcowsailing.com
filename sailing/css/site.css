@@ -1,0 +1,185 @@
+/* madcowsailing.com — site layout. Loaded after shared tokens.css and base.css.
+   Everything both sites share belongs in shared/css/base.css instead.
+
+   No hex value and no pixel size appears in any declaration here. Every colour,
+   type size and space is a var(--…) from tokens.css — CLAUDE.md's rule and an
+   acceptance criterion of story #8.
+
+   Two exceptions, both deliberate and both stated so nobody has to guess:
+
+   1. The --sail-* layout constants defined below are var()s but are NOT from
+      tokens.css. They are grid floors and one photo width for this site's
+      layout, and tokens.css is shared with the hq site.
+   2. The @media condition is a bare length. CSS does not permit a var() in a
+      media query, so there is no form of this file where that is a token.
+
+   The header shell below (.site-header, .header-inner, .lockup) is the same
+   shape as hq/css/site.css. It is copied rather than hoisted into base.css on
+   purpose: shared/ rebuilds both sites, and a second copy is not yet the pain
+   that earns a shared rule. If a third page layout needs it, move it then.
+
+   A grep for this must read declarations, not comments — the paragraph above
+   names a pixel size while breaking no rule. */
+
+/* ---- sailing-local layout constants ---------------------------------- */
+
+:root {
+  --sail-hero-photo-max: 26rem;   /* widest the 800w derivative stays sharp at 2x */
+  --sail-app-min:        18rem;   /* apps grid track floor */
+  --sail-narrow:         46rem;   /* one-column breakpoint */
+}
+
+/* ---- Shell ---------------------------------------------------------- */
+
+.site-header {
+  border-bottom: var(--border-hair);
+  padding-block: var(--space-3);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.lockup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--blue);
+  text-decoration: none;
+}
+
+/* Inlined rather than <img>: an <img>-loaded SVG has no parent to inherit
+   currentColor from and renders black. The mark is about 2rem here and that is the
+   only place it appears on this site — the brief's "one signature, one place". */
+.lockup-mark { height: var(--space-5); width: auto; }
+.lockup-word { height: var(--space-3); width: auto; }
+
+/* ---- Hero ------------------------------------------------------------
+   The boat beside the words. The photo column is capped at the width the
+   800w derivative can fill sharply on a 2x display; the copy takes the rest. */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, var(--sail-hero-photo-max)) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: center;
+  padding-block: var(--space-6);
+}
+
+/* width/height on the <img> give the browser the ratio before the bytes
+   arrive, so the box is reserved and nothing shifts when the photo lands.
+   base.css already sets img { max-width: 100%; height: auto }. */
+.hero-photo img {
+  width: 100%;
+  border: var(--border-hair);
+}
+
+.hero h1 {
+  margin-bottom: var(--space-3);
+}
+
+.hero .lede {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-4);
+}
+
+.hero .actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---- Sections -------------------------------------------------------- */
+
+section h2 { margin-bottom: var(--space-2); }
+section p + p { margin-top: var(--space-3); }
+
+/* The eyebrow is --blue on light, which fails on the navy field. --spray is
+   the muted-secondary on --deep (the holding page used the same flip). */
+.field-deep .eyebrow {
+  color: var(--spray);
+}
+
+/* ---- Apps ------------------------------------------------------------
+   One entry per app: name, what it does for a sailor, platform and status.
+   The apps index owns the detail; this is the strip that gets them there. */
+
+.apps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--sail-app-min), 1fr));
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin-block: var(--space-4);
+}
+
+.apps li {
+  max-width: none;
+  border-top: var(--border-hair);
+  padding-top: var(--space-3);
+}
+
+.apps h3 {
+  margin-bottom: var(--space-2);
+}
+
+.apps h3 a {
+  text-decoration: none;
+}
+
+.apps h3 a:hover {
+  text-decoration: underline;
+}
+
+.apps .meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--blue);
+}
+
+/* ---- Logs — the navy field ------------------------------------------ */
+
+.logs p {
+  margin-bottom: var(--space-3);
+}
+
+.logs p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Who --------------------------------------------------------------
+   One line, body copy, no heading: the portfolio is a footnote here. */
+
+.who {
+  padding-block: var(--space-5);
+}
+
+/* ---- Footer ----------------------------------------------------------- */
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+/* ---- Narrow ----------------------------------------------------------
+   The narrow floor from the quality floor is 360 CSS pixels wide. The hero
+   stacks: photo full width, then the words. */
+
+@media (max-width: 46rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding-block: var(--space-4);
+  }
+
+  .hero .lede { font-size: var(--text-base); }
+  .hero h1 { font-size: var(--text-2xl); }
+}
