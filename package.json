@@ -1,0 +1,12 @@
+{
+  "name": "madcowsailing",
+  "private": true,
+  "description": "Dev tooling only. The sites themselves have no dependencies and no build step beyond the one-line copy in the Cloudflare Pages config - see CLAUDE.md. Nothing here is served.",
+  "scripts": {
+    "check": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"docs/**/*.html\"",
+    "check:html": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"docs/**/*.html\""
+  },
+  "devDependencies": {
+    "html-validate": "10.17.0"
+  }
+}

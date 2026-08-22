@@ -1,0 +1,13 @@
+# Branches refused outright by githooks/pre-push, IN ADDITION to the driver's
+# built-in `develop main master`. Appended, never replacing - this file cannot
+# shorten the refused list, only extend it.
+#
+# `release` is the production branch: Cloudflare Pages builds madcowhq.com and
+# madcowsailing.com from it, so a push here is a production deploy. It is
+# entered one way only - a pull request from `develop` that the owner merges.
+#
+# The driver already refuses `develop` and `main` by their names, so they are
+# deliberately absent below rather than repeated. Listing a branch twice is
+# harmless but it invites someone to "tidy up" the duplicate and delete the
+# wrong copy.
+release

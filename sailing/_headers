@@ -1,0 +1,27 @@
+# Cloudflare Pages reads this from the OUTPUT directory, which for this project
+# is the site root itself (output `.`, root directory `sailing`). It is not served.
+#
+# Rule order matters: Pages applies every matching rule, and a later one wins on
+# a repeated header name. Keep the broad rule first and the narrow ones after.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+
+# Everything under assets/ is either content-hashed or a logo that changes by
+# being replaced, so a year is safe. `immutable` tells the browser not to
+# revalidate at all - that is the half that actually removes the request.
+#
+# NOTE for story #11: this covers assets/photos/ too. The trip-log derivatives
+# are written once per photo and never edited in place, so that is correct - but
+# if a photo is ever re-encoded under the same filename, a year is a long time
+# to be wrong. Rename rather than overwrite.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The HTML itself must not be cached for a year, or a deploy would not reach
+# anyone who had already visited. This is the rule the one above would otherwise
+# swallow if a page ever lived under assets/.
+/
+  Cache-Control: public, max-age=0, must-revalidate
