@@ -19,7 +19,7 @@ built from is never pushed to by hand.**
 
 | Branch | What it is | How it is entered |
 |---|---|---|
-| `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it. | A pull request from a feature branch, merged by the owner. |
+| `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it, as from every non-production branch. | A pull request from a feature branch, merged by the owner. |
 | `release` | **Production.** Pages builds madcowhq.com and madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
 | `main` | Frozen pointer to the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve. | Nothing. It is retired. |
 
@@ -47,13 +47,15 @@ table is what rebuilds it.
 
 | Setting | hq project | sailing project |
 |---|---|---|
+| Project name | `madcowhq` (`madcowhq.pages.dev`) | `madcowsailing` (`madcowsailing.pages.dev`) |
 | Production branch | `release` | `release` |
 | Root directory | `hq` | `sailing` |
 | Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same |
 | Output directory | `.` | `.` |
 | Watch paths (include) | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
 | Custom domains | `madcowhq.com`, `www.madcowhq.com` | `madcowsailing.com`, `www.madcowsailing.com` |
-| Preview branches | `develop` only | `develop` only |
+| Preview branches | all non-production branches | all non-production branches |
+| Preview access policy | enabled (Cloudflare Access) | enabled (Cloudflare Access) |
 | Framework preset | None | None |
 
 Both zones are already on Cloudflare nameservers (`dell.ns.cloudflare.com`,
@@ -76,9 +78,20 @@ builds one project.
 must still be attached to the project — that file decides what happens once a
 request arrives, not whether it can.
 
-**Preview branches are limited to `develop`** so that a feature branch does not
-publish a world-readable copy of unmerged work on a `*.pages.dev` URL. A PR into
-`develop` still gets its preview, which is the thing that is actually useful.
+**Previews build from every non-production branch, behind an access policy.**
+Pages builds a preview per *branch* commit, and a branch outside the include
+list is skipped entirely — so limiting previews to `develop` would mean a PR
+from a feature branch gets no preview and no PR comment, which is the one
+preview that is actually useful. *(This table said `develop` only until
+2026-08-22, with a sentence claiming a PR still got its preview; it would not
+have.)* The exposure that setting was guarding against — unmerged work readable
+on a `*.pages.dev` URL — is handled by the access policy instead: preview URLs
+ask for a Cloudflare Access login, production does not. Every `*.pages.dev`
+preview also carries `X-Robots-Tag: noindex` by default.
+
+**A freshly created project builds nothing until `develop` has been promoted
+once** — `release` is what production builds from, and its first build fails
+on a missing root directory until then. That is expected, not a misconfiguration.
 
 ## The push guard
 
