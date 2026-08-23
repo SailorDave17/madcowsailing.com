@@ -1,15 +1,24 @@
 # Cloudflare Pages redirects, read from the output directory. One rule per line:
 #   <from>  <to>  <status>
 #
-# www redirects to the apex, not the reverse. Picked because the apex is what
-# goes on a resume and in an App Store listing, and a bare domain is shorter to
-# say out loud. Recorded here because acceptance criterion 1 of story #4 asks
-# for the direction to be chosen deliberately rather than inherited.
+# A source here must be a PATH. Pages rejects an absolute-URL source outright,
+# and because madcowsailing.com and www.madcowsailing.com are both attached to
+# the same Pages project, nothing in this file can tell the two hosts apart.
 #
-# Both hostnames still have to be attached to the Pages project in the
-# dashboard - this file decides what happens once a request arrives, not
-# whether it can.
+# So the www -> apex redirect is NOT here. It is a Redirect Rule on the
+# madcowsailing.com zone, named "www to apex (301)", recorded in README.md
+# under Hosting. The direction - www to the apex, not the reverse - was picked
+# because the apex is what goes on a resume and in an App Store listing, and a
+# bare domain is shorter to say out loud.
+#
+# This file held that rule as an absolute-URL source from 2026-08-21 to
+# 2026-08-23. It never fired. Every deploy logged
+#   "Parsed 0 valid redirect rules. Found invalid redirect lines: ... Only
+#    relative URLs are allowed."
+# and then reported success, so www served a duplicate of the whole site.
 #
 # Deliberately absent: the 301 from madcowhq.com/sailing. Nothing links there,
-# and epic #1 puts it out of scope until something does.
-https://www.madcowsailing.com/*  https://madcowsailing.com/:splat  301
+# and epic #1 puts it out of scope until something does. That one WOULD belong
+# in this file - it is a path redirect within one host.
+#
+# No path redirects are needed yet. Add them below, sources beginning with "/".

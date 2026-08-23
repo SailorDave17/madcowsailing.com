@@ -54,9 +54,18 @@ table is what rebuilds it.
 | Output directory | `.` | `.` |
 | Watch paths (include) | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
 | Custom domains | `madcowhq.com`, `www.madcowhq.com` | `madcowsailing.com`, `www.madcowsailing.com` |
-| Preview branches | all non-production branches | all non-production branches |
-| Preview access policy | enabled (Cloudflare Access) | enabled (Cloudflare Access) |
+| Preview branches | `develop` only | `develop` only |
+| Preview access policy | not enabled | not enabled |
 | Framework preset | None | None |
+
+One setting per site lives on the **zone**, not the Pages project, and is
+invisible from the project page — so it belongs in this table too:
+
+| Zone setting | madcowhq.com | madcowsailing.com |
+|---|---|---|
+| Redirect Rule | `www to apex (301)` | `www to apex (301)` |
+| — pattern | `https://www.*` | `https://www.*` |
+| — target | `https://${1}`, 301, preserve query string | same |
 
 Both zones are already on Cloudflare nameservers (`dell.ns.cloudflare.com`,
 `lars.ns.cloudflare.com`), so attaching a custom domain creates the DNS record
@@ -74,24 +83,55 @@ To reproduce a deploy locally, run the same command from inside `hq/` or
 rebuilds the portfolio site too. With them, a commit touching only `sailing/`
 builds one project.
 
-**`www` redirects to the apex**, via `_redirects` in each site. Both hostnames
-must still be attached to the project — that file decides what happens once a
-request arrives, not whether it can.
+**`www` redirects to the apex, via a zone Redirect Rule — not via `_redirects`.**
+Both hostnames are still attached to the Pages project; the rule decides what
+happens once a request arrives, not whether it can.
 
-**Previews build from every non-production branch, behind an access policy.**
-Pages builds a preview per *branch* commit, and a branch outside the include
-list is skipped entirely — so limiting previews to `develop` would mean a PR
-from a feature branch gets no preview and no PR comment, which is the one
-preview that is actually useful. *(This table said `develop` only until
-2026-08-22, with a sentence claiming a PR still got its preview; it would not
-have.)* The exposure that setting was guarding against — unmerged work readable
-on a `*.pages.dev` URL — is handled by the access policy instead: preview URLs
-ask for a Cloudflare Access login, production does not. Every `*.pages.dev`
-preview also carries `X-Robots-Tag: noindex` by default.
+*This said "via `_redirects` in each site" until 2026-08-23, and that never
+worked and never could.* Pages matches a `_redirects` source as a **path**, so
+an absolute-URL source is rejected outright — and since both hostnames point at
+one project, no version of that file can tell them apart. The build log said so
+on every deploy while reporting `success`:
 
-**A freshly created project builds nothing until `develop` has been promoted
-once** — `release` is what production builds from, and its first build fails
-on a missing root directory until then. That is expected, not a misconfiguration.
+```
+Parsed 0 valid redirect rules.
+Found invalid redirect lines:
+  - #15: https://www.madcowsailing.com/*  https://madcowsailing.com/:splat  301
+    Only relative URLs are allowed. Skipping absolute URL …
+Parsed 3 valid header rules.
+```
+
+Worth knowing because the same message was already seen once and misread: when
+the accidental Worker of 2026-08-22 rejected that line, it was recorded as
+Workers being stricter than Pages, *"not a defect in the file."* Two independent
+faults produced one symptom — wrong product **and** invalid redirect line — and
+fixing the first left the second untouched and unsuspected.
+
+Measured after the change: `www.*` → `301` to the apex with path and query
+preserved, both apexes still `200`. Cloudflare's create dialog warns *"your DNS
+configuration may not be proxying traffic for www"* — that warning is a false
+negative here (the Pages-managed CNAME is proxied), and **"Create a new proxied
+DNS record" is the wrong answer**: it would add a record conflicting with the
+Pages custom domain. Ignore and deploy.
+
+`_redirects` is kept in both sites for future **path** redirects, which is all
+it can do.
+
+**Previews build from `develop` only, and there is no access policy.** Owner
+decision, 2026-08-23, taken with the cost stated: Pages builds a preview per
+*branch* commit and skips any branch outside the include list, so **a PR from a
+feature branch gets no preview URL and no PR comment.** Only `develop` itself
+builds a preview, which is after the merge rather than before it.
+
+This reverses the 2026-08-22 setting, and the reversal was deliberate rather
+than a drift — the alternative on the table was a Cloudflare Access policy over
+all-branch previews, which needs Zero Trust onboarded against a permanent team
+name. Restricting the branch list removes the exposure without that. The cost is
+paid at review time instead: to see a change rendered before merging, run the
+build locally (see above) — the push guard refuses a direct push to `develop`,
+so its preview only exists once a PR has already been merged.
+
+Every `*.pages.dev` preview also carries `X-Robots-Tag: noindex` by default.
 
 ## The push guard
 
