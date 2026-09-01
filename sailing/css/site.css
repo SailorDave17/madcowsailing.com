@@ -183,3 +183,260 @@ section p + p { margin-top: var(--space-3); }
   .hero .lede { font-size: var(--text-base); }
   .hero h1 { font-size: var(--text-2xl); }
 }
+
+/* ====================================================================== */
+/* Apps — index, product, support, privacy.  Story #10.                   */
+/* ====================================================================== */
+
+/* Two more sailing-local layout constants, same exception as the block at
+   the top of this file: they are grid floors and one image cap for this
+   site's layout, and tokens.css is shared with hq. */
+
+:root {
+  --sail-shot-max:  17rem;   /* the 450px capture, never upscaled past ~2x */
+  --sail-card-min:  17rem;   /* app-card grid track floor */
+  --sail-state-min:  6rem;   /* colour-state strip track floor */
+}
+
+/* ---- Page head and foot ----------------------------------------------
+   A product page opens with an eyebrow and an h1 rather than the home
+   page's photo hero, and closes with one quiet line. Neither is the site
+   <footer>, which is copied verbatim from the home page and owned by #8. */
+
+.page-head .lede {
+  font-size: var(--text-lg);
+}
+
+.page-foot {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.page-foot p {
+  margin-bottom: var(--space-2);
+}
+
+/* Quieted by SIZE, never by opacity. opacity dims a nested link along with
+   the prose and cannot be undone on the child - it is a group effect, not an
+   inherited property - which took the source link in the privacy page's foot
+   below the 4.5:1 floor (Lighthouse colour-contrast, measured 95 -> 100).
+   There is no muted-on-light colour to reach for instead: tokens.css has
+   --spray and says in as many words that it is never text on light, 1.8:1. */
+.muted {
+  font-size: var(--text-sm);
+}
+
+/* ---- App cards -------------------------------------------------------
+   The apps index. One card per app; an app with no product page gets a
+   card and no link rather than a dead one. */
+
+.app-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--sail-card-min), 1fr));
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin-block: var(--space-5);
+}
+
+.app-cards > li {
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.app-cards h2 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.app-cards h2 a {
+  text-decoration: none;
+}
+
+.app-cards h2 a:hover {
+  text-decoration: underline;
+}
+
+.app-cards p {
+  margin: 0;
+}
+
+/* card-more is pushed to the bottom so two cards of unequal copy still
+   line their links up. */
+.card-more {
+  margin-top: auto;
+}
+
+/* Platform / price / status. Mono, like every other piece of small
+   structural text on this site. */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.badges li {
+  max-width: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+  border: var(--border-hair);
+  padding: var(--space-1) var(--space-2);
+}
+
+/* ---- Screenshots -----------------------------------------------------
+   The source files are the square framebuffer captures Play requires, and
+   they are byte-identical to the ones in the race-timer repo. The watch's
+   display is round, so the mask here is what makes them show the device a
+   sailor actually owns. It is presentation only; nothing was written back
+   to the files. */
+
+.shot img,
+.shots img {
+  border-radius: 50%;
+  background: var(--deep);
+}
+
+.shot-hero {
+  max-width: var(--sail-shot-max);
+  margin-inline: auto;
+}
+
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--sail-state-min), 1fr));
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin-block: var(--space-5) 0;
+}
+
+.shots li {
+  max-width: none;
+  text-align: center;
+}
+
+.shots span {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+/* ---- Definition lists — facts and FAQ -------------------------------- */
+
+.facts,
+.faq {
+  margin-block: var(--space-4);
+}
+
+.facts dt,
+.faq dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--blue);
+  margin-top: var(--space-4);
+}
+
+.field-deep .facts dt,
+.field-deep .faq dt {
+  color: var(--spray);
+}
+
+.faq dt {
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  color: inherit;
+}
+
+.facts dd,
+.faq dd {
+  max-width: var(--measure);
+  margin-inline-start: 0;
+  margin-top: var(--space-2);
+}
+
+/* ---- Known issues ---------------------------------------------------- */
+
+.issues {
+  margin-block: var(--space-3);
+  padding-inline-start: var(--space-4);
+}
+
+.issues li {
+  margin-bottom: var(--space-2);
+}
+
+/* ---- Tables — stored values, permissions, versions -------------------
+   These wrap rather than scroll. Every cell is prose or a short label, so
+   at the 360px floor the columns narrow and the rows grow taller, which
+   is the right trade on a phone: a horizontal scrollbar inside the page
+   is the thing the quality floor forbids. */
+
+.stored,
+.perms,
+.versions {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.stored caption,
+.perms caption,
+.versions caption {
+  text-align: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+  padding-bottom: var(--space-2);
+}
+
+.stored th,
+.perms th,
+.versions th {
+  text-align: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+.stored th,
+.stored td,
+.perms th,
+.perms td,
+.versions th,
+.versions td {
+  vertical-align: top;
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  border-bottom: var(--border-hair);
+}
+
+/* ---- Narrow ---------------------------------------------------------- */
+
+@media (max-width: 46rem) {
+  .page-head .lede { font-size: var(--text-base); }
+
+  .stored th,
+  .stored td,
+  .perms th,
+  .perms td,
+  .versions th,
+  .versions td {
+    padding-right: var(--space-2);
+  }
+}
