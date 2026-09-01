@@ -21,7 +21,21 @@ built from is never pushed to by hand.**
 |---|---|---|
 | `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it — and from it alone; see [Previews](#previews-build-from-develop-only) below. | A pull request from a feature branch, merged by the owner. |
 | `release` | **Production.** Pages builds madcowhq.com and madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
-| `main` | Frozen pointer to the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve. | Nothing. It is retired. |
+| `main` | The **backup branch**: a known-good working version to fall back to if `release` breaks and cannot be fixed in place. Not deployed. **Not yet in that state here** — *measured 2026-09-01*, it is still the frozen pre-`develop` pointer, 13 commits behind `release`, never promoted to. | A pull request **from `release`**, merged by the owner — from the branch production actually ran, never from `develop`. Nothing else. |
+
+**`main` changed role on 2026-09-01, by owner directive.** This row read *"Frozen pointer to
+the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve —
+nothing. It is retired."* That was accurate when written and is kept here rather than deleted,
+because a branch changing from retired to load-bearing is worth seeing. `main` is now the backup:
+the copy to return to when production is broken and cannot be fixed in place. Two things follow.
+It is promoted **from `release`** — the branch production actually ran — and never from `develop`,
+which is what makes it known-good by construction rather than by anyone's care. Do not take a
+backup while production is broken: the point is to keep the last good copy, not to record the bad
+one. And it is still **never a base for new work** — a fallback that quietly acquires unreviewed
+work has stopped being one. A `main` that has moved is the backup being taken, not drift.
+
+The directive is workspace-wide rather than particular to this repo; cairn's
+`memory/global/branch-off-current-develop-2026-07-30.md` carries it for all of them.
 
 ### How work reaches `develop`
 
