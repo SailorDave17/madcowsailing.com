@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mad Cow Sailing — apps and trip logs from Lake Erie</title>
-<meta name="description" content="Sailing apps tested on the boat — a race start timer for the wrist, robotic race-mark control on the way — and trip logs and photos from Mad Cow, sail number 1340, on Lake Erie.">
-<link rel="canonical" href="https://madcowsailing.com/">
+<title>Sailing apps — Mad Cow Sailing</title>
+<meta name="description" content="Apps that earn their place on a boat. Race Timer runs a start sequence on a Wear OS watch with no phone aboard; Buoyant is robotic race-mark control, still being built.">
+<link rel="canonical" href="https://madcowsailing.com/apps/">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
      repo. Never edit anything under it; edit shared/. -->
@@ -14,15 +14,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
 
-<link rel="stylesheet" href="assets/shared/css/tokens.css">
-<link rel="stylesheet" href="assets/shared/css/base.css">
-<link rel="stylesheet" href="css/site.css">
-<link rel="icon" href="assets/shared/img/madcow-mark-512.png" sizes="512x512">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css">
+<link rel="stylesheet" href="/assets/shared/css/base.css">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-
 <!-- ============================================================= HEADER
      COPY THIS BLOCK VERBATIM into every other sailing page. Only the
      aria-current="page" attribute moves. Story #8 owns it; if it changes,
@@ -49,7 +48,7 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/apps/">apps</a></li>
+        <li><a href="/apps/" aria-current="page">apps</a></li>
         <li><a href="/logs/">logs</a></li>
         <li><a href="/about.html">about</a></li>
       </ul>
@@ -60,79 +59,46 @@
 
 <main id="main">
 
-  <!-- The photograph is the hero. The only copy of it in the repo is portrait
-       (800x984 at the widest derivative), which caps how wide it can be shown
-       sharply: about 26rem at a 2x display. So the hero is two columns - the
-       boat beside the words - rather than a full-bleed banner that would be
-       blurry at 1440. If a larger original turns up, tools/photos.py makes the
-       1000 and 2000 derivatives and the srcset below grows; the layout holds. -->
-  <section class="hero wrap">
-    <div class="hero-photo">
-      <picture>
-        <source type="image/avif" srcset="assets/img/1340-400.avif 400w, assets/img/1340-800.avif 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <source type="image/webp" srcset="assets/img/1340-400.webp 400w, assets/img/1340-800.webp 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <img src="assets/img/1340-800.jpg" width="800" height="984" loading="eager" fetchpriority="high" decoding="async"
-             alt="Mad Cow sailing under spinnaker on grey water, sail number 1340">
-      </picture>
-    </div>
-    <div class="hero-copy">
-      <p class="eyebrow">Mad Cow &middot; Lake Erie</p>
-      <h1>Sailing apps, tested on the boat.</h1>
-      <p class="lede">A race start timer that runs on a watch, and control for
-        robotic race marks on the way. <q>The boat is the test rig</q> &mdash;
-        the trip logs are where that happens.</p>
-      <div class="actions">
-        <a class="button button-accent" href="apps/">See the apps</a>
-        <a href="logs/">Read the trip logs</a>
-      </div>
-    </div>
-  </section>
+  <!-- One card per sailing app: name, one sentence a sailor would recognise,
+       platform, price, status, and a link to the product page where one
+       exists. An app with no product page gets a card and no link rather than
+       a dead one - Buoyant is that case until it ships.
 
-  <div class="wrap">
-    <svg class="divider" viewBox="0 0 1200 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <path d="M0 8 C 110 12, 170 4, 270 10 S 430 13, 540 6 S 690 3, 800 11 S 970 13, 1080 6 S 1150 9, 1200 8"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </div>
-
+       Card titles are h2 under the page h1 on purpose. An h3 here would need
+       an h2 above it, and the only h2 available was a hidden one; a heading
+       nobody can see, added to satisfy an outline, is worse than a flatter
+       outline. -->
   <section class="wrap">
     <p class="eyebrow">Apps</p>
-    <h2>Useful on the water</h2>
-    <ul class="apps">
-      <li>
-        <h3><a href="apps/race-timer/">Race Timer</a></h3>
-        <p>Runs the start sequence on a Wear OS watch. The horn goes on the
-          gun, not near it, and it keeps going with the phone left in the bag.</p>
-        <p class="meta">Wear OS &middot; in testing on Google Play</p>
+    <h1>Useful on the water</h1>
+    <p class="lede">Two apps, both written because the boat needed them. One
+      runs on a watch already; the other is still on the bench.</p>
+
+    <ul class="app-cards">
+      <li class="card">
+        <h2><a href="/apps/race-timer/">Race Timer</a></h2>
+        <p>Sets up a start on your watch and counts it down on its own, with
+          nothing paired and no phone aboard.</p>
+        <ul class="badges">
+          <li>Wear OS</li>
+          <li>Free</li>
+          <li>In testing</li>
+        </ul>
+        <p class="card-more"><a href="/apps/race-timer/">What it does</a></p>
       </li>
-      <li>
-        <h3>Buoyant</h3>
-        <p>Robotic race marks you set, move and watch from wherever you are
-          running the race, instead of dragging anchors around.</p>
-        <p class="meta">In development</p>
+      <li class="card">
+        <h2>Buoyant</h2>
+        <p>Race marks that motor to where you want them and hold station, so
+          nobody spends the morning dragging anchors around a windward mark.</p>
+        <ul class="badges">
+          <li>Android</li>
+          <li>In development</li>
+        </ul>
+        <p class="card-more muted">No page yet — it is still being built.</p>
       </li>
     </ul>
-    <p><a href="apps/">All the sailing apps</a></p>
-  </section>
-
-  <section class="field-deep logs">
-    <div class="wrap">
-      <p class="eyebrow">Trip logs</p>
-      <h2>Photos from actually being out there</h2>
-      <p>Each trip gets a page: the photos, where we went, and a few sentences on
-        how it went. Nothing here yet &mdash; the first one goes up once the
-        photos are sorted.</p>
-      <p><a href="logs/">The logs</a></p>
-    </div>
-  </section>
-
-  <section class="wrap who">
-    <p>Mad Cow is sailed out of Cleveland by Dave Alvarado, who writes the
-      software on this site. The engineering side of it lives at
-      <a href="https://madcowhq.com/">madcowhq.com</a>.</p>
   </section>
 </main>
-
 <!-- ============================================================= FOOTER
      COPY THIS BLOCK VERBATIM into every other sailing page. Story #8 owns it.
      The "Built by" line is the one link to the portfolio on this site, and it

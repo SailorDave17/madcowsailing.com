@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mad Cow Sailing — apps and trip logs from Lake Erie</title>
-<meta name="description" content="Sailing apps tested on the boat — a race start timer for the wrist, robotic race-mark control on the way — and trip logs and photos from Mad Cow, sail number 1340, on Lake Erie.">
-<link rel="canonical" href="https://madcowsailing.com/">
+<title>Race Timer privacy — Mad Cow Sailing</title>
+<meta name="description" content="Race Timer collects nothing, sends nothing and shares nothing. This page lists every value it stores on your device, every permission it asks for, and the one route by which data can leave a watch.">
+<link rel="canonical" href="https://madcowsailing.com/apps/race-timer/privacy.html">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
      repo. Never edit anything under it; edit shared/. -->
@@ -14,15 +14,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
 
-<link rel="stylesheet" href="assets/shared/css/tokens.css">
-<link rel="stylesheet" href="assets/shared/css/base.css">
-<link rel="stylesheet" href="css/site.css">
-<link rel="icon" href="assets/shared/img/madcow-mark-512.png" sizes="512x512">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css">
+<link rel="stylesheet" href="/assets/shared/css/base.css">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-
 <!-- ============================================================= HEADER
      COPY THIS BLOCK VERBATIM into every other sailing page. Only the
      aria-current="page" attribute moves. Story #8 owns it; if it changes,
@@ -60,79 +59,229 @@
 
 <main id="main">
 
-  <!-- The photograph is the hero. The only copy of it in the repo is portrait
-       (800x984 at the widest derivative), which caps how wide it can be shown
-       sharply: about 26rem at a 2x display. So the hero is two columns - the
-       boat beside the words - rather than a full-bleed banner that would be
-       blurry at 1440. If a larger original turns up, tools/photos.py makes the
-       1000 and 2000 derivatives and the srcset below grows; the layout holds. -->
-  <section class="hero wrap">
-    <div class="hero-photo">
-      <picture>
-        <source type="image/avif" srcset="assets/img/1340-400.avif 400w, assets/img/1340-800.avif 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <source type="image/webp" srcset="assets/img/1340-400.webp 400w, assets/img/1340-800.webp 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <img src="assets/img/1340-800.jpg" width="800" height="984" loading="eager" fetchpriority="high" decoding="async"
-             alt="Mad Cow sailing under spinnaker on grey water, sail number 1340">
-      </picture>
-    </div>
-    <div class="hero-copy">
-      <p class="eyebrow">Mad Cow &middot; Lake Erie</p>
-      <h1>Sailing apps, tested on the boat.</h1>
-      <p class="lede">A race start timer that runs on a watch, and control for
-        robotic race marks on the way. <q>The boat is the test rig</q> &mdash;
-        the trip logs are where that happens.</p>
-      <div class="actions">
-        <a class="button button-accent" href="apps/">See the apps</a>
-        <a href="logs/">Read the trip logs</a>
-      </div>
-    </div>
-  </section>
+  <!-- EVERY factual claim on this page is traceable to one of two documents in
+       the race-timer repo, read at origin/develop:
 
-  <div class="wrap">
-    <svg class="divider" viewBox="0 0 1200 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <path d="M0 8 C 110 12, 170 4, 270 10 S 430 13, 540 6 S 690 3, 800 11 S 970 13, 1080 6 S 1150 9, 1200 8"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </div>
+         docs/privacy-policy.md                  - the published policy, the
+                                                   one Google Play fetches
+         docs/play-app-content-declarations.md   - the Play App content answers
+                                                   and their evidence
+
+       Nothing here is written from memory and nothing is inferred. The
+       per-claim source list is in the pull request for madcowsailing.com #10.
+
+       Two rules inherited from the source policy, both of which it records
+       having been bitten by:
+
+       1. DO NOT state a count of the stored values in prose. The table below
+          is the enumeration. The source document shipped the wrong count
+          twice, and a re-check copied the stale number forward, so the number
+          was removed rather than corrected a third time.
+       2. This page and the published policy are two copies of one set of
+          claims, and a correction to either has to reach the other. That is
+          why the note at the foot of this page names which one governs.
+          Remove that note only when the copy question is actually settled. -->
+  <section class="wrap page-head">
+    <p class="eyebrow"><a href="/apps/race-timer/">Race Timer</a></p>
+    <h1>Privacy</h1>
+    <p class="lede">Race Timer does not collect, send or share anything about
+      you. It has no network access, no analytics, no advertising and no
+      account. What it keeps is your own settings and the clock reading for a
+      race in flight, in the app's private storage on the device you are
+      using.</p>
+  </section>
 
   <section class="wrap">
-    <p class="eyebrow">Apps</p>
-    <h2>Useful on the water</h2>
-    <ul class="apps">
-      <li>
-        <h3><a href="apps/race-timer/">Race Timer</a></h3>
-        <p>Runs the start sequence on a Wear OS watch. The horn goes on the
-          gun, not near it, and it keeps going with the phone left in the bag.</p>
-        <p class="meta">Wear OS &middot; in testing on Google Play</p>
-      </li>
-      <li>
-        <h3>Buoyant</h3>
-        <p>Robotic race marks you set, move and watch from wherever you are
-          running the race, instead of dragging anchors around.</p>
-        <p class="meta">In development</p>
-      </li>
-    </ul>
-    <p><a href="apps/">All the sailing apps</a></p>
+    <h2>What it collects</h2>
+    <p>Nothing. No personal information, no usage analytics, no crash
+      telemetry, no device identifiers, no contacts, no location, and no health
+      or fitness data. There is no account to create and nothing to sign in
+      to.</p>
+    <p>Neither the watch app nor the phone app asks for internet permission, so
+      neither is capable of sending information anywhere.</p>
   </section>
 
-  <section class="field-deep logs">
+  <section class="wrap">
+    <h2>What it stores on your device</h2>
+    <p>Race Timer saves a little state locally so that a race in flight
+      survives the app being closed or the device restarting mid-sequence, and
+      so your choices are still there next time you open it.</p>
+    <p>Each app keeps its own file in its own private storage, and the two are
+      not shared between devices. The last column says which app keeps each
+      value: the phone app does not offer the signal-box lead-in and never
+      changes a device volume, so it stores nothing for either.</p>
+    <table class="stored">
+      <caption>Everything Race Timer writes to the device.</caption>
+      <thead>
+        <tr>
+          <th scope="col">What</th>
+          <th scope="col">Why</th>
+          <th scope="col">Stored on</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Which start sequence is selected</td>
+          <td>So a restored race resumes at its own duration and cadence</td>
+          <td>Watch and phone</td>
+        </tr>
+        <tr>
+          <td>The scheduled gun time, as a monotonic clock reading</td>
+          <td>So the countdown resumes at the correct remaining time</td>
+          <td>Watch and phone</td>
+        </tr>
+        <tr>
+          <td>The scheduled gun time, as a wall-clock reading</td>
+          <td>Best-effort recovery after a restart, when the monotonic reading is no longer valid</td>
+          <td>Watch and phone</td>
+        </tr>
+        <tr>
+          <td>The monotonic clock reading at the moment the race was saved</td>
+          <td>To detect a restart and fall back to the wall-clock value</td>
+          <td>Watch and phone</td>
+        </tr>
+        <tr>
+          <td>The start sequence you last chose</td>
+          <td>So the app opens on the sequence you actually use instead of resetting</td>
+          <td>Watch and phone</td>
+        </tr>
+        <tr>
+          <td>The lead-in time a race was last armed with</td>
+          <td>So the same lead-in is offered next time rather than re-entered every race</td>
+          <td>Watch only</td>
+        </tr>
+        <tr>
+          <td>Which audio stream a running race raised the volume on</td>
+          <td>So the app knows which stream to put back when the race ends</td>
+          <td>Watch only</td>
+        </tr>
+        <tr>
+          <td>That stream's volume before the race raised it</td>
+          <td>So your original volume is restored rather than left turned up</td>
+          <td>Watch only</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>That is timing state and your own settings. It holds nothing about you
+      and nothing that identifies you or your device: the values are clock
+      readings, a sequence identifier, a number of seconds, an audio stream
+      index and a volume level. Neither app has any text box, so there is
+      nothing you could type into either one.</p>
+    <p>All of it goes when you uninstall the app, or when you clear the app's
+      storage from the device's own settings.</p>
+  </section>
+
+  <section class="field-deep">
     <div class="wrap">
-      <p class="eyebrow">Trip logs</p>
-      <h2>Photos from actually being out there</h2>
-      <p>Each trip gets a page: the photos, where we went, and a few sentences on
-        how it went. Nothing here yet &mdash; the first one goes up once the
-        photos are sorted.</p>
-      <p><a href="logs/">The logs</a></p>
+      <p class="eyebrow">The one exception</p>
+      <h2>Device backup</h2>
+      <p>The <strong>phone app</strong> switches Android's Auto Backup off, so
+        nothing it stores is included in any backup.</p>
+      <p>The <strong>watch app</strong> leaves Auto Backup on. That means the
+        values in the table above are eligible for the backup Android itself
+        keeps in your Google account &mdash; so on the watch this is the one
+        route by which stored data can leave the device, and it is worth saying
+        plainly rather than leaving you to infer it.</p>
+      <ul class="issues">
+        <li>The backup is made <strong>by the operating system, not by Race
+          Timer</strong>. The app does not start it, cannot read it, and is not
+          told when it happens.</li>
+        <li>It is end-to-end encrypted with your device's PIN, pattern or
+          password on every version of Android this app runs on.</li>
+        <li>Nothing in it identifies you. The values are the ones listed above
+          and nothing else.</li>
+      </ul>
+      <p>Auto Backup is what lets your sequence preference follow you to a
+        replacement watch. Turning it off for the whole device is a setting
+        Android gives you, and Race Timer works the same either way.</p>
     </div>
   </section>
 
-  <section class="wrap who">
-    <p>Mad Cow is sailed out of Cleveland by Dave Alvarado, who writes the
-      software on this site. The engineering side of it lives at
-      <a href="https://madcowhq.com/">madcowhq.com</a>.</p>
+  <section class="wrap">
+    <h2>Permissions, and why they are asked for</h2>
+    <table class="perms">
+      <caption>Every permission Race Timer requests.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Permission</th>
+          <th scope="col">Why it is needed</th>
+          <th scope="col">Asked by</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Foreground service, and the special-use foreground service type</td>
+          <td>To keep the start sequence running accurately while the screen is off, so the horn and vibration cues still fire at the right moment</td>
+          <td>Both apps</td>
+        </tr>
+        <tr>
+          <td>Wake lock</td>
+          <td>To hold the processor awake for the length of a running sequence so cue timing does not drift while the device is idle. It is sized to the remaining race and released when the sequence ends</td>
+          <td>Both apps</td>
+        </tr>
+        <tr>
+          <td>Post notifications</td>
+          <td>To show the ongoing-activity notification Android requires for a running foreground service, and which lets you get back to the running race</td>
+          <td>Both apps</td>
+        </tr>
+        <tr>
+          <td>Vibrate</td>
+          <td>To deliver the haptic signal for each race cue</td>
+          <td>Watch app only</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Neither app asks for location, microphone, camera, contacts, storage,
+      body sensors, or any health or fitness permission.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Sharing</h2>
+    <p>Race Timer shares nothing with anyone, because it collects nothing.
+      There are no third-party components in the app, no advertising networks,
+      no analytics providers and no crash-reporting services.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Children</h2>
+    <p>Race Timer is a general-purpose sports utility and is not directed at
+      children. Because it collects no data at all, it collects no data from
+      children.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Security</h2>
+    <p>What the app stores is held in its own private, sandboxed storage, which
+      Android isolates from every other app on the device. Because the app
+      transmits nothing there is no data in transit to protect, and the device
+      backup described above is encrypted by Android before it leaves the
+      watch.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Changes to this policy</h2>
+    <p>If Race Timer's behaviour changes in a way that affects this policy
+      &mdash; if a future version gains network access, or an optional account
+      &mdash; the policy is updated before that version is published.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Contact</h2>
+    <p>Questions about this policy go to
+      <a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a>.</p>
+  </section>
+
+  <section class="wrap page-foot">
+    <p class="muted">This page restates, for sailors, the privacy policy
+      published at
+      <a href="https://sailordave17.github.io/race-timer/privacy-policy">sailordave17.github.io/race-timer/privacy-policy</a>,
+      which is the copy Google Play fetches. Both were written from the same
+      source. If they ever disagree, that one governs and this one is the
+      defect &mdash; please say so at the address above.</p>
+    <p><a href="/apps/race-timer/">Race Timer</a> &middot;
+      <a href="support.html">Support</a></p>
   </section>
 </main>
-
 <!-- ============================================================= FOOTER
      COPY THIS BLOCK VERBATIM into every other sailing page. Story #8 owns it.
      The "Built by" line is the one link to the portfolio on this site, and it
