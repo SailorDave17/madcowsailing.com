@@ -19,15 +19,17 @@ built from is never pushed to by hand.**
 
 | Branch | What it is | How it is entered |
 |---|---|---|
-| `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it, as from every non-production branch. | A pull request from a feature branch, merged by the owner. |
+| `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it — and from it alone; see [Previews](#previews-build-from-develop-only) below. | A pull request from a feature branch, merged by the owner. |
 | `release` | **Production.** Pages builds madcowhq.com and madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
 | `main` | Frozen pointer to the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve. | Nothing. It is retired. |
 
 ### How work reaches `develop`
 
 Branch from `develop`, name it `feature/<issue>-<slug>`, open a PR back into
-`develop`. CI runs on the PR (see below) and Pages posts a preview URL. The
-owner merges.
+`develop`. CI runs on the PR (see below). **Pages does not post a preview URL
+on the PR** — previews are built for `develop` only, so a feature branch has
+none; to see a change rendered before merging, build it locally. The owner
+merges.
 
 ### How `develop` is promoted to `release`
 
@@ -116,6 +118,8 @@ Pages custom domain. Ignore and deploy.
 
 `_redirects` is kept in both sites for future **path** redirects, which is all
 it can do.
+
+<a id="previews-build-from-develop-only"></a>
 
 **Previews build from `develop` only, and there is no access policy.** Owner
 decision, 2026-08-23, taken with the cost stated: Pages builds a preview per
