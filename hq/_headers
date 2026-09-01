@@ -25,3 +25,15 @@
 # swallow if a page ever lived under assets/.
 /
   Cache-Control: public, max-age=0, must-revalidate
+
+# The resume is the one thing under assets/ that is REPLACED under its own
+# filename rather than content-hashed or renamed - a new version of a resume is
+# the same document, and the URL is what goes in an email signature. The rule
+# above would give a visitor who fetched it once a year of a stale copy with no
+# revalidation, which is the failure its own note warns about ("Rename rather
+# than overwrite"). Renaming is the wrong half of that advice here, because the
+# stable URL is the point. So: cache it, but make the browser ask.
+#
+# Narrow rule, placed last, per the ordering note at the top of this file.
+/assets/david-alvarado-resume.pdf
+  Cache-Control: public, max-age=3600, must-revalidate
