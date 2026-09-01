@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mad Cow Sailing — apps and trip logs from Lake Erie</title>
-<meta name="description" content="Sailing apps tested on the boat — a race start timer for the wrist, robotic race-mark control on the way — and trip logs and photos from Mad Cow, sail number 1340, on Lake Erie.">
-<link rel="canonical" href="https://madcowsailing.com/">
+<title>Race Timer — a start sequence on your wrist — Mad Cow Sailing</title>
+<meta name="description" content="Race Timer runs a sailing start sequence on a Wear OS watch, standalone. US Sailing, Scholastic and club sequences, colour states you can read at arm's length, and a countdown that keeps going with the screen off.">
+<link rel="canonical" href="https://madcowsailing.com/apps/race-timer/">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
      repo. Never edit anything under it; edit shared/. -->
@@ -14,15 +14,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
 
-<link rel="stylesheet" href="assets/shared/css/tokens.css">
-<link rel="stylesheet" href="assets/shared/css/base.css">
-<link rel="stylesheet" href="css/site.css">
-<link rel="icon" href="assets/shared/img/madcow-mark-512.png" sizes="512x512">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css">
+<link rel="stylesheet" href="/assets/shared/css/base.css">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-
 <!-- ============================================================= HEADER
      COPY THIS BLOCK VERBATIM into every other sailing page. Only the
      aria-current="page" attribute moves. Story #8 owns it; if it changes,
@@ -60,30 +59,27 @@
 
 <main id="main">
 
-  <!-- The photograph is the hero. The only copy of it in the repo is portrait
-       (800x984 at the widest derivative), which caps how wide it can be shown
-       sharply: about 26rem at a 2x display. So the hero is two columns - the
-       boat beside the words - rather than a full-bleed banner that would be
-       blurry at 1440. If a larger original turns up, tools/photos.py makes the
-       1000 and 2000 derivatives and the srcset below grows; the layout holds. -->
+  <!-- The screenshots are the unmodified square framebuffer captures from the
+       race-timer repo (docs/store/screenshots/), copied byte-for-byte. Play
+       requires the full square frame with no masking, which is why the files
+       are square; a round watch does not physically have those corners, so
+       presenting them square here would show a device nobody owns. The round
+       mask is CSS only - the file on disk is the capture Play received. -->
   <section class="hero wrap">
-    <div class="hero-photo">
-      <picture>
-        <source type="image/avif" srcset="assets/img/1340-400.avif 400w, assets/img/1340-800.avif 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <source type="image/webp" srcset="assets/img/1340-400.webp 400w, assets/img/1340-800.webp 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <img src="assets/img/1340-800.jpg" width="800" height="984" loading="eager" fetchpriority="high" decoding="async"
-             alt="Mad Cow sailing under spinnaker on grey water, sail number 1340">
-      </picture>
+    <div class="shot shot-hero">
+      <img src="/assets/img/race-timer/02-pre-start-us-sailing.png" width="450" height="450"
+           loading="eager" fetchpriority="high" decoding="async"
+           alt="A watch face showing US Sailing 5-4-1-Go armed at five minutes, white numerals on navy">
     </div>
     <div class="hero-copy">
-      <p class="eyebrow">Mad Cow &middot; Lake Erie</p>
-      <h1>Sailing apps, tested on the boat.</h1>
-      <p class="lede">A race start timer that runs on a watch, and control for
-        robotic race marks on the way. <q>The boat is the test rig</q> &mdash;
-        the trip logs are where that happens.</p>
+      <p class="eyebrow">Race Timer &middot; Wear OS</p>
+      <h1>The start sequence, on your wrist.</h1>
+      <p class="lede">Start it on the warning signal, put your arm down, and
+        sail the start instead of watching a stopwatch. Nothing is paired to
+        it and no phone comes aboard.</p>
       <div class="actions">
-        <a class="button button-accent" href="apps/">See the apps</a>
-        <a href="logs/">Read the trip logs</a>
+        <a class="button button-accent" href="#get-it">How to get it</a>
+        <a href="#questions">Questions</a>
       </div>
     </div>
   </section>
@@ -96,43 +92,132 @@
   </div>
 
   <section class="wrap">
-    <p class="eyebrow">Apps</p>
-    <h2>Useful on the water</h2>
-    <ul class="apps">
-      <li>
-        <h3><a href="apps/race-timer/">Race Timer</a></h3>
-        <p>Runs the start sequence on a Wear OS watch. The horn goes on the
-          gun, not near it, and it keeps going with the phone left in the bag.</p>
-        <p class="meta">Wear OS &middot; in testing on Google Play</p>
-      </li>
-      <li>
-        <h3>Buoyant</h3>
-        <p>Robotic race marks you set, move and watch from wherever you are
-          running the race, instead of dragging anchors around.</p>
-        <p class="meta">In development</p>
-      </li>
-    </ul>
-    <p><a href="apps/">All the sailing apps</a></p>
+    <h2>Who it is for</h2>
+    <p>Anyone who races off a five, four or three minute start and has been
+      squinting at a phone in a dry bag. It also runs the committee side: both
+      race-manager sequences keep counting after the gun, so the boat on the
+      line has an elapsed clock without changing screens, and the finish time
+      freezes when you end the race.</p>
+    <p>Use it as a training and convenience aid, not as the start line.
+      Under the racing rules the committee's flags are what count and the
+      sounds are only there to draw your eye, so if the watch and the flags
+      disagree, sail the flags.</p>
   </section>
 
-  <section class="field-deep logs">
+  <section class="wrap">
+    <h2>What it does</h2>
+    <p>Six sequences are built in: US Sailing 5-4-1-Go, Scholastic for ICSA
+      racing, a club 3-2-1-Go, the two race-manager versions, and a custom
+      start at any whole number of minutes.</p>
+    <p>The face changes colour as the start runs down, so you can read it at
+      arm's length without focusing &mdash; navy while you have time, amber
+      through the last minute, red through the final ten seconds, green at the
+      gun. Every signal has its own vibration pattern, matched to what you
+      hear, so a cue feels the shape it sounds.</p>
+    <p>If the flag went up before your thumb landed, tap Sync during the
+      countdown and it snaps to the whole minute.</p>
+    <p>The cues are pinned to the watch's own clock, so they land sub-second
+      on real hardware. The countdown keeps running with the screen dark and
+      the app put away, and if the watch stops it mid-sequence it comes back on
+      the same clock and asks whether to resume rather than deciding for
+      you.</p>
+
+    <ul class="shots">
+      <li>
+        <img src="/assets/img/race-timer/03-running-navy.png" width="450" height="450" loading="lazy" decoding="async"
+             alt="Countdown running above the minute, white numerals on navy, with Sync and Stop below">
+        <span>Running</span>
+      </li>
+      <li>
+        <img src="/assets/img/race-timer/04-last-minute-amber.png" width="450" height="450" loading="lazy" decoding="async"
+             alt="The last minute, the numerals turned amber">
+        <span>Last minute</span>
+      </li>
+      <li>
+        <img src="/assets/img/race-timer/05-final-ten-red.png" width="450" height="450" loading="lazy" decoding="async"
+             alt="The final ten seconds, the numerals turned red">
+        <span>Final ten</span>
+      </li>
+      <li>
+        <img src="/assets/img/race-timer/06-gun-green.png" width="450" height="450" loading="lazy" decoding="async"
+             alt="The gun, the whole face turned green">
+        <span>Gun</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="field-deep" id="get-it">
     <div class="wrap">
-      <p class="eyebrow">Trip logs</p>
-      <h2>Photos from actually being out there</h2>
-      <p>Each trip gets a page: the photos, where we went, and a few sentences on
-        how it went. Nothing here yet &mdash; the first one goes up once the
-        photos are sorted.</p>
-      <p><a href="logs/">The logs</a></p>
+      <p class="eyebrow">Getting it</p>
+      <h2>Wear OS, free, still in testing</h2>
+      <dl class="facts">
+        <dt>Runs on</dt>
+        <dd>A Wear OS watch on Android 11 or newer. It runs on its own &mdash;
+          there is no phone half to install.</dd>
+        <dt>Price</dt>
+        <dd>Free. No advertising, nothing to buy inside it, no subscription.</dd>
+        <dt>Where to get it</dt>
+        <dd>Not on the public store yet. It is on Google Play's internal
+          testing track while the last few defects get worked through, so there
+          is no listing to send you to. Email
+          <a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a> and I
+          will add you as a tester.</dd>
+        <dt>Phone version</dt>
+        <dd>There is one, and it works, but it has not been published. It is
+          the same timer rather than a companion &mdash; a sailor with no watch
+          gets the whole thing.</dd>
+      </dl>
+      <p><a href="support.html">Support</a> &middot; <a href="privacy.html">Privacy</a></p>
     </div>
   </section>
 
-  <section class="wrap who">
-    <p>Mad Cow is sailed out of Cleveland by Dave Alvarado, who writes the
-      software on this site. The engineering side of it lives at
-      <a href="https://madcowhq.com/">madcowhq.com</a>.</p>
+  <section class="wrap" id="questions">
+    <h2>Questions</h2>
+    <dl class="faq">
+      <dt>Do I need my phone on the boat?</dt>
+      <dd>No. It is a standalone watch app. There is nothing to pair, and the
+        app has no network access at all, so it does not care whether your
+        phone is ashore.</dd>
+
+      <dt>Does it keep counting with the screen off?</dt>
+      <dd>Yes. Turning the screen off or switching away does not stop the
+        countdown &mdash; the watch keeps it alive until the gun. It also
+        drives the display to full brightness while a race is on screen, which
+        is what makes it readable in sun.</dd>
+
+      <dt>What happens on Do Not Disturb?</dt>
+      <dd>The tones go silent &mdash; that is Do Not Disturb doing its job, and
+        the watch tells you so during the race rather than leaving you to work
+        it out. Every cue still reaches your wrist as vibration, the gun
+        included.</dd>
+
+      <dt>Can I use it running a race committee?</dt>
+      <dd>Yes. The two race-manager sequences are voiced for someone sounding
+        the signals rather than counting them, the clock keeps running as an
+        elapsed-time race clock after the gun, and there is a two-stage lead-in
+        so the watch and an external signal box start in step.</dd>
+
+      <dt>Does it collect anything about me?</dt>
+      <dd>No. It has no account, no analytics and no network permission. What
+        it keeps is your start sequence and the clock reading for a race in
+        flight, in the watch's own private storage. The
+        <a href="privacy.html">privacy page</a> lists every value.</dd>
+    </dl>
+  </section>
+
+  <!-- The quiet case-study link. It lives at the end of <main> rather than in
+       the site footer because that block is copied verbatim from the home page
+       and story #8 owns it - putting a per-page link inside it would fork it.
+
+       hq/work/race-timer.html does not exist yet; it is story #7, which
+       carries the reciprocal link and says in its own AC 3 that a link may
+       point at the other story's path before that story merges. Re-check this
+       href when #7 lands. -->
+  <section class="wrap page-foot">
+    <p>Curious how it was built? There is a write-up of the engineering side at
+      <a href="https://madcowhq.com/work/race-timer.html">madcowhq.com</a>.</p>
   </section>
 </main>
-
 <!-- ============================================================= FOOTER
      COPY THIS BLOCK VERBATIM into every other sailing page. Story #8 owns it.
      The "Built by" line is the one link to the portfolio on this site, and it

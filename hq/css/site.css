@@ -200,6 +200,47 @@ section p + p { margin-top: var(--space-3); }
 
 .about p { margin-bottom: var(--space-3); }
 
+/* ---- Page head -------------------------------------------------------
+   The about page opens with an eyebrow and an h1 rather than the home page's
+   eye-tracking hero. Same shape the sailing product pages use, so a reader
+   crossing between the two sites meets one page-opening pattern, not two.
+   Neither this nor .contact below touches the header or footer blocks, which
+   are copied verbatim from the home page and owned by story #5. */
+
+.page-head .lede {
+  font-size: var(--text-lg);
+}
+
+/* ---- Contact ---------------------------------------------------------
+   The three routes the About spec names: email, GitHub, the resume. A row
+   each rather than the footer's inline run - this is the page's one call to
+   action and a thumb has to hit it, where the footer's copy of two of these
+   is navigation.
+
+   overflow-wrap is not defensive padding: an address and a profile URL are
+   the two longest unbroken strings on either site, and the quality floor is
+   360px. Without it they are what would push the page sideways. */
+
+.contact {
+  list-style: none;
+  padding: 0;
+  border-top: var(--border-hair);
+  /* base.css caps p and li at --measure, so without this the list's own
+     border-top runs the full column while every item's border-bottom stops
+     at 65ch and the rules visibly disagree. Cap the list to match its rows. */
+  max-width: var(--measure);
+}
+
+.contact li {
+  padding-block: var(--space-3);
+  border-bottom: var(--border-hair);
+}
+
+.contact a {
+  font-size: var(--text-lg);
+  overflow-wrap: break-word;
+}
+
 /* ---- Footer ----------------------------------------------------------- */
 
 .site-footer {

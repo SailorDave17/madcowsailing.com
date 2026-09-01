@@ -19,15 +19,31 @@ built from is never pushed to by hand.**
 
 | Branch | What it is | How it is entered |
 |---|---|---|
-| `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it. | A pull request from a feature branch, merged by the owner. |
+| `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it — and from it alone; see [Previews](#previews-build-from-develop-only) below. | A pull request from a feature branch, merged by the owner. |
 | `release` | **Production.** Pages builds madcowhq.com and madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
-| `main` | Frozen pointer to the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve. | Nothing. It is retired. |
+| `main` | The **backup branch**: a known-good working version to fall back to if `release` breaks and cannot be fixed in place. Not deployed. **Not yet in that state here** — *measured 2026-09-01*, it is still the frozen pre-`develop` pointer, 13 commits behind `release`, never promoted to. | A pull request **from `release`**, merged by the owner — from the branch production actually ran, never from `develop`. Nothing else. |
+
+**`main` changed role on 2026-09-01, by owner directive.** This row read *"Frozen pointer to
+the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve —
+nothing. It is retired."* That was accurate when written and is kept here rather than deleted,
+because a branch changing from retired to load-bearing is worth seeing. `main` is now the backup:
+the copy to return to when production is broken and cannot be fixed in place. Two things follow.
+It is promoted **from `release`** — the branch production actually ran — and never from `develop`,
+which is what makes it known-good by construction rather than by anyone's care. Do not take a
+backup while production is broken: the point is to keep the last good copy, not to record the bad
+one. And it is still **never a base for new work** — a fallback that quietly acquires unreviewed
+work has stopped being one. A `main` that has moved is the backup being taken, not drift.
+
+The directive is workspace-wide rather than particular to this repo; cairn's
+`memory/global/branch-off-current-develop-2026-07-30.md` carries it for all of them.
 
 ### How work reaches `develop`
 
 Branch from `develop`, name it `feature/<issue>-<slug>`, open a PR back into
-`develop`. CI runs on the PR (see below) and Pages posts a preview URL. The
-owner merges.
+`develop`. CI runs on the PR (see below). **Pages does not post a preview URL
+on the PR** — previews are built for `develop` only, so a feature branch has
+none; to see a change rendered before merging, build it locally. The owner
+merges.
 
 ### How `develop` is promoted to `release`
 
@@ -47,6 +63,7 @@ table is what rebuilds it.
 
 | Setting | hq project | sailing project |
 |---|---|---|
+| Project name | `madcowhq` (`madcowhq.pages.dev`) | `madcowsailing` (`madcowsailing.pages.dev`) |
 | Production branch | `release` | `release` |
 | Root directory | `hq` | `sailing` |
 | Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same |
@@ -54,7 +71,17 @@ table is what rebuilds it.
 | Watch paths (include) | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
 | Custom domains | `madcowhq.com`, `www.madcowhq.com` | `madcowsailing.com`, `www.madcowsailing.com` |
 | Preview branches | `develop` only | `develop` only |
+| Preview access policy | not enabled | not enabled |
 | Framework preset | None | None |
+
+One setting per site lives on the **zone**, not the Pages project, and is
+invisible from the project page — so it belongs in this table too:
+
+| Zone setting | madcowhq.com | madcowsailing.com |
+|---|---|---|
+| Redirect Rule | `www to apex (301)` | `www to apex (301)` |
+| — pattern | `https://www.*` | `https://www.*` |
+| — target | `https://${1}`, 301, preserve query string | same |
 
 Both zones are already on Cloudflare nameservers (`dell.ns.cloudflare.com`,
 `lars.ns.cloudflare.com`), so attaching a custom domain creates the DNS record
@@ -72,13 +99,57 @@ To reproduce a deploy locally, run the same command from inside `hq/` or
 rebuilds the portfolio site too. With them, a commit touching only `sailing/`
 builds one project.
 
-**`www` redirects to the apex**, via `_redirects` in each site. Both hostnames
-must still be attached to the project — that file decides what happens once a
-request arrives, not whether it can.
+**`www` redirects to the apex, via a zone Redirect Rule — not via `_redirects`.**
+Both hostnames are still attached to the Pages project; the rule decides what
+happens once a request arrives, not whether it can.
 
-**Preview branches are limited to `develop`** so that a feature branch does not
-publish a world-readable copy of unmerged work on a `*.pages.dev` URL. A PR into
-`develop` still gets its preview, which is the thing that is actually useful.
+*This said "via `_redirects` in each site" until 2026-08-23, and that never
+worked and never could.* Pages matches a `_redirects` source as a **path**, so
+an absolute-URL source is rejected outright — and since both hostnames point at
+one project, no version of that file can tell them apart. The build log said so
+on every deploy while reporting `success`:
+
+```
+Parsed 0 valid redirect rules.
+Found invalid redirect lines:
+  - #15: https://www.madcowsailing.com/*  https://madcowsailing.com/:splat  301
+    Only relative URLs are allowed. Skipping absolute URL …
+Parsed 3 valid header rules.
+```
+
+Worth knowing because the same message was already seen once and misread: when
+the accidental Worker of 2026-08-22 rejected that line, it was recorded as
+Workers being stricter than Pages, *"not a defect in the file."* Two independent
+faults produced one symptom — wrong product **and** invalid redirect line — and
+fixing the first left the second untouched and unsuspected.
+
+Measured after the change: `www.*` → `301` to the apex with path and query
+preserved, both apexes still `200`. Cloudflare's create dialog warns *"your DNS
+configuration may not be proxying traffic for www"* — that warning is a false
+negative here (the Pages-managed CNAME is proxied), and **"Create a new proxied
+DNS record" is the wrong answer**: it would add a record conflicting with the
+Pages custom domain. Ignore and deploy.
+
+`_redirects` is kept in both sites for future **path** redirects, which is all
+it can do.
+
+<a id="previews-build-from-develop-only"></a>
+
+**Previews build from `develop` only, and there is no access policy.** Owner
+decision, 2026-08-23, taken with the cost stated: Pages builds a preview per
+*branch* commit and skips any branch outside the include list, so **a PR from a
+feature branch gets no preview URL and no PR comment.** Only `develop` itself
+builds a preview, which is after the merge rather than before it.
+
+This reverses the 2026-08-22 setting, and the reversal was deliberate rather
+than a drift — the alternative on the table was a Cloudflare Access policy over
+all-branch previews, which needs Zero Trust onboarded against a permanent team
+name. Restricting the branch list removes the exposure without that. The cost is
+paid at review time instead: to see a change rendered before merging, run the
+build locally (see above) — the push guard refuses a direct push to `develop`,
+so its preview only exists once a PR has already been merged.
+
+Every `*.pages.dev` preview also carries `X-Robots-Tag: noindex` by default.
 
 ## The push guard
 

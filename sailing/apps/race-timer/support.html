@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mad Cow Sailing — apps and trip logs from Lake Erie</title>
-<meta name="description" content="Sailing apps tested on the boat — a race start timer for the wrist, robotic race-mark control on the way — and trip logs and photos from Mad Cow, sail number 1340, on Lake Erie.">
-<link rel="canonical" href="https://madcowsailing.com/">
+<title>Race Timer support — Mad Cow Sailing</title>
+<meta name="description" content="How to get help with Race Timer: where to write, how long a reply takes, what is currently known to be wrong with it, and which versions have been released.">
+<link rel="canonical" href="https://madcowsailing.com/apps/race-timer/support.html">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
      repo. Never edit anything under it; edit shared/. -->
@@ -14,15 +14,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
 
-<link rel="stylesheet" href="assets/shared/css/tokens.css">
-<link rel="stylesheet" href="assets/shared/css/base.css">
-<link rel="stylesheet" href="css/site.css">
-<link rel="icon" href="assets/shared/img/madcow-mark-512.png" sizes="512x512">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css">
+<link rel="stylesheet" href="/assets/shared/css/base.css">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-
 <!-- ============================================================= HEADER
      COPY THIS BLOCK VERBATIM into every other sailing page. Only the
      aria-current="page" attribute moves. Story #8 owns it; if it changes,
@@ -60,79 +59,88 @@
 
 <main id="main">
 
-  <!-- The photograph is the hero. The only copy of it in the repo is portrait
-       (800x984 at the widest derivative), which caps how wide it can be shown
-       sharply: about 26rem at a 2x display. So the hero is two columns - the
-       boat beside the words - rather than a full-bleed banner that would be
-       blurry at 1440. If a larger original turns up, tools/photos.py makes the
-       1000 and 2000 derivatives and the srcset below grows; the layout holds. -->
-  <section class="hero wrap">
-    <div class="hero-photo">
-      <picture>
-        <source type="image/avif" srcset="assets/img/1340-400.avif 400w, assets/img/1340-800.avif 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <source type="image/webp" srcset="assets/img/1340-400.webp 400w, assets/img/1340-800.webp 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <img src="assets/img/1340-800.jpg" width="800" height="984" loading="eager" fetchpriority="high" decoding="async"
-             alt="Mad Cow sailing under spinnaker on grey water, sail number 1340">
-      </picture>
-    </div>
-    <div class="hero-copy">
-      <p class="eyebrow">Mad Cow &middot; Lake Erie</p>
-      <h1>Sailing apps, tested on the boat.</h1>
-      <p class="lede">A race start timer that runs on a watch, and control for
-        robotic race marks on the way. <q>The boat is the test rig</q> &mdash;
-        the trip logs are where that happens.</p>
-      <div class="actions">
-        <a class="button button-accent" href="apps/">See the apps</a>
-        <a href="logs/">Read the trip logs</a>
-      </div>
-    </div>
-  </section>
+  <!-- Plain and boring on purpose. Two jobs: unblock store review, which needs
+       a reachable support URL per app, and put a frustrated sailor in touch
+       with a human. Nothing here is marketing.
 
-  <div class="wrap">
-    <svg class="divider" viewBox="0 0 1200 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <path d="M0 8 C 110 12, 170 4, 270 10 S 430 13, 540 6 S 690 3, 800 11 S 970 13, 1080 6 S 1150 9, 1200 8"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </div>
+       The known-issues list is the user-visible subset of the race-timer
+       repo's own open-defects row in README.md. Keep it in that repo's terms,
+       and take a defect off this list only when it is actually fixed - a
+       support page that has quietly stopped listing a live fault is worse than
+       one that never listed it. -->
+  <section class="wrap page-head">
+    <p class="eyebrow"><a href="/apps/race-timer/">Race Timer</a></p>
+    <h1>Support</h1>
+    <p class="lede">Something not working, or a question the
+      <a href="/apps/race-timer/#questions">product page</a> does not answer?
+      Write to me.</p>
+  </section>
 
   <section class="wrap">
-    <p class="eyebrow">Apps</p>
-    <h2>Useful on the water</h2>
-    <ul class="apps">
-      <li>
-        <h3><a href="apps/race-timer/">Race Timer</a></h3>
-        <p>Runs the start sequence on a Wear OS watch. The horn goes on the
-          gun, not near it, and it keeps going with the phone left in the bag.</p>
-        <p class="meta">Wear OS &middot; in testing on Google Play</p>
-      </li>
-      <li>
-        <h3>Buoyant</h3>
-        <p>Robotic race marks you set, move and watch from wherever you are
-          running the race, instead of dragging anchors around.</p>
-        <p class="meta">In development</p>
-      </li>
-    </ul>
-    <p><a href="apps/">All the sailing apps</a></p>
+    <h2>Getting in touch</h2>
+    <dl class="facts">
+      <dt>Email</dt>
+      <dd><a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a></dd>
+      <dt>How long you will wait</dt>
+      <dd>I read that address in the evenings, so expect a reply within a
+        couple of days. If you write during a regatta weekend it will probably
+        be Monday.</dd>
+      <dt>What helps</dt>
+      <dd>Which watch you are on, which sequence you had loaded, and what the
+        screen said when it went wrong. A photo of the watch is worth a
+        paragraph.</dd>
+      <dt>Asking to be a tester</dt>
+      <dd>The app is on Google Play's internal testing track and not on the
+        public store yet. Email the address above and I will add you.</dd>
+    </dl>
   </section>
 
-  <section class="field-deep logs">
+  <section class="field-deep">
     <div class="wrap">
-      <p class="eyebrow">Trip logs</p>
-      <h2>Photos from actually being out there</h2>
-      <p>Each trip gets a page: the photos, where we went, and a few sentences on
-        how it went. Nothing here yet &mdash; the first one goes up once the
-        photos are sorted.</p>
-      <p><a href="logs/">The logs</a></p>
+      <p class="eyebrow">Known issues</p>
+      <h2>What is currently wrong with it</h2>
+      <p>These are open and being worked on. They are listed here rather than
+        left for you to discover.</p>
+      <ul class="issues">
+        <li>On Do Not Disturb the tones are silent. The watch tells you so
+          during the race, and every cue still reaches your wrist as vibration
+          &mdash; the gun included.</li>
+        <li>If a cue is dropped or cut short mid-race, the app does not tell
+          you it happened.</li>
+        <li>If Android blocks the foreground service, the app offers to send
+          you to the right settings screen, but that screen cannot actually
+          clear the block.</li>
+        <li>The display can stick 180&deg; round. That is a fault in the watch
+          rather than in the app, and the cause is still being chased.</li>
+      </ul>
     </div>
   </section>
 
-  <section class="wrap who">
-    <p>Mad Cow is sailed out of Cleveland by Dave Alvarado, who writes the
-      software on this site. The engineering side of it lives at
-      <a href="https://madcowhq.com/">madcowhq.com</a>.</p>
+  <section class="wrap">
+    <h2>Version history</h2>
+    <table class="versions">
+      <caption>Every build released to testers, newest first.</caption>
+      <thead>
+        <tr><th scope="col">Version</th><th scope="col">Released</th><th scope="col">What it was</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1.0</td>
+          <td>13 August 2026</td>
+          <td>First build on the Google Play internal testing track, for the
+            watch. Reached testers on 17 August.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="muted">The phone version is built but has not been released, so
+      it has no entry here yet.</p>
+  </section>
+
+  <section class="wrap page-foot">
+    <p><a href="/apps/race-timer/">Race Timer</a> &middot;
+      <a href="privacy.html">Privacy</a></p>
   </section>
 </main>
-
 <!-- ============================================================= FOOTER
      COPY THIS BLOCK VERBATIM into every other sailing page. Story #8 owns it.
      The "Built by" line is the one link to the portfolio on this site, and it
