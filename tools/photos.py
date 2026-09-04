@@ -357,10 +357,21 @@ def figure(trip, entry, share, n, nshare, nn, eager):
     # page spent the "one accent element per viewport" budget the same brief
     # sets, and the sail number keeps its place in the footer. A photo's
     # optional caption is the lightbox's to show (#12), with the counter.
+    #
+    # So the caption is carried to the lightbox as a data-caption attribute
+    # rather than as visible text, and ONLY when the manifest entry has one.
+    # Writing an empty attribute onto all 24 photos that have no caption is
+    # noise in the generated page, and gallery.js treats absent and empty
+    # alike. Today no entry has one, so the attribute appears on no figure and
+    # the lightbox shows the counter alone. Add a caption to trip.json, re-run
+    # this script, and it appears - no change to the CSS or to the script
+    # (owner decision, 2026-09-04, story #12).
+    caption = entry.get("caption")
+    caption_attr = ' data-caption="%s"' % esc(caption) if caption else ""
     return "\n".join([
         '      <figure style="--share: %.4f; --nshare: %.4f; --nn: %d">' % (share, nshare, nn),
-        '        <a class="frame" href="%s-%s.webp" style="--ar: %.4f; background-image: url(%s)">'
-        % (base, largest_label(entry), ar, entry["lqip"]),
+        '        <a class="frame" href="%s-%s.webp"%s style="--ar: %.4f; background-image: url(%s)">'
+        % (base, largest_label(entry), caption_attr, ar, entry["lqip"]),
         '          <picture>',
         '            <source type="image/avif" srcset="%s" sizes="%s">' % (srcset(base, entry, "avif"), sizes),
         '            <source type="image/webp" srcset="%s" sizes="%s">' % (srcset(base, entry, "webp"), sizes),

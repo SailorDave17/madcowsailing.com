@@ -39,4 +39,4 @@ jobs:
       # the owner's machine has both. Keeping the two lists identical is the
       # rule this file's header states, so a change here needs the same change
       # there and vice versa.
-      - run: python3 tools/linkcheck.py hq
+      - run: python3 tools/linkcheck.py hq sailing

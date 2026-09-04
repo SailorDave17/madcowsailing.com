@@ -19,8 +19,13 @@ Scope, stated so a later reader does not over-trust a pass:
     file; a fragment on a cross-page link (work/#buoyant) is checked against
     the ids in the target file. A link to an id that does not exist lands at
     the top of the page silently, which is the same class of failure.
-  - href only. src, srcset and CSS url() are not read. Adding them is a good
-    idea and is not this story.
+  - href and src. srcset and CSS url() are still not read; a srcset candidate
+    that 404s drops one width and the browser picks another, where a missing
+    src or href drops the whole thing. src was added by story #12, where a
+    mistyped <script src> would have passed every gate green and degraded to
+    exactly the intended no-JavaScript baseline - a silent failure that looks
+    like a supported mode. A src is checked as a plain file: no fragment, and
+    no index.html rewrite, because a directory is never a valid src.
 
 Usage:  python tools/linkcheck.py hq [sailing ...]
 Exit 0 when every internal href resolves, 1 otherwise.
@@ -31,6 +36,7 @@ import sys
 from urllib.parse import unquote, urldefrag
 
 HREF = re.compile(r'\shref\s*=\s*"([^"]*)"', re.I)
+SRC = re.compile(r'\ssrc\s*=\s*"([^"]*)"', re.I)
 ID = re.compile(r'\sid\s*=\s*"([^"]*)"', re.I)
 EXTERNAL = re.compile(r'^(?:[a-z][a-z0-9+.-]*:|//)', re.I)
 
@@ -105,6 +111,37 @@ def check(site):
                     failures.append((page, href, 'no such file: %s' % resolved))
                 elif frag and frag not in ids_in(resolved, idcache):
                     failures.append((page, href, 'no id "%s" in %s' % (frag, resolved)))
+
+            # src, checked after every href on the page. Deliberately a second
+            # loop rather than a branch inside the first: a src resolves more
+            # simply than an href - it is always a file, so there is no
+            # directory test, no index.html rewrite and no fragment - and
+            # threading those three exceptions through the href path would make
+            # the harder case carry conditions that only the easier one needs.
+            #
+            # A data: URI is external by the same rule as https:, which the
+            # EXTERNAL pattern already covers (it matches any scheme). That
+            # matters here and not for href: every gallery figure carries an
+            # inline base64 LQIP.
+            for raw in SRC.findall(read(page)):
+                src = raw.strip()
+                if not src or EXTERNAL.match(src):
+                    continue
+                target = unquote(urldefrag(src)[0])
+                if not target:
+                    continue
+
+                if target.startswith('/'):
+                    resolved = os.path.join(site, target.lstrip('/')).replace(os.sep, '/')
+                else:
+                    resolved = os.path.join(os.path.dirname(page), target).replace(os.sep, '/')
+                resolved = os.path.normpath(resolved).replace(os.sep, '/')
+
+                if resolved.startswith(shared_prefix):
+                    resolved = 'shared/' + resolved[len(shared_prefix):]
+
+                if not os.path.isfile(resolved):
+                    failures.append((page, src, 'no such file: %s' % resolved))
     return failures
 
 
@@ -119,7 +156,7 @@ def main(argv):
 
     for page, href, reason in failures:
         print('%s: %s -> %s' % (page, href, reason), file=sys.stderr)
-    print('linkcheck: %d internal href(s) unresolved in %s'
+    print('linkcheck: %d internal href/src(s) unresolved in %s'
           % (len(failures), ', '.join(sites)), file=sys.stderr)
     return 1 if failures else 0
 
