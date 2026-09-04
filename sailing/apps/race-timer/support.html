@@ -10,9 +10,10 @@
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
      repo. Never edit anything under it; edit shared/. -->
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css">
 <link rel="stylesheet" href="/assets/shared/css/base.css">
@@ -108,7 +109,7 @@
         <li>If a cue is dropped or cut short mid-race, the app does not tell
           you it happened.</li>
         <li>If Android blocks the foreground service, the app offers to send
-          you to the right settings screen, but that screen cannot actually
+          you to the right settings screen, but that screen cannot
           clear the block.</li>
         <li>The display can stick 180&deg; round. That is a fault in the watch
           rather than in the app, and the cause is still being chased.</li>
@@ -148,7 +149,6 @@
      ============================================================= -->
 <footer class="site-footer field-deep">
   <div class="wrap footer-inner">
-    <span>Racing as <span class="sail-number">1340</span> at Hoover Sailing Club</span>
     <span>Built by <a href="https://madcowhq.com/">Dave Alvarado</a></span>
   </div>
 </footer>

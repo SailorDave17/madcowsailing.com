@@ -2,6 +2,52 @@
    Read docs/design-brief.md before changing anything here.
    No hex value or pixel size belongs anywhere outside this file. */
 
+/* ---- Typefaces ----
+   Self-hosted, so no request leaves for fonts.googleapis.com or
+   fonts.gstatic.com. Files are Google's own latin-subset woff2, committed
+   under shared/fonts/ with each family's OFL licence beside them; the
+   variable axes are kept only where the design uses them (Bricolage needs
+   wdth and wght for --display-stretch / --display-weight below, the others
+   wght alone). DM Mono ships as two static weights upstream, not variable.
+
+   font-display: swap is required by the quality floor in CLAUDE.md.
+   Paths are relative to this file, so the Pages copy step into
+   assets/shared/ resolves them unchanged on both sites. */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("../fonts/bricolage-grotesque-latin-var.woff2") format("woff2");
+  font-weight: 400 800;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("../fonts/instrument-sans-latin-var.woff2") format("woff2");
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Mono";
+  src: url("../fonts/dm-mono-latin-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Mono";
+  src: url("../fonts/dm-mono-latin-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* ---- Colour ----
      --blue is sampled from the transom decal. Fixed. Do not adjust it,
@@ -21,11 +67,18 @@
   --ensign-lt: #FF7D99;
 
   /* ---- Type ----
-     Families load per-page via <link> (Google Fonts, font-display: swap).
+     Families are self-hosted; the @font-face block above is the only place
+     they load from. No page links a Google host.
      The wordmark is artwork, not type — never re-set MAD COW in a font. */
   --font-display: "Bricolage Grotesque", "Avenir Next Condensed", "Arial Narrow", sans-serif;
   --font-body:    "Instrument Sans", system-ui, "Segoe UI", sans-serif;
-  --font-mono:    "DM Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* No ui-monospace: on Windows/Chrome it can never be selected — measured
+     2026-09-04, it resolves to a proportional face ONLY as a sole family
+     ("iiiiiiiiii" 277.8px vs "MMMMMMMMMM" 889.2px at 100px); behind any
+     fallback Chrome falls straight through it to the next family, so this
+     stack rendered identically with and without it. Dropped as dead weight,
+     not as a fix — it changed no rendering anywhere. See #52. */
+  --font-mono:    "DM Mono", "Cascadia Mono", Consolas, monospace;
 
   /* Display headings sit slightly condensed and heavy: wdth 88–92, wght 620–700 */
   --display-stretch: 90%;
@@ -62,4 +115,15 @@
   --shadow-card:  0.5rem 0.5rem 0 var(--blue); /* hard offset, no blur */
   --ease-quick:   90ms ease;                 /* eye tracking, hovers */
   --border-hair:  1px solid var(--spray);
+
+  /* The lightbox's own motion, held apart from --ease-quick because it is the
+     one duration a story measures directly: #12 AC 5 reads the computed
+     transition-duration under prefers-reduced-motion and requires 0. The
+     blanket reduced-motion rule in base.css shortens everything to 0.01ms,
+     which is imperceptible but is not zero (it reads back as 1e-05s), so this
+     token is re-pointed at a true 0s there. Any lightbox transition must be
+     written against this token rather than a literal duration, or it escapes
+     that override - and note the token alone is not sufficient either; see the
+     matching !important rule in base.css for why. */
+  --lightbox-motion: 90ms ease;
 }

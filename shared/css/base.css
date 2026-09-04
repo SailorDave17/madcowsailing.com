@@ -216,6 +216,150 @@ main > section {
   font-size: var(--text-sm);
 }
 
+/* ---- Gallery lightbox ----
+   The dialog is built by shared/js/gallery.js (story #12), not written into
+   any page, so this styles markup no HTML file in the repo contains. It lives
+   here rather than in a site stylesheet because the script is shared: a
+   gallery on either site gets the lightbox and its styling from the same copy
+   step, and there is only one place to change it.
+
+   The <dialog> element supplies the behaviour - focus trap, ::backdrop,
+   Escape. What is below is only the look. */
+
+.lightbox {
+  /* The dialog's own box IS the viewport. That is what makes the backdrop
+     hit-test in gallery.js meaningful: a click landing on the dialog but
+     outside this box is a backdrop click. */
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.lightbox::backdrop {
+  background: var(--deep);
+  opacity: 0.94;
+}
+
+.lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-5) var(--space-7) var(--space-8);
+}
+
+/* The photo is capped by the stage in BOTH axes, so a portrait shot is bounded
+   by the height and a landscape one by the width, and neither is cropped - the
+   gallery grid does not crop and neither does this. width/height attributes are
+   set by the script from the real file, so the box is reserved before the bytes
+   land and opening the lightbox shifts nothing. */
+.lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  background: var(--deep);
+}
+
+.lightbox-bar {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  color: var(--hull);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.lightbox-caption {
+  margin: 0;
+  max-width: var(--measure);
+}
+
+/* The counter never wraps and never moves as the number of digits changes:
+   it is the one thing a reader tracks while arrowing through, and a counter
+   that shifts between 9 / 24 and 10 / 24 reads as the page jumping. */
+.lightbox-counter {
+  margin: 0;
+  margin-inline-start: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lightbox-close,
+.lightbox-nav {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  border: var(--border-hair);
+  background: var(--deep);
+  color: var(--hull);
+  cursor: pointer;
+  transition: background-color var(--lightbox-motion), color var(--lightbox-motion);
+}
+
+.lightbox-close svg,
+.lightbox-nav svg {
+  width: var(--space-4);
+  height: var(--space-4);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: square;
+}
+
+.lightbox-close:hover,
+.lightbox-nav:hover {
+  background: var(--blue);
+}
+
+.lightbox-close {
+  inset-block-start: var(--space-3);
+  inset-inline-end: var(--space-3);
+}
+
+.lightbox-nav {
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+}
+
+.lightbox-prev { inset-inline-start: var(--space-3); }
+.lightbox-next { inset-inline-end: var(--space-3); }
+
+/* At phone width the side arrows would sit on top of the photo, which is the
+   surface the swipe is for. So they move down beside the counter instead, and
+   the bar makes room for them. */
+@media (max-width: 46rem) {
+  .lightbox-stage {
+    padding: var(--space-4) var(--space-2) var(--space-8);
+  }
+
+  .lightbox-nav {
+    inset-block-start: auto;
+    inset-block-end: var(--space-3);
+    transform: none;
+  }
+
+  .lightbox-bar {
+    justify-content: center;
+    padding-inline: var(--space-8);
+  }
+}
+
 /* ---- Reduced motion ----
    Disabled entirely, not shortened. The eye tracking honours this via
    its own script check as well. */
@@ -232,5 +376,34 @@ main > section {
 
   .card:hover {
     transform: none;
+  }
+
+  /* A true zero for the lightbox, not the 0.01ms above. Story #12 AC 5
+     measures the computed transition-duration of the lightbox controls under
+     this media query and requires 0 - and 0.01ms, while imperceptible, is not
+     0 and reads as 1e-05s (measured 2026-09-04, which is how this rule came
+     to exist: the token alone was not enough).
+
+     Retargeting the token is NOT enough on its own, and that is the whole
+     point of this block. `transition-duration: 0.01ms !important` on `*` beats
+     an ordinary declaration whatever value the token holds, so the shorthand
+     in .lightbox-close never gets to lose on value - it loses on !important
+     first. The token is still set, so nothing anywhere reads a stale 90ms, and
+     the duration is then restated !important at a specificity the star
+     selector cannot reach.
+
+     The blanket rule above stays exactly as it is: shortening to a hair rather
+     than to zero is deliberate everywhere else, because a transitionend
+     listener that never fires is its own bug. gallery.js listens for no such
+     event, which is what makes a true zero safe here and only here. */
+  :root {
+    --lightbox-motion: 0s;
+  }
+
+  .lightbox,
+  .lightbox-close,
+  .lightbox-nav {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
   }
 }

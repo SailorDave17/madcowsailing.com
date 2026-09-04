@@ -16,9 +16,10 @@
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
      repo. Never edit anything under it; edit shared/. -->
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css">
 <link rel="stylesheet" href="/assets/shared/css/base.css">
@@ -105,10 +106,20 @@
      ============================================================= -->
 <footer class="site-footer field-deep">
   <div class="wrap footer-inner">
-    <span>Racing as <span class="sail-number">1340</span> at Hoover Sailing Club</span>
     <span>Built by <a href="https://madcowhq.com/">Dave Alvarado</a></span>
   </div>
 </footer>
 <!-- =========================================================== /FOOTER -->
+
+<!-- The gallery lightbox (story #12). The first script on either site, and
+     deferred, so the page above renders and is fully usable without it: with
+     JavaScript off every thumbnail is still a plain link to the -full image,
+     which is the baseline this enhances rather than replaces.
+
+     shared/js/ reaches assets/shared/js/ through the same one-line copy in the
+     Cloudflare Pages build that already carries shared/css/ - no new build
+     command, which is what #12 AC 7 asks. The script self-activates only when
+     it finds a .gallery, so it is inert on any page that has none. -->
+<script src="/assets/shared/js/gallery.js" defer></script>
 </body>
 </html>

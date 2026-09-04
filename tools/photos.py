@@ -280,6 +280,32 @@ def first_line(log):
     return m.group(1) if m else head
 
 
+def meta_description(log, heading, location):
+    """A meta description for a trip page, aimed at 70-160 characters.
+
+    first_line() stops at the first sentence, which is right for an index row
+    and routinely too short for a description - Put-in-Bay's was 39. So take
+    whole sentences off the top of the log until adding the next one would
+    pass 160, then append the location if there is still room. A description
+    under 70 is worse than a long one, so a single over-long first sentence is
+    returned as-is rather than cut mid-clause.
+    """
+    head = log.strip().split("\n\n")[0].strip().replace("\n", " ")
+    parts = re.findall(r".+?[.!?](?:\s|$)", head) or [head]
+    out = ""
+    for part in parts:
+        candidate = (out + " " + part.strip()).strip() if out else part.strip()
+        if out and len(candidate) > 160:
+            break
+        out = candidate
+    if not out:
+        out = heading
+    tail = " Photos from %s." % location
+    if location and location not in out and len(out) + len(tail) <= 160:
+        out += tail
+    return out
+
+
 def log_html(log):
     paras = [p.strip() for p in re.split(r"\n\s*\n", log.strip()) if p.strip()]
     return "\n".join("    <p>%s</p>" % esc(p) for p in paras)
@@ -357,10 +383,21 @@ def figure(trip, entry, share, n, nshare, nn, eager):
     # page spent the "one accent element per viewport" budget the same brief
     # sets, and the sail number keeps its place in the footer. A photo's
     # optional caption is the lightbox's to show (#12), with the counter.
+    #
+    # So the caption is carried to the lightbox as a data-caption attribute
+    # rather than as visible text, and ONLY when the manifest entry has one.
+    # Writing an empty attribute onto all 24 photos that have no caption is
+    # noise in the generated page, and gallery.js treats absent and empty
+    # alike. Today no entry has one, so the attribute appears on no figure and
+    # the lightbox shows the counter alone. Add a caption to trip.json, re-run
+    # this script, and it appears - no change to the CSS or to the script
+    # (owner decision, 2026-09-04, story #12).
+    caption = entry.get("caption")
+    caption_attr = ' data-caption="%s"' % esc(caption) if caption else ""
     return "\n".join([
         '      <figure style="--share: %.4f; --nshare: %.4f; --nn: %d">' % (share, nshare, nn),
-        '        <a class="frame" href="%s-%s.webp" style="--ar: %.4f; background-image: url(%s)">'
-        % (base, largest_label(entry), ar, entry["lqip"]),
+        '        <a class="frame" href="%s-%s.webp"%s style="--ar: %.4f; background-image: url(%s)">'
+        % (base, largest_label(entry), caption_attr, ar, entry["lqip"]),
         '          <picture>',
         '            <source type="image/avif" srcset="%s" sizes="%s">' % (srcset(base, entry, "avif"), sizes),
         '            <source type="image/webp" srcset="%s" sizes="%s">' % (srcset(base, entry, "webp"), sizes),
@@ -414,7 +451,7 @@ def render_trip(root, trip):
     heading = manifest["title"]
     page = fill("trip.html", {
         "title": esc("%s — trip log — %s" % (heading, SITE_NAME)),
-        "description": esc(first_line(manifest["log"]) or heading),
+        "description": esc(meta_description(manifest["log"], heading, manifest["location"])),
         "canonical": "%s/logs/%s/" % (SITE_ORIGIN, trip),
         "generated_from": "logs/%s/trip.json" % trip,
         "template": "trip.html",

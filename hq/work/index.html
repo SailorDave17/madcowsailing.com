@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Work — Mad Cow HQ</title>
-<meta name="description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the household and home tools in between. One case study so far.">
+<meta name="description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. One case study so far.">
 <link rel="canonical" href="https://madcowhq.com/work/">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
@@ -14,9 +14,10 @@
      (hq/work/), where a relative "assets/..." would resolve to
      work/assets/... and 404. The sailing site made the same move in #10. -->
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css">
 <link rel="stylesheet" href="/assets/shared/css/base.css">
@@ -127,7 +128,7 @@
       <li>
         <h2>Taskr</h2>
         <span class="year">2026</span>
-        <p>Splits a household's chores by what each person can actually take
+        <p>Splits a household's chores by what each person can take
           on, and says so when a fair split is not reachable. Rebuilt from a
           2021 classroom project.</p>
         <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>

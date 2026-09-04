@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Race Timer — case study — Mad Cow HQ</title>
-<meta name="description" content="How a Wear OS race timer went from signals ±212 ms off the mark to a measured worst case of 61 ms: the decision to keep every cue's deadline free of work, what it cost, and what was rejected on the way.">
+<meta name="description" content="How a Wear OS race timer went from signals ±212 ms off the mark to a measured worst case of 61 ms: the decision behind it, what it cost, and what was rejected.">
 <link rel="canonical" href="https://madcowhq.com/work/race-timer.html">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
@@ -14,9 +14,10 @@
      (hq/work/), where a relative "assets/..." would resolve to
      work/assets/... and 404. The sailing site made the same move in #10. -->
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Instrument+Sans:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css">
 <link rel="stylesheet" href="/assets/shared/css/base.css">
@@ -135,7 +136,7 @@
       build shares the timing code and exists unpublished.</p>
     <p>The part that mattered is where the rules live. The timing engine is
       a pure-Kotlin module with no Android in it, so every timing rule has a
-      unit test CI actually runs; the watch and phone modules never name each
+      unit test CI runs; the watch and phone modules never name each
       other. Every fix that started as a line in the service moved into that
       module once it was clear that a rule left inline had stayed wrong for
       two weeks while every call reported success. As of August the shared
