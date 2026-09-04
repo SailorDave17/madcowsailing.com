@@ -26,7 +26,13 @@
 //   3. Keyboard pass: every focusable element in the page is enumerated, then
 //      Tab is pressed until focus wraps, and each stop is checked for
 //      :focus-visible with a non-zero outline. Elements never reached, or
-//      reached with no visible focus, are listed.
+//      reached with no visible focus, are listed. On a page carrying a
+//      .gallery the pass then OPENS the lightbox and repeats the walk inside
+//      the dialog, twice round, which is what proves focus is trapped; it
+//      closes it again and re-walks the page. Story #50 — before it, a closed
+//      <dialog> computed display:none and its controls were dropped by this
+//      pass's own filter, so the one interactive component on either site was
+//      silently unmeasured while the counts read clean.
 //   4. Contrast: every text-bearing element's computed colour against the
 //      first opaque background-color up its ancestor chain, reduced to the
 //      distinct (colour, background) pairs, named by the tokens in
@@ -294,52 +300,206 @@ const DESCRIBE = `(el) => {
 }`;
 
 // 3. keyboard pass at desktop width
-async function measureKeyboard(cdp, url) {
-  const { targetId, sessionId } = await openPage(cdp, url, WIDE);
+//
+// The tab-stop candidates. `root` is `document` for the page pass and the open
+// <dialog> for the lightbox pass; the filter is one expression either way, so
+// the two passes cannot drift into measuring different things. `tag` namespaces
+// the data attribute so tagging the dialog's controls does not renumber the
+// page's, which matters because the page is re-measured after the dialog closes.
+const CANDIDATES = (root, tag) => `(() => {
+  const describe = ${DESCRIBE};
+  const sel = 'a[href], button, input, select, textarea, summary, [tabindex]';
+  return [...${root}.querySelectorAll(sel)]
+    .filter(el => !el.disabled && el.getAttribute('tabindex') !== '-1' && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden')
+    .map((el, i) => { el.dataset.${tag} = String(i); return describe(el); });
+})()`;
+
+// What one Tab stop looks like. `inDialog` is carried for the lightbox pass's
+// escape test and is simply false everywhere else.
+const STOP = (tag) => `(() => {
+  const describe = ${DESCRIBE};
+  const el = document.activeElement;
+  const cs = getComputedStyle(el);
+  const r = el.getBoundingClientRect();
+  return {
+    index: el.dataset && el.dataset.${tag} !== undefined ? Number(el.dataset.${tag}) : -1,
+    label: describe(el),
+    focusVisible: el.matches(':focus-visible'),
+    outline: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 ? cs.outlineWidth + ' ' + cs.outlineStyle + ' ' + cs.outlineColor : 'none',
+    outlineColor: cs.outlineColor,
+    onScreenBox: r.width > 0 && r.height > 0,
+    // A stop that is a real control belonging to the PAGE rather than to an open
+    // dialog. This is the escape test, and it is deliberately narrower than
+    // "outside the dialog": Chrome's modal Tab cycle passes through
+    // document.body and the <dialog> element itself, neither of which is an
+    // escape and neither of which a reader can act on.
+    pageStop: !!(el.closest && !el.closest('dialog[open]') &&
+      el !== document.body && el !== document.documentElement &&
+      el.matches('a[href], button, input, select, textarea, summary, [tabindex]')),
+  };
+})()`;
+
+async function tab(cdp, sessionId) {
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
+}
+
+// Walk Tab until focus wraps, returning the distinct stops in the order reached.
+// `limit` bounds the walk; without one a real focus trap would loop forever, and
+// a trap is the thing the lightbox pass is specifically looking FOR.
+async function walkTabs(cdp, sessionId, tag, limit) {
+  const stops = [];
+  const seen = new Set();
+  for (let i = 0; i < limit; i++) {
+    await tab(cdp, sessionId);
+    const stop = await evaluate(cdp, sessionId, STOP(tag));
+    if (stop.index === -1 && stops.length) break; // wrapped to the top (body), or landed somewhere unexpected
+    if (seen.has(stop.index)) break;              // wrapped without passing body, or a focus trap
+    seen.add(stop.index);
+    stops.push(stop);
+  }
+  return { stops, seen };
+}
+
+function invisibleStops(stops) {
+  return stops
+    .filter((s) => !(s.focusVisible && s.outline !== 'none' && s.onScreenBox))
+    .map((s) => `${s.label} [focus-visible=${s.focusVisible}, outline=${s.outline}]`);
+}
+
+// Enumerate and Tab-walk one page. Returns the raw shape both callers need.
+async function keyboardOnPage(cdp, sessionId) {
   // Each candidate is tagged with its DOM-order index and identified by that,
   // never by its text: two links with the same text and href are two stops,
   // and the first version of this pass read the second one as focus having
   // wrapped, which reported "not reached" on every page carrying a footer
   // link that also appears in the body. A tabindex="-1" element is focusable
   // by script but deliberately not by Tab, so it is not expected.
-  const expected = await evaluate(cdp, sessionId, `(() => {
-    const describe = ${DESCRIBE};
-    const sel = 'a[href], button, input, select, textarea, summary, [tabindex]';
-    return [...document.querySelectorAll(sel)]
-      .filter(el => !el.disabled && el.getAttribute('tabindex') !== '-1' && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden')
-      .map((el, i) => { el.dataset.qfIndex = String(i); return describe(el); });
-  })()`);
-  const stops = [];
-  const seen = new Set();
-  for (let i = 0; i < expected.length + 2; i++) {
-    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
-    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
-    const stop = await evaluate(cdp, sessionId, `(() => {
-      const describe = ${DESCRIBE};
-      const el = document.activeElement;
-      const cs = getComputedStyle(el);
-      const r = el.getBoundingClientRect();
-      return {
-        index: el.dataset && el.dataset.qfIndex !== undefined ? Number(el.dataset.qfIndex) : -1,
-        label: describe(el),
-        focusVisible: el.matches(':focus-visible'),
-        outline: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 ? cs.outlineWidth + ' ' + cs.outlineStyle + ' ' + cs.outlineColor : 'none',
-        onScreenBox: r.width > 0 && r.height > 0,
-      };
-    })()`);
-    if (stop.index === -1 && stops.length) break; // wrapped to the top (body), or landed somewhere unexpected
-    if (seen.has(stop.index)) break; // wrapped without passing body, or a focus trap
-    seen.add(stop.index);
-    stops.push(stop);
-  }
-  await closePage(cdp, targetId);
+  const expected = await evaluate(cdp, sessionId, CANDIDATES('document', 'qfIndex'));
+  const { stops, seen } = await walkTabs(cdp, sessionId, 'qfIndex', expected.length + 2);
   return {
     expected: expected.length,
     reached: stops.length,
     unreached: expected.filter((_, i) => !seen.has(i)),
-    invisible: stops.filter((s) => !(s.focusVisible && s.outline !== 'none' && s.onScreenBox)).map((s) => `${s.label} [focus-visible=${s.focusVisible}, outline=${s.outline}]`),
+    invisible: invisibleStops(stops),
     stops,
   };
+}
+
+// 3b. The lightbox, which the page pass above cannot see.
+//
+// `shared/js/gallery.js` appends its <dialog> CLOSED — showModal() runs only on
+// a thumbnail click — and a closed <dialog> computes display:none, so its
+// controls return zero getClientRects() and the filter above drops all of them.
+// Measured 2026-09-04 before this pass existed: 0 lightbox stops while closed,
+// 3 while open. The counts were therefore clean on every run and said nothing
+// whatever about the one interactive component on either site — an absent
+// measurement and a passing one producing identical output (cairn:
+// an-absent-result-reads-as-a-clean-one). Story #50.
+//
+// Opened with TRUSTED CDP input — focus the first thumbnail, press Enter —
+// rather than frame.click(). Two reasons. The path being measured is the
+// keyboard one (#12 AC 1 puts Enter-from-a-thumbnail on the platform, not on
+// gallery.js, and a synthetic click would not exercise that at all), and a
+// harness that supplies its own events can agree with a handler forever without
+// either being right (cairn: a-synthetic-event-cannot-test-a-hit-test, measured
+// on this very component).
+async function measureLightbox(cdp, sessionId) {
+  const hasGallery = await evaluate(cdp, sessionId, `!!document.querySelector('.gallery a.frame')`);
+  if (!hasGallery) return null;
+
+  // Focus the first thumbnail from the page rather than assuming a tab count,
+  // then Enter. `.focus()` here only positions the caret; the OPEN itself is
+  // the trusted key event below, which is the part being measured.
+  await evaluate(cdp, sessionId, `(() => {
+    const f = document.querySelector('.gallery a.frame');
+    f.dataset.qfOpener = '1';
+    f.focus();
+    return true;
+  })()`);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: '\r' }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, sessionId);
+
+  const open = await evaluate(cdp, sessionId, `!!document.querySelector('dialog.lightbox[open]')`);
+  if (!open) return { opened: false };
+
+  // Expected is derived from the open dialog, never hard-coded: a one-photo
+  // gallery has no arrows at all (gallery.js removes them rather than disabling
+  // them), and tools/photos.py's own end-to-end run was against a single photo,
+  // so that is a configuration this pipeline has already produced. Hard-coding
+  // 3 would report a false miss on it.
+  const expected = await evaluate(cdp, sessionId, CANDIDATES(`document.querySelector('dialog.lightbox')`, 'qfLb'));
+
+  // showModal() autofocuses the first control itself, so that stop is reached
+  // WITHOUT a Tab and a walk that only records what Tab produced would report
+  // it as never reached. Measured 2026-09-04: focus lands on .lightbox-close
+  // the moment the dialog opens. So the initial position is a stop like any
+  // other and is recorded before the first Tab.
+  const walk = [await evaluate(cdp, sessionId, STOP('qfLb'))];
+
+  // Tab round twice over, then some. Chrome's modal cycle for this dialog is
+  // close -> prev -> next -> body -> dialog -> close, so the wrap passes through
+  // two stops that are not controls — `document.body` and the <dialog> element
+  // itself — and BOTH are inside the modal scope rather than an escape. Measured
+  // 2026-09-04. The trap therefore cannot be tested by "is every stop inside the
+  // dialog"; it is tested by whether any stop is a control on the PAGE, which is
+  // the property that actually matters and the one a broken trap would violate.
+  let escaped = null;
+  const rounds = (expected.length + 2) * 2 + 1;
+  for (let i = 0; i < rounds && !escaped; i++) {
+    await tab(cdp, sessionId);
+    const stop = await evaluate(cdp, sessionId, STOP('qfLb'));
+    walk.push(stop);
+    if (stop.pageStop) escaped = stop.label;
+  }
+  const controlStops = walk.filter((s) => s.index !== -1);
+  // The cycle closed if the first control comes round again, which — given the
+  // loop above only stops early on an escape — it must have for the trap to hold.
+  const wraps = expected.length > 0 &&
+    controlStops.filter((s) => s.index === 0).length >= 2;
+  // One entry per distinct control, in the order first reached, so a control is
+  // not listed twice for being walked twice.
+  const firstLap = controlStops.filter((s, i) => controlStops.findIndex((t) => t.index === s.index) === i);
+
+  // Close it again and let the close handler run. Escape is the route <dialog>
+  // owns, and gallery.js hangs focus-return on the `close` event, so this also
+  // leaves focus where a reader would find it.
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
+  const closed = await evaluate(cdp, sessionId, `!document.querySelector('dialog.lightbox[open]')`);
+  const focusReturned = await evaluate(cdp, sessionId, `!!(document.activeElement && document.activeElement.dataset && document.activeElement.dataset.qfOpener)`);
+
+  return {
+    opened: true,
+    closed,
+    focusReturned,
+    expected: expected.length,
+    reached: new Set(firstLap.map((s) => s.index)).size,
+    unreached: expected.filter((_, i) => !firstLap.some((s) => s.index === i)),
+    invisible: invisibleStops(firstLap),
+    trapped: !escaped && wraps,
+    escapedTo: escaped,
+    controls: expected,
+  };
+}
+
+async function measureKeyboard(cdp, url) {
+  const { targetId, sessionId } = await openPage(cdp, url, WIDE);
+  const page = await keyboardOnPage(cdp, sessionId);
+  const lightbox = await measureLightbox(cdp, sessionId);
+  // Re-measure the page after the dialog has been opened and closed again, so
+  // opening it cannot corrupt the number reported for the page that hosts it
+  // (#50 AC 4). Focus is somewhere else now, so this is a real second walk and
+  // not a cached read — a mismatch here is a finding about the lightbox, not
+  // about the page.
+  let after = null;
+  if (lightbox) {
+    await evaluate(cdp, sessionId, `(document.activeElement && document.activeElement.blur && document.activeElement.blur(), true)`);
+    after = await keyboardOnPage(cdp, sessionId);
+  }
+  await closePage(cdp, targetId);
+  return { ...page, lightbox, after: after ? { expected: after.expected, reached: after.reached } : null };
 }
 
 // 4. contrast pairs
@@ -409,6 +569,33 @@ async function measureContrast(cdp, url) {
 
 function fmtCls(x) { return x.toFixed(3); }
 
+// Everything wrong with one page's keyboard behaviour, page and lightbox alike,
+// as lines. One function so the table, the checklist and the exit code cannot
+// disagree about what counts as a problem — the failure being that a new kind of
+// miss gets listed in the prose and silently leaves the exit code at 0.
+function kbProblems(kb) {
+  const out = [
+    ...kb.unreached.map((u) => `not reached: ${u}`),
+    ...kb.invisible.map((u) => `no visible focus: ${u}`),
+  ];
+  if (kb.after && kb.after.expected !== kb.expected) {
+    out.push(`page stop count changed after the lightbox opened and closed: ${kb.expected} before, ${kb.after.expected} after`);
+  }
+  const lb = kb.lightbox;
+  if (!lb) return out;
+  if (!lb.opened) return [...out, 'lightbox: a .gallery is present but Enter on the first thumbnail did not open the dialog'];
+  out.push(...lb.unreached.map((u) => `lightbox, not reached: ${u}`));
+  out.push(...lb.invisible.map((u) => `lightbox, no visible focus: ${u}`));
+  if (!lb.trapped) {
+    out.push(lb.escapedTo
+      ? `lightbox: focus escaped the open dialog to ${lb.escapedTo}`
+      : 'lightbox: Tab did not cycle back to the first control');
+  }
+  if (!lb.closed) out.push('lightbox: Escape did not close the dialog');
+  if (!lb.focusReturned) out.push('lightbox: focus did not return to the thumbnail that opened it');
+  return out;
+}
+
 function render(results, meta) {
   const names = tokenMap();
   const name = (rgb) => names[rgb] || rgb;
@@ -429,7 +616,7 @@ function render(results, meta) {
     const a11y = r.lh ? `${r.lh.a11y}${r.lh.a11y < FLOOR ? ' **under floor**' : ''}` : 'skipped';
     const cls = r.lh ? fmtCls(r.lh.cls) : '—';
     const sw = `${r.narrow.scrollWidth}${r.narrow.scrollWidth > NARROW ? ' **scrolls**' : ''}`;
-    const kb = r.kb.unreached.length || r.kb.invisible.length ? `**${r.kb.reached}/${r.kb.expected}, see below**` : `${r.kb.reached}/${r.kb.expected} ok`;
+    const kb = kbProblems(r.kb).length ? `**${r.kb.reached}/${r.kb.expected}, see below**` : `${r.kb.reached}/${r.kb.expected} ok${r.kb.lightbox ? ` +${r.kb.lightbox.reached} lightbox` : ''}`;
     lines.push(`| ${r.page.url.replace(/^https?:\/\//, '')} | ${perf} | ${a11y} | ${cls} | ${sw} | ${kb} | ${meta.date} | ${r.lh ? r.lh.version : '—'} |`);
   }
   lines.push('');
@@ -445,9 +632,15 @@ function render(results, meta) {
   lines.push('');
   lines.push(`Desktop width (${WIDE}px). "Expected" is every visible \`a[href]\`, button, form control, summary or positive-tabindex element in DOM order; "reached" is how many distinct stops Tab produced before focus wrapped. A stop counts as visible when \`:focus-visible\` matches and the computed outline is non-zero.`);
   lines.push('');
+  lines.push(`On a page carrying a \`.gallery\` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open \`<dialog>\`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards and the page is re-walked, so the page's own count is measured before and after.`);
+  lines.push('');
   for (const r of results) {
-    const problems = [...r.kb.unreached.map((u) => `not reached: ${u}`), ...r.kb.invisible.map((u) => `no visible focus: ${u}`)];
-    lines.push(`- [${problems.length ? ' ' : 'x'}] ${r.page.url.replace(/^https?:\/\//, '')} — ${r.kb.reached} of ${r.kb.expected}${problems.length ? '\n' + problems.map((p) => `  - ${p}`).join('\n') : ''}`);
+    const problems = kbProblems(r.kb);
+    const lb = r.kb.lightbox;
+    const lbNote = lb && lb.opened
+      ? `, lightbox ${lb.reached} of ${lb.expected}${lb.trapped ? ', focus trapped' : ''}${lb.closed && lb.focusReturned ? ', closed and focus returned' : ''}`
+      : lb ? ', lightbox NOT OPENED' : '';
+    lines.push(`- [${problems.length ? ' ' : 'x'}] ${r.page.url.replace(/^https?:\/\//, '')} — ${r.kb.reached} of ${r.kb.expected}${lbNote}${problems.length ? '\n' + problems.map((p) => `  - ${p}`).join('\n') : ''}`);
   }
   lines.push('');
   lines.push('### Contrast pairs in production');
@@ -508,7 +701,12 @@ async function main() {
       const lh = SKIP_LH ? null : lighthouse(page, outDir, RUNS);
       if (lh) lhVersion = lh.version;
       results.push({ page, narrow, kb, contrast, lh });
-      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''}  pairs ${contrast.length}`);
+      const lbLine = kb.lightbox
+        ? (kb.lightbox.opened
+            ? `  lightbox ${kb.lightbox.reached}/${kb.lightbox.expected}${kb.lightbox.trapped ? ' trapped' : ' NOT TRAPPED'}`
+            : '  lightbox DID NOT OPEN')
+        : '';
+      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''}${lbLine}  pairs ${contrast.length}`);
     }
   } finally {
     proc.kill();
@@ -520,7 +718,7 @@ async function main() {
   } else {
     console.log(block);
   }
-  const bad = results.filter((r) => (r.lh && (r.lh.perf < FLOOR || r.lh.a11y < FLOOR)) || r.narrow.scrollWidth > NARROW || r.kb.unreached.length || r.kb.invisible.length);
+  const bad = results.filter((r) => (r.lh && (r.lh.perf < FLOOR || r.lh.a11y < FLOOR)) || r.narrow.scrollWidth > NARROW || kbProblems(r.kb).length);
   process.exitCode = bad.length ? 1 : 0;
 }
 
