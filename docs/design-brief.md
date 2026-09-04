@@ -71,16 +71,29 @@ rest of this.
 any red dark enough to clear 4.5:1 on `#EDF0F0` is too dark to read on `#05273C`,
 and the reverse. Never cross them; each fails badly on the other's background.
 
-Measured contrast:
+Measured contrast — WCAG 2.x relative luminance from the hex values in
+`tokens.css`, computed two independent ways on 2026-09-04 (`tools/quality_floor.mjs`
+and a Python check) and agreeing to two decimals. Every pairing the two sites
+actually use is here, read off production by the same tool; the full per-pair
+list with the smallest size each is used at is in `quality-floor.md`.
 
-| | on `--hull` | on `--deep` |
-|---|---|---|
-| `--deep` | 15.1:1 | — |
-| `--chalk` | — | 14.4:1 |
-| `--blue` | 5.4:1 | fails |
-| `--ensign` | 6.0:1 | fails |
-| `--ensign-lt` | fails | 6.3:1 |
-| `--spray` | 1.8:1 — never text | 8.9:1 |
+| | on `--hull` | on `--chalk` | on `--deep` |
+|---|---|---|---|
+| `--deep` | 13.5:1 | 14.9:1 | — |
+| `--chalk` | — | — | 14.9:1 |
+| `--blue` | 5.3:1 | 5.9:1 | 2.5:1 — fails |
+| `--blue-deep` | 7.7:1 | 8.5:1 | — |
+| `--ensign` | 6.0:1 | — | 2.3:1 — fails |
+| `--ensign-lt` | 2.1:1 — fails | — | 6.3:1 |
+| `--spray` | 1.6:1 — never text | — | 8.2:1 |
+| `--chalk` on `--ensign` (accent button) | 6.6:1 | | |
+| `--chalk` on `--blue` (button) | 5.9:1 | | |
+
+*This table said 15.1, 14.4, 5.4, 1.8 and 8.9 for the first, second, third and last
+two rows until 2026-09-04, and had no `--chalk` column. Those numbers were written
+with the brief, before anything measured them; none of the corrections moves a
+pairing across the 4.5:1 line, so no design decision changes — but a table headed
+"measured" now is.*
 
 ## Type
 
