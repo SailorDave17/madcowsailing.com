@@ -337,5 +337,16 @@
   </div>
 </footer>
 <!-- =========================================================== /FOOTER -->
+
+<!-- The gallery lightbox (story #12). The first script on either site, and
+     deferred, so the page above renders and is fully usable without it: with
+     JavaScript off every thumbnail is still a plain link to the -full image,
+     which is the baseline this enhances rather than replaces.
+
+     shared/js/ reaches assets/shared/js/ through the same one-line copy in the
+     Cloudflare Pages build that already carries shared/css/ - no new build
+     command, which is what #12 AC 7 asks. The script self-activates only when
+     it finds a .gallery, so it is inert on any page that has none. -->
+<script src="/assets/shared/js/gallery.js" defer></script>
 </body>
 </html>

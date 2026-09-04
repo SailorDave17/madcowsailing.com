@@ -11,6 +11,13 @@
 # utilities that ship nothing; when story #11 exercises photos.py for real,
 # revisit this.
 #
+# linkcheck walks BOTH sites and reads href AND src, since story #12. It took
+# `hq` alone until then, so every file under sailing/ and shared/ was outside
+# the gate entirely - including, on the day it was noticed, the whole of the
+# lightbox. And it read href only, so a mistyped <script src> passed green and
+# degraded to exactly the intended no-JavaScript baseline: a silent failure
+# wearing the costume of a supported mode.
+#
 # The linkcheck line below IS python, which the paragraph above used to say was
 # impossible here: `python` and `python3` both resolved to the Windows Store
 # alias stub, exiting 126. Measured 2026-09-03 on the owner's machine, all three
@@ -24,4 +31,4 @@
 # There is no build step. The sites are static files plus the one-line copy in
 # the Cloudflare Pages config - see CLAUDE.md.
 npm run --silent check
-python3 tools/linkcheck.py hq
+python3 tools/linkcheck.py hq sailing

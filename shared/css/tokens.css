@@ -62,4 +62,15 @@
   --shadow-card:  0.5rem 0.5rem 0 var(--blue); /* hard offset, no blur */
   --ease-quick:   90ms ease;                 /* eye tracking, hovers */
   --border-hair:  1px solid var(--spray);
+
+  /* The lightbox's own motion, held apart from --ease-quick because it is the
+     one duration a story measures directly: #12 AC 5 reads the computed
+     transition-duration under prefers-reduced-motion and requires 0. The
+     blanket reduced-motion rule in base.css shortens everything to 0.01ms,
+     which is imperceptible but is not zero (it reads back as 1e-05s), so this
+     token is re-pointed at a true 0s there. Any lightbox transition must be
+     written against this token rather than a literal duration, or it escapes
+     that override - and note the token alone is not sufficient either; see the
+     matching !important rule in base.css for why. */
+  --lightbox-motion: 90ms ease;
 }

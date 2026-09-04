@@ -145,11 +145,32 @@ focus having wrapped, and the logs index's cover image link carries
 `tabindex="-1"` by design so its title link is the one stop. Elements are now
 identified by DOM index, and `tabindex="-1"` is not expected.
 
-**The lightbox is not included**, because it does not exist: AC 4 names it and
-#12 has not been built. When #12 lands, its `<dialog>` is a new set of stops
-(close, previous, next) and this pass will pick them up on the next run without
-changes — but the focus-return-to-thumbnail behaviour it specifies is not
-something this pass checks, and #12's own AC 4 covers it.
+**The lightbox is not included**, and after #12 shipped it still is not — this
+pass **cannot** reach it, which is a different statement from the one that stood
+here and is worth the paragraph.
+
+The original wording said the `<dialog>`'s three stops "will be picked up on the
+next run without changes". That was a prediction rather than a dated reading, so
+the section's own date did not protect it, and it is false. `shared/js/gallery.js`
+appends the dialog **closed** — `showModal()` runs only on a thumbnail click — and
+a closed `<dialog>` computes `display: none`, so its buttons return zero
+`getClientRects()` and are dropped by this pass's own expected-stop filter
+(`tools/quality_floor.mjs`, the `getClientRects().length > 0` clause).
+*Measured 2026-09-04* by reproducing that filter against the trip page: **0
+lightbox stops when closed, 3 when open** (`lightbox-close`, `lightbox-prev`,
+`lightbox-next`), with all three at zero rects while closed.
+
+So a re-run reports the same clean counts as before and says nothing whatever
+about the lightbox. Reaching it needs the pass to open the dialog first, which is
+a change to the instrument and is not story #12's. Until then the lightbox's
+keyboard behaviour is covered by #12's own acceptance criteria — Escape, the
+backdrop, the close button, the arrows and focus-return-to-thumbnail were each
+measured there — and **not** by anything in this document.
+
+This is worth stating rather than quietly correcting because the failure shape is
+the useful part: a doc promising that an instrument will cover something later is
+a claim nothing tests, and the instrument going green is exactly what it would do
+if the claim were true.
 
 ### Contrast: every pair in production clears 4.5:1, and the brief's table was wrong
 
