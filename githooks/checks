@@ -7,14 +7,21 @@
 # defect - a local gate that runs a different graph from CI reports a verdict
 # about a build nobody is shipping.
 #
-# Deliberately NOT here: a syntax check on tools/*.py. `python` and `python3` on
-# the owner's machine both resolve to the Windows Store alias stub, which exits
-# 126 and would make every line of this list fail identically for a reason that
-# has nothing to do with the repo. CI runs on Linux where it would work, so
-# adding it there alone is exactly the local/CI divergence the paragraph above
-# is about. The tools are dev utilities that ship nothing; when story #11
-# exercises photos.py for real, revisit this.
+# Deliberately NOT here: a syntax check on tools/*.py. The tools are dev
+# utilities that ship nothing; when story #11 exercises photos.py for real,
+# revisit this.
+#
+# The linkcheck line below IS python, which the paragraph above used to say was
+# impossible here: `python` and `python3` both resolved to the Windows Store
+# alias stub, exiting 126. Measured 2026-09-03 on the owner's machine, all three
+# of `python`, `python3` and `py` run a real 3.13.14 - the stub is gone. Do not
+# read that as settled: cairn records this interpreter moving four times, each
+# correction accurate when written and wrong within two days. `python3` is the
+# spelling chosen because it is the one that works BOTH here and on the ubuntu
+# runner, where `py` does not exist. If this line ever fails with 126 or "not
+# found", that is the stub returning, not the check breaking.
 #
 # There is no build step. The sites are static files plus the one-line copy in
 # the Cloudflare Pages config - see CLAUDE.md.
 npm run --silent check
+python3 tools/linkcheck.py hq
