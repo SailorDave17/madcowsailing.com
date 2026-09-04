@@ -34,3 +34,9 @@ jobs:
       - run: npm ci
 
       - run: npm run check
+
+      # The second line of githooks/checks. The runner has python3 and no `py`;
+      # the owner's machine has both. Keeping the two lists identical is the
+      # rule this file's header states, so a change here needs the same change
+      # there and vice versa.
+      - run: python3 tools/linkcheck.py hq
