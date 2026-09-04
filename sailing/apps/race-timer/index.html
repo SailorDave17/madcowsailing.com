@@ -123,7 +123,11 @@
       the same clock and asks whether to resume rather than deciding for
       you.</p>
 
-    <ul class="shots">
+    <!-- The four state stills, in the order a start runs. With JavaScript on and
+         no reduced-motion preference, the script after the list stacks them
+         into one face that runs the start; otherwise this row is the page.
+         Story #40. -->
+    <ul class="shots start-run">
       <li>
         <img src="/assets/img/race-timer/03-running-navy.png" width="450" height="450" loading="lazy" decoding="async"
              alt="Countdown running above the minute, white numerals on navy, with Sync and Stop below">
@@ -145,6 +149,69 @@
         <span>Gun</span>
       </li>
     </ul>
+    <!-- Runs the four stills above as a start counting down. Inline, and
+         placed right after the list it works on, for two reasons: the class
+         it adds changes the list's layout, so it must land before the browser
+         can paint the row (a deferred file cannot promise that), and a second
+         request is the one cost Lighthouse's slow-4G simulation charges for -
+         measured 2026-09-04, the same script as a deferred file read 94 where
+         the page reads 95. Story #40. Without JavaScript, or under
+         prefers-reduced-motion, the row above is the page - the CSS in
+         css/site.css applies the stacked layout only under no-preference, and
+         this never starts the timer under reduce. No library, no video, no new
+         asset: the frames are the <img>s already on the page. HOLD is
+         milliseconds per frame in frame order; a start spends most of its
+         time above the minute, so navy holds longest. -->
+    <script>
+    (function () {
+      'use strict';
+      var run = document.querySelector('.start-run');
+      if (!run || !window.matchMedia) return;
+      var frames = Array.prototype.slice.call(run.children);
+      if (frames.length < 2) return;
+
+      var HOLD = [3600, 2800, 2000, 3000];
+      var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+      var current = 0;
+      var timer = 0;
+
+      function show(next) {
+        frames.forEach(function (frame, i) {
+          frame.classList.toggle('is-current', i === next);
+          frame.classList.toggle('is-last', i === current && next !== current);
+        });
+        current = next;
+      }
+
+      function step() {
+        show((current + 1) % frames.length);
+        timer = window.setTimeout(step, HOLD[current] || HOLD[0]);
+      }
+
+      function start() {
+        if (timer) return;
+        run.classList.add('is-running');
+        show(0);
+        timer = window.setTimeout(step, HOLD[0]);
+      }
+
+      function stop() {
+        window.clearTimeout(timer);
+        timer = 0;
+        run.classList.remove('is-running');
+        frames.forEach(function (frame) {
+          frame.classList.remove('is-current', 'is-last');
+        });
+      }
+
+      function sync() {
+        if (reduce.matches) stop(); else start();
+      }
+
+      sync();
+      reduce.addEventListener('change', sync);
+    })();
+    </script>
   </section>
 
   <section class="field-deep" id="get-it">
