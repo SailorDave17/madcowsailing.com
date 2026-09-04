@@ -49,7 +49,8 @@ story, this is the paragraph to check.*
 │   │   ├── tokens.css        Colour, type, space. Single source of truth.
 │   │   └── base.css          Reset, nav, buttons, cards — used by both sites
 │   ├── img/                  madcow-*.svg, madcow-*.png
-│   └── js/gallery.js         The trip-log lightbox. Only script on either site.
+│   └── js/gallery.js         The trip-log lightbox. The only script file; the Race
+│                             Timer product page carries one inline (#40)
 ├── hq/                       → madcowhq.com
 │   ├── index.html
 │   ├── work/

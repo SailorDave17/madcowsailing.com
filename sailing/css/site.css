@@ -190,14 +190,15 @@ section p + p { margin-top: var(--space-3); }
 /* Apps — index, product, support, privacy.  Story #10.                   */
 /* ====================================================================== */
 
-/* Two more sailing-local layout constants, same exception as the block at
-   the top of this file: they are grid floors and one image cap for this
-   site's layout, and tokens.css is shared with hq. */
+/* More sailing-local constants, same exception as the block at the top of
+   this file: grid floors, one image cap and one fade time for this site's
+   layout, and tokens.css is shared with hq. */
 
 :root {
   --sail-shot-max:  17rem;   /* the 450px capture, never upscaled past ~2x */
   --sail-card-min:  17rem;   /* app-card grid track floor */
   --sail-state-min:  6rem;   /* colour-state strip track floor */
+  --sail-fade:      600ms;   /* one frame of the start run giving way to the next */
 }
 
 /* ---- Page head and foot ----------------------------------------------
@@ -333,6 +334,70 @@ section p + p { margin-top: var(--space-3); }
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--blue);
+}
+
+/* ---- The start run (story #40) --------------------------------------
+   The inline script under the list on the Race Timer product page puts
+   .is-running on the .shots list and walks .is-current along its <li>s on a
+   timer (it is inline, not a file, for reasons stated where it sits). While
+   it runs, the four frames
+   share one grid cell at the hero shot's width and crossfade; the caption
+   travels with its frame. The row above is what renders without the class -
+   so with JavaScript off, or before the script runs, nothing here applies.
+
+   The whole block sits under prefers-reduced-motion: no-preference. The
+   script also checks the query and never starts the timer under reduce, but
+   the layout must not depend on that: a stacked, silent single frame would be
+   a different page from the row of four the reduced-motion reader is owed.
+   Under reduce the class can be present and the row still renders as today.
+
+   Only the IMAGE crossfades. The incoming face fades in OVER the outgoing one,
+   which stays opaque underneath until the next step - two half-transparent
+   faces over the page ground would dip visibly at the midpoint of every fade.
+   The captions do not fade: two words blending at half opacity read as
+   neither, and the outgoing caption left opaque underneath the incoming one
+   garbled the whole hold (measured 2026-09-04, "RUNNING" under "LAST MINUTE").
+   So a caption is either shown or hidden, and the swap lands at the midpoint
+   of the fade, when the face is half-way to its new colour. Grid items take
+   z-index without position, so no positioning is needed. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .start-run.is-running {
+    grid-template-columns: none;
+    max-width: var(--sail-shot-max);
+    margin-inline: auto;
+  }
+
+  .start-run.is-running li {
+    grid-area: 1 / 1;
+  }
+
+  .start-run.is-running li.is-last {
+    z-index: 1;
+  }
+
+  .start-run.is-running li.is-current {
+    z-index: 2;
+  }
+
+  .start-run.is-running img {
+    opacity: 0;
+    transition: opacity var(--sail-fade) ease;
+  }
+
+  .start-run.is-running .is-last img,
+  .start-run.is-running .is-current img {
+    opacity: 1;
+  }
+
+  .start-run.is-running span {
+    visibility: hidden;
+    transition: visibility 0s calc(var(--sail-fade) / 2);
+  }
+
+  .start-run.is-running .is-current span {
+    visibility: visible;
+  }
 }
 
 /* ---- Definition lists — facts and FAQ -------------------------------- */
