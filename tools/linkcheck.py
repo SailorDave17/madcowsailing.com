@@ -56,9 +56,12 @@ def check(site):
     """Return a list of (page, href, reason) for every internal href that fails."""
     failures = []
     idcache = {}
+    shared_prefix = '%s/assets/shared/' % site
     for dirpath, dirnames, filenames in os.walk(site):
         # assets/shared/ is written by the Pages build step from shared/ and is
-        # not in the tree here, so walking it would report phantom misses.
+        # gitignored, so on a clean checkout it does not exist at all - it is
+        # only on a machine that has run the build. Do not walk it, and see
+        # resolve_shared() for links that point INTO it.
         dirnames[:] = [d for d in dirnames if os.path.join(dirpath, d).replace(os.sep, '/')
                        != os.path.join(site, 'assets', 'shared').replace(os.sep, '/')]
         for name in sorted(filenames):
@@ -88,6 +91,15 @@ def check(site):
 
                 if trailing or os.path.isdir(resolved):
                     resolved = os.path.join(resolved, 'index.html').replace(os.sep, '/')
+
+                # A link into assets/shared/ is checked against shared/, which
+                # is the tracked source the Pages build copies from. Skipping
+                # these instead would pass vacuously on CI and hide a genuinely
+                # missing asset; rewriting them checks the real file. Found by
+                # CI, which is the only place the difference shows: the copy
+                # exists on a machine that has run the build and nowhere else.
+                if resolved.startswith(shared_prefix):
+                    resolved = 'shared/' + resolved[len(shared_prefix):]
 
                 if not os.path.isfile(resolved):
                     failures.append((page, href, 'no such file: %s' % resolved))
