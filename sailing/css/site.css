@@ -440,3 +440,51 @@ section p + p { margin-top: var(--space-3); }
     padding-right: var(--space-2);
   }
 }
+
+/* ====================================================================== */
+/* About.  Story #9.                                                      */
+/* ====================================================================== */
+
+/* This page is all light field - no navy strip breaks it up - so the
+   base.css rule that pads every main > section by --space-7 top AND bottom
+   stacks 2x that between neighbours and reads as holes rather than rhythm.
+   Halved here, for the about page only: base.css is shared with hq and the
+   home page's alternating fields still want the full measure. */
+
+.about-page main > section {
+  padding-block: var(--space-5);
+}
+
+/* The boat photo sits inside the prose rather than beside it: this page
+   opens with words, and the photograph is the evidence under them, not the
+   hero.
+
+   The cap is the SAME one the home page hero uses, and for the same reason:
+   the only copy of this photograph in the repo is 800px on its long edge, so
+   past ~26rem it is being upscaled on a 2x display. Measured here at the text
+   measure (65ch) it rendered 693 CSS px against a 656px AVIF - visibly soft.
+   The wide right margin that leaves is the honest trade; a bigger original
+   is what changes it, and tools/photos.py already makes the 1000 and 2000
+   derivatives the moment one exists. */
+
+.boat-photo {
+  max-width: var(--sail-hero-photo-max);
+  margin-block: var(--space-5);
+}
+
+.boat-photo img {
+  width: 100%;
+  border: var(--border-hair);
+}
+
+/* The recommendation reads as part of the page, never as an inserted unit -
+   docs/headway-link.md is explicit that a logo-and-button treatment reads as
+   an ad. So there is no card, no background and no accent here: it is body
+   copy with a heading. The one hairline is the same rule every other section
+   boundary on this site uses; it marks a change of subject, which this is,
+   and it is the quietest thing available that does. The disclosure sits in
+   the sentence, so it needs no visual marking of its own. */
+
+.recommendation {
+  border-top: var(--border-hair);
+}
