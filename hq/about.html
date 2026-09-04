@@ -28,6 +28,13 @@
      aria-current="page" attribute moves. Story #5 owns it; if it changes,
      it changes in all of them. There is no templating here on purpose -
      see CLAUDE.md on the no-build-step rule.
+
+     The three nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
+     literally true rather than aspirational. They read "work/" until #7,
+     which put the first pages at depth (hq/work/ and hq/apps/), where a
+     relative "work/" resolves to work/work/ and 404s. Do not "tidy" them
+     back to relative: the lockup above has always been "/" for the same
+     reason. The sailing header made the same move in #10.
      ============================================================= -->
 <header class="site-header">
   <div class="wrap header-inner">
@@ -37,9 +44,9 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="work/">work</a></li>
-        <li><a href="apps/">apps</a></li>
-        <li><a href="about.html" aria-current="page">about</a></li>
+        <li><a href="/work/">work</a></li>
+        <li><a href="/apps/">apps</a></li>
+        <li><a href="/about.html" aria-current="page">about</a></li>
       </ul>
     </nav>
   </div>

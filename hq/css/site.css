@@ -282,3 +282,216 @@ section p + p { margin-top: var(--space-3); }
   .hero .lede { font-size: var(--text-base); }
   .hero h1 { font-size: var(--text-2xl); }
 }
+
+/* ====================================================================== */
+/* Work index, apps index, case study.  Story #7.                         */
+/* ====================================================================== */
+
+/* One more hq-local layout constant, same exception as the block at the
+   top of this file: a grid floor for this site's layout, not a token. */
+
+:root {
+  --hq-year-min: 4rem;   /* the year column on the work index */
+  --hq-shot-max: 14rem;  /* the case-study screenshot, never upscaled past ~2x */
+}
+
+/* ---- Rows — the work index and the apps index -----------------------
+   Both pages are a list of rows rather than a card grid: "everything,
+   newest first" is a scan, and a row per project keeps the year and the
+   tags in a column the eye can run down. One rule, both lists. */
+
+.rows {
+  list-style: none;
+  padding: 0;
+  margin-top: var(--space-4);
+  border-top: var(--border-hair);
+}
+
+.rows > li {
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--hq-year-min), auto);
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+  padding-block: var(--space-4);
+  border-bottom: var(--border-hair);
+}
+
+.rows h2 {
+  font-size: var(--text-xl);
+  margin: 0;
+}
+
+.rows h2 a {
+  text-decoration: none;
+}
+
+.rows h2 a:hover {
+  text-decoration: underline;
+}
+
+.rows p {
+  margin: 0;
+}
+
+/* Everything but the year sits in the first column. The year is pinned to
+   the top-right cell so it reads as a margin note beside the title. */
+.rows h2,
+.rows p,
+.rows .tags,
+.rows .meta,
+.rows .links {
+  grid-column: 1;
+}
+
+.rows .year {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--blue);
+}
+
+.rows .tags {
+  margin-top: 0;
+}
+
+/* Platform and status on the apps index. Mono, like every other piece of
+   small structural text on this site; the status is plain words rather
+   than a coloured badge because "in testing" and "in development" are
+   facts, not warnings. */
+.rows .meta,
+.rows .links {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.rows .meta {
+  color: var(--blue);
+}
+
+/* ---- Case study -------------------------------------------------------
+   The header is a definition list — role, stack, timeframe, links — beside
+   one screenshot. The same five-section order every case study uses is in
+   the HTML, not here; CSS only sets the header apart from the prose. */
+
+.cs-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--hq-shot-max));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+/* The screenshot is the square framebuffer capture Play requires, copied
+   byte-for-byte from the race-timer repo via sailing/. The watch is round,
+   so the mask shows the device a sailor owns; it is presentation only. */
+.shot img {
+  border-radius: 50%;
+  background: var(--deep);
+  width: 100%;
+}
+
+.facts {
+  margin-top: var(--space-4);
+}
+
+.facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--blue);
+  margin-top: var(--space-3);
+}
+
+.facts dd {
+  max-width: var(--measure);
+  margin-inline-start: 0;
+  margin-top: var(--space-1);
+}
+
+/* Measured numbers in the case study. A small table that wraps rather
+   than scrolls, so the 360px floor narrows the columns instead of
+   producing the horizontal scrollbar the quality floor forbids. */
+.measured {
+  width: 100%;
+  max-width: var(--measure);
+  border-collapse: collapse;
+  margin-block: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.measured caption {
+  text-align: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+  padding-bottom: var(--space-2);
+}
+
+.measured th {
+  text-align: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+.measured th,
+.measured td {
+  vertical-align: top;
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  border-bottom: var(--border-hair);
+}
+
+.measured td:first-child {
+  font-family: var(--font-mono);
+}
+
+/* Rejected alternatives, as a list with a bold lead. The lead is the option;
+   the sentence after it is what killed it. */
+.rejected {
+  padding-inline-start: var(--space-4);
+  margin-block: var(--space-3);
+}
+
+.rejected li {
+  margin-bottom: var(--space-2);
+}
+
+/* The quiet foot of the case study: where the sailor-facing page is, and
+   the note that no sentence is shared with it. */
+.page-foot {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.page-foot p {
+  font-size: var(--text-sm);
+}
+
+/* ---- Narrow ---------------------------------------------------------- */
+
+@media (max-width: 46rem) {
+  .page-head .lede { font-size: var(--text-base); }
+
+  .rows > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rows .year {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .cs-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shot {
+    max-width: var(--hq-shot-max);
+  }
+}
