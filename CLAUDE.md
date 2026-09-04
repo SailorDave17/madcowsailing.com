@@ -21,10 +21,24 @@ They share tokens, logo assets, and base CSS. They do not share content.
 
 ## Current status
 
-Greenfield. `docs/design-brief.md` has the visual direction. What exists in the
-repo: `shared/css/tokens.css` and `base.css`, the six logo files in `shared/img/`,
-`tools/photos.py`, and the rendered demo at `docs/preview/theme-preview.html`. No
-page of either site is built yet.
+**Both sites are live on their domains.** Thirteen pages are built and served
+from `release`: on hq the home, about, work index, apps index and the Race Timer
+case study; on sailing the home, about, apps index, the Race Timer product /
+support / privacy trio, the logs index and the first trip log. `docs/design-brief.md`
+still holds the visual direction, and `docs/quality-floor.md` holds the floor as
+**measured on production** rather than as an aspiration.
+
+Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
+The remaining open work is refinement rather than construction — self-hosted
+fonts, share cards, real 404s, a second app's pages, copy sharpening — and it is
+tracked on the board, not here.
+
+*This section read "Greenfield … No page of either site is built yet" until
+2026-09-04, by which point eleven stories had shipped and both domains were
+serving. It is the one part of this file with a short half-life: **it describes a
+moving state while everything around it describes durable rules**, so it goes
+stale silently and nothing errors. If you are editing this file after shipping a
+story, this is the paragraph to check.*
 
 ## Structure
 
@@ -35,7 +49,7 @@ page of either site is built yet.
 │   │   ├── tokens.css        Colour, type, space. Single source of truth.
 │   │   └── base.css          Reset, nav, buttons, cards — used by both sites
 │   ├── img/                  madcow-*.svg, madcow-*.png
-│   └── js/gallery.js
+│   └── js/gallery.js         The trip-log lightbox. Only script on either site.
 ├── hq/                       → madcowhq.com
 │   ├── index.html
 │   ├── work/
@@ -60,13 +74,27 @@ page of either site is built yet.
 │   ├── about.html            The boat, the name, who's behind it
 │   └── assets/photos/<trip-slug>/
 ├── tools/
-│   ├── photos.py             Trip-log derivatives + trip.json
+│   ├── photos.py             Trip-log derivatives + trip.json + the log pages
+│   ├── templates/            trip.html, logs-index.html — photos.py fills these
+│   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
+│   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
+├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
 ├── docs/
 │   ├── source/               Original artwork the marks were traced from
-│   └── preview/              theme-preview.html + its assets/
+│   ├── preview/              theme-preview.html + its assets/
+│   ├── design-brief.md       Visual direction. Read before writing any CSS.
+│   ├── sailing-site.md       The logs/gallery spec
+│   └── quality-floor.md      The floor as measured on production, with its instrument
 └── CLAUDE.md
 ```
+
+Two of those are easy to confuse, and the difference is the whole reason both
+exist. **`linkcheck.py` is a gate**: it reads the tree, never makes a request, and
+runs on every push and every PR. **`quality_floor.mjs` is a measurement**: it
+drives a real browser against the *deployed* sites and is deliberately outside the
+gate, because a pull request has not changed production yet. `docs/quality-floor.md`
+records that choice and its reasoning.
 
 ## Hosting
 
@@ -99,6 +127,12 @@ The repo is part of the portfolio, so it should be readable.
 
 Migrate to Astro only when shared layout across both sites becomes genuinely painful
 — realistically past ten or so pages per site. Not before.
+
+*Where that stands, 2026-09-04: **hq 5 pages, sailing 8.** Sailing is the one to
+watch, and the pain the threshold is really about has started showing — the header
+and footer are copied verbatim into every page with a comment saying so, and
+`photos.py` grew a template directory to avoid a third copy. Count before
+deciding; do not read this line as the count.*
 
 No analytics requiring a cookie banner.
 
@@ -209,14 +243,23 @@ Applies to every page on both sites.
 Read `docs/design-brief.md` — the identity is the boat's transom graphics, the blue
 is sampled and fixed, and the accent ships as two paired values.
 
-## Build order
+## Build order — done, kept for the shape
 
-1. `shared/css/tokens.css`, then `base.css`
-2. hq home, desktop then mobile
-3. hq about
-4. hq work index + one case study as the template
-5. sailing home
-6. sailing app product page + support + privacy for one app as the template
-7. `tools/photos.py`, then sailing logs index + one trip page
-8. hq apps index
-9. Both Pages projects, domains attached, watch paths set
+All nine steps below shipped between 2026-08-21 and 2026-09-04. The list stays
+because **the order is the reusable part**: tokens before pages, one page of each
+kind as the template before its siblings, and hosting last so there is something
+worth deploying. A second app, or a second trip, follows the same shape.
+
+1. ~~`shared/css/tokens.css`, then `base.css`~~
+2. ~~hq home, desktop then mobile~~
+3. ~~hq about~~
+4. ~~hq work index + one case study as the template~~
+5. ~~sailing home~~
+6. ~~sailing app product page + support + privacy for one app as the template~~
+7. ~~`tools/photos.py`, then sailing logs index + one trip page~~
+8. ~~hq apps index~~
+9. ~~Both Pages projects, domains attached, watch paths set~~
+
+What comes next is on the board (epic #1, and #34 for the second pass), not here —
+a to-do list in a context file goes stale the moment work moves, which is what
+happened to the status section above.
