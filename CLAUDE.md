@@ -30,7 +30,7 @@ still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 
 Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
 The remaining open work is refinement rather than construction — self-hosted
-fonts, share cards, real 404s, a second app's pages, copy sharpening — and it is
+fonts, real 404s, a second app's pages, copy sharpening — and it is
 tracked on the board, not here.
 
 *This section read "Greenfield … No page of either site is built yet" until
