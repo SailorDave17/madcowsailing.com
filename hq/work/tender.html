@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Apps — Mad Cow HQ</title>
-<meta name="description" content="Every app Dave Alvarado has built, sailing or not: what each does, what it runs on, and where to get it. One is on a watch, one is open for testing in a browser, and most are still being built.">
-<link rel="canonical" href="https://madcowhq.com/apps/">
-<meta property="og:title" content="Apps — Mad Cow HQ">
-<meta property="og:description" content="Every app Dave Alvarado has built, sailing or not: what each does, what it runs on, and where to get it. One is on a watch, one is open for testing in a browser, and most are still being built.">
+<title>Tender — case study — Mad Cow HQ</title>
+<meta name="description" content="Why Tender's match ladder is a search order rather than a filter: a crew-matching engine that widens on its own, colours how far it relaxed, and never hides anyone.">
+<link rel="canonical" href="https://madcowhq.com/work/tender.html">
+<meta property="og:title" content="Tender — case study — Mad Cow HQ">
+<meta property="og:description" content="Why Tender's match ladder is a search order rather than a filter: a crew-matching engine that widens on its own, colours how far it relaxed, and never hides anyone.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/apps/">
+<meta property="og:url" content="https://madcowhq.com/work/tender.html">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -20,8 +20,8 @@
      repo. Never edit anything under it; edit shared/.
 
      Every href in this file is root-relative. This page lives at depth
-     (hq/apps/), where a relative "assets/..." would resolve to
-     apps/assets/... and 404. The sailing site made the same move in #10. -->
+     (hq/work/), where a relative "assets/..." would resolve to
+     work/assets/... and 404. The sailing site made the same move in #10. -->
 
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
@@ -58,8 +58,8 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/work/">work</a></li>
-        <li><a href="/apps/" aria-current="page">apps</a></li>
+        <li><a href="/work/" aria-current="page">work</a></li>
+        <li><a href="/apps/">apps</a></li>
         <li><a href="/about.html">about</a></li>
       </ul>
     </nav>
@@ -69,96 +69,202 @@
 
 <main id="main">
 
-  <!-- One row per app, sailing or not, per CLAUDE.md's Apps index spec and
-       the third leg of the two-presentation rule: name, one line, platform,
-       status, and links to the case study and to wherever you get it.
+  <!-- The case-study shape from CLAUDE.md, in its fixed order: header (name,
+       summary, role, stack, timeframe, links), the problem, what I built, a
+       decision I'd defend, outcome. Same order and heading set as
+       race-timer.html, so a skimmer learns the shape once.
 
-       Every link here was checked by TITLE, not status code - both Pages
-       projects answer 200 with the home page for any unknown path, so a 200
-       proves nothing (story #7, and #28 on the sailing side). An app with
-       nowhere public to get it says so in words rather than linking to a
-       repo nobody can open. -->
+       SOURCES. Every claim here traces to a file in the tender repo, read
+       2026-09-12: docs/charter.md (ratified 2026-08-21) for the problem, the
+       workflows and the club facts; docs/adr/003, 004, 006 and 007 for the
+       stack decisions; forged-idea.md for the four rejected alternatives; and
+       src/engine/ladder.ts for the ladder as it actually runs. Where the
+       charter and the code both state a thing - the rung order, the 48 h and
+       24 h boundaries - the code is cited, because it is the one that ships.
+
+       THE REPORTED/MEASURED LINE IS LOAD-BEARING. The charter tags every fact
+       it states. The problem below is *reported* - the owner is the club's
+       coach - and says so in the prose rather than in a footnote, because the
+       whole page would otherwise read as though the failure rate had been
+       counted. It has not been; story #8 established that the club keeps no
+       record that could count it.
+
+       No screenshot: this repo holds no capture of Tender's board, and the
+       two-column .cs-head grid expects one. A plain .page-head is used
+       instead rather than shipping an invented mock. The product page (#37)
+       is where a real board shot lands first.
+
+       The two-presentation rule: this page shares no sentence with the hq
+       apps-index row, the work-index row, or the Tender product page when it
+       exists. This one says what was decided and why. -->
 
   <section class="wrap page-head">
-    <p class="eyebrow">Apps</p>
-    <h1>Every app, sailing or not</h1>
-    <p class="lede">What each one does, what it runs on, where it stands and
-      where to get it. One is on a watch, one is open for testing in a
-      browser, and most are still being built.</p>
+    <p class="eyebrow">Case study</p>
+    <h1>Tender</h1>
+    <p class="lede">A race-day board that pairs skippers who are short of crew
+      with people who want to race, built around a matching engine that widens
+      its own search until it finds somebody.</p>
+    <dl class="facts">
+      <dt>Role</dt>
+      <dd>Sole developer: discovery, architecture, code, and the pilot at my
+        own club.</dd>
+      <dt>Stack</dt>
+      <dd>Next.js and TypeScript, Supabase Postgres with row-level security as
+        the authorization, <code>pg_cron</code> for the ladder clock.</dd>
+      <dt>Timeframe</dt>
+      <dd>August 2026 to now. Still in progress.</dd>
+      <dt>Links</dt>
+      <dd><a href="https://github.com/SailorDave17/tender">Source on GitHub</a> &middot;
+        <a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a></dd>
+    </dl>
   </section>
 
   <section class="wrap">
-    <ul class="rows">
+    <h2>The problem</h2>
+    <p>At Hoover Sailing Club, crewed boats &mdash; Thistles, Flying Scots,
+      Interlakes &mdash; go short-handed or stay on the trailer most race days
+      because a skipper and a willing crew never found each other. That is the
+      club coach&rsquo;s account rather than a measurement, and the distinction
+      matters enough to state plainly: the club keeps no record of boats that
+      did not sail for want of crew, so the number cannot be recovered after
+      the fact. What would settle it is a dock tally kept through the first
+      month of the 2027 season, and that is the test this project has agreed to
+      be judged by.</p>
+    <p>Matching today happens on the dock or by a text from the coach. The club
+      had already tried the obvious fix, a shared chat channel, and it died of
+      three things &mdash; the people who needed it were never in it, nobody
+      owned it so it went stale, and nobody could see who was still unmatched.
+      Skippers refusing to post was explicitly <em>not</em> one of them, which
+      removed the hardest design constraint before it was ever imposed. The
+      unmatched supply is the adult Learn-to-Sail graduates who finished a
+      course and have no route onto a race boat.</p>
+    <p>This is a two-sided board at about ten crewed boats, which is the shape
+      most likely to die of cold start: skippers post only when desperate,
+      graduates look only when hopeful, and at that size the two moments rarely
+      coincide.</p>
+  </section>
 
-      <li>
-        <h2>Race Timer</h2>
-        <p>Runs a sailing start sequence on a Wear OS watch with no phone
-          aboard, and sounds the signals on the mark.</p>
-        <p class="meta">Wear OS &middot; In testing on Google Play's internal track</p>
-        <p class="links"><a href="https://madcowsailing.com/apps/race-timer/">Get it</a> &middot;
-          <a href="/work/race-timer.html">Case study</a></p>
-      </li>
+  <section class="wrap">
+    <h2>What I built</h2>
+    <p>A race-day board that is always current without anyone curating it. Every
+      race date of the season exists before anyone posts, so the board is never
+      blank &mdash; only unclaimed. A skipper posts a need against a date with a
+      boat class and the minimum competence they will take; crew keep a
+      self-rating and a list of hulls they will sail, and mark the days they are
+      free. A crew taps <em>I can</em>, the skipper accepts one, and contact
+      details are exchanged only at that point.</p>
+    <p>The engine is a pure function &mdash; post, pool and the current time in,
+      an open rung and a ranked list of candidates out &mdash; with no database
+      and no clock of its own. That is what makes it testable at all, and its
+      test was the first real test in the repo, proven able to fail by mutation
+      before it was trusted.</p>
+    <p>Authorization is row-level security in Postgres rather than checks in the
+      application, because the rule that matters is a property of the data: a
+      phone number is visible to the two people in a match and to nobody else. A
+      bypass of the app is therefore not a bypass of the rule. Every policy has
+      a failing-then-passing case in a test harness that runs a real Postgres in
+      CI, and that harness&rsquo;s one blind spot &mdash; it grants more than the
+      hosted platform does &mdash; is written down in the repo rather than
+      discovered later.</p>
+    <p>The notification is the product and the board is the record. A post
+      reaches the crew on its current rung by push and by email; the clock that
+      widens a post runs inside the database on a schedule, because the
+      host&rsquo;s own scheduler fires once a day with an hour of slop and the
+      engine&rsquo;s boundaries are 48 and 24 hours. Sign-up is gated by an
+      invite code checked on the server, so the pilot stays closed to one
+      club.</p>
+  </section>
 
-      <li>
-        <h2>Taskr</h2>
-        <p>Allocates a household's chores fairly and admits it when a fair
-          split is out of reach.</p>
-        <p class="meta">Web, installable &middot; Open for testing</p>
-        <p class="links"><a href="https://taskr.madcowhq.com/">Try it</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>Tender</h2>
-        <p>Matches skippers who need crew with crew who want a race, one club
-          at a time.</p>
-        <p class="meta">Web &middot; In development</p>
-        <p class="links"><a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a> &middot;
-          <a href="/work/tender.html">Case study</a> &middot;
-          <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>Burgee</h2>
-        <p>Yacht-club and regatta management built for sailing clubs only:
-          entries, scoring, protests, and the committee boat.</p>
-        <p class="meta">Web &middot; In development</p>
-        <p class="links">Nowhere to get it yet</p>
-      </li>
-
-      <li>
-        <h2>PRO companion</h2>
-        <p>Race-day tools for the principal race officer, on a phone, with or
-          without a club system behind it.</p>
-        <p class="meta">Android &middot; In development</p>
-        <p class="links">Nowhere to get it yet</p>
-      </li>
-
-      <li>
-        <h2>Buoyant</h2>
-        <p>Drives robotic race marks over Bluetooth from a phone on the
-          committee boat.</p>
-        <p class="meta">Android &middot; In development</p>
-        <p class="links">Nowhere to get it yet</p>
-      </li>
-
-      <li>
-        <h2>COHSSA Attendance</h2>
-        <p>Takes a high-school sailing team's practice attendance on a phone
-          and writes it to the coaches' own spreadsheet.</p>
-        <p class="meta">Web, installable &middot; In development, built for one team</p>
-        <p class="links">Not public</p>
-      </li>
-
-      <li>
-        <h2>Maverick</h2>
-        <p>A smart-home hub that runs in the house rather than in someone
-          else's cloud.</p>
-        <p class="meta">Self-hosted &middot; In development</p>
-        <p class="links">Not public</p>
-      </li>
-
+  <section class="wrap">
+    <h2>A decision I&rsquo;d defend</h2>
+    <p><strong>The match ladder is a search order, not a filter. It colours how
+      far the search had to relax, and it never hides anyone.</strong></p>
+    <p>Concretely, every crew sits on one of three rungs relative to a post:
+      rung&nbsp;1 if they will sail that class and rate at or above the
+      skipper&rsquo;s minimum, rung&nbsp;2 if they clear the minimum but not the
+      hull, rung&nbsp;3 if they rate below it. The post itself is open to a rung,
+      and it widens on <em>emptiness or the clock, whichever comes first</em>:
+      down a rung when nobody available sits on or above the current one, and no
+      later than 48 hours before the race for rung&nbsp;2, 24 hours for
+      rung&nbsp;3. The colour on the board is that open rung. Rung&nbsp;3 is the
+      floor, and a post that reaches it returns whatever it has, possibly
+      nobody.</p>
+    <p>The part I would defend hardest is what the ladder does <em>not</em> do.
+      A crew on a better rung is never dropped because the post widened, and a
+      crew on a worse one is never removed from the list &mdash; they are ranked
+      below, in colour. That is what makes a wrong self-rating a warning rather
+      than an exclusion, and self-ratings will be wrong: the scale is four
+      levels a person picks for themselves, and modesty and bravado both
+      misreport it. A filter would turn either into silence, and silence on a
+      two-sided board is indistinguishable from nobody being there.</p>
+    <p>What it rejected, and why:</p>
+    <ul class="rejected">
+      <li><strong>Coach-set competence rungs.</strong> Recommended in the
+        discovery session and declined: it is work the coach does forever, and
+        it only ever covers the people the coach taught. The project&rsquo;s own
+        stated purpose is to make the matching survive without the coach, so an
+        option that deepens the dependency on them fails on its own terms.</li>
+      <li><strong>Weight against the boat&rsquo;s target.</strong> The most
+        physically accurate signal for a dinghy, and unusable: people will not
+        post it, and a blank field reads as refusal rather than as missing
+        data.</li>
+      <li><strong>The ladder as a filter.</strong> The version where a rating
+        below the minimum removes you from the skipper&rsquo;s list. Rejected
+        because a wrong self-rating then excludes rather than warns &mdash; and
+        the person it excludes is exactly the graduate this board exists to get
+        onto a boat.</li>
+      <li><strong>Multi-club matching from day one.</strong> Deferred rather
+        than killed. It trades the one reach channel the owner actually
+        controls, the club&rsquo;s own class roster, for a committee&rsquo;s
+        yes, and it makes the project&rsquo;s central claims uncheckable without
+        a second club to check them in.</li>
+      <li><strong>Availability only, with no ladder at all.</strong> The first
+        answer given during discovery, and reversed at the narrowing gate: a
+        board that only says who is free leaves the skipper to do the matching,
+        which is the work that was already failing.</li>
     </ul>
+    <p>The cost is honest, and it is paid by the reader rather than the engine.
+      A colour on a board carries meaning a first-time user has to learn, and
+      nothing on the screen explains a rung until they ask. The email budget on
+      the free tier is a hundred a day, which is what forces notifications to
+      the current rung only rather than to the whole pool &mdash; so a crew two
+      rungs down learns about a post when the ladder reaches them, not when it
+      is posted. Both are deliberate, and both are the kind of thing that looks
+      like an oversight from the outside.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Outcome</h2>
+    <p>An invite-only pilot at one club, live at
+      <a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a>.
+      The board, the profiles, the posting and answering, the accept that forms
+      a match and reveals contact details, the rung notifications and the clock
+      that steps a post down are all built and deployed. The match thread, the
+      morning-of confirm that catches a no-show, and the admin&rsquo;s read of
+      the season metric are specified and not yet shipped.</p>
+    <p>Two architectural bets were written down with the evidence that would
+      kill them, and both were then tested rather than assumed. The database
+      scheduler the ladder clock depends on is not documented as available on
+      the free plan; it was enabled on the real project and watched fire every
+      minute for nine minutes before the decision was allowed to stand. The
+      authorization model was to be abandoned if the contact-on-match rule
+      needed an escape hatch to express; it did not, and the policy that
+      enforces it reads the match table directly.</p>
+    <p>There are no usage numbers on this page because there are none worth
+      quoting. The pilot has not run a season, the board was deliberately held
+      empty of invitations until race dates were seeded, and the failure metric
+      &mdash; fewer than one match per race day, averaged over a season &mdash;
+      cannot be read before there is a season to read it over. Still in
+      progress.</p>
+  </section>
+
+  <!-- The quiet link back. Tender's product page for sailors is story #37 and
+       does not exist yet, so this points at the running app instead; when #37
+       ships, this is the line that gains the madcowsailing.com link, the same
+       way race-timer.html carries one. -->
+  <section class="wrap page-foot">
+    <p>Sailors at Hoover wanting the board rather than the engineering can find
+      it at <a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a>.</p>
   </section>
 </main>
 
