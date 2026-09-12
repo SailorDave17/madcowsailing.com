@@ -105,12 +105,36 @@ def lqip(im):
 
 
 def taken_at(path):
-    """The EXIF capture time as a sortable string, or '' when there is none."""
+    """The capture time as a sortable string: EXIF first, file mtime as fallback.
+
+    The fallback is not a nicety. Returning "" for a photo with no EXIF sorts it
+    BEFORE every real timestamp, because "" precedes every digit - so the files
+    with the least metadata open the gallery. A dump is full of them: anything
+    that came back over a messaging app has been recompressed and stripped, and
+    in the July 2026 Mullet Lake dump that was four of fifty photos, all four of
+    them the softest in the set, all four landing at positions 1-4.
+
+    mtime is a weaker signal than EXIF and is deliberately not pretended
+    otherwise - a copied file carries the copy's time. But it is monotonic with
+    when the file reached this machine, which for a single dump is close enough
+    to keep those photos among their neighbours instead of at the front.
+
+    Formatted to match EXIF's "YYYY:MM:DD HH:MM:SS" so the two sort against each
+    other as plain strings, which is what lets the one sort key below stay a
+    string compare rather than growing a type union.
+    """
     try:
         with Image.open(path) as im:
             ex = im.getexif()
-            return ex.get_ifd(EXIF_IFD).get(EXIF_DATETIME_ORIGINAL) or ex.get(EXIF_DATETIME) or ""
+            stamp = ex.get_ifd(EXIF_IFD).get(EXIF_DATETIME_ORIGINAL) or ex.get(EXIF_DATETIME)
+            if stamp:
+                return str(stamp)
     except Exception:
+        pass
+    try:
+        return datetime.datetime.fromtimestamp(
+            os.path.getmtime(path)).strftime("%Y:%m:%d %H:%M:%S")
+    except OSError:
         return ""
 
 
