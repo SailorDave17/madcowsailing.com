@@ -146,6 +146,63 @@ usually been stripped already — photos straight off the phone have not.
 Posting workflow: dump photos in a folder, run the script, write two sentences in
 `trip.json`, fill in the alt text, commit. Five minutes per trip.
 
+### Video
+
+Clips go in the same `--src` folder as the photos and sort into the same
+chronology. `.mp4`, `.mov` and `.m4v` are picked up; everything else about the
+workflow is unchanged.
+
+**Every clip is re-encoded, and that is not an optimisation.** Phones shoot
+HEVC, which Safari plays and Chrome and Firefox largely do not — so a source
+file copied straight in plays for a minority of readers while looking perfect
+in review. H.264 plays everywhere that matters. The July 2026 Mullett Lake dump
+also carried a 76.5 MB clip, over Cloudflare Pages' **25 MB per-file limit**,
+which would not have deployed at all. Re-encoded, the three clips came to 10 MB
+total.
+
+**Needs ffmpeg on PATH** (`winget install Gyan.FFmpeg` on Windows). It is a dev
+dependency like Pillow and ships nothing to the site; a run with no videos in it
+never looks for it.
+
+No WebM sibling. The compatibility gap it would cover has no browser in it
+today, and it would double what the repo carries forever (owner decision,
+2026-09-12).
+
+**The size cap is on the LONG edge, not the height**, and that distinction is
+load-bearing. One clip in that dump stored 3840×2160 with a `rotation=-90` tag,
+so its true display shape is portrait: a `scale=-2:1080` filter set the height
+of the *rotated* frame and produced 608×1080. Capping `max(iw,ih)` cannot be
+inverted by a rotation flag. `video_shape()` applies the same swap when reading
+dimensions, because the gallery prices every figure by aspect ratio and a
+rotated clip would otherwise be packed as a landscape slot and drawn portrait.
+
+**Each clip carries a poster frame**, which is what the grid lays out — through
+the identical derivative ladder as a photo, so the packing, the `sizes`
+attribute and the LQIP are one code path. Posters default to one second in
+(never frame 0, which on a phone is routinely the blurred pre-focus frame), and
+a manifest entry may override that with `poster_seek`:
+
+```json
+{ "file": "029", "video": "029.mp4", "poster_seek": "00:00:09" }
+```
+
+Worth setting deliberately. At the default, the Straits clip's poster was a
+frame of bare water; at nine seconds it is Cruz being lowered into the lake with
+the bridge behind — which is what the clip is actually about, and the only frame
+most readers will ever see. Like `alt`, it survives re-runs.
+
+The manifest also records `video_width` / `video_height` separately from
+`width` / `height`. The latter describe the poster derivative and are right for
+the `<picture>`; the former describe the clip, which is what the `<video>`
+element needs. Conflating them sized a 720×1280 clip as 2000×3556.
+
+In the gallery a clip is a figure whose link points at the MP4 instead of at the
+largest still, plus a play badge. With JavaScript off that link is a plain MP4
+the browser plays on its own — the same no-JS baseline the lightbox keeps for
+photos. With it on, the clip opens in the existing `<dialog>` with native
+controls, and nothing autoplays: `preload="none"` means a clip costs its bytes
+when someone presses play, not when they arrow past it.
+
 ## Gallery
 
 **Grid.** Justified rows using the real aspect ratios from the manifest, via CSS
