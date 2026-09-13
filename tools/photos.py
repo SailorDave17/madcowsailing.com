@@ -44,6 +44,8 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 try:
@@ -53,7 +55,41 @@ except ImportError:  # pragma: no cover - environment problem, not a code path
 
 WIDTHS = (("thumb", 400), ("med", 1000), ("full", 2000))
 SOURCE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".heic", ".heif", ".webp")
+VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
 LQIP_WIDTH = 20
+
+# Video. Phones shoot HEVC, which Safari plays and Chrome and Firefox largely do
+# not, so a source file copied straight in would play for a minority of readers
+# while looking fine in review - a silent failure wearing the costume of a
+# supported format. Every video is therefore re-encoded to H.264, which plays
+# everywhere that matters. No WebM sibling: the compatibility gap it would cover
+# has no browser in it today, and it would double what the repo stores forever
+# (owner decision, 2026-09-12).
+#
+# VIDEO_LONG_EDGE caps the LONG edge, not the height. That distinction is the
+# whole point: the July 2026 Mullett Lake dump had a 3840x2160 clip carrying
+# rotation=-90, so its true display shape is portrait, and a scale=-2:1080
+# filter set the height of the ROTATED frame and produced 608x1080. Capping
+# max(iw,ih) cannot be inverted by a rotation flag. Measured on that dump:
+# 76.5MB of HEVC became 5.87MB, and all three clips together 12.48MB, against
+# Cloudflare Pages' 25MB per-file limit.
+VIDEO_LONG_EDGE = 720
+VIDEO_CRF = 26
+VIDEO_AUDIO_KBPS = 96
+VIDEO_SCALE = ("scale=w='min(%d,max(iw,ih))':h=-2"
+               ":force_original_aspect_ratio=decrease:force_divisible_by=2")
+# Poster frames come from a second or two in, never frame 0: the first frame of
+# a phone clip is routinely the blurred one from before the sensor settled.
+#
+# One second is only a default, and a weak one - it picks whatever the camera
+# happened to be pointing at as the clip opened. Measured on the Mullett Lake
+# clips: at 1s the Straits video is a frame of bare water, while at 9s it is
+# the shot of Cruz being lowered into the lake with the bridge behind, which is
+# what the clip is actually about. A poster is the only frame most readers ever
+# see, so a manifest entry may name its own timestamp in "poster_seek" and that
+# wins over this default.
+POSTER_SEEK = "00:00:01"
+POSTER_QUALITY = 3
 SLUG_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(HERE, "templates")
@@ -104,6 +140,103 @@ def lqip(im):
     return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def is_video(name):
+    return name.lower().endswith(VIDEO_SUFFIXES)
+
+
+def ffmpeg_tool(name):
+    """Locate ffmpeg/ffprobe, or die with the install line rather than a stack.
+
+    Looked up per call rather than cached at import, so a run with no videos in
+    it never needs either binary present - which keeps ffmpeg a dependency of
+    the video path alone, not of the whole script.
+    """
+    found = shutil.which(name)
+    if not found:
+        die("%s is needed for video and is not on PATH.\n"
+            "  Install it (Windows: winget install Gyan.FFmpeg) and reopen the shell."
+            % name)
+    return found
+
+
+def run(cmd):
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        die("%s failed:\n%s" % (os.path.basename(cmd[0]), proc.stderr.strip()[-800:]))
+    return proc.stdout
+
+
+def video_shape(path):
+    """(width, height, capture time) as the video will DISPLAY, rotation applied.
+
+    ffprobe reports the stored frame, which for a phone clip shot in portrait on
+    a landscape sensor is 3840x2160 with a separate rotation=-90 side-data tag.
+    Reading width/height alone therefore gets the aspect ratio exactly wrong for
+    those files, and the gallery prices every figure by aspect ratio - so a
+    rotated clip would be packed into the row as a landscape slot and drawn
+    portrait. Swap here, once, where the fact is known.
+    """
+    out = run([ffmpeg_tool("ffprobe"), "-v", "error", "-select_streams", "v:0",
+               "-show_entries", "stream=width,height",
+               "-show_entries", "stream_side_data=rotation",
+               "-show_entries", "format_tags=creation_time",
+               "-of", "json", path])
+    data = json.loads(out)
+    stream = (data.get("streams") or [{}])[0]
+    w, h = int(stream.get("width", 0)), int(stream.get("height", 0))
+    rotation = 0
+    for side in stream.get("side_data_list", []) or []:
+        if "rotation" in side:
+            rotation = int(side["rotation"])
+    if abs(rotation) % 180 == 90:
+        w, h = h, w
+    stamp = (data.get("format", {}).get("tags", {}) or {}).get("creation_time", "")
+    # ISO 8601 UTC from the container; reshaped to EXIF's spelling so both sort
+    # against each other as plain strings, the same contract taken_at() keeps.
+    if stamp:
+        try:
+            when = datetime.datetime.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S")
+            stamp = when.replace(tzinfo=datetime.timezone.utc).astimezone().strftime(
+                "%Y:%m:%d %H:%M:%S")
+        except ValueError:
+            stamp = ""
+    return w, h, stamp
+
+
+def video_out_size(path):
+    """The encoded clip's own (width, height), rotation applied.
+
+    Read off the OUTPUT rather than computed from the input and the scale
+    filter: force_divisible_by rounds, force_original_aspect_ratio clamps, and
+    a clip already under the cap is not scaled at all, so the arithmetic has
+    three branches and the file has the answer.
+    """
+    w, h, _ = video_shape(path)
+    return w, h
+
+
+def encode_video(src, dest):
+    run([ffmpeg_tool("ffmpeg"), "-y", "-v", "error", "-i", src,
+         "-vf", VIDEO_SCALE % VIDEO_LONG_EDGE,
+         "-c:v", "libx264", "-preset", "slow", "-crf", str(VIDEO_CRF),
+         "-profile:v", "high", "-pix_fmt", "yuv420p",
+         # faststart moves the moov atom to the front so the browser can begin
+         # playing before the whole file lands. Without it a 6MB clip buffers
+         # to completion first, which reads as a broken play button.
+         "-movflags", "+faststart",
+         "-c:a", "aac", "-b:a", "%dk" % VIDEO_AUDIO_KBPS, dest])
+
+
+def poster_frame(src, dest, seek=POSTER_SEEK):
+    """One JPEG from `seek` into the clip, at the source's own size.
+
+    The caller resizes, so this stays the only place that knows how to pull a
+    frame; `seek` is a manifest-supplied override per clip (see POSTER_SEEK).
+    """
+    run([ffmpeg_tool("ffmpeg"), "-y", "-v", "error", "-ss", seek, "-i", src,
+         "-frames:v", "1", "-q:v", str(POSTER_QUALITY), dest])
+
+
 def taken_at(path):
     """The capture time as a sortable string: EXIF first, file mtime as fallback.
 
@@ -123,14 +256,26 @@ def taken_at(path):
     other as plain strings, which is what lets the one sort key below stay a
     string compare rather than growing a type union.
     """
-    try:
-        with Image.open(path) as im:
-            ex = im.getexif()
-            stamp = ex.get_ifd(EXIF_IFD).get(EXIF_DATETIME_ORIGINAL) or ex.get(EXIF_DATETIME)
+    if is_video(path):
+        # Pillow cannot open an MP4, so without this a video falls straight
+        # through to mtime and lands at the end of the trip rather than in it.
+        try:
+            stamp = video_shape(path)[2]
             if stamp:
-                return str(stamp)
-    except Exception:
-        pass
+                return stamp
+        except SystemExit:
+            raise
+        except Exception:
+            pass
+    else:
+        try:
+            with Image.open(path) as im:
+                ex = im.getexif()
+                stamp = ex.get_ifd(EXIF_IFD).get(EXIF_DATETIME_ORIGINAL) or ex.get(EXIF_DATETIME)
+                if stamp:
+                    return str(stamp)
+        except Exception:
+            pass
     try:
         return datetime.datetime.fromtimestamp(
             os.path.getmtime(path)).strftime("%Y:%m:%d %H:%M:%S")
@@ -142,9 +287,10 @@ def sources(src_dir):
     if not os.path.isdir(src_dir):
         die("--src is not a directory: " + src_dir)
     names = [n for n in os.listdir(src_dir)
-             if n.lower().endswith(SOURCE_SUFFIXES) and not n.startswith(".")]
+             if n.lower().endswith(SOURCE_SUFFIXES + VIDEO_SUFFIXES)
+             and not n.startswith(".")]
     if not names:
-        die("no photos in " + src_dir)
+        die("no photos or videos in " + src_dir)
     return sorted(names, key=lambda n: (taken_at(os.path.join(src_dir, n)), n))
 
 
@@ -199,8 +345,39 @@ def build(args):
     for i, name in enumerate(names, start=1):
         fid = "%03d" % i
         src_path = os.path.join(args.src, name)
-        with Image.open(src_path) as raw:
-            im = scrubbed(raw)
+        video = is_video(name)
+
+        if video:
+            # The poster is the image the gallery lays out, so it goes through
+            # exactly the same derivative ladder as a photo below: the grid, the
+            # sizes attribute and the LQIP are then one code path rather than
+            # two, and a video is just a figure whose largest derivative happens
+            # to sit behind a play control.
+            #
+            # The clip itself is encoded once, to one file, at one size. There is
+            # no srcset for video - the browser cannot choose between sources on
+            # viewport the way <picture> does, and a second rendition would double
+            # what the repo carries forever to serve a choice nobody makes.
+            mp4 = os.path.join(out_dir, "%s.mp4" % fid)
+            if args.force or not os.path.exists(mp4) \
+                    or os.path.getmtime(mp4) < os.path.getmtime(src_path):
+                encode_video(src_path, mp4)
+            poster_src = os.path.join(out_dir, "%s-poster.jpg" % fid)
+            prior_seek = (by_source.get(name) or by_file.get(fid) or {}).get("poster_seek")
+            poster_frame(src_path, poster_src, prior_seek or POSTER_SEEK)
+            with Image.open(poster_src) as raw:
+                im = scrubbed(raw)
+            vw, vh, _ = video_shape(src_path)
+            if vw and vh and (im.width > im.height) != (vw > vh):
+                # ffmpeg applies the rotation when it decodes, so the poster is
+                # already upright and this should not fire; it is here because a
+                # poster whose orientation disagrees with the clip would be
+                # packed into the wrong row shape, and silently.
+                im = im.rotate(-90, expand=True)
+            os.remove(poster_src)
+        else:
+            with Image.open(src_path) as raw:
+                im = scrubbed(raw)
 
         emitted = None
         for label, w in WIDTHS:
@@ -232,8 +409,27 @@ def build(args):
         }
         if prior.get("caption"):
             entry["caption"] = prior["caption"]
+        if video:
+            # The renderer keys off this rather than off the source extension,
+            # which is not in the manifest, and never off a filename convention.
+            entry["video"] = "%s.mp4" % fid
+            # width/height above describe the largest POSTER derivative, which
+            # is what <picture> needs and what the row packer prices. The clip
+            # is a different size - 720 on its long edge - and gallery.js hands
+            # these to the <video> element, so record them separately rather
+            # than letting the poster's numbers stand in for the clip's.
+            # Measured: without this a 720x1280 clip reported 2000x3556.
+            entry["video_width"], entry["video_height"] = video_out_size(
+                os.path.join(out_dir, "%s.mp4" % fid))
+            if prior_seek:
+                # Preserved across re-runs for the same reason alt text is: it
+                # is a hand-made choice about this clip, and losing it silently
+                # reverts the poster to whatever the first second happened to
+                # catch.
+                entry["poster_seek"] = prior_seek
         photos.append(entry)
-        print("  %s  %-32s %dx%d" % (fid, name, emitted[0], emitted[1]))
+        print("  %s  %-32s %dx%d%s"
+              % (fid, name, emitted[0], emitted[1], "  video" if video else ""))
 
     m = SLUG_DATE.match(trip)
     out = {
@@ -418,6 +614,41 @@ def figure(trip, entry, share, n, nshare, nn, eager):
     # (owner decision, 2026-09-04, story #12).
     caption = entry.get("caption")
     caption_attr = ' data-caption="%s"' % esc(caption) if caption else ""
+
+    # A video figure is a photo figure whose link points at the clip instead of
+    # at the largest still, plus a play badge. Deliberately the SAME <picture>
+    # and the same sizes: the poster went through the identical derivative
+    # ladder, so the grid, the LQIP and the lazy/eager split need no special
+    # case, and a reader with JavaScript off gets a plain link to an MP4 that
+    # the browser plays on its own - the no-JS baseline #12 protects, unchanged.
+    video = entry.get("video")
+    if video:
+        href = "/assets/photos/%s/%s" % (trip, video)
+        badge = ('          <span class="play-badge" aria-hidden="true">'
+                 '<svg viewBox="0 0 24 24" focusable="false">'
+                 '<path d="M8 5v14l11-7z" /></svg></span>')
+        # The clip's own size, not the poster's. gallery.js sets width/height on
+        # the <video> so the stage reserves the right box before the first frame
+        # decodes; handing it the poster's numbers sized a 720x1280 clip as
+        # 2000x3556 (measured), which is a layout shift waiting for playback.
+        vdim = ""
+        if entry.get("video_width") and entry.get("video_height"):
+            vdim = ' data-vw="%d" data-vh="%d"' % (entry["video_width"], entry["video_height"])
+        return "\n".join([
+            '      <figure style="--share: %.4f; --nshare: %.4f; --nn: %d">' % (share, nshare, nn),
+            '        <a class="frame is-video" href="%s"%s data-poster="%s-%s.webp"%s style="--ar: %.4f; background-image: url(%s)">'
+            % (href, caption_attr, base, largest_label(entry), vdim, ar, entry["lqip"]),
+            '          <picture>',
+            '            <source type="image/avif" srcset="%s" sizes="%s">' % (srcset(base, entry, "avif"), sizes),
+            '            <source type="image/webp" srcset="%s" sizes="%s">' % (srcset(base, entry, "webp"), sizes),
+            '            <img src="%s-%s.webp" width="%d" height="%d" %s decoding="async" alt="%s">'
+            % (base, largest_label(entry), entry["width"], entry["height"], loading, esc(entry["alt"])),
+            '          </picture>',
+            badge,
+            '        </a>',
+            '      </figure>',
+        ])
+
     return "\n".join([
         '      <figure style="--share: %.4f; --nshare: %.4f; --nn: %d">' % (share, nshare, nn),
         '        <a class="frame" href="%s-%s.webp"%s style="--ar: %.4f; background-image: url(%s)">'
