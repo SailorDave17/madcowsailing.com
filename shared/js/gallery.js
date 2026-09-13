@@ -44,7 +44,19 @@
       alt: img ? img.getAttribute('alt') : '',
       caption: frame.getAttribute('data-caption') || '',
       width: img ? img.getAttribute('width') : null,
-      height: img ? img.getAttribute('height') : null
+      height: img ? img.getAttribute('height') : null,
+      /* A video frame's href is the .mp4 itself, so the no-JS baseline is a
+         plain link the browser plays on its own - same shape as a photo's link
+         to its -full derivative. The poster comes off data-poster rather than
+         off the <img> src, because the <img> may be showing a 400w thumb. */
+      video: frame.classList.contains('is-video'),
+      poster: frame.getAttribute('data-poster') || '',
+      /* The clip's own dimensions, which are NOT the poster's: the poster went
+         through the photo derivative ladder and can be 2000px wide while the
+         clip is 720. width/height above describe the <img> in the grid and stay
+         right for it; these describe the <video>. */
+      vw: frame.getAttribute('data-vw') || null,
+      vh: frame.getAttribute('data-vh') || null
     };
   });
 
@@ -59,6 +71,12 @@
   dialog.innerHTML =
     '<div class="lightbox-stage">' +
       '<img class="lightbox-img" alt="">' +
+      /* Native controls, deliberately. A custom transport would be a second
+         focus-trap problem inside a dialog that already solved its first, and
+         the platform's controls are keyboard-reachable and localised for free.
+         playsinline keeps iOS from taking the video fullscreen and throwing
+         away the dialog around it. */
+      '<video class="lightbox-video" controls playsinline preload="none" hidden></video>' +
     '</div>' +
     '<div class="lightbox-bar">' +
       '<p class="lightbox-caption"></p>' +
@@ -83,8 +101,24 @@
   document.body.appendChild(dialog);
 
   var img = dialog.querySelector('.lightbox-img');
+  var video = dialog.querySelector('.lightbox-video');
   var caption = dialog.querySelector('.lightbox-caption');
   var counter = dialog.querySelector('.lightbox-counter');
+
+  /* Stopping playback is its own function because it has to happen on EVERY
+     route away from a clip, and there are three: stepping to the next photo,
+     stepping to the previous one, and closing the dialog. Miss one and the
+     audio keeps running under whatever is on screen next - a failure with no
+     visible symptom, which is the kind this repo keeps a register of.
+     Clearing src as well as pausing is what stops the download continuing. */
+  function stopVideo() {
+    if (!video.hidden) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      video.hidden = true;
+    }
+  }
 
   /* A one-photo trip has nowhere to navigate, so the arrows are REMOVED rather
      than disabled — which is the same call the wrap decision made at the ends,
@@ -116,20 +150,46 @@
      is the one case a naive i-1 / i+1 gets wrong. */
   var preloaded = {};
   function preload(i) {
-    var url = photos[at(i)].full;
+    var photo = photos[at(i)];
+    /* Videos are never preloaded. `full` is an .mp4 for them, and handing that
+       to new Image() starts a download of several megabytes into an element
+       that can never render a frame of it - the request succeeds, nothing
+       appears, and the only symptom is the bandwidth. The <video> element
+       carries preload="none" for the same reason: a clip costs its bytes when
+       someone presses play, not when they arrow past it. */
+    if (photo.video) return;
+    var url = photo.full;
     if (preloaded[url]) return;
     preloaded[url] = new Image();
     preloaded[url].src = url;
   }
 
   function show(i) {
+    stopVideo();
     current = at(i);
     var photo = photos[current];
 
-    img.src = photo.full;
-    img.alt = photo.alt;
-    if (photo.width) img.width = photo.width;
-    if (photo.height) img.height = photo.height;
+    if (photo.video) {
+      /* The poster carries the still while the clip loads, so the stage never
+         flashes empty between photo and video. No autoplay: a gallery that
+         starts making noise because you pressed Right is a worse default than
+         one extra tap, and autoplay with sound is blocked by every browser
+         anyway - so it would half-work, which is worse than not at all. */
+      img.hidden = true;
+      img.removeAttribute('src');
+      video.hidden = false;
+      if (photo.poster) video.poster = photo.poster;
+      video.src = photo.full;
+      if (photo.vw) video.width = photo.vw;
+      if (photo.vh) video.height = photo.vh;
+    } else {
+      video.hidden = true;
+      img.hidden = false;
+      img.src = photo.full;
+      img.alt = photo.alt;
+      if (photo.width) img.width = photo.width;
+      if (photo.height) img.height = photo.height;
+    }
 
     /* The caption is optional and today no photo has one (owner decision,
        2026-09-04): tools/photos.py writes data-caption only when the manifest
@@ -156,6 +216,7 @@
      button, and a programmatic close() — so this is the one place it belongs;
      hanging it off each of those individually is how one route gets missed. */
   dialog.addEventListener('close', function () {
+    stopVideo();
     if (opener) {
       opener.focus();
       opener = null;
@@ -216,7 +277,14 @@
      click the picture, or a button?" - and everything else closes. */
   dialog.addEventListener('click', function (event) {
     if (event.target.closest('.lightbox-close, .lightbox-nav')) return;
-    var box = img.getBoundingClientRect();
+    /* Measure whichever element is actually on stage. A hidden <img> reports a
+       rect of all zeros, so testing it while a video is showing puts every
+       point "outside the photo" and closes the dialog the instant someone
+       reaches for the play button - the controls are dead centre, which is
+       exactly where the zero-rect test says to close. The stage holds one of
+       the two at a time, so ask the visible one. */
+    var stage = video.hidden ? img : video;
+    var box = stage.getBoundingClientRect();
     var onPhoto = box.left <= event.clientX && event.clientX <= box.right &&
                   box.top <= event.clientY && event.clientY <= box.bottom;
     if (!onPhoto) dialog.close();
