@@ -239,7 +239,7 @@ cause is almost always a wrong `sizes` attribute causing the browser to download
   item — this audience did not come for the portfolio.
 - Each app product page footer: a quiet link to its case study on hq.
 - hq case studies link out to the product page as "get it".
-- hq `/apps` index rows link to both.
+- hq `/work/` index rows link to both (the `/apps/` index folded into it in #81).
 
 ## Headway Sailing
 
