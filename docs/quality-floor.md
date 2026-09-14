@@ -310,7 +310,7 @@ npx --yes lighthouse@13.4.1 <url> --only-categories=performance,accessibility --
 | Page | Performance | Accessibility | CLS | 360px scrollWidth | Keyboard | Date | Lighthouse |
 |---|---|---|---|---|---|---|---|
 | madcowhq.com/about.html | 95 (95/97/95) | 100 | 0.000 | 360 | 12/12 ok | 2026-09-04 | 13.4.1 |
-| madcowhq.com/apps/ | 96 (96/96/96) | 100 | 0.000 | 360 | 14/14 ok | 2026-09-04 | 13.4.1 |
+| madcowhq.com/apps/ _(retired by #81: the page is gone and /apps/ 301s to /work/)_ | 96 (96/96/96) | 100 | 0.000 | 360 | 14/14 ok | 2026-09-04 | 13.4.1 |
 | madcowhq.com/ | 95 (95/95/95) | 100 | 0.000 | 360 | 16/16 ok | 2026-09-04 | 13.4.1 |
 | madcowhq.com/work/ | 96 (96/96/96) | 100 | 0.000 | 360 | 14/14 ok | 2026-09-04 | 13.4.1 |
 | madcowhq.com/work/race-timer.html | 94 **under floor** (95/94/94) | 100 | 0.000 | 360 | 11/11 ok | 2026-09-04 | 13.4.1 |
@@ -336,7 +336,7 @@ Desktop width (1280px). "Expected" is every visible `a[href]`, button, form cont
 On a page carrying a `.gallery` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open `<dialog>`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards and the page is re-walked, so the page's own count is measured before and after.
 
 - [x] madcowhq.com/about.html — 12 of 12
-- [x] madcowhq.com/apps/ — 14 of 14
+- [x] madcowhq.com/apps/ — 14 of 14 _(retired by #81: the page is gone and /apps/ 301s to /work/)_
 - [x] madcowhq.com/ — 16 of 16
 - [x] madcowhq.com/work/ — 14 of 14
 - [x] madcowhq.com/work/race-timer.html — 11 of 11
