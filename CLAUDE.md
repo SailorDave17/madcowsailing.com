@@ -21,10 +21,11 @@ They share tokens, logo assets, and base CSS. They do not share content.
 
 ## Current status
 
-**Both sites are live on their domains.** Thirteen pages are built and served
-from `release`: on hq the home, about, work index, apps index and the Race Timer
-case study; on sailing the home, about, apps index, the Race Timer product /
-support / privacy trio, the logs index and the first trip log. `docs/design-brief.md`
+**Both sites are live on their domains.** On `develop`, hq has the home, about,
+the work index at `/work/`, case studies for Race Timer, Taskr and Tender, and
+Taskr's tester, support and privacy pages; the apps index folded into `/work/` in
+#81, and `/apps/` now 301s there. Sailing has the home, about, apps index, the
+Race Timer product / support / privacy trio, the logs index and two trip logs. `docs/design-brief.md`
 still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 **measured on production** rather than as an aspiration.
 
@@ -56,10 +57,10 @@ story, this is the paragraph to check.*
 │   ├── work/
 │   │   ├── index.html
 │   │   └── <slug>.html       Case studies
-│   ├── apps/
-│   │   ├── index.html        Index of ALL apps, sailing or not
+│   ├── apps/                 No index page: /apps/ 301s to /work/ (#81)
 │   │   └── <slug>/           Non-sailing apps only: support.html, privacy.html
 │   ├── about.html
+│   ├── _redirects            Path redirects, exact paths only; Pages reads it
 │   └── assets/               Site-specific images; shared/ lands in assets/shared/
 ├── sailing/                  → madcowsailing.com
 │   ├── index.html
@@ -157,7 +158,8 @@ and that serves neither reader.
 2. **`sailing/apps/<slug>/index.html` — the product page.** For a sailor. What it
    does, who it's for, what it costs, how to get it. No architecture talk. No stack
    tags. The reader does not care what it's written in.
-3. **`hq/apps/index.html` — one row.** Name, one line, links to both of the above.
+3. **`hq/work/index.html` — one row.** Name, one line, links to both of the above.
+   It was `hq/apps/index.html` until #81 folded that page into the work index.
 
 Each page self-references `rel="canonical"`. Do not cross-canonical them; they are
 different documents for different audiences, not variants.
@@ -193,8 +195,9 @@ it, it doesn't get a case study — it gets a line in the index.
 
 Never invent metrics. "Still in progress" is a fine outcome.
 
-**Apps index.** Every app, sailing or not. Name, one line, platform, status, and
-links to the case study and to wherever you get it.
+**Apps index.** There is none since #81: `/apps/` 301s to `/work/`, whose rows
+carry every app and where to get it. The redirects in `hq/_redirects` are exact
+paths, so the `hq/apps/<slug>/` pages keep serving. Do not add a splat.
 
 **About.** First person. Where you are, what you're building, what you want to build
 next. Real `mailto:`, GitHub, résumé PDF. No skills-bar charts.

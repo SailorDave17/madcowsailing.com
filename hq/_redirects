@@ -21,4 +21,16 @@
 # and epic #1 puts it out of scope until something does. That one WOULD belong
 # in this file - it is a path redirect within one host.
 #
-# No path redirects are needed yet. Add them below, sources beginning with "/".
+# Add path redirects below, sources beginning with "/".
+#
+# /apps/ folded into /work/ (#81). EXACT paths only - no splat - so that
+# /apps/taskr/ and its support and privacy pages keep serving, and any other
+# missing /apps/<x>/ falls through to whatever Pages does with a missing path
+# (#36 makes that a 404) instead of landing on /work/.
+#
+# The second and third lines are each needed: under `wrangler pages dev` with
+# the first line alone, /apps and /apps/index.html both answered 200 with no
+# Location (wrangler 4.131.2, 2026-09-14; the runs are in #81's PR).
+/apps/  /work/  301
+/apps  /work/  301
+/apps/index.html  /work/  301
