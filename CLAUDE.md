@@ -167,7 +167,7 @@ applies to it exactly as it does to a product page.
 
 ## Page specs — hq
 
-**Home.** Hero (name, one specific sentence, one action), three selected projects,
+**Home.** Hero (name, one specific sentence, two actions), three selected projects,
 compact apps strip, short about, footer. Must answer "who is this, should I keep
 reading" without scrolling.
 
