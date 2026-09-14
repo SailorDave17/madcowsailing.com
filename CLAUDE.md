@@ -78,6 +78,7 @@ story, this is the paragraph to check.*
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
 │   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
+│   ├── assetver.py           Writes ?v=<hash> onto every shared CSS/JS URL. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
@@ -252,6 +253,12 @@ Applies to every page on both sites.
 - Every colour, type size, and spacing value comes from `shared/css/tokens.css`.
   No hex values or pixel sizes anywhere else.
 - Never edit files in `assets/shared/` — they are copies. Edit `shared/`.
+- After editing anything in `shared/css/` or `shared/js/`, run
+  `python tools/assetver.py` in the same change. `/assets/*` is served
+  `immutable` for a year, so a replaced file reaches a returning visitor only
+  under a new URL; the script writes `?v=<hash>` onto every reference, and the
+  gate refuses a page whose version does not match its file (#95). Fonts and
+  images are not versioned — rename them rather than overwrite.
 - Class names lowercase-hyphenated, describing role not appearance.
 - Watch CSS specificity collisions between element and class selectors, especially
   section padding.
