@@ -30,7 +30,6 @@
 :root {
   --hq-card-min:      16rem;   /* card grid track floor */
   --hq-hero-mark-max: 17rem;   /* hero mark, wide layout */
-  --hq-app-what-min:  14rem;   /* apps strip description, before it wraps */
   --hq-narrow:        46rem;   /* one-column breakpoint */
 }
 
@@ -158,42 +157,6 @@ section p + p { margin-top: var(--space-3); }
   color: var(--blue);
   border: var(--border-hair);
   padding-inline: var(--space-2);
-}
-
-/* ---- Apps strip ------------------------------------------------------
-   Compact by design: a row per app, not a card grid. The apps index is a
-   different page and owns the detail. */
-
-.apps {
-  list-style: none;
-  padding: 0;
-  border-top: var(--border-hair);
-}
-
-.apps li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2) var(--space-3);
-  padding-block: var(--space-3);
-  border-bottom: var(--border-hair);
-  max-width: none;
-}
-
-.apps .name {
-  font-family: var(--font-display);
-  font-stretch: var(--display-stretch);
-  font-weight: var(--display-weight);
-}
-
-.apps .what {
-  flex: 1 1 var(--hq-app-what-min);
-  color: var(--deep);
-}
-
-.apps .where {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
 }
 
 /* ---- About ------------------------------------------------------------ */
