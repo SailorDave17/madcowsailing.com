@@ -155,7 +155,15 @@ Each page self-references `rel="canonical"`. Do not cross-canonical them; they a
 different documents for different audiences, not variants.
 
 Non-sailing apps use the same shape minus step 2, with their support and privacy
-pages under `hq/apps/<slug>/`.
+pages under `hq/apps/<slug>/`. **A non-sailing app that is open to the public gets
+a tester page in step 2's slot, at `hq/apps/<slug>/index.html`** (owner decision
+2026-09-11, first used by Taskr in #66): what it does in one sentence a household
+would say out loud, how to start in three steps naming the app's own controls,
+what "testing" means, what it keeps (linking to privacy), how to report a
+problem, and one primary action into the app. Written for the person who will
+use it, in their register, with no stack tags; the case study keeps the
+engineering. The rule against sharing a sentence between the presentations
+applies to it exactly as it does to a product page.
 
 ## Page specs — hq
 

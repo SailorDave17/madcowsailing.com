@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Work — Mad Cow HQ</title>
-<meta name="description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. Two case studies so far.">
-<link rel="canonical" href="https://madcowhq.com/work/">
-<meta property="og:title" content="Work — Mad Cow HQ">
-<meta property="og:description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. Two case studies so far.">
+<title>Taskr support — Mad Cow HQ</title>
+<meta name="description" content="How to report a problem with Taskr, how long a reply takes, and what is currently wrong with it. Taskr deploys continuously, so quote the build number in the app's footer rather than a version.">
+<link rel="canonical" href="https://madcowhq.com/apps/taskr/support.html">
+<meta property="og:title" content="Taskr support — Mad Cow HQ">
+<meta property="og:description" content="How to report a problem with Taskr, how long a reply takes, and what is currently wrong with it. Taskr deploys continuously, so quote the build number in the app's footer rather than a version.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/work/">
+<meta property="og:url" content="https://madcowhq.com/apps/taskr/support.html">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -20,8 +20,8 @@
      repo. Never edit anything under it; edit shared/.
 
      Every href in this file is root-relative. This page lives at depth
-     (hq/work/), where a relative "assets/..." would resolve to
-     work/assets/... and 404. The sailing site made the same move in #10. -->
+     (hq/apps/taskr/), where a relative "assets/..." would resolve to
+     apps/taskr/assets/... and 404. The apps index made the same move in #7. -->
 
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
@@ -58,137 +58,114 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/work/" aria-current="page">work</a></li>
-        <li><a href="/apps/">apps</a></li>
+        <li><a href="/work/">work</a></li>
+        <li><a href="/apps/" aria-current="page">apps</a></li>
         <li><a href="/about.html">about</a></li>
       </ul>
     </nav>
   </div>
 </header>
-<!-- =========================================================== /HEADER -->
 
 <main id="main">
 
-  <!-- Everything, newest first, per CLAUDE.md's Work index spec: title, one
-       line, stack tags, year. "Newest" is the date each project started in
-       its present form - Taskr was a 2021 classroom project and is listed
-       by its 2026 rebuild, not its origin.
+  <!-- Plain and boring on purpose, on the shape of the Race Timer support
+       page on madcowsailing.com: put a frustrated tester in touch with a
+       human, and say what is currently wrong before they discover it.
 
-       Race Timer and Tender link to a case study. CLAUDE.md's rule is that a
-       project which cannot fill "a decision I'd defend" gets a line here and
-       no page; the others get a page when they can. A private repo gets no
-       source link rather than a link to a 404. -->
+       No version table. Taskr deploys continuously from its release branch,
+       so the build stamp in the app's footer is the version - the page says
+       so instead of keeping a list that would be stale by the next merge.
 
+       The known-issues list is the user-visible subset of the Taskr repo's
+       open issues, read 2026-09-13. Take one off only when it is actually
+       fixed on production; a support page that has quietly stopped listing a
+       live fault is worse than one that never listed it. The sources, so the
+       next reader can re-check each line: Google sign-in is switched off
+       (Taskr #330, #339 - measured 2026-09-13, the auth settings endpoint
+       reads google: false); two emails an hour (docs/deploy-runbook.md,
+       the built-in mailer); invited people are not shown until they accept
+       an added person reads as signed in before they have ever signed in,
+       measured 2026-09-13 on the Who tab (#407); a calendar that stops
+       reading has no reconnect (#340);
+       deleting your own login is not in the app (#432). -->
   <section class="wrap page-head">
-    <p class="eyebrow">Work</p>
-    <h1>Everything, newest first</h1>
-    <p class="lede">Two projects have a case study so far. The rest are a line
-      each until they have a decision worth a page.</p>
+    <p class="eyebrow"><a href="/apps/taskr/">Taskr</a></p>
+    <h1>Support</h1>
+    <p class="lede">Something not working, or a question the
+      <a href="/apps/taskr/">tester page</a> does not answer? Write to me,
+      from inside the app or by email.</p>
   </section>
 
   <section class="wrap">
-    <ul class="rows">
+    <h2>Getting in touch</h2>
+    <dl class="facts">
+      <dt>From inside the app</dt>
+      <dd>Every screen has a <strong>Report a problem</strong> link in its
+        footer. It opens your own email app with a message already started:
+        which build you are on, which screen you were looking at, and which
+        browser. Nothing is sent until you press send, and you can read and
+        change every word first. Add what happened and what you expected
+        instead.</dd>
+      <dt>By email</dt>
+      <dd><a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a>. The
+        same address the in-app link writes to.</dd>
+      <dt>How long you will wait</dt>
+      <dd>I read that address in the evenings, so expect a reply within a
+        couple of days. If you write during a regatta weekend it will probably
+        be Monday.</dd>
+      <dt>What helps</dt>
+      <dd>The build number from the footer, which screen you were on, and what
+        the screen said. The in-app link fills in the first two. A screenshot
+        is worth a paragraph, but check that it shows no name or email you
+        would rather not send.</dd>
+      <dt>Which version you are on</dt>
+      <dd>There is no version number. Taskr is deployed every time a change is
+        finished, and an open app picks the new build up on its own. The
+        footer of every screen reads <strong>build</strong> followed by seven
+        characters; that is the version, so quote it when you write.</dd>
+    </dl>
+  </section>
 
-      <li>
-        <h2><a href="/work/tender.html">Tender</a></h2>
-        <span class="year">2026</span>
-        <p>Pairs skippers who are short of crew with people who want to race,
-          on a race-day board that stays true without anyone curating it. One
-          club to start.</p>
-        <ul class="tags"><li>Next.js</li><li>TypeScript</li><li>Supabase</li></ul>
-        <p class="links"><a href="/work/tender.html">Read the case study</a> &middot;
-          <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
-      </li>
+  <section class="field-deep">
+    <div class="wrap">
+      <p class="eyebrow">Known issues</p>
+      <h2>What is currently wrong with it</h2>
+      <p>These are open and being worked on. They are listed here rather than
+        left for you to discover.</p>
+      <ul class="issues">
+        <li><strong>Continue with Google does not work yet.</strong> The
+          sign-in screen offers it, but Google sign-in is switched off for
+          the moment, and pressing it lands you on an error page rather than
+          back in the app. Use the browser's back button, then sign in with
+          your email and password.</li>
+        <li><strong>At most two emails an hour.</strong> Confirmation
+          messages, invitations and password resets all share that limit, so
+          inviting a whole household takes more than one sitting. An
+          invitation that has not arrived within the hour is waiting on that
+          limit, not lost; an unused invitation code stops working after
+          seven days.</li>
+        <li><strong>The Who tab cannot tell you whether an invitation is
+          still waiting.</strong> Somebody you have just added reads as
+          signed in before they have opened their email or set a password,
+          so if they say nothing arrived, use <strong>Email an
+          invitation</strong> on their row after the hour has passed.</li>
+        <li><strong>A connected calendar that stops being readable offers no
+          way to reconnect it.</strong> Disconnect it and connect it
+          again.</li>
+        <li><strong>Deleting your own login is not in the app yet.</strong>
+          You can leave a household, and an organizer can delete one, from
+          the Who tab. To have the login itself removed, email the address
+          above and I will do it.</li>
+      </ul>
+    </div>
+  </section>
 
-      <li>
-        <h2>madcowsailing.com</h2>
-        <span class="year">2026</span>
-        <p>This site and its sailing sibling: two static sites from one
-          repository, one set of design tokens, no framework and a one-line
-          build step.</p>
-        <ul class="tags"><li>HTML</li><li>CSS</li><li>Cloudflare Pages</li></ul>
-        <p class="links"><a href="https://github.com/SailorDave17/madcowsailing.com">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>PRO companion</h2>
-        <span class="year">2026</span>
-        <p>A race-day app for the principal race officer, usable on its own
-          or alongside Burgee.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li></ul>
-      </li>
-
-      <li id="burgee">
-        <h2>Burgee</h2>
-        <span class="year">2026</span>
-        <p>Yacht-club and regatta management for sailing only: entries,
-          scoring, protests, and the committee-boat half that the desk-bound
-          tools leave out.</p>
-        <ul class="tags"><li>Next.js</li><li>Postgres</li><li>Supabase</li></ul>
-      </li>
-
-      <li id="buoyant">
-        <h2>Buoyant</h2>
-        <span class="year">2026</span>
-        <p>Bluetooth control for GPS station-keeping robotic race marks, so a
-          race officer sets and moves a course from the committee boat.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li><li>BLE</li></ul>
-      </li>
-
-      <li>
-        <h2>Taskr</h2>
-        <span class="year">2026</span>
-        <p>Splits a household's chores by what each person can take
-          on, and says so when a fair split is not reachable. Rebuilt from a
-          2021 classroom project.</p>
-        <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>
-        <p class="links"><a href="/apps/taskr/">Try it</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>COHSSA Attendance</h2>
-        <span class="year">2026</span>
-        <p>Replaces a high-school sailing team's paper attendance sheet with a
-          phone app that writes to the spreadsheet the coaches already keep.</p>
-        <ul class="tags"><li>React</li><li>Vite</li><li>Google Sheets</li></ul>
-      </li>
-
-      <li>
-        <h2><a href="/work/race-timer.html">Race Timer</a></h2>
-        <span class="year">2026</span>
-        <p>A standalone Wear OS race timer that sounds a start sequence within
-          a measured bound of the mark, with the screen off and no phone
-          aboard.</p>
-        <ul class="tags"><li>Kotlin</li><li>Wear OS</li><li>Compose</li></ul>
-        <p class="links"><a href="/work/race-timer.html">Read the case study</a> &middot;
-          <a href="https://github.com/SailorDave17/race-timer">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>Maverick</h2>
-        <span class="year">2026</span>
-        <p>A self-hosted smart-home hub: one process speaking MQTT to Zigbee
-          and Z-Wave, one device model, automations written as code.</p>
-        <ul class="tags"><li>Python</li><li>MQTT</li><li>Docker</li></ul>
-      </li>
-
-      <li>
-        <h2>Cairn</h2>
-        <span class="year">2026</span>
-        <p>The engineering record behind everything above: decisions with
-          their reasoning, mistakes with their corrections, and the hooks and
-          checks that stop them recurring.</p>
-        <ul class="tags"><li>Python</li><li>Git hooks</li><li>CI</li></ul>
-      </li>
-
-    </ul>
+  <section class="wrap page-foot">
+    <p><a href="/apps/taskr/">Taskr</a> &middot;
+      <a href="privacy.html">Privacy</a></p>
   </section>
 </main>
 
-<!-- ============================================================= FOOTER
-     COPY THIS BLOCK VERBATIM into every other hq page. Story #5 owns it.
-     ============================================================= -->
 <footer class="site-footer">
   <div class="wrap footer-inner">
     <span>Dave Alvarado</span>
@@ -199,6 +176,5 @@
     </ul>
   </div>
 </footer>
-<!-- =========================================================== /FOOTER -->
 </body>
 </html>
