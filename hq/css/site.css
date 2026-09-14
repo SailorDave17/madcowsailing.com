@@ -291,14 +291,18 @@ section p + p { margin-top: var(--space-3); }
    top of this file: a grid floor for this site's layout, not a token. */
 
 :root {
-  --hq-year-min: 4rem;   /* the year column on the work index */
   --hq-shot-max: 14rem;  /* the case-study screenshot, never upscaled past ~2x */
 }
 
 /* ---- Rows — the work index and the apps index -----------------------
-   Both pages are a list of rows rather than a card grid: "everything,
-   newest first" is a scan, and a row per project keeps the year and the
-   tags in a column the eye can run down. One rule, both lists. */
+   Both pages are a list of rows rather than a card grid: a row per project
+   is a scan, and it keeps the tags where the eye can run down them. One
+   rule, both lists, one column. The work index's year column went in #77,
+   because every row read 2026 and the dates put nothing in order.
+
+   A row's title is an <h2> on the apps index and an <h3> on the work index,
+   where it sits under a group heading, so every title rule names both. The
+   h2 halves go when the apps index folds into the work index (#81). */
 
 .rows {
   list-style: none;
@@ -310,47 +314,30 @@ section p + p { margin-top: var(--space-3); }
 .rows > li {
   max-width: none;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(var(--hq-year-min), auto);
-  column-gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr);
   row-gap: var(--space-2);
   padding-block: var(--space-4);
   border-bottom: var(--border-hair);
 }
 
-.rows h2 {
+.rows h2,
+.rows h3 {
   font-size: var(--text-xl);
   margin: 0;
 }
 
-.rows h2 a {
+.rows h2 a,
+.rows h3 a {
   text-decoration: none;
 }
 
-.rows h2 a:hover {
+.rows h2 a:hover,
+.rows h3 a:hover {
   text-decoration: underline;
 }
 
 .rows p {
   margin: 0;
-}
-
-/* Everything but the year sits in the first column. The year is pinned to
-   the top-right cell so it reads as a margin note beside the title. */
-.rows h2,
-.rows p,
-.rows .tags,
-.rows .meta,
-.rows .links {
-  grid-column: 1;
-}
-
-.rows .year {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--blue);
 }
 
 .rows .tags {
@@ -369,6 +356,27 @@ section p + p { margin-top: var(--space-3); }
 
 .rows .meta {
   color: var(--blue);
+}
+
+/* ---- Work index groups ----------------------------------------------
+   In testing, Building, Tooling (#77). Each group is a section nested in
+   the page's one list section rather than a main > section of its own:
+   base.css pads every main > section by --space-7 top and bottom, and three
+   of those stacked would put the groups a screen apart. The lower two
+   groups are brief rows - a name and one line - so the eye lands on the
+   group that has something to open. */
+
+.group + .group {
+  margin-top: var(--space-6);
+}
+
+.rows.brief > li {
+  row-gap: var(--space-1);
+  padding-block: var(--space-3);
+}
+
+.rows.brief h3 {
+  font-size: var(--text-lg);
 }
 
 /* ---- Case study -------------------------------------------------------
@@ -488,16 +496,6 @@ section p + p { margin-top: var(--space-3); }
 
 @media (max-width: 46rem) {
   .page-head .lede { font-size: var(--text-base); }
-
-  .rows > li {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .rows .year {
-    grid-column: 1;
-    grid-row: auto;
-    justify-self: start;
-  }
 
   .cs-head {
     grid-template-columns: minmax(0, 1fr);
