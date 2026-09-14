@@ -227,6 +227,82 @@ else
     echo "pre-push: direct-push branch - running local checks first"
 fi
 
+# THE INTERPRETER IS RESOLVED ONCE, HERE, AND PROVEN ABLE TO RUN A SCRIPT.
+#
+# Until 2026-08-25 every Python line in githooks/checks said bare `python`, and
+# on this machine bare `python` is the Windows Store alias stub: it exits 49
+# with "Python was not found". Measured that day by replaying git's own hook
+# invocation with real refs - 20 of the 21 checks FAILED, the gate exited 1, and
+# EVERY push to cairn--live was refused on its first attempt. The same 21 lines
+# under a working interpreter: 21 ok, 0 fails. The repo was healthy throughout;
+# only the binding was broken.
+#
+# It had been known since 2026-08-02 and deliberately not fixed, on a premise
+# recorded in memory/global/documented-is-not-installed-2026-08-02.md: "not
+# changed in the file, because `python` is correct on CI and the fix is a runner
+# decision." That premise is FALSE and was never checked - .github/workflows/
+# ci.yml enumerates its own `run:` steps and never reads this file, so the two
+# lists only mirror each other by hand. Nothing here can reach CI. Four
+# documents then told sessions to prepend a directory to PATH by hand instead,
+# which is a workaround with its own recorded trap (windows-shell-hazards
+# hazard 19: a Windows-form path prepended to PATH splits on the drive letter's
+# colon and silently adds two wrong entries).
+#
+# WHY A SCRIPT PROBE AND NOT `-V`. Both interpreters that have broken this
+# workspace answer `-V` correctly and fail when handed a script - the Store stub
+# above, and the Launcher py.exe measured 2026-08-14 exiting 9009. `exists()` is
+# not `launchable` and `-V` is not `runs a script`, so the probe is invoked in
+# exactly the shape a check line is. See githooks/pyprobe.py.
+#
+# WHY IT REFUSES RATHER THAN FALLING THROUGH. A gate that cannot run its checks
+# must never exit 0 - that is the failure this whole file is built around. But
+# it must not refuse a repo that has no Python checks either, so the resolution
+# only happens when githooks/checks actually references $PY. tender's list is
+# npm; it neither pays for this nor is refused by it.
+#
+# WHY $PY AND NOT A SHIM PATH. cairn's hooks/py.cmd solves the same problem for
+# the Claude hooks layer and is proven, but it is cairn-relative and Windows
+# only, and this driver is copied verbatim into every repo including onto a
+# Linux runner. Resolving a name here keeps the list portable: on CI `python3`
+# is found first and nothing else is tried.
+if grep -q '\$PY' "$CHECKS_FILE" 2>/dev/null; then
+    PY=""
+    for _cand in "$CAIRN_PY" python3 python py \
+                 "$LOCALAPPDATA"/Programs/Python/Python3*/python.exe; do
+        [ -n "$_cand" ] || continue
+        if "$_cand" "$REPO_ROOT/githooks/pyprobe.py" >/dev/null 2>&1; then
+            PY="$_cand"
+            break
+        fi
+    done
+    if [ -z "$PY" ]; then
+        cat <<'MSG'
+
+pre-push: REFUSING - no working Python found, so the checks were never run.
+
+Every candidate either does not exist or cannot run a script. `-V` is not the
+question and neither is `command -v`: the Windows Store alias stub answers both
+and then exits 49 on a script path, which is what made this class silent.
+
+Reproduce the probe directly:
+
+    python3 githooks/pyprobe.py ; echo $?
+    python  githooks/pyprobe.py ; echo $?
+    py      githooks/pyprobe.py ; echo $?
+
+Any of them printing 0 is the interpreter to use. Pin it for this repo with:
+
+    CAIRN_PY=/full/path/to/python git push
+
+This is refused rather than skipped on purpose. A gate that cannot run its
+checks and exits 0 is worse than no gate - it reports success for work nothing
+looked at.
+MSG
+        exit 1
+    fi
+    export PY
+fi
+
 status=0
 while IFS= read -r check || [ -n "$check" ]; do
     check=${check%$CR}

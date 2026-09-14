@@ -26,6 +26,13 @@ Scope, stated so a later reader does not over-trust a pass:
     exactly the intended no-JavaScript baseline - a silent failure that looks
     like a supported mode. A src is checked as a plain file: no fragment, and
     no index.html rewrite, because a directory is never a valid src.
+  - a query string is dropped before the file is looked up, since the host
+    serves the same file whatever the query says.
+  - a reference into shared/css/ or shared/js/ must also carry
+    ?v=<the file's current version>, as tools/assetver.py writes it. Those
+    files are served immutable for a year, so a replaced file reaches a
+    returning visitor only under a new URL; a page left pointing at the old
+    one is a failure here, not on production (story #95).
 
 Usage:  python tools/linkcheck.py hq [sailing ...]
 Exit 0 when every internal href resolves, 1 otherwise.
@@ -34,6 +41,8 @@ import os
 import re
 import sys
 from urllib.parse import unquote, urldefrag
+
+import assetver
 
 HREF = re.compile(r'\shref\s*=\s*"([^"]*)"', re.I)
 SRC = re.compile(r'\ssrc\s*=\s*"([^"]*)"', re.I)
@@ -79,6 +88,7 @@ def check(site):
                 if not href or EXTERNAL.match(href):
                     continue
                 target, frag = urldefrag(href)
+                target, _, query = target.partition('?')
                 target, frag = unquote(target), unquote(frag)
 
                 if not target:                       # same-page: "#main"
@@ -111,6 +121,8 @@ def check(site):
                     failures.append((page, href, 'no such file: %s' % resolved))
                 elif frag and frag not in ids_in(resolved, idcache):
                     failures.append((page, href, 'no id "%s" in %s' % (frag, resolved)))
+                elif stale(resolved, query):
+                    failures.append((page, href, stale(resolved, query)))
 
             # src, checked after every href on the page. Deliberately a second
             # loop rather than a branch inside the first: a src resolves more
@@ -127,7 +139,8 @@ def check(site):
                 src = raw.strip()
                 if not src or EXTERNAL.match(src):
                     continue
-                target = unquote(urldefrag(src)[0])
+                target, _, query = urldefrag(src)[0].partition('?')
+                target = unquote(target)
                 if not target:
                     continue
 
@@ -142,7 +155,25 @@ def check(site):
 
                 if not os.path.isfile(resolved):
                     failures.append((page, src, 'no such file: %s' % resolved))
+                elif stale(resolved, query):
+                    failures.append((page, src, stale(resolved, query)))
     return failures
+
+
+def stale(resolved, query):
+    """Why a reference to resolved carries the wrong version, or None.
+
+    Only files under shared/css/ and shared/js/ are versioned (tools/assetver.py
+    says why fonts and images are not). A missing ?v= is as stale as a wrong
+    one: it is the URL the browser may already hold for a year.
+    """
+    if not assetver.is_versioned(resolved):
+        return None
+    want = 'v=' + assetver.version(resolved)
+    if query == want:
+        return None
+    return 'stale URL: %s is ?%s, this says %s - run tools/assetver.py' % (
+        resolved, want, '?' + query if query else 'no version')
 
 
 def main(argv):

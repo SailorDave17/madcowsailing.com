@@ -78,6 +78,7 @@ story, this is the paragraph to check.*
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
 │   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
+│   ├── assetver.py           Writes ?v=<hash> onto every shared CSS/JS URL. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
@@ -129,11 +130,18 @@ The repo is part of the portfolio, so it should be readable.
 Migrate to Astro only when shared layout across both sites becomes genuinely painful
 — realistically past ten or so pages per site. Not before.
 
-*Where that stands, 2026-09-04: **hq 5 pages, sailing 8.** Sailing is the one to
-watch, and the pain the threshold is really about has started showing — the header
-and footer are copied verbatim into every page with a comment saying so, and
-`photos.py` grew a template directory to avoid a third copy. Count before
-deciding; do not read this line as the count.*
+*Where that stands, 2026-09-14: **hq 10 pages, sailing 9**, counted at develop
+`98b8e28`; projected **10 and 11** once #36 adds a 404 to each site, #37 adds
+Tender's product page, and #81 folds `hq/apps/index.html` into `/work/`. That
+lands hq on the threshold, not past it, and the second-command rule under Hosting
+is unmet. **Owner decision, 2026-09-14 (#78): stay static.** The question is asked
+again when **either site passes 12 pages, or the Pages build needs a second
+command**, whichever comes first. The evidence is on #78 and its PR: the header
+block is 29 lines copied verbatim into every page, a one-item nav change is one
+line per page, the two copy defects on record (#7, #10) were one class and were
+caught before production, and Astro's Cloudflare guide (read 2026-09-14, Astro
+7.3.2) now documents Workers rather than Pages, so a migration moves the hosting
+too. Count before deciding; do not read this line as the count.*
 
 No analytics requiring a cookie banner.
 
@@ -245,6 +253,12 @@ Applies to every page on both sites.
 - Every colour, type size, and spacing value comes from `shared/css/tokens.css`.
   No hex values or pixel sizes anywhere else.
 - Never edit files in `assets/shared/` — they are copies. Edit `shared/`.
+- After editing anything in `shared/css/` or `shared/js/`, run
+  `python tools/assetver.py` in the same change. `/assets/*` is served
+  `immutable` for a year, so a replaced file reaches a returning visitor only
+  under a new URL; the script writes `?v=<hash>` onto every reference, and the
+  gate refuses a page whose version does not match its file (#95). Fonts and
+  images are not versioned — rename them rather than overwrite.
 - Class names lowercase-hyphenated, describing role not appearance.
 - Watch CSS specificity collisions between element and class selectors, especially
   section padding.
