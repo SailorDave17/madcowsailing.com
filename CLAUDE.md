@@ -171,7 +171,11 @@ applies to it exactly as it does to a product page.
 compact apps strip, short about, footer. Must answer "who is this, should I keep
 reading" without scrolling.
 
-**Work index.** Everything, newest first. Title, one-line summary, stack tags, year.
+**Work index.** Everything, grouped by where it stands, under three `<h2>`s in this
+order: In testing, Building, Tooling. An In testing row carries the title, a one-line
+summary, stack tags, the case study if there is one, and where to get it. Building and
+Tooling rows are brief: a name and one line, with a link only where there is a public
+one. No row carries a date.
 
 **Case study.** Same order every time so a skimmer learns the shape once: header
 (name, summary, role, stack, timeframe, links) → the problem → what I built →

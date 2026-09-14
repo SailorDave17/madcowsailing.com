@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Work — Mad Cow HQ</title>
-<meta name="description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. Two case studies so far.">
+<meta name="description" content="Dave Alvarado's work, grouped by where it stands: Taskr, Race Timer and Tender in testing, then what is still being built, then the tooling behind it.">
 <link rel="canonical" href="https://madcowhq.com/work/">
 <meta property="og:title" content="Work — Mad Cow HQ">
-<meta property="og:description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. Two case studies so far.">
+<meta property="og:description" content="Dave Alvarado's work, grouped by where it stands: Taskr, Race Timer and Tender in testing, then what is still being built, then the tooling behind it.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://madcowhq.com/work/">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
@@ -69,120 +69,131 @@
 
 <main id="main">
 
-  <!-- Everything, newest first, per CLAUDE.md's Work index spec: title, one
-       line, stack tags, year. "Newest" is the date each project started in
-       its present form - Taskr was a 2021 classroom project and is listed
-       by its 2026 rebuild, not its origin.
+  <!-- Grouped by where each project stands, per CLAUDE.md's Work index spec
+       and the grouping the owner chose on epic #75: In testing, Building,
+       Tooling. In testing is work other people are using now, so it comes
+       first and it is the only group with stack tags, a case study and a
+       place to get it. Building and Tooling are brief rows - a name and one
+       line, with a link only where there is a public one.
 
-       Race Timer and Tender link to a case study. CLAUDE.md's rule is that a
-       project which cannot fill "a decision I'd defend" gets a line here and
-       no page; the others get a page when they can. A private repo gets no
-       source link rather than a link to a 404. -->
+       There is no date on any row. Every row read 2026, so the dates put
+       nothing in order. Taskr is the one project older than its present
+       form: it began as a 2020 classroom project, and its row says so.
+
+       Every place-to-get-it link on /apps/ is carried here, so that page can
+       fold into this one (#81) with nothing lost. Taskr's title is not a
+       link until its case study lands (#65). A private repo gets no source
+       link rather than a link to a 404. id="burgee" and id="buoyant" stay:
+       the home page's Buoyant card links the second. -->
 
   <section class="wrap page-head">
     <p class="eyebrow">Work</p>
-    <h1>Everything, newest first</h1>
-    <p class="lede">Two projects have a case study so far. The rest are a line
-      each until they have a decision worth a page.</p>
+    <h1>Everything, by where it stands</h1>
+    <p class="lede">In testing is work other people are using now. Building
+      is work nobody else can use yet. Tooling is this site and the record
+      behind all of it.</p>
   </section>
 
   <section class="wrap">
-    <ul class="rows">
 
-      <li>
-        <h2><a href="/work/tender.html">Tender</a></h2>
-        <span class="year">2026</span>
-        <p>Pairs skippers who are short of crew with people who want to race,
-          on a race-day board that stays true without anyone curating it. One
-          club to start.</p>
-        <ul class="tags"><li>Next.js</li><li>TypeScript</li><li>Supabase</li></ul>
-        <p class="links"><a href="/work/tender.html">Read the case study</a> &middot;
-          <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
-      </li>
+    <section class="group">
+      <h2>In testing</h2>
+      <ul class="rows">
 
-      <li>
-        <h2>madcowsailing.com</h2>
-        <span class="year">2026</span>
-        <p>This site and its sailing sibling: two static sites from one
-          repository, one set of design tokens, no framework and a one-line
-          build step.</p>
-        <ul class="tags"><li>HTML</li><li>CSS</li><li>Cloudflare Pages</li></ul>
-        <p class="links"><a href="https://github.com/SailorDave17/madcowsailing.com">Source on GitHub</a></p>
-      </li>
+        <li>
+          <h3>Taskr</h3>
+          <p>Splits a household's chores by the time each person has.
+            Rebuilt from a 2020 classroom project.</p>
+          <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>
+          <p class="links"><a href="/apps/taskr/">Try it</a> &middot;
+            <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
+        </li>
 
-      <li>
-        <h2>PRO companion</h2>
-        <span class="year">2026</span>
-        <p>A race-day app for the principal race officer, usable on its own
-          or alongside Burgee.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li></ul>
-      </li>
+        <li>
+          <h3><a href="/work/race-timer.html">Race Timer</a></h3>
+          <p>A standalone Wear OS race timer that sounds a start sequence within
+            a measured bound of the mark, with the screen off and no phone
+            aboard.</p>
+          <ul class="tags"><li>Kotlin</li><li>Wear OS</li><li>Compose</li></ul>
+          <p class="links"><a href="/work/race-timer.html">Read the case study</a> &middot;
+            <a href="https://madcowsailing.com/apps/race-timer/">Get it</a> &middot;
+            <a href="https://github.com/SailorDave17/race-timer">Source on GitHub</a></p>
+        </li>
 
-      <li id="burgee">
-        <h2>Burgee</h2>
-        <span class="year">2026</span>
-        <p>Yacht-club and regatta management for sailing only: entries,
-          scoring, protests, and the committee-boat half that the desk-bound
-          tools leave out.</p>
-        <ul class="tags"><li>Next.js</li><li>Postgres</li><li>Supabase</li></ul>
-      </li>
+        <li>
+          <h3><a href="/work/tender.html">Tender</a></h3>
+          <p>Pairs skippers who are short of crew with people who want to race,
+            on a race-day board that stays true without anyone curating it. One
+            club to start.</p>
+          <ul class="tags"><li>Next.js</li><li>TypeScript</li><li>Supabase</li></ul>
+          <p class="links"><a href="/work/tender.html">Read the case study</a> &middot;
+            <a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a> &middot;
+            <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
+        </li>
 
-      <li id="buoyant">
-        <h2>Buoyant</h2>
-        <span class="year">2026</span>
-        <p>Bluetooth control for GPS station-keeping robotic race marks, so a
-          race officer sets and moves a course from the committee boat.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li><li>BLE</li></ul>
-      </li>
+      </ul>
+    </section>
 
-      <li>
-        <h2>Taskr</h2>
-        <span class="year">2026</span>
-        <p>Splits a household's chores by what each person can take
-          on, and says so when a fair split is not reachable. Rebuilt from a
-          2021 classroom project.</p>
-        <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>
-        <p class="links"><a href="/apps/taskr/">Try it</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
-      </li>
+    <section class="group">
+      <h2>Building</h2>
+      <ul class="rows brief">
 
-      <li>
-        <h2>COHSSA Attendance</h2>
-        <span class="year">2026</span>
-        <p>Replaces a high-school sailing team's paper attendance sheet with a
-          phone app that writes to the spreadsheet the coaches already keep.</p>
-        <ul class="tags"><li>React</li><li>Vite</li><li>Google Sheets</li></ul>
-      </li>
+        <li id="burgee">
+          <h3>Burgee</h3>
+          <p>Yacht-club and regatta management for sailing only: entries,
+            scoring, protests, and the committee-boat half that the desk-bound
+            tools leave out.</p>
+        </li>
 
-      <li>
-        <h2><a href="/work/race-timer.html">Race Timer</a></h2>
-        <span class="year">2026</span>
-        <p>A standalone Wear OS race timer that sounds a start sequence within
-          a measured bound of the mark, with the screen off and no phone
-          aboard.</p>
-        <ul class="tags"><li>Kotlin</li><li>Wear OS</li><li>Compose</li></ul>
-        <p class="links"><a href="/work/race-timer.html">Read the case study</a> &middot;
-          <a href="https://github.com/SailorDave17/race-timer">Source on GitHub</a></p>
-      </li>
+        <li id="buoyant">
+          <h3>Buoyant</h3>
+          <p>Bluetooth control for GPS station-keeping robotic race marks, so a
+            race officer sets and moves a course from the committee boat.</p>
+        </li>
 
-      <li>
-        <h2>Maverick</h2>
-        <span class="year">2026</span>
-        <p>A self-hosted smart-home hub: one process speaking MQTT to Zigbee
-          and Z-Wave, one device model, automations written as code.</p>
-        <ul class="tags"><li>Python</li><li>MQTT</li><li>Docker</li></ul>
-      </li>
+        <li>
+          <h3>PRO companion</h3>
+          <p>A race-day app for the principal race officer, usable on its own
+            or alongside Burgee.</p>
+        </li>
 
-      <li>
-        <h2>Cairn</h2>
-        <span class="year">2026</span>
-        <p>The engineering record behind everything above: decisions with
-          their reasoning, mistakes with their corrections, and the hooks and
-          checks that stop them recurring.</p>
-        <ul class="tags"><li>Python</li><li>Git hooks</li><li>CI</li></ul>
-      </li>
+        <li>
+          <h3>COHSSA Attendance</h3>
+          <p>Replaces a high-school sailing team's paper attendance sheet with a
+            phone app that writes to the spreadsheet the coaches already keep.</p>
+        </li>
 
-    </ul>
+        <li>
+          <h3>Maverick</h3>
+          <p>A self-hosted smart-home hub: one process speaking MQTT to Zigbee
+            and Z-Wave, one device model, automations written as code.</p>
+        </li>
+
+      </ul>
+    </section>
+
+    <section class="group">
+      <h2>Tooling</h2>
+      <ul class="rows brief">
+
+        <li>
+          <h3>madcowsailing.com</h3>
+          <p>This site and its sailing sibling: two static sites from one
+            repository, one set of design tokens, no framework and a one-line
+            build step.</p>
+          <p class="links"><a href="https://github.com/SailorDave17/madcowsailing.com">Source on GitHub</a></p>
+        </li>
+
+        <li>
+          <h3>Cairn</h3>
+          <p>The engineering record behind everything above: decisions with
+            their reasoning, mistakes with their corrections, and the hooks and
+            checks that stop them recurring.</p>
+        </li>
+
+      </ul>
+    </section>
+
   </section>
 </main>
 
