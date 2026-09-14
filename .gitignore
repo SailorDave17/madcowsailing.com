@@ -9,6 +9,11 @@ __pycache__/
 hq/assets/shared/
 sailing/assets/shared/
 
+# Local working drafts, never committed. The epic draft carries answers to owner
+# decisions that are not public; the filed issues (#75 and #76-#86) are the record.
+docs/drafts/epic-hq-taskr-highlight.md
+docs/drafts/taskr-case-study.md
+
 # Editor and OS noise
 .DS_Store
 Thumbs.db

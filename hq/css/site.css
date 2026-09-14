@@ -412,7 +412,11 @@ section p + p { margin-top: var(--space-3); }
 /* Measured numbers in the case study. A small table that wraps rather
    than scrolls, so the 360px floor narrows the columns instead of
    producing the horizontal scrollbar the quality floor forbids. */
-.measured {
+/* The Taskr privacy page's two tables (#66) share the case-study table's
+   rule: same shape, same reason - wrap rather than scroll at 360px. */
+.measured,
+.stored,
+.parties {
   width: 100%;
   max-width: var(--measure);
   border-collapse: collapse;
@@ -420,7 +424,9 @@ section p + p { margin-top: var(--space-3); }
   font-size: var(--text-sm);
 }
 
-.measured caption {
+.measured caption,
+.stored caption,
+.parties caption {
   text-align: start;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -430,7 +436,9 @@ section p + p { margin-top: var(--space-3); }
   padding-bottom: var(--space-2);
 }
 
-.measured th {
+.measured th,
+.stored th,
+.parties th {
   text-align: start;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -440,7 +448,11 @@ section p + p { margin-top: var(--space-3); }
 }
 
 .measured th,
-.measured td {
+.measured td,
+.stored th,
+.stored td,
+.parties th,
+.parties td {
   vertical-align: top;
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
   border-bottom: var(--border-hair);
@@ -494,4 +506,79 @@ section p + p { margin-top: var(--space-3); }
   .shot {
     max-width: var(--hq-shot-max);
   }
+}
+
+/* ====================================================================== */
+/* Taskr tester, support and privacy pages.  Story #66.                   */
+/* ====================================================================== */
+
+/* One more hq-local layout constant, same exception as the two blocks
+   above: the phone screenshot's column floor, not a token. */
+
+:root {
+  --hq-phone-min: 11rem;   /* a phone screenshot column, before it wraps */
+}
+
+/* ---- Known issues, the support page ----------------------------------
+   A plain list with a bold lead: the lead is the fault as a tester meets
+   it, the sentence after it is what to do meanwhile. */
+.issues {
+  margin-block: var(--space-3);
+  padding-inline-start: var(--space-4);
+}
+
+.issues li {
+  margin-bottom: var(--space-2);
+}
+
+.muted {
+  font-size: var(--text-sm);
+}
+
+/* ---- How to start, the tester page -----------------------------------
+   Three numbered steps, each naming the control as the app names it. The
+   number is the browser's own; the step is a short paragraph, not a card. */
+.steps {
+  padding-inline-start: var(--space-4);
+  margin-block: var(--space-3);
+}
+
+.steps li {
+  margin-bottom: var(--space-3);
+}
+
+/* ---- Phone screenshots -----------------------------------------------
+   Portrait phone captures, shown at a fraction of their pixel size so a
+   row of three fits a laptop and wraps to one column at 360px. Explicit
+   width/height on every <img> holds the space before the file arrives -
+   the quality floor's no-layout-shift rule. The border is a hairline so
+   the app's own white does not dissolve into the page. */
+.phone-shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--hq-phone-min), 1fr));
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin-block: var(--space-4) 0;
+}
+
+.phone-shots li {
+  max-width: none;
+  text-align: center;
+}
+
+.phone-shots img {
+  width: 100%;
+  height: auto;
+  border: var(--border-hair);
+}
+
+.phone-shots span {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
 }

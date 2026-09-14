@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Work — Mad Cow HQ</title>
-<meta name="description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. Two case studies so far.">
-<link rel="canonical" href="https://madcowhq.com/work/">
-<meta property="og:title" content="Work — Mad Cow HQ">
-<meta property="og:description" content="Everything Dave Alvarado has built, newest first: sailing software for a watch, a committee boat and a club, plus the tools in between. Two case studies so far.">
+<title>Taskr privacy — Mad Cow HQ</title>
+<meta name="description" content="What Taskr stores about a household, who in the household can read it, which companies handle it, and how to get it deleted. The only privacy policy Taskr publishes.">
+<link rel="canonical" href="https://madcowhq.com/apps/taskr/privacy.html">
+<meta property="og:title" content="Taskr privacy — Mad Cow HQ">
+<meta property="og:description" content="What Taskr stores about a household, who in the household can read it, which companies handle it, and how to get it deleted. The only privacy policy Taskr publishes.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/work/">
+<meta property="og:url" content="https://madcowhq.com/apps/taskr/privacy.html">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -20,8 +20,8 @@
      repo. Never edit anything under it; edit shared/.
 
      Every href in this file is root-relative. This page lives at depth
-     (hq/work/), where a relative "assets/..." would resolve to
-     work/assets/... and 404. The sailing site made the same move in #10. -->
+     (hq/apps/taskr/), where a relative "assets/..." would resolve to
+     apps/taskr/assets/... and 404. The apps index made the same move in #7. -->
 
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
@@ -58,137 +58,308 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/work/" aria-current="page">work</a></li>
-        <li><a href="/apps/">apps</a></li>
+        <li><a href="/work/">work</a></li>
+        <li><a href="/apps/" aria-current="page">apps</a></li>
         <li><a href="/about.html">about</a></li>
       </ul>
     </nav>
   </div>
 </header>
-<!-- =========================================================== /HEADER -->
 
 <main id="main">
 
-  <!-- Everything, newest first, per CLAUDE.md's Work index spec: title, one
-       line, stack tags, year. "Newest" is the date each project started in
-       its present form - Taskr was a 2021 classroom project and is listed
-       by its 2026 rebuild, not its origin.
+  <!-- EVERY factual claim on this page traces to the Taskr repository at
+       origin/release, read on 2026-09-13, which is what production ran that
+       day (the app's footer read build 74aed25, the release tip). The
+       per-claim source list is in the pull request for madcowsailing.com
+       #66. Nothing here is written from memory and nothing is inferred.
 
-       Race Timer and Tender link to a case study. CLAUDE.md's rule is that a
-       project which cannot fill "a decision I'd defend" gets a line here and
-       no page; the others get a page when they can. A private repo gets no
-       source link rather than a link to a 404. -->
+       Two rules, inherited from the Race Timer privacy page and the source
+       documents it was written from:
 
+       1. DO NOT state a count of the stored values in prose. The tables are
+          the enumeration. A count in a sentence goes stale the first time a
+          row is added, and a re-check copies the stale number forward.
+       2. Taskr publishes no other privacy policy, so there is no second copy
+          to keep in step with. The note at the foot says this page governs.
+          If Taskr ever publishes one of its own, that note names which copy
+          wins and this one becomes the restatement.
+
+       One claim is the operator's own statement rather than a fact in the
+       code: what the person running Taskr can see. The owner settled its
+       wording on 2026-09-13, and the sentence is dated in place. -->
   <section class="wrap page-head">
-    <p class="eyebrow">Work</p>
-    <h1>Everything, newest first</h1>
-    <p class="lede">Two projects have a case study so far. The rest are a line
-      each until they have a decision worth a page.</p>
+    <p class="eyebrow"><a href="/apps/taskr/">Taskr</a></p>
+    <h1>Privacy</h1>
+    <p class="lede">Taskr keeps what a household types into it on a server,
+      so that every member's phone shows the same split. This page says what
+      that is, who can read it, which other companies handle it, and how to
+      get it deleted. Taskr publishes no other privacy policy, so this is the
+      one that governs.</p>
   </section>
 
   <section class="wrap">
-    <ul class="rows">
+    <h2>What it stores</h2>
+    <p>Everything in the table is kept on Taskr's server, in the household's
+      own records. The last column says who in the household can read each
+      row through the app. <strong>Every member can read every other member's
+      email address</strong>; it is stated here plainly because a household
+      app is likely to include people who did not expect that.</p>
+    <table class="stored">
+      <caption>Everything Taskr keeps about a household.</caption>
+      <thead>
+        <tr>
+          <th scope="col">What</th>
+          <th scope="col">Who in the household can read it</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>The name you are shown as</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>Your email address, which is your sign-in</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>Your password</td>
+          <td>Nobody. It is held by the sign-in service Taskr uses, not by
+            Taskr, and the app never sees it. A PIN issued before 11 September
+            2026 is held the same way, as the password of an account with no
+            email behind it.</td>
+        </tr>
+        <tr>
+          <td>Your available minutes for a week, and a note of where a
+            week's figure came from</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>Each chore: its name, how many minutes it takes, when it is
+            due, who holds it, and when it was done or missed</td>
+          <td>Everyone in the household. Any member can delete a chore.</td>
+        </tr>
+        <tr>
+          <td>The household's name, its time zone, and who organizes it</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>Each invitation the organizer sends: a scrambled fingerprint of
+            the code, never the code itself, and when it expires</td>
+          <td>The organizer only</td>
+        </tr>
+        <tr>
+          <td>Shopping lists, what is on them, and who added or bought each
+            item</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>If you connect Google Calendar: the key Google issues so Taskr
+            can read your calendar, and which permission it covers</td>
+          <td>Nobody through the app. Only Taskr's own server-side functions
+            can read it.</td>
+        </tr>
+        <tr>
+          <td>If you connect Google Calendar: how many minutes you are busy
+            each week, and how many events that came from. Not the events'
+            names, who is in them, or when they are.</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>If you import a calendar event as a chore: Google's identifier
+            for that event, kept so it is not imported twice. The event's name
+            becomes the chore's name, which everyone can see; the calendar
+            entry itself is kept nowhere.</td>
+          <td>Everyone in the household</td>
+        </tr>
+        <tr>
+          <td>Each time you use <strong>Work out the minutes</strong> or
+            <strong>Work out the chores</strong>: who asked and when, and
+            which of the two it was. Not what you typed.</td>
+          <td>Nobody through the app</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Everything you type is bounded: a name is at most forty characters, a
+      chore's name at most eighty, and a description you ask Taskr to work
+      out at most two thousand. There is no free-text field that is kept
+      beyond those.</p>
+  </section>
 
-      <li>
-        <h2><a href="/work/tender.html">Tender</a></h2>
-        <span class="year">2026</span>
-        <p>Pairs skippers who are short of crew with people who want to race,
-          on a race-day board that stays true without anyone curating it. One
-          club to start.</p>
-        <ul class="tags"><li>Next.js</li><li>TypeScript</li><li>Supabase</li></ul>
-        <p class="links"><a href="/work/tender.html">Read the case study</a> &middot;
-          <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
-      </li>
+  <section class="wrap">
+    <h2>What it keeps on your device</h2>
+    <p>In your browser's own storage, and nowhere else: which household you
+      last had open, so the app reopens on it; an invitation code you typed
+      before you were signed in, which is cleared the moment it is used or
+      refused, and on sign-out; and your sign-in session. While a calendar
+      connection is in progress, the tab holds a one-off token for the trip to
+      Google and back, and forgets it when the tab closes.</p>
+    <p>All of it goes when you sign out or clear the site's data in your
+      browser.</p>
+  </section>
 
-      <li>
-        <h2>madcowsailing.com</h2>
-        <span class="year">2026</span>
-        <p>This site and its sailing sibling: two static sites from one
-          repository, one set of design tokens, no framework and a one-line
-          build step.</p>
-        <ul class="tags"><li>HTML</li><li>CSS</li><li>Cloudflare Pages</li></ul>
-        <p class="links"><a href="https://github.com/SailorDave17/madcowsailing.com">Source on GitHub</a></p>
-      </li>
+  <section class="wrap">
+    <h2>Who else can read it</h2>
+    <p>Every read the app makes goes through the database's own row-level
+      rules, keyed on which household you are a member of. A member of one
+      household cannot read another household's records, and the app has no
+      way to ask for them.</p>
+    <p>As the person who runs Taskr I can read the database it stores this
+      in. I do that only to fix a problem you have reported or to delete data
+      you have asked me to delete. <span class="muted">Stated 13 September
+      2026.</span></p>
+  </section>
 
-      <li>
-        <h2>PRO companion</h2>
-        <span class="year">2026</span>
-        <p>A race-day app for the principal race officer, usable on its own
-          or alongside Burgee.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li></ul>
-      </li>
+  <section class="field-deep">
+    <div class="wrap">
+      <p class="eyebrow">Third parties</p>
+      <h2>Which companies handle it</h2>
+      <p>Taskr is built on services other companies run. Each row says what
+        that company handles for Taskr and whether it is switched on today.
+        What each company keeps of what it handles is under its own privacy
+        policy, not this one.</p>
+      <table class="parties">
+        <caption>Every company that handles Taskr's data.</caption>
+        <thead>
+          <tr>
+            <th scope="col">Who</th>
+            <th scope="col">What they handle</th>
+            <th scope="col">Is it on?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Supabase</td>
+            <td>The database that holds everything in the table above, the
+              sign-in service that holds your password, and the emails Taskr
+              sends: confirming your address, inviting you to a household,
+              and resetting a password.</td>
+            <td>Yes</td>
+          </tr>
+          <tr>
+            <td>Vercel</td>
+            <td>Serves the app at taskr.madcowhq.com, and runs the once-a-day
+              job that purges deleted households. No analytics.</td>
+            <td>Yes</td>
+          </tr>
+          <tr>
+            <td>Google Calendar</td>
+            <td>Only if you connect a calendar: Taskr asks Google for your
+              free and busy times, and, if you choose to import an event, for
+              a read-only view of your events. Google's approval screen for
+              Taskr is still in testing, so only people registered with Google
+              as Taskr's testers can connect.</td>
+            <td>Yes, for registered testers</td>
+          </tr>
+          <tr>
+            <td>Google sign-in</td>
+            <td>If <strong>Continue with Google</strong> is offered on the
+              sign-in screen and works, signing in that way uses your Google
+              account as your sign-in instead of a password. It is switched
+              off at the time of writing.</td>
+            <td>Not yet</td>
+          </tr>
+          <tr>
+            <td>Anthropic</td>
+            <td>Only when you press <strong>Work out the minutes</strong> or
+              <strong>Work out the chores</strong>: the sentence you typed,
+              which of the two you asked for, and the name you are shown as
+              are sent to Anthropic's service to be turned into minutes or
+              chores. Taskr keeps a record of who asked, when and which kind,
+              and not the sentence.</td>
+            <td>Yes</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>There is nothing else: no advertising, no analytics, no crash
+        reporting, and no tracking cookies. The only things kept in your
+        browser are the ones listed above.</p>
+    </div>
+  </section>
 
-      <li id="burgee">
-        <h2>Burgee</h2>
-        <span class="year">2026</span>
-        <p>Yacht-club and regatta management for sailing only: entries,
-          scoring, protests, and the committee-boat half that the desk-bound
-          tools leave out.</p>
-        <ul class="tags"><li>Next.js</li><li>Postgres</li><li>Supabase</li></ul>
-      </li>
+  <section class="wrap">
+    <h2>How to get it deleted</h2>
+    <p>Three of the four routes are in the app, on the <strong>Who</strong>
+      tab. The fourth is an email.</p>
+    <dl class="facts">
+      <dt>Leave a household</dt>
+      <dd><strong>Leave this household</strong>, at the foot of the Who tab.
+        The chores you hold are dealt out to the others first. Then your row
+        and everything hanging from it go: your minutes, your calendar
+        connection, and your record in the table above. If you had connected
+        Google Calendar, Taskr asks Google to cancel its access before your
+        key is deleted. If this was the only household you were in, your
+        sign-in is deleted as well. An organizer cannot leave without first
+        handing the household to another member who has signed in, or
+        deleting it.</dd>
+      <dt>Delete a household</dt>
+      <dd>The organizer's <strong>Delete this household</strong>, at the very
+        bottom of the Who tab. It disappears from everyone's app at once. For
+        seven days the organizer sees a <strong>Restore</strong> button on
+        signing in, and can bring it back whole. After that it is purged for
+        good: every member's Google access is cancelled, and every sign-in
+        that belonged only to this household is deleted.</dd>
+      <dt>Be removed by the organizer</dt>
+      <dd>Your row and everything hanging from it go the same way. Taskr does
+        not, in this case, tell Google, so if you had connected a calendar,
+        cancel Taskr's access yourself from your Google account's connected
+        apps.</dd>
+      <dt>Delete your sign-in</dt>
+      <dd>Deleting your sign-in while you are in no household is not in the
+        app yet. Email
+        <a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a> from the
+        address you signed in with and I will delete it.</dd>
+    </dl>
+    <p>Nothing else is deleted on a timer. Apart from the seven-day purge of
+      a deleted household, Taskr keeps what it stores until somebody deletes
+      it by one of the routes above.</p>
+  </section>
 
-      <li id="buoyant">
-        <h2>Buoyant</h2>
-        <span class="year">2026</span>
-        <p>Bluetooth control for GPS station-keeping robotic race marks, so a
-          race officer sets and moves a course from the committee boat.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li><li>BLE</li></ul>
-      </li>
+  <section class="wrap">
+    <h2>Children</h2>
+    <p>Members of a household may be children; a child with sixty available
+      minutes and a parent with three hundred is the case Taskr was built
+      for. There is no age check. The organizer decides who is added, and
+      since 11 September 2026 every new member is added by their own email
+      address and sets their own password. Members added before that date
+      with a PIN keep it.</p>
+    <p>Whether a child's own school calendar should be connected is a
+      question Taskr has not settled, so nothing here recommends it.</p>
+  </section>
 
-      <li>
-        <h2>Taskr</h2>
-        <span class="year">2026</span>
-        <p>Splits a household's chores by what each person can take
-          on, and says so when a fair split is not reachable. Rebuilt from a
-          2021 classroom project.</p>
-        <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>
-        <p class="links"><a href="/apps/taskr/">Try it</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
-      </li>
+  <section class="wrap">
+    <h2>Security</h2>
+    <p>Passwords are held by the sign-in service, never by Taskr. The key
+      Google issues for a connected calendar can be read only by Taskr's own
+      server-side functions, and the credential those functions use never
+      reaches the app in your browser; a check at build time refuses a build
+      that would ship it. The row-level rules above are enforced by the
+      database itself, not by the app asking nicely.</p>
+  </section>
 
-      <li>
-        <h2>COHSSA Attendance</h2>
-        <span class="year">2026</span>
-        <p>Replaces a high-school sailing team's paper attendance sheet with a
-          phone app that writes to the spreadsheet the coaches already keep.</p>
-        <ul class="tags"><li>React</li><li>Vite</li><li>Google Sheets</li></ul>
-      </li>
+  <section class="wrap">
+    <h2>Changes to this policy</h2>
+    <p>If Taskr's behaviour changes in a way that affects this page, the page
+      is updated before that change reaches taskr.madcowhq.com. The date at
+      the foot is when it was last checked against the app.</p>
+  </section>
 
-      <li>
-        <h2><a href="/work/race-timer.html">Race Timer</a></h2>
-        <span class="year">2026</span>
-        <p>A standalone Wear OS race timer that sounds a start sequence within
-          a measured bound of the mark, with the screen off and no phone
-          aboard.</p>
-        <ul class="tags"><li>Kotlin</li><li>Wear OS</li><li>Compose</li></ul>
-        <p class="links"><a href="/work/race-timer.html">Read the case study</a> &middot;
-          <a href="https://github.com/SailorDave17/race-timer">Source on GitHub</a></p>
-      </li>
+  <section class="wrap">
+    <h2>Contact</h2>
+    <p>Questions about this policy go to
+      <a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a>.</p>
+  </section>
 
-      <li>
-        <h2>Maverick</h2>
-        <span class="year">2026</span>
-        <p>A self-hosted smart-home hub: one process speaking MQTT to Zigbee
-          and Z-Wave, one device model, automations written as code.</p>
-        <ul class="tags"><li>Python</li><li>MQTT</li><li>Docker</li></ul>
-      </li>
-
-      <li>
-        <h2>Cairn</h2>
-        <span class="year">2026</span>
-        <p>The engineering record behind everything above: decisions with
-          their reasoning, mistakes with their corrections, and the hooks and
-          checks that stop them recurring.</p>
-        <ul class="tags"><li>Python</li><li>Git hooks</li><li>CI</li></ul>
-      </li>
-
-    </ul>
+  <section class="wrap page-foot">
+    <p class="muted">This is the only privacy policy Taskr publishes, and it
+      governs. Checked against the app on 13 September 2026, build 74aed25.
+      If the app and this page ever disagree, the page is the defect &mdash;
+      please say so at the address above.</p>
+    <p><a href="/apps/taskr/">Taskr</a> &middot;
+      <a href="support.html">Support</a></p>
   </section>
 </main>
 
-<!-- ============================================================= FOOTER
-     COPY THIS BLOCK VERBATIM into every other hq page. Story #5 owns it.
-     ============================================================= -->
 <footer class="site-footer">
   <div class="wrap footer-inner">
     <span>Dave Alvarado</span>
@@ -199,6 +370,5 @@
     </ul>
   </div>
 </footer>
-<!-- =========================================================== /FOOTER -->
 </body>
 </html>
