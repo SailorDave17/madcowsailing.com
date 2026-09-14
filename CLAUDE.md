@@ -199,7 +199,8 @@ links to the case study and to wherever you get it.
 **About.** First person. Where you are, what you're building, what you want to build
 next. Real `mailto:`, GitHub, résumé PDF. No skills-bar charts.
 
-**Nav:** `work · apps · about`
+**Nav:** `work · about · resume · contact` — resume is the PDF, contact is
+About's `#getting-in-touch` heading, and linkcheck fails if that id goes (#79).
 
 ## Page specs — sailing
 
