@@ -400,6 +400,22 @@ section p + p { margin-top: var(--space-3); }
   width: 100%;
 }
 
+/* Taskr's screenshots are phone captures, not a round watch face: square
+   corners and a hairline instead of the circle. The second one sits in the
+   decision section, capped at the same width as the header's (#65). */
+.shot-phone img {
+  border-radius: 0;
+  background: none;
+  border: var(--border-hair);
+  width: 100%;
+  height: auto;
+}
+
+.cs-figure {
+  max-width: var(--hq-shot-max);
+  margin-block: var(--space-4);
+}
+
 .facts {
   margin-top: var(--space-4);
 }
