@@ -163,13 +163,16 @@ attempt:
 
 - Pages strips `.html` with a `308` (`/apps/race-timer/support.html` →
   `/apps/race-timer/support`). Follow redirects (`curl -L`) and record the hop,
-  or the check reads an empty redirect body.
+  or the check reads an empty redirect body. Since #113 every internal link
+  names the clean form, which answers `200` with no hop, so fetch that.
 - The home page could not pass the title test while the fallback served its
   title for every missing path. With the control reading "Page not found" it
   can. Until a release carries #36, check `/` by its content instead.
 
 Internal links are held by `tools/linkcheck.py`, which resolves them against
-the tree and never asks the host. That stays right after #36: the host reports
+the tree and never asks the host. It resolves an extensionless link the way
+Pages does: `/about` is `about.html`, and a directory is its `index.html`
+(#113). That stays right after #36: the host reports
 a `404` to a visitor who has already followed the broken link, and linkcheck
 refuses the link before the push.
 
