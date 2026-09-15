@@ -310,6 +310,11 @@ if a change takes a trip page below 85.
   under a new URL; the script writes `?v=<hash>` onto every reference, and the
   gate refuses a page whose version does not match its file (#95). Fonts and
   images are not versioned — rename them rather than overwrite.
+- Internal links name the URL Pages serves: `/about`, not `/about.html`, and a
+  directory with its trailing slash (`/work/`). Pages 308s the `.html` form, so
+  each such link costs a visitor a redirect (#113). linkcheck resolves both
+  forms and will not catch a `.html` link coming back;
+  `grep -rhoE 'href="[^"#:]*\.html(#[^"]*)?"' hq sailing` should count 0.
 - Class names lowercase-hyphenated, describing role not appearance.
 - Watch CSS specificity collisions between element and class selectors, especially
   section padding.

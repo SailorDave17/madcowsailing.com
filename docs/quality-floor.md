@@ -273,11 +273,13 @@ visible difference — and nothing before #50 would have noticed.
 
 ## Also found, not fixed here
 
-- **Every `.html` URL on both domains answers `308` to its clean form**
-  (`/about.html` → `/about`), a Cloudflare Pages default nobody set. The pages'
-  `rel="canonical"` and every internal link say `.html`, so each click pays a
-  redirect and the canonical names a URL the host redirects away from. Not a floor
-  criterion and not this story's; recorded on #13 for a story of its own.
+- **Resolved by #112 and #113 — every `.html` URL on both domains answers `308`
+  to its clean form** (`/about.html` → `/about`), a Cloudflare Pages default nobody
+  set. The pages' `rel="canonical"` and every internal link said `.html`, so each
+  click paid a redirect and the canonical named a URL the host redirects away from.
+  Not a floor criterion and not this story's; recorded on #13 for a story of its own.
+  #112 pointed each canonical and `og:url` at the clean URL, and #113 did the same
+  for every internal link.
 - **The real trip has 24 photos**, not the forty the epic and #13 imagined. It is
   the real trip, which is what the criterion asks for; the number is recorded so
   nobody reads "forty" off the epic as a measured fact.

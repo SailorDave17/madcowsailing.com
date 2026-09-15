@@ -26,6 +26,12 @@ Scope, stated so a later reader does not over-trust a pass:
     exactly the intended no-JavaScript baseline - a silent failure that looks
     like a supported mode. A src is checked as a plain file: no fragment, and
     no index.html rewrite, because a directory is never a valid src.
+  - an extensionless href that is not a directory resolves as <path>.html,
+    because that is what Pages serves: /about answers 200 from about.html, and
+    /about.html 308s to /about (measured on production for story #113). A
+    directory still resolves to its index.html with or without the trailing
+    slash, although Pages 308s /work to /work/. This checks that a link lands,
+    not that it lands without a redirect, so a .html href still passes here.
   - a query string is dropped before the file is looked up, since the host
     serves the same file whatever the query says.
   - a reference into shared/css/ or shared/js/ must also carry
@@ -107,6 +113,11 @@ def check(site):
 
                 if trailing or os.path.isdir(resolved):
                     resolved = os.path.join(resolved, 'index.html').replace(os.sep, '/')
+                elif not os.path.splitext(resolved)[1]:
+                    # Pages serves about.html at /about and 308s /about.html
+                    # there, so an extensionless href that is not a directory
+                    # names <path>.html. Measured on production for #113.
+                    resolved += '.html'
 
                 # A link into assets/shared/ is checked against shared/, which
                 # is the tracked source the Pages build copies from. Skipping
