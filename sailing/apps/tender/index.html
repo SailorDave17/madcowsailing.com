@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mad Cow Sailing — apps and trip logs from Hoover and Lake Erie</title>
-<meta name="description" content="Apps that have seen a start line: a race timer for your wrist, robotic race marks on the way, and trip logs from Mad Cow, 1340, out of Hoover Sailing Club.">
-<link rel="canonical" href="https://madcowsailing.com/">
-<meta property="og:title" content="Mad Cow Sailing — apps and trip logs from Hoover and Lake Erie">
-<meta property="og:description" content="Apps that have seen a start line: a race timer for your wrist, robotic race marks on the way, and trip logs from Mad Cow, 1340, out of Hoover Sailing Club.">
+<title>Tender — the crew board at Hoover — Mad Cow Sailing</title>
+<meta name="description" content="Tender is a race-day crew board for Hoover Sailing Club. Post the boat that is short, the people free that day hear about it, and the matcher widens its own search when nobody fits.">
+<link rel="canonical" href="https://madcowsailing.com/apps/tender/">
+<meta property="og:title" content="Tender — the crew board at Hoover — Mad Cow Sailing">
+<meta property="og:description" content="Tender is a race-day crew board for Hoover Sailing Club. Post the boat that is short, the people free that day hear about it, and the matcher widens its own search when nobody fits.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowsailing.com/">
+<meta property="og:url" content="https://madcowsailing.com/apps/tender/">
 <meta property="og:image" content="https://madcowsailing.com/assets/img/share-card.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -20,19 +20,18 @@
      repo. Never edit anything under it; edit shared/. -->
 
 <link rel="preload" as="font" type="font/woff2" crossorigin
-      href="assets/shared/fonts/instrument-sans-latin-var.woff2">
+      href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
 <link rel="preload" as="font" type="font/woff2" crossorigin
-      href="assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
+      href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="assets/shared/css/tokens.css?v=072074f9ae">
-<link rel="stylesheet" href="assets/shared/css/base.css?v=83baae9afe">
-<link rel="stylesheet" href="css/site.css">
-<link rel="icon" href="assets/shared/img/madcow-mark-512.png" sizes="512x512">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=83baae9afe">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-
 <!-- ============================================================= HEADER
      COPY THIS BLOCK VERBATIM into every other sailing page. Only the
      aria-current="page" attribute moves. Story #8 owns it; if it changes,
@@ -59,7 +58,7 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/apps/">apps</a></li>
+        <li><a href="/apps/" aria-current="page">apps</a></li>
         <li><a href="/logs/">logs</a></li>
         <li><a href="/about.html">about</a></li>
       </ul>
@@ -70,30 +69,27 @@
 
 <main id="main">
 
-  <!-- The photograph is the hero. The only copy of it in the repo is portrait
-       (800x984 at the widest derivative), which caps how wide it can be shown
-       sharply: about 26rem at a 2x display. So the hero is two columns - the
-       boat beside the words - rather than a full-bleed banner that would be
-       blurry at 1440. If a larger original turns up, tools/photos.py makes the
-       1000 and 2000 derivatives and the srcset below grows; the layout holds. -->
+  <!-- The screenshot is the real board at tender.madcowsailing.com, captured
+       signed in on 2026-09-15 at 390 CSS pixels wide, rendered 2x and cropped
+       to the board's own height (390x610). It shows what was on the board
+       that day: one test race date and one post, so there is nobody's name
+       on it but the owner's. Story #37. -->
   <section class="hero wrap">
-    <div class="hero-photo">
-      <picture>
-        <source type="image/avif" srcset="assets/img/1340-400.avif 400w, assets/img/1340-800.avif 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <source type="image/webp" srcset="assets/img/1340-400.webp 400w, assets/img/1340-800.webp 800w" sizes="(max-width: 46rem) 100vw, 26rem">
-        <img src="assets/img/1340-800.jpg" width="800" height="984" loading="eager" fetchpriority="high" decoding="async"
-             alt="Mad Cow sailing under spinnaker on grey water, sail number 1340">
-      </picture>
+    <div class="shot-board">
+      <img src="/assets/img/tender/board-390.png" width="390" height="610"
+           loading="eager" fetchpriority="high" decoding="async"
+           alt="Tender's board on a phone: one race day listed, with a Thistle that needs crew flagged rung 3, red, and four candidates">
     </div>
     <div class="hero-copy">
-      <p class="eyebrow">Mad Cow &middot; Hoover Sailing Club</p>
-      <h1>Apps that have seen a start line.</h1>
-      <p class="lede">A start timer for your wrist that sounds the signal on the
-        mark, and robotic race marks on the way. Mad&nbsp;Cow, 1340, is the
-        <q>test rig</q>, and the logs prove it.</p>
+      <p class="eyebrow">Tender &middot; Web</p>
+      <h1>Short a crew for Sunday? Post the boat.</h1>
+      <p class="lede">Tender is the board at Hoover that says which boats still
+        need crew for a race day. Post the boat, and the people who said they
+        are free that day hear about it on their phones. If nobody fits, it
+        looks wider on its own instead of waiting for you to text around.</p>
       <div class="actions">
-        <a class="button button-accent" href="apps/">See the apps</a>
-        <a href="logs/">Read the trip logs</a>
+        <a class="button button-accent" href="#get-in">How to get in</a>
+        <a href="#questions">Questions</a>
       </div>
     </div>
   </section>
@@ -106,48 +102,141 @@
   </div>
 
   <section class="wrap">
-    <p class="eyebrow">Apps</p>
-    <h2>Useful on the water</h2>
-    <ul class="apps">
-      <li>
-        <h3><a href="apps/race-timer/">Race Timer</a></h3>
-        <p>Runs the start sequence on a Wear OS watch. The horn goes on the
-          gun, not near it, and it keeps going with the phone left in the bag.</p>
-        <p class="meta">Wear OS &middot; in testing on Google Play</p>
-      </li>
-      <li>
-        <h3><a href="apps/tender/">Tender</a></h3>
-        <p>Post the boat that is a crew short, and the club members free that
-          day hear about it. If nobody fits, it looks wider on its own.</p>
-        <p class="meta">Web &middot; invite-only pilot at Hoover</p>
-      </li>
-      <li>
-        <h3>Buoyant</h3>
-        <p>Robotic race marks you set, move and watch from wherever you are
-          running the race, instead of dragging anchors around.</p>
-        <p class="meta">In development</p>
-      </li>
-    </ul>
-    <p><a href="apps/">All the sailing apps</a></p>
+    <h2>Who it is for</h2>
+    <p>Racers at Hoover Sailing Club, to start. Club racing runs on Sundays
+      from April to late October and on Wednesday evenings from May through
+      August, and every one of those days is on the board before anyone has
+      posted a thing. The boats Tender knows are the ones that carry crew:
+      Flying Scot, Highlander, Interlake, MC Scow, Thistle and Windmill.</p>
+    <p>You do not need to own a boat, and you do not need to be a club member.
+      If you learned to sail at Hoover, are over eighteen, and would rather be
+      on a race boat than watching from the dock, you are exactly who this is
+      for.</p>
   </section>
 
-  <section class="field-deep logs">
+  <section class="wrap">
+    <h2>What it does</h2>
+    <p>A skipper posts a boat against a race day: the class, and the least
+      experience they will take aboard, on a four-step scale that runs from
+      never raced, through can hike and trim and can fly a spinnaker, to can
+      helm. Crew mark the days they are free, rate themselves on the same
+      scale, and tick the hulls they will sail, or say any hull.</p>
+    <p>Then the matcher looks, in three rungs. Strict first: people who ticked
+      that class and rate at or above the skipper&rsquo;s minimum. If nobody
+      on that rung is free, or the race is 48 hours away, it widens to amber:
+      any hull, still at or above the minimum. If amber is empty too, or the
+      race is 24 hours away, it widens to red: people rated below the minimum.
+      Whichever comes first, an empty rung or the clock, moves it down. The
+      colour on the board is how far it had to look.</p>
+    <p>Nobody gets hidden. Widening adds people below; it never drops anyone
+      above, and a red name is still a name the skipper can pick. So if you
+      rate yourself low, you get flagged, not filtered out, and if you rate
+      yourself high, a skipper can still see that and decide.</p>
+    <p>When a rung opens to you, your phone tells you: a notification if Tender
+      is on your home screen, an email either way. You answer with one tap,
+      the skipper picks one of the answers, and only then do the two of you
+      see each other&rsquo;s contact details.</p>
+    <p>A morning-of confirm that catches a no-show, and a message thread for
+      each match, are next on the list and not on the board yet.</p>
+
+    <!-- The three rungs, as bars that get wider: each rung is a wider search.
+         The red bar is the page's one accent element in this viewport; the
+         hero's red button is a screen above it. Story #37. -->
+    <ul class="ladder">
+      <li>
+        <span class="rung">Rung 1 &middot; strict</span>
+        <span class="bar" aria-hidden="true"></span>
+        <p>Ticked this class, rated at or above the minimum.</p>
+      </li>
+      <li>
+        <span class="rung">Rung 2 &middot; amber</span>
+        <span class="bar" aria-hidden="true"></span>
+        <p>Any hull, still rated at or above the minimum. Opens when rung 1
+          is empty or the race is 48 hours out.</p>
+      </li>
+      <li>
+        <span class="rung">Rung 3 &middot; red</span>
+        <span class="bar" aria-hidden="true"></span>
+        <p>Rated below the minimum. Opens when rung 2 is empty or the race is
+          24 hours out, and this is as wide as it goes.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="field-deep" id="get-in">
     <div class="wrap">
-      <p class="eyebrow">Trip logs</p>
-      <h2>Proof we go out</h2>
-      <p>Each trip gets a page: the photos, where we went, and a few sentences
-        on how it went. Five days at Put-in-Bay is up, with more to sort.</p>
-      <p><a href="logs/">The logs</a></p>
+      <p class="eyebrow">Get in</p>
+      <h2>Web, free, an invite-only pilot</h2>
+      <dl class="facts">
+        <dt>Runs on</dt>
+        <dd>Your phone&rsquo;s browser, at tender.madcowsailing.com. Add it to
+          your home screen and it behaves like an app and can send you
+          notifications. There is nothing to find in an app store.</dd>
+        <dt>Price</dt>
+        <dd>Free. No advertising, nothing to buy inside it.</dd>
+        <dt>Who can join</dt>
+        <dd>Right now, people connected to Hoover Sailing Club, by invitation,
+          and adults only. Signing up takes this season&rsquo;s invite code,
+          which is how the pilot stays one club.</dd>
+        <dt>How to get the code</dt>
+        <dd>Email <a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a>
+          and say you want to race. You get the code back, sign up at
+          <a href="https://tender.madcowsailing.com/join">tender.madcowsailing.com/join</a>
+          with it, set your rating and your hulls, and tick the days you can
+          sail. After that you sign in with your email and password, or with
+          Google, and the code is never asked for again.</dd>
+      </dl>
+      <p>Tender does not have a support page or a privacy page yet. They are on
+        its list, and until they land the email above is the support line and
+        the questions below say what it keeps.</p>
     </div>
   </section>
 
-  <section class="wrap who">
-    <p>Mad Cow races as 1340 out of Hoover Sailing Club. Dave Alvarado sails
-      her and writes the software here; the engineering side of it lives at
-      <a href="https://madcowhq.com/">madcowhq.com</a>.</p>
+  <section class="wrap" id="questions">
+    <h2>Questions</h2>
+    <dl class="faq">
+      <dt>Does a low rating hide me from skippers?</dt>
+      <dd>No. The rungs are a search order, not a filter. A post that has
+        widened to red shows you in red, below the people who matched
+        outright, and the skipper decides. The one thing that keeps you off a
+        post entirely is not marking the day as free.</dd>
+
+      <dt>What does amber mean on a post?</dt>
+      <dd>That the skipper has not found anyone who ticked that class yet, so
+        the board is now showing people who will sail any hull and meet the
+        minimum. A post goes amber either because the strict rung was empty or
+        because the race is inside 48 hours. Red is the same thing one step
+        further: inside 24 hours, or amber was empty too.</dd>
+
+      <dt>Do I have to be a club member?</dt>
+      <dd>No. Tender is for anyone who learned to sail at Hoover and wants to
+        race, member or not. What you do need is the invite code, and to be
+        eighteen or over.</dd>
+
+      <dt>Who sees my phone number?</dt>
+      <dd>Only a skipper who has accepted you for a race, and only after they
+        have. Your profile shows your name, your rating and your hulls to
+        other members; your email and phone stay out of sight until a match
+        is made, and the phone is optional in the first place.</dd>
+
+      <dt>What does it keep about me?</dt>
+      <dd>Your name and email, a phone number if you give one, your
+        self-rating, the hulls you will sail, the days you said you were free,
+        and the matches you were part of. Ask and your profile, your days and
+        your messages are removed; a past match stays as a row with no name on
+        it, so the season can still be counted.</dd>
+    </dl>
+  </section>
+
+  <!-- The quiet case-study link. It lives at the end of <main> rather than in
+       the site footer because that block is copied verbatim from the home page
+       and story #8 owns it - putting a per-page link inside it would fork it. -->
+  <section class="wrap page-foot">
+    <p>Curious why the matcher widens instead of filtering? The engineering
+      side, and what was decided against, is written up at
+      <a href="https://madcowhq.com/work/tender.html">madcowhq.com</a>.</p>
   </section>
 </main>
-
 <!-- ============================================================= FOOTER
      COPY THIS BLOCK VERBATIM into every other sailing page. Story #8 owns it.
      The "Built by" line is the one link to the portfolio on this site, and it

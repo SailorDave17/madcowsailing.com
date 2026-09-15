@@ -25,7 +25,9 @@ They share tokens, logo assets, and base CSS. They do not share content.
 the work index at `/work/`, case studies for Race Timer, Taskr and Tender, and
 Taskr's tester, support and privacy pages; the apps index folded into `/work/` in
 #81, and `/apps/` now 301s there. Sailing has the home, about, apps index, the
-Race Timer product / support / privacy trio, the logs index and two trip logs. `docs/design-brief.md`
+Race Timer product / support / privacy trio, Tender's product page (#37; its
+support and privacy pages are Tender's own to publish, not this repo's), the
+logs index and two trip logs. `docs/design-brief.md`
 still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 **measured on production** rather than as an aspiration.
 
