@@ -400,6 +400,82 @@ section p + p { margin-top: var(--space-3); }
   }
 }
 
+/* ---- The ladder (story #37) -------------------------------------------
+   Tender's matcher searches three rungs in order and the board colours a
+   post by the rung it is open to. Three rows, one per rung; each bar is
+   wider than the last because each rung is a wider search, and the third
+   is --ensign because red is the accent and this is the one place on the
+   page it appears. There is no amber token and none is invented: the
+   middle rung is --blue-deep, the darker of the two blues, so the three
+   read as a sequence rather than as three unrelated colours. The word
+   "amber" stays in the label, because that is what the board calls it.
+
+   Built from tokens only. No icon grid; a bar, a mono label and a sentence. */
+
+.ladder {
+  list-style: none;
+  padding: 0;
+  margin-block: var(--space-5);
+  max-width: var(--measure);
+}
+
+.ladder li {
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  border-top: var(--border-hair);
+  padding-block: var(--space-3);
+}
+
+.ladder .rung {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+.ladder .bar {
+  display: block;
+  height: var(--space-2);
+  background: var(--blue);
+}
+
+.ladder li:nth-child(1) .bar { width: 33%; }
+.ladder li:nth-child(2) .bar { width: 66%; background: var(--blue-deep); }
+.ladder li:nth-child(3) .bar { width: 100%; background: var(--ensign); }
+
+.ladder p {
+  margin: 0;
+}
+
+/* The screenshot of the board is a phone capture, portrait. It sits in the
+   hero beside the copy, capped like the boat photo so a 2x capture is never
+   upscaled, and it is a rectangle: unlike a watch there is nothing round
+   about it, so the .shot mask above is deliberately not applied. */
+.shot-board {
+  max-width: var(--sail-shot-max);
+  margin-inline: auto;
+}
+
+.shot-board img {
+  width: 100%;
+  border: var(--border-hair);
+  border-radius: 0;
+  background: none;
+}
+
+/* On a phone the board capture is a phone-sized picture, so shown first it
+   is the whole first screen and the headline lands below the fold (measured
+   at 360x740: the h1 began at 665px). The words go first there and the board
+   follows the actions; wide layouts keep the picture beside the copy. */
+@media (max-width: 46rem) {
+  .hero .shot-board {
+    order: 1;
+  }
+}
+
 /* ---- Definition lists — facts and FAQ -------------------------------- */
 
 .facts,
