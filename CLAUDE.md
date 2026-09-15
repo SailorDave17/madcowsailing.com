@@ -128,6 +128,22 @@ second command, reconsider Astro instead of accumulating shell.
 `madcowhq.com/sailing`, 301 that path to `https://madcowsailing.com/` in
 `hq/_redirects`.
 
+**The edge adds nothing to a page (#105).** Until 2026-09-15 each zone had two
+settings that rewrote pages, and neither appeared anywhere in the repo. Email
+Address Obfuscation (zone → Security → Settings) served every `mailto:` as a
+`/cdn-cgi/l/email-protection` link that needs JavaScript, and showed
+`[email protected]` as body text until the script ran. Web Analytics' automatic
+setup (account → Web Analytics → Manage site, set to "Enable, excluding visitor
+data in the EU") injected `static.cloudflareinsights.com/beacon.min.js` before
+`</body>`. **Owner decision, 2026-09-15: both off, in both zones**, so that a
+contact link works without JavaScript and nothing runs on a page that the repo
+does not ship.
+
+The check is the project's `*.pages.dev` host against the custom domain. Pages
+serves the repo's bytes, so any difference between the two is a zone setting.
+Fetch with `Accept: text/html`: the beacon was injected only for that header, so
+a plain `curl` read no beacon while every browser got one.
+
 ## Stack
 
 Plain HTML, CSS, and vanilla JS. No framework, no dependencies beyond the copy step.
@@ -149,7 +165,8 @@ caught before production, and Astro's Cloudflare guide (read 2026-09-14, Astro
 7.3.2) now documents Workers rather than Pages, so a migration moves the hosting
 too. Count before deciding; do not read this line as the count.*
 
-No analytics requiring a cookie banner.
+No analytics requiring a cookie banner, and since #105 no analytics script at
+all: Cloudflare Web Analytics is off in both zones (see Hosting).
 
 ## The two-presentation rule
 
@@ -205,7 +222,9 @@ carry every app and where to get it. The redirects in `hq/_redirects` are exact
 paths, so the `hq/apps/<slug>/` pages keep serving. Do not add a splat.
 
 **About.** First person. Where you are, what you're building, what you want to build
-next. Real `mailto:`, GitHub, résumé PDF. No skills-bar charts.
+next. Real `mailto:`, GitHub, résumé PDF. No skills-bar charts. The `mailto:`
+is served as written only because Email Address Obfuscation is off (#105, see
+Hosting).
 
 **Nav:** `work · about · resume · contact` — resume is the PDF, contact is
 About's `#getting-in-touch` heading, and linkcheck fails if that id goes (#79).
