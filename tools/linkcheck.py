@@ -30,8 +30,13 @@ Scope, stated so a later reader does not over-trust a pass:
     because that is what Pages serves: /about answers 200 from about.html, and
     /about.html 308s to /about (measured on production for story #113). A
     directory still resolves to its index.html with or without the trailing
-    slash, although Pages 308s /work to /work/. This checks that a link lands,
-    not that it lands without a redirect, so a .html href still passes here.
+    slash.
+  - since #130 an href Pages answers with a redirect is a failure, not a pass:
+    a path ending .html, a directory without its trailing slash, and a path
+    naming an index. All three land after one 308, so the link works and every
+    visitor pays a hop - which is why this went unnoticed until #113 measured
+    it. src is unaffected: a src is fetched at the URL written, and no rewrite
+    applies to it.
   - a query string is dropped before the file is looked up, since the host
     serves the same file whatever the query says.
   - a reference into shared/css/ or shared/js/ must also carry
@@ -73,6 +78,34 @@ def ids_in(path, cache):
     return cache[path]
 
 
+def redirecting(target, resolved, trailing):
+    """Why Pages answers this internal href with a 308, or None.
+
+    Pages strips .html and adds a directory's trailing slash, so all three
+    forms below land after one redirect: the link works, and every visitor
+    pays a hop. That is why it survived until #113 measured it on production
+    (/about.html -> 308 /about, /work -> 308 /work/, /work/index -> 308
+    /work/). Resolution above deliberately still accepts them - this refuses
+    them afterwards, so the reason names the form to write instead.
+    """
+    if not target:                                   # same-page: "#main"
+        return None
+    if target.endswith('.html'):
+        clean = target[:-len('.html')]
+        if os.path.basename(clean) == 'index':
+            clean = clean[:-len('index')]
+        return 'redirects: Pages 308s %s to %s - link to %s' % (
+            target, clean or './', clean or './')
+    if not trailing and os.path.isdir(resolved):
+        return 'redirects: %s is a directory; Pages 308s it to %s/ - add the slash' % (
+            target, target)
+    if os.path.basename(target) == 'index':
+        clean = target[:-len('index')]
+        return 'redirects: Pages 308s %s to %s - name the directory' % (
+            target, clean or './')
+    return None
+
+
 def check(site):
     """Return a list of (page, href, reason) for every internal href that fails."""
     failures = []
@@ -110,6 +143,14 @@ def check(site):
                 # root-relative "/work/" gets it. The two spellings must agree.
                 trailing = resolved.endswith('/')
                 resolved = os.path.normpath(resolved).replace(os.sep, '/')
+
+                # #130: a form Pages redirects is a failure, checked here so
+                # the rewrites below - which are what make it land - cannot
+                # hide it. One reason per href, so stop at this one.
+                redirect = redirecting(target, resolved, trailing)
+                if redirect:
+                    failures.append((page, href, redirect))
+                    continue
 
                 if trailing or os.path.isdir(resolved):
                     resolved = os.path.join(resolved, 'index.html').replace(os.sep, '/')
