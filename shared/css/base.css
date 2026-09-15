@@ -101,7 +101,11 @@ a:hover {
   outline-offset: 2px;
 }
 
-.field-deep :focus-visible {
+/* The lightbox sits on --deep too, but gallery.js appends it to <body>, not
+   inside a .field-deep, so it is named here: its ring falls on the ::backdrop,
+   where --blue reads 2.2:1 and --chalk 12.7:1 (#56). */
+.field-deep :focus-visible,
+.lightbox :focus-visible {
   outline-color: var(--chalk);
 }
 
