@@ -32,7 +32,10 @@
 //      closes it again and re-walks the page. Story #50 — before it, a closed
 //      <dialog> computed display:none and its controls were dropped by this
 //      pass's own filter, so the one interactive component on either site was
-//      silently unmeasured while the counts read clean.
+//      silently unmeasured while the counts read clean. The progress line on
+//      stderr names the outline colour the stops showed, by token and counted,
+//      page and lightbox apart (#56): visible-or-not alone passed a --blue
+//      ring on the lightbox's navy backdrop, at 2.2:1.
 //   4. Contrast: every text-bearing element's computed colour against the
 //      first opaque background-color up its ancestor chain, reduced to the
 //      distinct (colour, background) pairs, named by the tokens in
@@ -367,6 +370,20 @@ function invisibleStops(stops) {
     .map((s) => `${s.label} [focus-visible=${s.focusVisible}, outline=${s.outline}]`);
 }
 
+// The outline colours a set of stops showed, named by token and counted —
+// "--blue x10, --chalk x2". A stop with no outline is invisibleStops' to
+// report; this is what a PASSING stop looks like, which the verdict above
+// cannot say (#56).
+function outlineColours(stops, name) {
+  const counts = new Map();
+  for (const s of stops) {
+    if (s.outline === 'none') continue;
+    const k = name(s.outlineColor);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  return [...counts].map(([k, n]) => `${k} x${n}`).join(', ') || 'none';
+}
+
 // Enumerate and Tab-walk one page. Returns the raw shape both callers need.
 async function keyboardOnPage(cdp, sessionId) {
   // Each candidate is tagged with its DOM-order index and identified by that,
@@ -481,6 +498,7 @@ async function measureLightbox(cdp, sessionId) {
     trapped: !escaped && wraps,
     escapedTo: escaped,
     controls: expected,
+    stops: firstLap,
   };
 }
 
@@ -692,6 +710,8 @@ async function main() {
   const { proc, cdp } = await launchChrome(join(outDir, 'profile'));
   const results = [];
   let lhVersion = LH_VERSION; // what a run WOULD use; the report says when Lighthouse was skipped
+  const names = tokenMap();
+  const name = (rgb) => names[rgb] || rgb;
   try {
     for (const page of list) {
       console.error(`→ ${page.url}`);
@@ -703,10 +723,10 @@ async function main() {
       results.push({ page, narrow, kb, contrast, lh });
       const lbLine = kb.lightbox
         ? (kb.lightbox.opened
-            ? `  lightbox ${kb.lightbox.reached}/${kb.lightbox.expected}${kb.lightbox.trapped ? ' trapped' : ' NOT TRAPPED'}`
+            ? `  lightbox ${kb.lightbox.reached}/${kb.lightbox.expected}${kb.lightbox.trapped ? ' trapped' : ' NOT TRAPPED'} outlines ${outlineColours(kb.lightbox.stops, name)}`
             : '  lightbox DID NOT OPEN')
         : '';
-      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''}${lbLine}  pairs ${contrast.length}`);
+      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''} outlines ${outlineColours(kb.stops, name)}${lbLine}  pairs ${contrast.length}`);
     }
   } finally {
     proc.kill();
