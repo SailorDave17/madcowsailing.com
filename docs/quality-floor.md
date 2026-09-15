@@ -339,23 +339,33 @@ npx --yes lighthouse@13.4.1 <url> --only-categories=performance,accessibility --
 
 ### Keyboard pass
 
+_This section alone was regenerated for #56, on 2026-09-15 UTC, from `node tools/quality_floor.mjs --skip-lighthouse --no-write` against production. The rest of this block is still the 2026-09-04 run. Pasted by hand, because a `--skip-lighthouse` write would have blanked every score above._
+
 Desktop width (1280px). "Expected" is every visible `a[href]`, button, form control, summary or positive-tabindex element in DOM order; "reached" is how many distinct stops Tab produced before focus wrapped. A stop counts as visible when `:focus-visible` matches and the computed outline is non-zero.
 
 On a page carrying a `.gallery` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open `<dialog>`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards and the page is re-walked, so the page's own count is measured before and after.
 
-- [x] madcowhq.com/about.html — 12 of 12
-- [x] madcowhq.com/apps/ — 14 of 14 _(retired by #81: the page is gone and /apps/ 301s to /work/)_
+- [x] madcowhq.com/404.html — 13 of 13
+- [x] madcowhq.com/about.html — 14 of 14
+- [x] madcowhq.com/apps/taskr/ — 17 of 17
+- [x] madcowhq.com/apps/taskr/privacy.html — 14 of 14
+- [x] madcowhq.com/apps/taskr/support.html — 14 of 14
 - [x] madcowhq.com/ — 16 of 16
-- [x] madcowhq.com/work/ — 14 of 14
-- [x] madcowhq.com/work/race-timer.html — 11 of 11
+- [x] madcowhq.com/work/ — 23 of 23
+- [x] madcowhq.com/work/race-timer.html — 12 of 12
+- [x] madcowhq.com/work/taskr.html — 14 of 14
+- [x] madcowhq.com/work/tender.html — 14 of 14
+- [x] madcowsailing.com/404.html — 9 of 9
 - [x] madcowsailing.com/about.html — 8 of 8
-- [x] madcowsailing.com/apps/ — 8 of 8
+- [x] madcowsailing.com/apps/ — 10 of 10
 - [x] madcowsailing.com/apps/race-timer/ — 13 of 13
 - [x] madcowsailing.com/apps/race-timer/privacy.html — 11 of 11
 - [x] madcowsailing.com/apps/race-timer/support.html — 11 of 11
-- [x] madcowsailing.com/ — 12 of 12
+- [x] madcowsailing.com/apps/tender/ — 11 of 11
+- [x] madcowsailing.com/ — 13 of 13
 - [x] madcowsailing.com/logs/2025-07-12-put-in-bay/ — 30 of 30, lightbox 3 of 3, focus trapped, closed and focus returned
-- [x] madcowsailing.com/logs/ — 7 of 7
+- [x] madcowsailing.com/logs/2026-07-04-mullett-lake/ — 59 of 59, lightbox 3 of 3, focus trapped, closed and focus returned
+- [x] madcowsailing.com/logs/ — 8 of 8
 
 ### Contrast pairs in production
 

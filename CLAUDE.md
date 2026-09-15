@@ -128,6 +128,22 @@ second command, reconsider Astro instead of accumulating shell.
 `madcowhq.com/sailing`, 301 that path to `https://madcowsailing.com/` in
 `hq/_redirects`.
 
+**The edge adds nothing to a page (#105).** Until 2026-09-15 each zone had two
+settings that rewrote pages, and neither appeared anywhere in the repo. Email
+Address Obfuscation (zone → Security → Settings) served every `mailto:` as a
+`/cdn-cgi/l/email-protection` link that needs JavaScript, and showed
+`[email protected]` as body text until the script ran. Web Analytics' automatic
+setup (account → Web Analytics → Manage site, set to "Enable, excluding visitor
+data in the EU") injected `static.cloudflareinsights.com/beacon.min.js` before
+`</body>`. **Owner decision, 2026-09-15: both off, in both zones**, so that a
+contact link works without JavaScript and nothing runs on a page that the repo
+does not ship.
+
+The check is the project's `*.pages.dev` host against the custom domain. Pages
+serves the repo's bytes, so any difference between the two is a zone setting.
+Fetch with `Accept: text/html`: the beacon was injected only for that header, so
+a plain `curl` read no beacon while every browser got one.
+
 ## Stack
 
 Plain HTML, CSS, and vanilla JS. No framework, no dependencies beyond the copy step.
@@ -149,7 +165,8 @@ caught before production, and Astro's Cloudflare guide (read 2026-09-14, Astro
 7.3.2) now documents Workers rather than Pages, so a migration moves the hosting
 too. Count before deciding; do not read this line as the count.*
 
-No analytics requiring a cookie banner.
+No analytics requiring a cookie banner, and since #105 no analytics script at
+all: Cloudflare Web Analytics is off in both zones (see Hosting).
 
 ## The two-presentation rule
 
@@ -205,7 +222,9 @@ carry every app and where to get it. The redirects in `hq/_redirects` are exact
 paths, so the `hq/apps/<slug>/` pages keep serving. Do not add a splat.
 
 **About.** First person. Where you are, what you're building, what you want to build
-next. Real `mailto:`, GitHub, résumé PDF. No skills-bar charts.
+next. Real `mailto:`, GitHub, résumé PDF. No skills-bar charts. The `mailto:`
+is served as written only because Email Address Obfuscation is off (#105, see
+Hosting).
 
 **Nav:** `work · about · resume · contact` — resume is the PDF, contact is
 About's `#getting-in-touch` heading, and linkcheck fails if that id goes (#79).
@@ -256,6 +275,16 @@ Applies to every page on both sites.
 - Body text contrast ≥ 4.5:1. See the measured table in `docs/design-brief.md`.
 - No layout shift on load. `font-display: swap`.
 - Lighthouse ≥ 95 performance and accessibility, tested on a real trip gallery.
+
+**One page is held lower, by owner decision (2026-09-15, #96): the sailing logs
+index needs ≥ 90 performance while two trip covers share its first screen.**
+With one trip it read 95 on a single 58 KB cover, with no margin. The second
+trip put a second cover on a phone's first screen, and every lever that keeps
+the pictures as they are read 94 locally: 4:3 cover derivatives, a 640 rung,
+and every split of `loading` and `fetchpriority` hints. Production reads about
+a point below a local serve. 95 was reached only by dropping the covers to
+quality 50. Accessibility stays at 100. The evidence is on #96 and its PR. Ask
+again if a change takes the page below 90.
 
 ## Conventions
 
