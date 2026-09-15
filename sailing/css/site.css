@@ -99,12 +99,6 @@
 section h2 { margin-bottom: var(--space-2); }
 section p + p { margin-top: var(--space-3); }
 
-/* The eyebrow is --blue on light, which fails on the navy field. --spray is
-   the muted-secondary on --deep (the holding page used the same flip). */
-.field-deep .eyebrow {
-  color: var(--spray);
-}
-
 /* ---- Apps ------------------------------------------------------------
    One entry per app: name, what it does for a sailor, platform and status.
    The apps index owns the detail; this is the strip that gets them there. */
