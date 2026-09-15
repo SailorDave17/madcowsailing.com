@@ -77,6 +77,16 @@ a:hover {
   color: var(--ensign-lt);
 }
 
+/* The eyebrow and a table's caption and headers are --blue on light, which
+   reads 2.5:1 on --deep; --spray reads 8.2:1 (#119). The table half names
+   the element because each site.css sets `.parties th` and its siblings
+   after this file loads, and a specificity tie would go to them. */
+.field-deep .eyebrow,
+.field-deep table caption,
+.field-deep table th {
+  color: var(--spray);
+}
+
 /* Small structural text — eyebrows, dates, stack tags, nav, the sail
    number. The mono doing this job is what keeps the page from feeling
    like a template. */

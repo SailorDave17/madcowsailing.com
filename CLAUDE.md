@@ -286,6 +286,19 @@ a point below a local serve. 95 was reached only by dropping the covers to
 quality 50. Accessibility stays at 100. The evidence is on #96 and its PR. Ask
 again if a change takes the page below 90.
 
+**Trip gallery pages are held lower too, by owner decision (2026-09-15, #53):
+they need ≥ 85 performance.** Their LCP element is the log paragraph, not a
+photo. What costs them is everything that finishes before the first paint,
+which Lighthouse's simulator puts on the critical path: the first screen's
+photos, the stylesheets and the fonts. On production, with every photo blocked
+the pages read 90–95, and with every web font blocked 93–95. So no shippable
+change reaches 95 in all three runs without dropping the photographs or the web
+fonts. Dropping the display face's preload cost 3 points. Since #53, only the
+first screen of both layouts loads eager. The evidence is on #53 and its PR.
+Each trip page's number is in `tools/quality_floor.mjs`'s `PERF_FLOORS`, keyed by
+file, so a new trip is judged against 95 until it has an entry there. Ask again
+if a change takes a trip page below 85.
+
 ## Conventions
 
 - Every colour, type size, and spacing value comes from `shared/css/tokens.css`.
@@ -297,6 +310,11 @@ again if a change takes the page below 90.
   under a new URL; the script writes `?v=<hash>` onto every reference, and the
   gate refuses a page whose version does not match its file (#95). Fonts and
   images are not versioned — rename them rather than overwrite.
+- Internal links name the URL Pages serves: `/about`, not `/about.html`, and a
+  directory with its trailing slash (`/work/`). Pages 308s the `.html` form, so
+  each such link costs a visitor a redirect (#113). linkcheck resolves both
+  forms and will not catch a `.html` link coming back;
+  `grep -rhoE 'href="[^"#:]*\.html(#[^"]*)?"' hq sailing` should count 0.
 - Class names lowercase-hyphenated, describing role not appearance.
 - Watch CSS specificity collisions between element and class selectors, especially
   section padding.

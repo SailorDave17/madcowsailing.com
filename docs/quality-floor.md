@@ -46,8 +46,11 @@ when a story claims to have moved one of these numbers.
 
 - **Performance** is the median of three Lighthouse runs, with all three shown in
   brackets; the spread is part of the measurement, not noise to hide. Anything
-  under 95 is marked and explained under *Under the floor* with its LCP element and
-  what Lighthouse itself names as render-blocking.
+  under the page's floor is marked and explained under *Under the floor* with its
+  LCP element and what Lighthouse itself names as render-blocking. The floor is 95
+  unless `CLAUDE.md` sets a page its own, and then it is shown beside the score:
+  the sailing logs index is held to 90 since #96. The tool reads that number from
+  `PERF_FLOORS` in the script (#124).
 - **Accessibility** is deterministic and is read from the last run.
 - **CLS** is Lighthouse's, under its simulated slow-4G throttling. An unthrottled
   probe under-reads the font-swap shift by two orders of magnitude, so this is the
@@ -270,11 +273,13 @@ visible difference — and nothing before #50 would have noticed.
 
 ## Also found, not fixed here
 
-- **Every `.html` URL on both domains answers `308` to its clean form**
-  (`/about.html` → `/about`), a Cloudflare Pages default nobody set. The pages'
-  `rel="canonical"` and every internal link say `.html`, so each click pays a
-  redirect and the canonical names a URL the host redirects away from. Not a floor
-  criterion and not this story's; recorded on #13 for a story of its own.
+- **Resolved by #112 and #113 — every `.html` URL on both domains answers `308`
+  to its clean form** (`/about.html` → `/about`), a Cloudflare Pages default nobody
+  set. The pages' `rel="canonical"` and every internal link said `.html`, so each
+  click paid a redirect and the canonical named a URL the host redirects away from.
+  Not a floor criterion and not this story's; recorded on #13 for a story of its own.
+  #112 pointed each canonical and `og:url` at the clean URL, and #113 did the same
+  for every internal link.
 - **The real trip has 24 photos**, not the forty the epic and #13 imagined. It is
   the real trip, which is what the criterion asks for; the number is recorded so
   nobody reads "forty" off the epic as a measured fact.
@@ -315,6 +320,8 @@ npx --yes lighthouse@13.4.1 <url> --only-categories=performance,accessibility --
 
 ### Scores
 
+_The three `madcowsailing.com/logs/` rows, and their entries under *Under the floor*, were regenerated for #124 on 2026-09-15 at 06:02 UTC from `node tools/quality_floor.mjs --only /logs/ --no-write` against production. They were pasted by hand, because a write from an `--only` run replaces the whole block. The other rows are still the 2026-09-04 run, and the Keyboard pass section is #56's._
+
 | Page | Performance | Accessibility | CLS | 360px scrollWidth | Keyboard | Date | Lighthouse |
 |---|---|---|---|---|---|---|---|
 | madcowhq.com/about.html | 95 (95/97/95) | 100 | 0.000 | 360 | 12/12 ok | 2026-09-04 | 13.4.1 |
@@ -328,14 +335,16 @@ npx --yes lighthouse@13.4.1 <url> --only-categories=performance,accessibility --
 | madcowsailing.com/apps/race-timer/privacy.html | 95 (95/95/95) | 100 | 0.000 | 360 | 11/11 ok | 2026-09-04 | 13.4.1 |
 | madcowsailing.com/apps/race-timer/support.html | 95 (95/95/96) | 100 | 0.000 | 360 | 11/11 ok | 2026-09-04 | 13.4.1 |
 | madcowsailing.com/ | 95 (95/94/95) | 100 | 0.000 | 360 | 12/12 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/logs/2025-07-12-put-in-bay/ | 85 **under floor** (85/85/85) | 100 | 0.000 | 360 | 30/30 ok +3 lightbox | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/logs/ | 95 (96/95/94) | 100 | 0.000 | 360 | 7/7 ok | 2026-09-04 | 13.4.1 |
+| madcowsailing.com/logs/2025-07-12-put-in-bay/ | 87 **under floor** (95/83/87) | 100 | 0.000 | 360 | 30/30 ok +3 lightbox | 2026-09-15 | 13.4.1 |
+| madcowsailing.com/logs/2026-07-04-mullett-lake/ | 88 **under floor** (88/85/94) | 100 | 0.000 | 360 | 59/59 ok +3 lightbox | 2026-09-15 | 13.4.1 |
+| madcowsailing.com/logs/ | 96 (97/93/96), floor 90 | 100 | 0.000 | 360 | 8/8 ok | 2026-09-15 | 13.4.1 |
 
 ### Under the floor
 
 - **https://madcowhq.com/work/race-timer.html** — performance 94, accessibility 100; simulated FCP 1851 ms, LCP 2871 ms (last run; observed first paint in the unthrottled trace 320 ms). LCP element: `main#main > section.wrap > div.shot > img "The watch face mid-countdown: white nume"`. Weighted audits under 1: first-contentful-paint (0.88), largest-contentful-paint (0.81). Render-blocking per Lighthouse: https://madcowhq.com/css/site.css (150 ms).
 - **https://madcowsailing.com/about.html** — performance 94, accessibility 100; simulated FCP 1833 ms, LCP 3003 ms (last run; observed first paint in the unthrottled trace 295 ms). LCP element: `section.wrap > div.boat-photo > picture > img "Mad Cow sailing under spinnaker on grey "`. Weighted audits under 1: first-contentful-paint (0.89), largest-contentful-paint (0.78). Render-blocking per Lighthouse: https://madcowsailing.com/css/site.css (450 ms).
-- **https://madcowsailing.com/logs/2025-07-12-put-in-bay/** — performance 85, accessibility 100; simulated FCP 1839 ms, LCP 4135 ms (last run; observed first paint in the unthrottled trace 390 ms). LCP element: `body.logs-page > main#main > section.wrap > p "Five days at Put-in-Bay, 12 to 16 July. "`. Weighted audits under 1: first-contentful-paint (0.89), largest-contentful-paint (0.46). Render-blocking per Lighthouse: https://madcowsailing.com/css/site.css (300 ms); https://madcowsailing.com/assets/shared/css/base.css (150 ms).
+- **https://madcowsailing.com/logs/2025-07-12-put-in-bay/** — performance 87, accessibility 100; simulated FCP 1364 ms, LCP 2865 ms (last run; observed first paint in the unthrottled trace 5718 ms). LCP element: `body.logs-page > main#main > section.wrap > p "Five days at Put-in-Bay, 12 to 16 July. "`. Weighted audits under 1: first-contentful-paint (0.97), largest-contentful-paint (0.81), speed-index (0.17). Render-blocking per Lighthouse: https://madcowsailing.com/css/site.css (150 ms); https://madcowsailing.com/assets/shared/css/base.css?… (150 ms).
+- **https://madcowsailing.com/logs/2026-07-04-mullett-lake/** — performance 88, accessibility 100; simulated FCP 2088 ms, LCP 2506 ms (last run; observed first paint in the unthrottled trace 1980 ms). LCP element: `body.logs-page > main#main > section.wrap > p "Cruz's first vacation, nine days at the "`. Weighted audits under 1: first-contentful-paint (0.81), largest-contentful-paint (0.89), speed-index (0.85). Render-blocking per Lighthouse: https://madcowsailing.com/css/site.css (150 ms).
 
 ### Keyboard pass
 
