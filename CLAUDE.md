@@ -25,13 +25,16 @@ They share tokens, logo assets, and base CSS. They do not share content.
 the work index at `/work/`, case studies for Race Timer, Taskr and Tender, and
 Taskr's tester, support and privacy pages; the apps index folded into `/work/` in
 #81, and `/apps/` now 301s there. Sailing has the home, about, apps index, the
-Race Timer product / support / privacy trio, the logs index and two trip logs. `docs/design-brief.md`
+Race Timer product / support / privacy trio, Tender's product page (#37; its
+support and privacy pages are Tender's own to publish, not this repo's), the
+logs index and two trip logs. Each site also has a `404.html`, which Pages
+serves with a 404 for any path the site does not hold (#36). `docs/design-brief.md`
 still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 **measured on production** rather than as an aspiration.
 
 Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
 The remaining open work is refinement rather than construction — self-hosted
-fonts, real 404s, a second app's pages, copy sharpening — and it is
+fonts, a second app's pages, copy sharpening — and it is
 tracked on the board, not here.
 
 *This section read "Greenfield … No page of either site is built yet" until
@@ -60,6 +63,7 @@ story, this is the paragraph to check.*
 │   ├── apps/                 No index page: /apps/ 301s to /work/ (#81)
 │   │   └── <slug>/           Non-sailing apps only: support.html, privacy.html
 │   ├── about.html
+│   ├── 404.html              Served with a 404 for any missing path (#36)
 │   ├── _redirects            Path redirects, exact paths only; Pages reads it
 │   └── assets/               Site-specific images; shared/ lands in assets/shared/
 ├── sailing/                  → madcowsailing.com
@@ -74,6 +78,7 @@ story, this is the paragraph to check.*
 │   │   ├── index.html
 │   │   └── <trip-slug>/      index.html + trip.json
 │   ├── about.html            The boat, the name, who's behind it
+│   ├── 404.html              Served with a 404 for any missing path (#36)
 │   └── assets/photos/<trip-slug>/
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages

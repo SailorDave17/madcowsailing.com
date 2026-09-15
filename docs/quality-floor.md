@@ -278,7 +278,7 @@ visible difference — and nothing before #50 would have noticed.
 - **The real trip has 24 photos**, not the forty the epic and #13 imagined. It is
   the real trip, which is what the criterion asks for; the number is recorded so
   nobody reads "forty" off the epic as a measured fact.
-- **The lightbox's focus ring is `--blue` on a navy field.** Measured 2026-09-04
+- **Resolved by #56 — the lightbox's focus ring was `--blue` on a navy field.** Measured 2026-09-04
   by #50's pass: each control's `:focus-visible` outline computes to
   `rgb(0, 103, 161)` (`--blue`), with `outline-offset: 2px` placing the ring over
   the `::backdrop` — `--deep` at 0.94 over the page ground — which composites to
@@ -291,6 +291,14 @@ visible difference — and nothing before #50 would have noticed.
   the ratio here is arithmetic on the tokens, not an instrument reading. Not this
   story's — #50 makes the lightbox measurable and does not change it — and
   recorded on #50 for a story of its own.
+  *Resolved 2026-09-14 by #56*: `.lightbox :focus-visible` now shares the
+  `--chalk` override with `.field-deep` in `shared/css/base.css`. The pass still
+  does not measure a ring's contrast, but its progress line now names the
+  outline colour each set of stops showed, by token, so the change reads off the
+  tool. On a local serve of all 21 pages, `develop` printed `lightbox 3/3 trapped
+  outlines --blue x3` on both trip pages and the branch `--chalk x3`, with every
+  other line identical. That reading is local; production has it once a release
+  carries #56.
 - Lighthouse's image-delivery insight flags the first-row `-med` derivative as
   larger than its displayed box. It is informational (weight 0) and the pick is
   what `sizes` and a 1.75× DPR select; the request log #11 took shows no `-full`

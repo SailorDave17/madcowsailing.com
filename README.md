@@ -133,6 +133,46 @@ Pages custom domain. Ignore and deploy.
 `_redirects` is kept in both sites for future **path** redirects, which is all
 it can do.
 
+**A missing path answers `404` with the site's own "Page not found" page, once
+a release carries #36.** Each site ships a root `404.html`, and Pages serves it,
+with a `404`, for any path its output directory does not hold, at any depth:
+`/work/nope.html` and `/apps/nope/` get it too. The browser resolves that page's
+URLs against the path that was asked for, not against `/404.html`, which is why
+every URL in both files is root-relative. The file also answers at its own
+address: `/404.html` 308s to `/404`, which is a `200`. *Measured 2026-09-14
+under `wrangler pages dev` 4.131.2, before the merge*: a missing path at the
+root and under `/work/`, `/apps/`, `/logs/` and `/apps/race-timer/` answered
+`404` with that page's title on #36's branch, and `200` with the home page on
+`develop`. The production reading goes on #36 once a release carries it.
+
+Until then neither site had a `404.html`, and without one Pages serves
+`index.html` with a `200` for every unknown path. *Measured 2026-09-14 (#28)*: a
+random `madcowsailing.com/__probe_…` answered `200` with the sailing home page's
+title and canonical, and the same path on madcowhq.com with hq's. An uptime
+monitor, a status-code link sweep and `curl -w '%{http_code}'` all reported a
+page healthy whether or not it was ever deployed.
+
+**A `404` proves a path is missing; a `200` still proves only that something
+was served**: a redirect's target, a page left at an old path, a stale copy. So
+the check that shows a page is its own reads the body, not the status: the
+page's own `<title>` **and** its self-referencing `rel="canonical"`, with a path
+that certainly does not exist fetched **in the same run** as a negative
+control. That control should now read `404` and "Page not found". If it reads
+`200`, the `404.html` has dropped out of the build. Two details catch a first
+attempt:
+
+- Pages strips `.html` with a `308` (`/apps/race-timer/support.html` →
+  `/apps/race-timer/support`). Follow redirects (`curl -L`) and record the hop,
+  or the check reads an empty redirect body.
+- The home page could not pass the title test while the fallback served its
+  title for every missing path. With the control reading "Page not found" it
+  can. Until a release carries #36, check `/` by its content instead.
+
+Internal links are held by `tools/linkcheck.py`, which resolves them against
+the tree and never asks the host. That stays right after #36: the host reports
+a `404` to a visitor who has already followed the broken link, and linkcheck
+refuses the link before the push.
+
 <a id="previews-build-from-develop-only"></a>
 
 **Previews build from `develop` only, and there is no access policy.** Owner
