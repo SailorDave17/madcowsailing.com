@@ -27,7 +27,7 @@ When every photo has alt text it renders <root>/logs/<trip>/index.html from
 tools/templates/trip.html and regenerates <root>/logs/index.html from every
 trip.json under <root>/logs/. Rendering here rather than in the browser is the
 decision story #11 records: the page is static HTML with the <picture> elements,
-sizes and eager/lazy attributes already in it, so the first row loads without
+sizes and eager/lazy attributes already in it, so the first screen loads without
 waiting for a script, and Cloudflare Pages still runs nothing but its one copy
 line. Without --src the script only renders, so alt text can be edited on a
 machine that does not have the originals.
@@ -684,16 +684,25 @@ def figure(trip, entry, share, n, nshare, nn, eager):
 
 def gallery_html(trip, photos):
     narrow = {}
-    for line in pack_rows(photos, NARROW_TARGET):
+    for li, line in enumerate(pack_rows(photos, NARROW_TARGET)):
         for e, nshare in line:
-            narrow[e["file"]] = (nshare, len(line))
+            narrow[e["file"]] = (nshare, len(line), li)
     out = []
     for r, row in enumerate(pack_rows(photos, ROW_TARGET)):
         n = len(row)
         out.append('    <div class="gallery-row" style="--n: %d">' % n)
         for e, share in row:
-            nshare, nn = narrow[e["file"]]
-            out.append(figure(trip, e, share, n, nshare, nn, eager=(r == 0)))
+            nshare, nn, li = narrow[e["file"]]
+            # Eager only on the first screen of BOTH layouts: the wide first row
+            # and the phone's first line. One page serves both widths, and the
+            # wide row re-wraps at phone width, so eager=(r == 0) alone loaded
+            # photos past a phone's first screen eager and at fetchpriority=high:
+            # 004 and 005 on both trips at 412x823, one of them 19 px into the
+            # screen (#53, measured). CLAUDE.md's floor asks for loading="lazy"
+            # below the fold. A photo on the wide first row but past the phone's
+            # first line is therefore lazy at every width; on screen, a lazy
+            # image still loads as soon as layout places it.
+            out.append(figure(trip, e, share, n, nshare, nn, eager=(r == 0 and li == 0)))
         out.append('    </div>')
     # Absorbs the free space on the last narrow line, so the figures there
     # keep their packed widths instead of stretching to fill it. Hidden at

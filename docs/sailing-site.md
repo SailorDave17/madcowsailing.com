@@ -219,9 +219,12 @@ when someone presses play, not when they arrow past it.
 `aspect-ratio`. Not a uniform square grid — cropping a sailing photo square throws
 away the horizon, which is the subject.
 
-**Loading.** First row `loading="eager"` with `fetchpriority="high"`, everything
-else lazy. `<picture>` with AVIF source and WebP fallback, `srcset` across the three
-widths, and a `sizes` attribute matching the actual grid. The `lqip` string is the
+**Loading.** `loading="eager"` with `fetchpriority="high"` only on the photos on
+the first screen of both layouts: the wide first row **and** the phone's first
+line. Everything else is lazy. One page serves both widths and the wide first row
+re-wraps on a phone, so "first row" alone loaded photos below a phone's first
+screen eager and at high priority (#53). `<picture>` with AVIF source and WebP
+fallback, `srcset` across the three widths, and a `sizes` attribute matching the actual grid. The `lqip` string is the
 wrapper's background, revealed as the image fades in.
 
 **Lightbox.** Vanilla JS on the native `<dialog>` element — it provides the focus
