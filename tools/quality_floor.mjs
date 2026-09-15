@@ -20,7 +20,8 @@
 //      invoked through npx at an EXACT pinned version (LH_VERSION below), so a
 //      re-run a year from now measures with the same instrument. Performance
 //      is the median of --runs runs; accessibility is deterministic and is
-//      read from the last run.
+//      read from the last run. Each page is held to FLOOR unless PERF_FLOORS
+//      gives its performance a floor of its own (#124).
 //   2. Horizontal scroll at 360px: document.documentElement.scrollWidth in a
 //      360-px emulated mobile viewport, after fonts are ready.
 //   3. Keyboard pass: every focusable element in the page is enumerated, then
@@ -66,6 +67,15 @@ const TOKENS = join(REPO, 'shared', 'css', 'tokens.css');
 const START = '<!-- generated:start -->';
 const END = '<!-- generated:end -->';
 const FLOOR = 95;
+// A page held to a different PERFORMANCE floor, keyed by its file in the tree.
+// CLAUDE.md's Quality floor section records each decision and its reasoning;
+// this map is the one place the tool reads the number from (#124). It is not
+// parsed out of CLAUDE.md because that would tie the verdict to a sentence's
+// wording, and a rewording would move the floor with no diff to this file.
+// Accessibility is held to FLOOR on every page.
+const PERF_FLOORS = {
+  'sailing/logs/index.html': 90, // two trip covers share its first screen (#96)
+};
 const NARROW = 360;
 const WIDE = 1280;
 
@@ -118,6 +128,10 @@ function pages() {
     }
   }
   return ONLY ? list.filter((p) => p.url.includes(ONLY)) : list;
+}
+
+function perfFloor(page) {
+  return PERF_FLOORS[page.file] ?? FLOOR;
 }
 
 // ---- 1. Lighthouse --------------------------------------------------------
@@ -630,7 +644,8 @@ function render(results, meta) {
   lines.push('| Page | Performance | Accessibility | CLS | 360px scrollWidth | Keyboard | Date | Lighthouse |');
   lines.push('|---|---|---|---|---|---|---|---|');
   for (const r of results) {
-    const perf = r.lh ? `${r.lh.perf}${r.lh.perf < FLOOR ? ' **under floor**' : ''} (${r.lh.perfRuns.join('/')})` : 'skipped';
+    const pf = perfFloor(r.page);
+    const perf = r.lh ? `${r.lh.perf}${r.lh.perf < pf ? ' **under floor**' : ''} (${r.lh.perfRuns.join('/')})${pf !== FLOOR ? `, floor ${pf}` : ''}` : 'skipped';
     const a11y = r.lh ? `${r.lh.a11y}${r.lh.a11y < FLOOR ? ' **under floor**' : ''}` : 'skipped';
     const cls = r.lh ? fmtCls(r.lh.cls) : '—';
     const sw = `${r.narrow.scrollWidth}${r.narrow.scrollWidth > NARROW ? ' **scrolls**' : ''}`;
@@ -638,12 +653,13 @@ function render(results, meta) {
     lines.push(`| ${r.page.url.replace(/^https?:\/\//, '')} | ${perf} | ${a11y} | ${cls} | ${sw} | ${kb} | ${meta.date} | ${r.lh ? r.lh.version : '—'} |`);
   }
   lines.push('');
-  const under = results.filter((r) => r.lh && (r.lh.perf < FLOOR || r.lh.a11y < FLOOR));
+  const under = results.filter((r) => r.lh && (r.lh.perf < perfFloor(r.page) || r.lh.a11y < FLOOR));
   lines.push('### Under the floor');
   lines.push('');
-  if (!under.length) lines.push('Nothing. Every page scored at or above 95 on both categories in this run.');
+  if (!under.length) lines.push(`Nothing. Every page scored at or above its floor on both categories in this run: ${FLOOR}, or the performance floor shown beside its score.`);
   for (const r of under) {
-    lines.push(`- **${r.page.url}** — performance ${r.lh.perf}, accessibility ${r.lh.a11y}; simulated FCP ${r.lh.fcpMs} ms, LCP ${r.lh.lcpMs} ms (last run; observed first paint in the unthrottled trace ${r.lh.observedFcpMs} ms). LCP element: \`${r.lh.lcpElement.replace(/`/g, "'")}\`. Weighted audits under 1: ${[...r.lh.failingPerf, ...r.lh.failingA11y].join(', ') || 'none'}. Render-blocking per Lighthouse: ${r.lh.blocking.join('; ') || 'none'}.`);
+    const pf = perfFloor(r.page);
+    lines.push(`- **${r.page.url}** — performance ${r.lh.perf}${pf !== FLOOR ? ` against a floor of ${pf}` : ''}, accessibility ${r.lh.a11y}; simulated FCP ${r.lh.fcpMs} ms, LCP ${r.lh.lcpMs} ms (last run; observed first paint in the unthrottled trace ${r.lh.observedFcpMs} ms). LCP element: \`${r.lh.lcpElement.replace(/`/g, "'")}\`. Weighted audits under 1: ${[...r.lh.failingPerf, ...r.lh.failingA11y].join(', ') || 'none'}. Render-blocking per Lighthouse: ${r.lh.blocking.join('; ') || 'none'}.`);
   }
   lines.push('');
   lines.push('### Keyboard pass');
@@ -702,6 +718,11 @@ function writeDoc(block) {
 // ---- main -----------------------------------------------------------------
 
 async function main() {
+  // A key naming no file would hold nothing to its floor and say nothing about
+  // it, so a moved or renamed page stops the run instead of reading clean.
+  for (const file of Object.keys(PERF_FLOORS)) {
+    if (!existsSync(join(REPO, file))) throw new Error(`PERF_FLOORS names ${file}, which is not in the tree`);
+  }
   const list = pages();
   if (!list.length) throw new Error(`no pages matched${ONLY ? ' --only ' + ONLY : ''} under ${REPO}`);
   const outDir = mkdtempSync(join(tmpdir(), 'quality-floor-'));
@@ -726,7 +747,8 @@ async function main() {
             ? `  lightbox ${kb.lightbox.reached}/${kb.lightbox.expected}${kb.lightbox.trapped ? ' trapped' : ' NOT TRAPPED'} outlines ${outlineColours(kb.lightbox.stops, name)}`
             : '  lightbox DID NOT OPEN')
         : '';
-      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''} outlines ${outlineColours(kb.stops, name)}${lbLine}  pairs ${contrast.length}`);
+      const pf = perfFloor(page);
+      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}${pf !== FLOOR ? ' floor ' + pf : ''}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''} outlines ${outlineColours(kb.stops, name)}${lbLine}  pairs ${contrast.length}`);
     }
   } finally {
     proc.kill();
@@ -738,7 +760,7 @@ async function main() {
   } else {
     console.log(block);
   }
-  const bad = results.filter((r) => (r.lh && (r.lh.perf < FLOOR || r.lh.a11y < FLOOR)) || r.narrow.scrollWidth > NARROW || kbProblems(r.kb).length);
+  const bad = results.filter((r) => (r.lh && (r.lh.perf < perfFloor(r.page) || r.lh.a11y < FLOOR)) || r.narrow.scrollWidth > NARROW || kbProblems(r.kb).length);
   process.exitCode = bad.length ? 1 : 0;
 }
 
