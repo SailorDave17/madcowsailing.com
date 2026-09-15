@@ -133,6 +133,33 @@ Pages custom domain. Ignore and deploy.
 `_redirects` is kept in both sites for future **path** redirects, which is all
 it can do.
 
+**A missing path answers `200` with the home page, so a status code cannot tell
+a deployed page from a missing one.** Neither site has a `404.html`, and Pages
+serves `index.html` for any path its output directory does not hold. *Measured
+2026-09-14 (#28)*: a random `madcowsailing.com/__probe_…` answered `200` with
+the sailing home page's title and canonical, and the same path on madcowhq.com
+with hq's. An uptime monitor, a status-code link sweep and
+`curl -w '%{http_code}'` all report a page healthy whether or not it was ever
+deployed.
+
+The check that works reads the body, not the status: the page's own `<title>`
+**and** its self-referencing `rel="canonical"`, with a path that certainly does
+not exist fetched **in the same run** as a negative control. Without the
+control, a matching title is equally consistent with every path serving that
+title. Two details catch a first attempt:
+
+- Pages strips `.html` with a `308` (`/apps/race-timer/support.html` →
+  `/apps/race-timer/support`). Follow redirects (`curl -L`) and record the hop,
+  or the check reads an empty redirect body.
+- The home page cannot pass the title test, because its title *is* the
+  fallback's. Check `/` by its content instead.
+
+Internal links are held by `tools/linkcheck.py`, which resolves them against
+the tree and never asks the host, for the same reason. #36 adds a `404.html` to
+each site; after it a `404` does prove a path is missing, but a `200` still
+proves only that something was served, so the title-and-canonical check stays
+the way to show a page is its own. Re-read this paragraph when #36 ships.
+
 <a id="previews-build-from-develop-only"></a>
 
 **Previews build from `develop` only, and there is no access policy.** Owner
