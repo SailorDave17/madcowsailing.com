@@ -121,6 +121,16 @@ difference between a gallery and a log, and the log is the part people read.
 Each trip is a row: cover photo, title, date, location, photo count, first line of
 the log. Reverse chronological.
 
+The cover is shown cut to 4:3, and since #96 it is served that way. `photos.py`
+gives the cover its own ladder, `<file>-cover400`, `-cover640` and `-cover1200`
+in AVIF and WebP, cut from the cover's largest derivative with the same centred
+crop `object-fit: cover` makes. Before that the row fetched the uncropped `-med`,
+and Mullett Lake's portrait cover cost 198 KB to show 56% of the picture. The
+cut runs on every render, so changing `cover` in `trip.json` and re-running the
+script without `--src` is enough. The previous cover's files are not deleted;
+remove them by hand. The index's performance floor is 90, not 95, while two
+covers share its first screen (`CLAUDE.md`, #96).
+
 ## Photo pipeline
 
 `tools/photos.py` — written in Python. Run end to end on 2026-08-21 against one

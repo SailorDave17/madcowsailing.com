@@ -276,6 +276,16 @@ Applies to every page on both sites.
 - No layout shift on load. `font-display: swap`.
 - Lighthouse ≥ 95 performance and accessibility, tested on a real trip gallery.
 
+**One page is held lower, by owner decision (2026-09-15, #96): the sailing logs
+index needs ≥ 90 performance while two trip covers share its first screen.**
+With one trip it read 95 on a single 58 KB cover, with no margin. The second
+trip put a second cover on a phone's first screen, and every lever that keeps
+the pictures as they are read 94 locally: 4:3 cover derivatives, a 640 rung,
+and every split of `loading` and `fetchpriority` hints. Production reads about
+a point below a local serve. 95 was reached only by dropping the covers to
+quality 50. Accessibility stays at 100. The evidence is on #96 and its PR. Ask
+again if a change takes the page below 90.
+
 ## Conventions
 
 - Every colour, type size, and spacing value comes from `shared/css/tokens.css`.
