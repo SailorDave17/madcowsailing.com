@@ -96,8 +96,9 @@
        ratio over the row's total, so heights match inside a row and nothing
        is cropped. The same share is what the sizes attribute states, which
        is why the browser never fetches the -full derivative for a thumbnail
-       (a wrong sizes is the named cause of Lighthouse drops). The first row
-       is eager with fetchpriority=high; every later row is lazy. The
+       (a wrong sizes is the named cause of Lighthouse drops). Photos on the
+       first screen of both layouts - the wide first row AND the phone's first
+       line - are eager with fetchpriority=high; every other photo is lazy. The
        background-image data URI on each frame is the 20px LQIP, showing
        until the real bytes land. Each frame links to the largest derivative,
        which is the no-JavaScript baseline the lightbox story (#12) keeps. -->
@@ -137,7 +138,7 @@
           <picture>
             <source type="image/avif" srcset="/assets/photos/2026-07-04-mullett-lake/004-thumb.avif 400w, /assets/photos/2026-07-04-mullett-lake/004-med.avif 1000w, /assets/photos/2026-07-04-mullett-lake/004-full.avif 2000w" sizes="(min-width: 72rem) 28.23rem, (min-width: 46rem) calc(42.14vw - 2.11rem), calc(100.00vw - 3.00rem)">
             <source type="image/webp" srcset="/assets/photos/2026-07-04-mullett-lake/004-thumb.webp 400w, /assets/photos/2026-07-04-mullett-lake/004-med.webp 1000w, /assets/photos/2026-07-04-mullett-lake/004-full.webp 2000w" sizes="(min-width: 72rem) 28.23rem, (min-width: 46rem) calc(42.14vw - 2.11rem), calc(100.00vw - 3.00rem)">
-            <img src="/assets/photos/2026-07-04-mullett-lake/004-full.webp" width="2000" height="1126" loading="eager" fetchpriority="high" decoding="async" alt="Three generations on the porch, Cruz on his mother&#x27;s lap">
+            <img src="/assets/photos/2026-07-04-mullett-lake/004-full.webp" width="2000" height="1126" loading="lazy" decoding="async" alt="Three generations on the porch, Cruz on his mother&#x27;s lap">
           </picture>
         </a>
       </figure>
@@ -146,7 +147,7 @@
           <picture>
             <source type="image/avif" srcset="/assets/photos/2026-07-04-mullett-lake/005-thumb.avif 400w, /assets/photos/2026-07-04-mullett-lake/005-med.avif 1000w, /assets/photos/2026-07-04-mullett-lake/005-full.avif 2000w" sizes="(min-width: 72rem) 11.92rem, (min-width: 46rem) calc(17.79vw - 0.89rem), calc(29.69vw - 1.04rem)">
             <source type="image/webp" srcset="/assets/photos/2026-07-04-mullett-lake/005-thumb.webp 400w, /assets/photos/2026-07-04-mullett-lake/005-med.webp 1000w, /assets/photos/2026-07-04-mullett-lake/005-full.webp 2000w" sizes="(min-width: 72rem) 11.92rem, (min-width: 46rem) calc(17.79vw - 0.89rem), calc(29.69vw - 1.04rem)">
-            <img src="/assets/photos/2026-07-04-mullett-lake/005-full.webp" width="2000" height="2667" loading="eager" fetchpriority="high" decoding="async" alt="Dave and Mary at the outdoor church, the crucifix on the hill behind">
+            <img src="/assets/photos/2026-07-04-mullett-lake/005-full.webp" width="2000" height="2667" loading="lazy" decoding="async" alt="Dave and Mary at the outdoor church, the crucifix on the hill behind">
           </picture>
         </a>
       </figure>
