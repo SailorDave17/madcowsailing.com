@@ -312,9 +312,12 @@ if a change takes a trip page below 85.
   images are not versioned — rename them rather than overwrite.
 - Internal links name the URL Pages serves: `/about`, not `/about.html`, and a
   directory with its trailing slash (`/work/`). Pages 308s the `.html` form, so
-  each such link costs a visitor a redirect (#113). linkcheck resolves both
-  forms and will not catch a `.html` link coming back;
-  `grep -rhoE 'href="[^"#:]*\.html(#[^"]*)?"' hq sailing` should count 0.
+  each such link costs a visitor a redirect (#113). Since #130 linkcheck
+  **refuses** an href Pages would redirect — a path ending `.html`, a directory
+  without its slash, and a path naming an `index` — so the gate catches one
+  coming back. `src` is unaffected. Absolute links stay outside linkcheck, so
+  `grep -rhoE 'href="https://madcow[^"]*\.html"' hq sailing` is still the check
+  for the two cross-site links.
 - Class names lowercase-hyphenated, describing role not appearance.
 - Watch CSS specificity collisions between element and class selectors, especially
   section padding.
