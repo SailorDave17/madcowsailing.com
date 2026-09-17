@@ -21,7 +21,7 @@ built from is never pushed to by hand.**
 |---|---|---|
 | `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it — and from it alone; see [Previews](#previews-build-from-develop-only) below. | A pull request from a feature branch, merged by the owner. |
 | `release` | **Production.** Pages builds madcowhq.com and madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
-| `main` | The **backup branch**: a known-good working version to fall back to if `release` breaks and cannot be fixed in place. Not deployed. **Not yet in that state here** — *measured 2026-09-01*, it is still the frozen pre-`develop` pointer, 13 commits behind `release`, never promoted to. | A pull request **from `release`**, merged by the owner — from the branch production actually ran, never from `develop`. Nothing else. |
+| `main` | The **backup branch**: a known-good working version to fall back to if `release` breaks and cannot be fixed in place. Not deployed. **In that state since 2026-09-14** — *measured 2026-09-17*, `main` is `3bff147`, an ancestor of `release` (0 ahead, 64 behind), so a backup has been taken. Verify with `git rev-list --count origin/main..origin/release` rather than trusting this number. | A pull request **from `release`**, merged by the owner — from the branch production actually ran, never from `develop`. Nothing else. |
 
 **`main` changed role on 2026-09-01, by owner directive.** This row read *"Frozen pointer to
 the pre-`develop` history. Not deployed, not merged into, kept so old links and clones resolve —
@@ -133,8 +133,8 @@ Pages custom domain. Ignore and deploy.
 `_redirects` is kept in both sites for future **path** redirects, which is all
 it can do.
 
-**A missing path answers `404` with the site's own "Page not found" page, once
-a release carries #36.** Each site ships a root `404.html`, and Pages serves it,
+**A missing path answers `404` with the site's own "Page not found" page.**
+Each site ships a root `404.html`, and Pages serves it,
 with a `404`, for any path its output directory does not hold, at any depth:
 `/work/nope.html` and `/apps/nope/` get it too. The browser resolves that page's
 URLs against the path that was asked for, not against `/404.html`, which is why
@@ -143,7 +143,8 @@ address: `/404.html` 308s to `/404`, which is a `200`. *Measured 2026-09-14
 under `wrangler pages dev` 4.131.2, before the merge*: a missing path at the
 root and under `/work/`, `/apps/`, `/logs/` and `/apps/race-timer/` answered
 `404` with that page's title on #36's branch, and `200` with the home page on
-`develop`. The production reading goes on #36 once a release carries it.
+`develop`. Production has carried it since the 2026-09-15 promotion (PR #118);
+re-measure there rather than trusting this line.
 
 Until then neither site had a `404.html`, and without one Pages serves
 `index.html` with a `200` for every unknown path. *Measured 2026-09-14 (#28)*: a
@@ -167,7 +168,8 @@ attempt:
   names the clean form, which answers `200` with no hop, so fetch that.
 - The home page could not pass the title test while the fallback served its
   title for every missing path. With the control reading "Page not found" it
-  can. Until a release carries #36, check `/` by its content instead.
+  can. The home page can now be checked by title, since the control reads "Page not
+found".
 
 Internal links are held by `tools/linkcheck.py`, which resolves them against
 the tree and never asks the host. It resolves an extensionless link the way
