@@ -77,16 +77,17 @@
 
        Every control named below is the app's own label, read on production
        (build 74aed25) on 2026-09-13 by walking the steps in a fresh browser
-       context. If the app renames one, this page is wrong until it follows.
+       context. Step 1's were re-read on build e974302 on 2026-09-16 (#87),
+       when the action moved to the start-a-household entry. If the app
+       renames one, this page is wrong until it follows.
 
        The two-presentation rule: this page shares no sentence with the
        apps-index row, the work-index row, or the case study. Taskr's
        one-liner is exempt (#75, D9) and is not used here anyway.
 
-       The primary action goes to the app root for now. Taskr #343 will give
-       the app a URL that opens on Start a household; when it lands, this
-       href and the home page's "Open for testing" link move together
-       (owner decision 2026-09-13, on #66). -->
+       The primary action is Taskr's start-a-household entry, /?start, the
+       value Taskr's docs/deploy-runbook.md names for the website (Taskr
+       #343). About's "Start one" link carries the same URL (#87). -->
   <section class="wrap page-head">
     <p class="eyebrow">Taskr &middot; Open for testing</p>
     <h1>Chores, split by the minutes each of you actually has.</h1>
@@ -94,7 +95,7 @@
       many minutes each person has this week, and Taskr deals the work out in
       proportion. When the split cannot be made fair, it says so instead of
       pretending. It runs in a phone's browser, and it is free to try.</p>
-    <p class="actions"><a class="button button-accent" href="https://taskr.madcowhq.com/">Open Taskr</a></p>
+    <p class="actions"><a class="button button-accent" href="https://taskr.madcowhq.com/?start">Start your household</a></p>
   </section>
 
   <section class="wrap">
@@ -102,8 +103,8 @@
     <p>Three steps, and the first two happen once. Everything in bold is the
       name of a control as the app shows it.</p>
     <ol class="steps">
-      <li><strong>Make your own account.</strong> Open Taskr and, under the
-        sign-in form, tap <strong>Start a household</strong>. Type
+      <li><strong>Make your own account.</strong> Tap Start your household
+        above; Taskr opens on <strong>Start a household</strong>. Type
         <strong>Your email</strong> and <strong>Your password</strong> and tap
         <strong>Create account</strong>. An email called <em>Confirm your
         email address</em> arrives; tap <strong>Confirm email address</strong>
