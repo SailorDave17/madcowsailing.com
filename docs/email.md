@@ -16,8 +16,9 @@ Taskr's Supabase auth mail (its return path is `rsend.taskr.madcowhq.com`). That
 subdomain is untouched by everything below: its records are on the subdomain, and the
 apex SPF added here does not cover or conflict with it.
 
-Both sites publish `hsc.coach@gmail.com` in their `mailto:` links (19 occurrences across
-`hq/` and `sailing/` at develop `724b012`). That stays true until a story changes it.
+Both sites published `hsc.coach@gmail.com` in their `mailto:` links (19 occurrences across
+`hq/` and `sailing/` at develop `724b012`) until 2026-09-18, when `hq/` moved to
+`dave@madcowhq.com` and `sailing/` to `dave@madcowsailing.com`.
 
 ## Why Zoho Mail Lite, and what was rejected
 
@@ -217,9 +218,9 @@ fetch alongside send-as.
 
 ## What this does not change
 
-- **The sites' `mailto:` links.** They still name the Gmail address. Switching them to
-  the domain addresses is a story, filed when the mailbox has passed step 7, not a
-  side-effect of this runbook. Both zones have Email Address Obfuscation **off**
+- **The sites' `mailto:` links** were switched separately, once the mailbox had passed
+  step 7: each site names its own domain's address, `dave@madcowhq.com` on hq and
+  `dave@madcowsailing.com` on sailing. Both zones have Email Address Obfuscation **off**
   (#105), so whatever address the pages carry is served as written.
 - **`taskr.madcowhq.com`.** Resend keeps signing Taskr's auth mail on the subdomain.
 - **Hosting.** Pages, the custom domains and the Redirect Rules are as `CLAUDE.md`
