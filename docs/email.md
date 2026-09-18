@@ -158,9 +158,14 @@ Mail Lite includes IMAP, POP and ActiveSync; this is what Free lacks and the rea
 pay for Lite rather than start Free.
 
 First enable IMAP inside Zoho Mail (the webmail, not the admin console): Settings →
-Mail accounts → the account → the **IMAP** tab → tick **IMAP Access**. The admin
-console's Access Restrictions page only *blocks* protocols by policy; with no
-restriction defined, this per-user switch is the whole control. If two-factor auth is
+Mail accounts → the account → the **IMAP** tab → tick **IMAP Access** → **and press
+the Save button that appears below the section.** *Measured 2026-09-18*: the tick
+alone reads as on until the page is reloaded, then reverts, and Outlook reports the
+refused IMAP login as a wrong password — Zoho's Login History shows no attempt at all,
+because the connection never got as far as authenticating. The admin console's Access
+Restrictions page only *blocks* protocols by policy; with no restriction defined, this
+per-user switch is the whole control, and two-factor was off, so no app password was
+involved. If two-factor auth is
 on in Zoho, generate an **application-specific password** for Outlook; the account
 password will be refused.
 
