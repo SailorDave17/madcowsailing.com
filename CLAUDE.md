@@ -93,7 +93,8 @@ story, this is the paragraph to check.*
 │   ├── preview/              theme-preview.html + its assets/
 │   ├── design-brief.md       Visual direction. Read before writing any CSS.
 │   ├── sailing-site.md       The logs/gallery spec
-│   └── quality-floor.md      The floor as measured on production, with its instrument
+│   ├── quality-floor.md      The floor as measured on production, with its instrument
+│   └── email.md              Mail for both domains: Zoho Mail Lite, the DNS records, Outlook
 └── CLAUDE.md
 ```
 
@@ -143,6 +144,10 @@ The check is the project's `*.pages.dev` host against the custom domain. Pages
 serves the repo's bytes, so any difference between the two is a zone setting.
 Fetch with `Accept: text/html`: the beacon was injected only for that header, so
 a plain `curl` read no beacon while every browser got one.
+
+**Mail for both domains is Zoho Mail Lite** (owner decision 2026-09-17), one mailbox
+with an address at each domain. `docs/email.md` holds the records, the setup order and
+the Outlook settings — and the Zoho feature *not* to use for the second domain.
 
 ## Stack
 
