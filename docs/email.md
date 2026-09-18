@@ -184,6 +184,23 @@ alias, and Zoho's SMTP accepts it because the alias belongs to the account. The 
 Outlook is weaker on alternate From addresses for IMAP accounts; verify that in the
 installed version before relying on it. Outlook mobile takes the same IMAP settings.
 
+**As run, 2026-09-18.** New Outlook for Windows connected over IMAP once the switch
+above was actually saved. It sends through Zoho's SMTP (*measured*: the message appeared
+in Zoho's Sent folder), but it offers **only dave@madcowhq.com in the From line** — the
+alias is not selectable for an IMAP account, as predicted. Three ways round it: Zoho's
+web app or mobile app (the From dropdown offers both); classic Outlook's From → Other
+Email Address; or **a second IMAP account in new Outlook with the username
+`dave@madcowsailing.com`** and the same password and servers — Zoho's IMAP page states
+that an organisation user's alias is accepted as the IMAP username, and an account
+signed in as the alias sends as the alias. The cost is the same mailbox shown twice.
+*(Stated by Zoho's docs, read 2026-09-18; not yet measured here.)*
+The first Outlook-sent message landed in Gmail's spam on reputation (day-old domain,
+one-word subject), not authentication; after one *Not spam* the next arrived in the
+inbox. Each Outlook send also produced **two** copies in Zoho's Sent folder, one from
+Zoho's SMTP and one from Outlook's IMAP sync, so the IMAP tab's **Save copy of sent
+emails** is now **off**, saved and confirmed after a reload; webmail sends are saved
+regardless.
+
 If copies should also reach the Gmail inbox, set forwarding **inside Zoho** with "keep a
 copy". Do not use Gmail's "check mail from other accounts": Google is retiring that POP
 fetch alongside send-as.
