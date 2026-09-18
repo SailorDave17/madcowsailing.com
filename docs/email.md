@@ -67,55 +67,100 @@ Every DNS record below goes in the Cloudflare dashboard for the zone named, with
 grey-cloud or it fails). Zoho's own Cloudflare page is the source for the record
 values: `zoho.com/mail/help/adminconsole/cloudflare.html`.
 
-**1. Sign up.** `zoho.com/mail`, business email, **US data centre**, organisation domain
-`madcowhq.com`, plan **Mail Lite 5 GB, one user**. Go straight to Lite; Free cannot
-hold the second domain and has no IMAP.
+*Run on 2026-09-17/18 in a driven browser with the owner watching; the paragraphs below
+say what each step actually did, where that differed from the plan.*
 
-**2. Verify madcowhq.com.** The admin console issues a TXT value. Add it as a `TXT` at
-`@` in the madcowhq.com zone, then click verify.
+**1. Sign up.** The Mail Lite sign-up link off the pricing page is
+`mail.zoho.com/signup?type=org&plan=newMail5gb`. It creates a **Zoho account** (name,
+login email, password) — not yet a mailbox — and drops into an Email Setup wizard whose
+first step adds the organisation's first domain (`madcowhq.com`, organisation name
+`Mad Cow`, industry picked from a fixed list; a ZeptoMail box is unticked by default and
+stays so). The wizard then hands off to the Zoho Store, where the **user count is an
+empty field** and the total reads $0.00 until `1` is typed into it; one seat, yearly,
+came to $12.00 with renewal on 16 Sep 2027.
 
-**3. Create the mailbox.** One user — the local part is the owner's call; `dave@` is
-the example used through this file. This is the paid seat.
+**2. Verify each domain by Domain Connect, not by pasting a TXT.** On a Cloudflare zone,
+Zoho's **Log in to my DNS** button opens a Cloudflare tab (sign-in, then an *Authorize
+DNS records from Zoho* screen listing exactly what will be written, all DNS-only). It is
+pressed **twice per domain**: once for the ownership TXT
+(`zoho-verification=zb…zmverify.zoho.com`), and once more on the DNS Mapping step for
+the three MX, the SPF and the DKIM key. Each authorisation is one-time; the tab closes
+itself on success. *Measured* at Cloudflare's authoritative server seconds later: all
+five records present on both domains. The public resolver kept serving the negative
+answer it had cached earlier, so check `dell.ns.cloudflare.com` directly.
 
-**4. Mail records for madcowhq.com.** One SPF record per domain only — there was none
-before this, so nothing to merge. Generate the DKIM key in Zoho first (Email
-Configuration → DKIM, selector `zoho`), then paste it.
+**3. The paid seat is the admin account itself.** After sign-up the Users list already
+holds one user — the admin, identified by the Gmail login — and the licence count reads
+one. The mailbox is created **on that user**: Users → the admin → **Create mail
+account** → local part `dave` + domain `madcowhq.com`. Adding a second user would have
+needed a second licence. The Gmail address stays the *login* email; `dave@madcowhq.com`
+is the mailbox address.
+
+**4. What Domain Connect wrote, per zone** (*measured* at the authoritative server,
+2026-09-18). Note the selector is **`zmail`**, not the `zoho` Zoho's Cloudflare help page
+shows, and the SPF ends **`~all`**, not `-all`. One SPF record per domain only — there
+was none before this, so nothing to merge.
 
 ```
-MX   @                 mx.zoho.com    10
-MX   @                 mx2.zoho.com   20
-MX   @                 mx3.zoho.com   50
-TXT  @                 v=spf1 include:zohomail.com -all
-TXT  zoho._domainkey   <the value Zoho generates — one key per domain>
-TXT  _dmarc            v=DMARC1; p=none; rua=mailto:dave@madcowhq.com
+MX   @                  mx.zoho.com    10
+MX   @                  mx2.zoho.com   20
+MX   @                  mx3.zoho.com   50
+TXT  @                  v=spf1 include:zohomail.com ~all
+TXT  @                  zoho-verification=zb<code>.zmverify.zoho.com   (ownership; harmless to keep)
+TXT  zmail._domainkey   v=DKIM1; k=rsa; p=…   (one key per domain)
 ```
 
-DKIM verification in Zoho can lag the record by hours; the page says up to 48.
+**Zoho does not mark DKIM verified on its own, even when it wrote the record.** The
+domain list read *Yet to configure DKIM* with the key live. The fix is Domains → the
+domain → Email Configuration → DKIM → click the `zmail._domainkey` row → **Configure
+manually** → **Verify**; both domains returned *DKIM selector is successfully verified*
+at once. MX and SPF it re-checks by itself.
 
-**5. Add madcowsailing.com as a second domain.** Admin console → Domains → Add domain.
-Verify it with its own TXT, then add the same six records in the madcowsailing.com
-zone. The DKIM value is different: Zoho issues one key per domain.
+**DMARC is not part of the template.** Add it by hand in each zone:
 
-**6. Give the user the second address.** Users → the user → Mailbox settings → Email
-alias → add `dave`, choose `madcowsailing.com`. Mail to either address now lands in the
-one mailbox, and the From dropdown offers both.
+```
+TXT  _dmarc   v=DMARC1; p=none; rua=mailto:dave@madcowhq.com
+```
 
-**7. Prove it before trusting it.** From a Gmail account, send one message to each
-address and confirm both arrive. Reply from each. In the reply as received, open the
-original headers and read the `Authentication-Results` line: `spf=pass` and
-`dkim=pass` **for the domain that sent**, not the other one. A reply from the
-madcowsailing.com alias that shows `dkim=pass header.i=@madcowhq.com` means step 5's
-DKIM is not live yet. Once both domains pass for a few weeks, move DMARC from
-`p=none` to `p=quarantine`.
+**5. Add madcowsailing.com as a second domain.** Admin console → Domains → **Add an
+existing domain** (one field), then the same two Domain Connect authorisations as step 2.
+Its DKIM key is different: Zoho issues one per domain.
+
+**6. Give the user the second address.** Users → the user → **Mailbox Settings** → Email
+Alias → Add: display name, alias `dave`, the domain dropdown switched to
+`madcowsailing.com`, and **leave "Set as Mailbox Address" unticked**. A "Welcome to the
+Admin Console" dialog intercepts clicks on this page until it is closed. Mail to either
+address now lands in the one mailbox, and the From dropdown offers both.
+
+**7. Prove it before trusting it.** The outbound half was *measured* on 2026-09-18 with
+mail-tester.com, one throw-away address per sending identity (the Gmail connector
+that would have read the headers had lost its authorisation, and mail-tester needs no
+login):
+
+| Sent from | Score | SPF | DKIM |
+|---|---|---|---|
+| dave@madcowhq.com | 9.4 / 10 | pass, envelope-from `dave@madcowhq.com`, via `include:zohomail.com` | valid, `d=madcowhq.com` |
+| dave@madcowsailing.com | 9.4 / 10 | pass, envelope-from `dave@madcowsailing.com` | valid, `d=madcowsailing.com` |
+
+The `d=` is the check that matters: the alias signs under **its own** domain, which
+is what the full-domain-plus-alias shape in step 6 buys and Zoho's domain aliasing
+would not. The 0.6 deducted on both was *You do not have a DMARC record*, closed by the
+`_dmarc` records in step 4. The inbound half — a message from an outside sender
+arriving in the mailbox at each address — is the owner's to send from Gmail; Zoho's
+own welcome mail is internal and proves nothing about MX. Once both domains have run
+clean for a few weeks, move DMARC from `p=none` to `p=quarantine`.
 
 ## Outlook
 
 Mail Lite includes IMAP, POP and ActiveSync; this is what Free lacks and the reason to
 pay for Lite rather than start Free.
 
-First enable IMAP inside Zoho Mail: Settings → Mail Accounts → the address → tick
-**IMAP Access**. If two-factor auth is on in Zoho, generate an **application-specific
-password** for Outlook; the account password will be refused.
+First enable IMAP inside Zoho Mail (the webmail, not the admin console): Settings →
+Mail accounts → the account → the **IMAP** tab → tick **IMAP Access**. The admin
+console's Access Restrictions page only *blocks* protocols by policy; with no
+restriction defined, this per-user switch is the whole control. If two-factor auth is
+on in Zoho, generate an **application-specific password** for Outlook; the account
+password will be refused.
 
 ```
 Incoming  imappro.zoho.com   993   SSL
