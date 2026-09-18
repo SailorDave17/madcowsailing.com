@@ -193,7 +193,17 @@ Email Address; or **a second IMAP account in new Outlook with the username
 `dave@madcowsailing.com`** and the same password and servers — Zoho's IMAP page states
 that an organisation user's alias is accepted as the IMAP username, and an account
 signed in as the alias sends as the alias. The cost is the same mailbox shown twice.
-*(Stated by Zoho's docs, read 2026-09-18; not yet measured here.)*
+*Measured 2026-09-18*: Outlook for Android, signed in with the alias as username, sent a
+message that arrived in Gmail from dave@madcowsailing.com.
+
+**Expect the first message from each address to land in Gmail's spam.** Both did, and
+Gmail's banner gave the same reason each time — *similar to messages that were identified
+as spam in the past* — which is its content classifier, not an authentication failure
+(that reads *could not be verified*). A one-word subject and body, a day-old domain and
+Outlook's *Get Outlook for Android* link are the shape it matched. *Report not spam* is
+per sender, so each address needs its own; the next message from each reached the inbox.
+Send a real sentence for the first message, and add both addresses to the recipient's
+contacts.
 The first Outlook-sent message landed in Gmail's spam on reputation (day-old domain,
 one-word subject), not authentication; after one *Not spam* the next arrived in the
 inbox. Each Outlook send also produced **two** copies in Zoho's Sent folder, one from
