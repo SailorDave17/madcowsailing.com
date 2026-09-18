@@ -145,10 +145,12 @@ login):
 The `d=` is the check that matters: the alias signs under **its own** domain, which
 is what the full-domain-plus-alias shape in step 6 buys and Zoho's domain aliasing
 would not. The 0.6 deducted on both was *You do not have a DMARC record*, closed by the
-`_dmarc` records in step 4. The inbound half — a message from an outside sender
-arriving in the mailbox at each address — is the owner's to send from Gmail; Zoho's
-own welcome mail is internal and proves nothing about MX. Once both domains have run
-clean for a few weeks, move DMARC from `p=none` to `p=quarantine`.
+`_dmarc` records in step 4, which were live at the authoritative server on 2026-09-18.
+The inbound half was *measured* the same night: the owner replied from Gmail to both
+test messages, and each reply landed in the Zoho inbox on the thread of the address it
+was sent to, within a minute. (Zoho's own welcome mail is internal and proves nothing
+about MX; an outside sender does.) Once both domains have run clean for a few weeks,
+move DMARC from `p=none` to `p=quarantine`.
 
 ## Outlook
 
