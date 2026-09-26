@@ -9,6 +9,18 @@ __pycache__/
 hq/assets/shared/
 sailing/assets/shared/
 
+# Originals never go under the served photos tree. Straight off a phone they
+# carry GPS, and Pages publishes whatever is committed here. Only photos.py's
+# derivatives (NNN-*.avif, NNN-*.webp, NNN.mp4) may be staged; keep the
+# originals outside the repo and point --src at them. On 2026-09-25 six
+# GPS-tagged originals sat untracked in sailing/assets/photos/ one "stage all"
+# away from going live, and nothing in the gate would have refused them.
+sailing/assets/photos/*.*
+sailing/assets/photos/*/*
+!sailing/assets/photos/*/[0-9][0-9][0-9]-*.avif
+!sailing/assets/photos/*/[0-9][0-9][0-9]-*.webp
+!sailing/assets/photos/*/[0-9][0-9][0-9].mp4
+
 # Local working drafts, never committed. The epic draft carries answers to owner
 # decisions that are not public; the filed issues (#75 and #76-#86) are the record.
 docs/drafts/epic-hq-taskr-highlight.md
