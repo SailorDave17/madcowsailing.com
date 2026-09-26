@@ -80,6 +80,7 @@ const PERF_FLOORS = {
   // reached 95 on production (#53). A new trip page needs its own line here.
   'sailing/logs/2025-07-12-put-in-bay/index.html': 85,
   'sailing/logs/2026-07-04-mullett-lake/index.html': 85,
+  'sailing/logs/2026-09-19-foundry/index.html': 85,
 };
 const NARROW = 360;
 const WIDE = 1280;
