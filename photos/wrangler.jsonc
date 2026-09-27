@@ -1,0 +1,69 @@
+// The photo site's Pages configuration (CLAUDE.md, The photo site, item 5).
+//
+// Pages reads this file from the project's root directory, photos/, on every
+// build, and the dashboard then shows these bindings read-only. What this file
+// cannot hold (build command, root directory, watch paths, custom domain,
+// branch controls, preview access policy, fail mode) is in README.md's hosting
+// table, which is the only other copy.
+//
+// Three rules, each from item 5:
+//   - env.preview and env.production each restate EVERY key below, because
+//     overriding one non-inheritable key in an environment means restating
+//     them all.
+//   - The top level names the PREVIEW resources. Anything that matches no
+//     environment then falls back to preview storage, never to production.
+//     wrangler pages dev uses the top level, with local stand-ins for both.
+//   - Every database_id is written out, and no secret goes in this file or
+//     anywhere in the tree. Secrets are Pages secrets, named in README.md.
+//
+// photos/test/config.test.mjs holds these rules, and it fails if preview and
+// production ever share a database or a bucket.
+{
+  "name": "madcowphotos",
+  "pages_build_output_dir": "./public",
+  "compatibility_date": "2026-09-25",
+
+  "vars": { "SITE_ENV": "preview" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "madcowphotos-preview",
+      "database_id": "1cf98564-46b0-4e84-b015-2aa6767c1f2a",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "madcowphotos-preview" }
+  ],
+
+  "env": {
+    "preview": {
+      "vars": { "SITE_ENV": "preview" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "madcowphotos-preview",
+          "database_id": "1cf98564-46b0-4e84-b015-2aa6767c1f2a",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "madcowphotos-preview" }
+      ]
+    },
+    "production": {
+      "vars": { "SITE_ENV": "production" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "madcowphotos",
+          "database_id": "ea7cb9f4-80f8-4cac-bbf1-a2b09d476b15",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "madcowphotos" }
+      ]
+    }
+  }
+}

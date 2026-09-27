@@ -1,14 +1,17 @@
 # madcowsailing.com
 
-Monorepo for **two** static sites that share one design system, despite the
-repo's name:
+Monorepo for **three** sites that share one design system, despite the
+repo's name. Two are static; the third runs server code:
 
 | Site | Directory | Audience |
 |---|---|---|
 | madcowhq.com | `hq/` | Hiring managers, recruiters, collaborators |
 | madcowsailing.com | `sailing/` | Sailors |
+| photos.madcowsailing.com | `photos/` | The team's families: albums anyone can browse, uploads by invite (epic #147) |
 
 They share `shared/` — tokens, base CSS, the logo files. They share no content.
+The photo site is the one with server code (Pages Functions, D1, R2); see
+[The photo site](#the-photo-site) below and `CLAUDE.md`, The photo site.
 `CLAUDE.md` is the project context and the quality floor; `docs/design-brief.md`
 is the visual direction. Read those before writing anything.
 
@@ -20,7 +23,7 @@ built from is never pushed to by hand.**
 | Branch | What it is | How it is entered |
 |---|---|---|
 | `develop` | Integration, and the repo default. Cloudflare Pages builds a **preview** from it — and from it alone; see [Previews](#previews-build-from-develop-only) below. | A pull request from a feature branch, merged by the owner. |
-| `release` | **Production.** Pages builds madcowhq.com and madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
+| `release` | **Production.** Pages builds madcowhq.com, madcowsailing.com and photos.madcowsailing.com from it. | A pull request **from `develop`**, merged by the owner. Nothing else. |
 | `main` | The **backup branch**: a known-good working version to fall back to if `release` breaks and cannot be fixed in place. Not deployed. **In that state since 2026-09-14** — *measured 2026-09-17*, `main` is `3bff147`, an ancestor of `release` (0 ahead, 64 behind), so a backup has been taken. Verify with `git rev-list --count origin/main..origin/release` rather than trusting this number. | A pull request **from `release`**, merged by the owner — from the branch production actually ran, never from `develop`. Nothing else. |
 
 **`main` changed role on 2026-09-01, by owner directive.** This row read *"Frozen pointer to
@@ -57,22 +60,39 @@ That coupling is the reason `release` exists at all rather than deploying from
 
 ## Hosting
 
-Two Cloudflare Pages projects from this one repo. **The dashboard is the only
+Three Cloudflare Pages projects from this one repo. **The dashboard is the only
 other copy of these settings** — if a project is ever deleted or recreated, this
-table is what rebuilds it.
+table is what rebuilds it. The photo site's bindings (its D1 database, R2 bucket
+and `SITE_ENV`) are the exception: they live in `photos/wrangler.jsonc`, and the
+dashboard shows them read-only.
 
-| Setting | hq project | sailing project |
-|---|---|---|
-| Project name | `madcowhq` (`madcowhq.pages.dev`) | `madcowsailing` (`madcowsailing.pages.dev`) |
-| Production branch | `release` | `release` |
-| Root directory | `hq` | `sailing` |
-| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same |
-| Output directory | `.` | `.` |
-| Watch paths (include) | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
-| Custom domains | `madcowhq.com`, `www.madcowhq.com` | `madcowsailing.com`, `www.madcowsailing.com` |
-| Preview branches | `develop` only | `develop` only |
-| Preview access policy | not enabled | not enabled |
-| Framework preset | None | None |
+| Setting | hq project | sailing project | photos project |
+|---|---|---|---|
+| Project name | `madcowhq` (`madcowhq.pages.dev`) | `madcowsailing` (`madcowsailing.pages.dev`) | `madcowphotos` (`madcowphotos.pages.dev`) |
+| Production branch | `release` | `release` | `release` |
+| Root directory | `hq` | `sailing` | `photos` |
+| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same | `mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/` |
+| Output directory | `.` | `.` | `public` |
+| Watch paths (include) | `hq/*`, `shared/*` | `sailing/*`, `shared/*` | `photos/*`, `shared/*` |
+| Custom domains | `madcowhq.com`, `www.madcowhq.com` | `madcowsailing.com`, `www.madcowsailing.com` | `photos.madcowsailing.com` |
+| Preview branches | `develop` only | `develop` only | `develop` only (Custom branches, include `develop`) |
+| Preview access policy | not enabled | not enabled | **enabled**: Access app `madcowphotos - Cloudflare Pages` on `*.madcowphotos.pages.dev`, policy `Allow Members - Cloudflare Pages` |
+| Fail open/closed | — (no Functions) | — (no Functions) | **Fail closed** |
+| Framework preset | None | None | None |
+
+*The photos column was read back from the dashboard on 2026-09-27 (UTC), after
+the project was created for #149.* Two of its values are not what the create
+form leaves behind, and both look set when they are not. **Custom branches
+pre-fills Include Preview branches with `*`**, which previews every branch, and
+**Build watch paths pre-fills `*`**, which builds on every commit. Adding
+`develop` or `photos/*` does not remove the `*`, and the settings summary still
+reads "Preview branch: Custom". Open each editor and check that no `*` chip is
+left.
+
+The photo site's output directory is `public`, not `.`, so `photos/wrangler.jsonc`,
+`photos/migrations/` and the site's tests and Function sources are never
+published (CLAUDE.md, The photo site, item 5). Its first build, of `release`
+before `photos/` existed there, failed as expected.
 
 One setting per site lives on the **zone**, not the Pages project, and is
 invisible from the project page — so it belongs in this table too:
@@ -196,6 +216,110 @@ so its preview only exists once a PR has already been merged.
 
 Every `*.pages.dev` preview also carries `X-Robots-Tag: noindex` by default.
 
+**The photo site is the exception on access, not on branches.** It previews
+`develop` only as well, but its previews read the preview database and bucket,
+so a public preview would be a second public copy of the site. They sit behind
+Cloudflare Access (the project's *Restrict previews*, #149), which needed Zero
+Trust onboarded. That is done for this account now (see
+[The photo site](#the-photo-site)), so the reason recorded above for leaving hq
+and sailing without a policy no longer holds. Their previews stay public until
+someone decides otherwise.
+
+<a id="the-photo-site"></a>
+
+## The photo site
+
+photos.madcowsailing.com is the one site with server code: Pages Functions in
+`photos/functions/`, a D1 database and an R2 bucket per environment, and
+Cloudflare Access in front of every preview. Why each piece is what it is, with
+its sources, is in `CLAUDE.md`, The photo site. This section is the operating
+record: what exists in the account, and how to run and change it.
+
+### What exists in the Cloudflare account
+
+Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
+
+| Resource | Preview | Production |
+|---|---|---|
+| D1 database | `madcowphotos-preview` (`1cf98564-46b0-4e84-b015-2aa6767c1f2a`) | `madcowphotos` (`ea7cb9f4-80f8-4cac-bbf1-a2b09d476b15`) |
+| R2 bucket | `madcowphotos-preview` | `madcowphotos` |
+| `SITE_ENV` | `preview` | `production` |
+
+- Both databases were placed automatically. Both buckets are in Eastern North
+  America (ENAM), Standard storage class, with **no custom domain and the
+  public development URL (`r2.dev`) disabled**. That must stay so: photos are
+  served only through the site's code, which checks each one's approval first.
+  Each bucket carries R2's default lifecycle rule, aborting unfinished multipart
+  uploads after 7 days; the video stories shorten it to 1 day (CLAUDE.md item 10).
+- R2 is on the account's R2 subscription and Zero Trust on its Free plan
+  (50 seats). Both were taken out for #149, $0 unless usage passes the free
+  allowances.
+- **Zero Trust team: `madcowsailing`**, team domain
+  `madcowsailing.cloudflareaccess.com`. It is the issuer #151 checks. `madcow`
+  was wanted and is taken by another account: the rename answered `409`, while
+  the confirmation dialog had already shown `madcow.cloudflareaccess.com`.
+- One Access application, created by the project's *Restrict previews*:
+  `madcowphotos - Cloudflare Pages` on `*.madcowphotos.pages.dev`. It covers
+  preview deployments only. `madcowphotos.pages.dev` and
+  `photos.madcowsailing.com` are not behind it, which is why #151's own token
+  check is the lock on `/admin`.
+
+### Secrets
+
+By name only; a value never goes in this repo.
+
+- **Pages secrets: none yet.** #150 adds the session-signing key, and #150 and
+  #158 the key for hashing addresses. Each story that sets one adds its name
+  here, per environment.
+- **Local only, in `photos/.env`** (gitignored; wrangler reads it from
+  `photos/`): `CLOUDFLARE_API_TOKEN`, an API token named
+  `madcowphotos D1 migrations` with Account → D1 → Edit on this account only,
+  and `CLOUDFLARE_ACCOUNT_ID`. It exists to apply migrations. Check it with
+  `npx --no-install wrangler d1 list` from `photos/`, which prints both
+  databases and no secret.
+
+### Running it locally
+
+From the repo root, once: `npm ci`. Then, from `photos/`:
+
+```sh
+mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/   # the Pages build step
+npx --no-install wrangler d1 migrations apply madcowphotos-preview --local  # local stand-in database
+npx --no-install wrangler pages dev                                        # http://localhost:8788
+```
+
+`GET /api/health` should answer `200` with `"environment":"preview"`, both
+bindings reachable, and the newest migration's name. The local database and
+bucket are stand-ins under `photos/.wrangler/`, never the real ones.
+`--no-install` keeps `npx` on the wrangler pinned in the root `package.json`.
+
+**`photos/package.json` is what makes that work.** Wrangler 4.141.0's
+`pages dev` reads `wrangler.jsonc` from the current directory to find the
+output folder. It then starts the server from the nearest `package.json`'s
+directory. Without a `package.json` in `photos/`, that is the repo root, where
+there is no `wrangler.jsonc`, so the site ran with **no D1 or R2 bindings** and
+nothing said so. Health answered `503`. The same file sets `"type": "module"`
+for Node.
+
+`npm test`, from the repo root, runs the site's own tests (`node --test`, in
+`photos/test/`). They are in the gate.
+
+### Changing the schema
+
+In the order `CLAUDE.md` item 6 sets, from `photos/`, with the token above:
+
+1. The pull request adds one additive file under `photos/migrations/`.
+2. Before it merges into `develop`:
+   `npx --no-install wrangler d1 migrations apply madcowphotos-preview --remote --env preview`
+3. Before the owner promotes `develop` to `release`:
+   `npx --no-install wrangler d1 migrations apply madcowphotos --remote --env production`
+
+`npx --no-install wrangler d1 migrations list <database> --remote --env <env>`
+shows what is still to apply. Each database's `d1_migrations` table records what
+was applied, and `GET /api/health` reports the newest name. *As of 2026-09-27
+(UTC):* `0001_baseline.sql`, a no-op, is applied to `madcowphotos-preview` and
+still pending on `madcowphotos`.
+
 ## The push guard
 
 `githooks/pre-push` refuses a local push to `develop`, `main`, `master` or
@@ -226,28 +350,37 @@ available (GitHub gates rulesets on private repos behind Pro).
 
 ## Checks
 
-`githooks/checks` and `.github/workflows/ci.yml` run the same single command, so
-a red push and a red build are the same event:
+`githooks/checks` and `.github/workflows/ci.yml` run the same list, so a red
+push and a red build are the same event. `githooks/checks` is the authority; as
+of #149 it is three commands:
 
 ```sh
-npm ci          # once
-npm run check   # html-validate over hq/, sailing/ and docs/
+npm ci                                            # once
+npm run check                                     # html-validate over hq/, sailing/, photos/ and docs/
+$PY tools/linkcheck.py hq sailing photos/public   # every internal href and src, against the tree
+npm test                                          # the photo site's own tests, node --test
 ```
 
-`npm run check` is also what the pre-push hook runs on a hand invocation:
+Run the whole list by hand with the pre-push hook, which also resolves `$PY`:
 
 ```sh
 sh githooks/pre-push
 ```
 
-`package.json` exists for that one dev dependency and nothing else — the sites
-themselves have no dependencies and no build step beyond the one-line copy of
-`shared/` that Cloudflare Pages performs. Nothing in `node_modules/` is served.
+`package.json` exists for two dev dependencies and nothing else: html-validate
+for the gate, and wrangler, exact-pinned, to run the photo site locally and
+apply its migrations. The sites themselves have no dependencies and no build
+step beyond the one-line copy of `shared/` that Cloudflare Pages performs, and
+Cloudflare's build never installs this `package.json`. Nothing in
+`node_modules/` is served.
 
 `no-inline-style` is switched off in `.htmlvalidate.json`, deliberately: the
 trip-log gallery sets each photo's LQIP placeholder as an inline
 `background-image` data URI, which is per-photo data and cannot become a class.
-Every other recommended rule is on.
+Every other recommended rule is on. **`photos/.htmlvalidate.json` switches it
+back on for the photo site**, whose Content-Security-Policy has no
+`'unsafe-inline'`: an inline style there would be dropped by the browser
+without an error, so the gate refuses it instead.
 
 ## Tools
 
@@ -256,6 +389,6 @@ Every other recommended rule is on.
 | Script | What it does |
 |---|---|
 | `photos.py` | Builds a trip log's AVIF/WebP derivatives and its `trip.json`. Strips EXIF always. Needs Pillow ≥ 11.3. |
-| `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95). |
+| `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149). Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95). |
 | `trace_logo.py` | Re-traces `shared/img/` from `docs/source/madcow-lockup.pdf`. Needs Pillow. |
 | `quality_floor.mjs` | Measures the `CLAUDE.md` quality floor on both **production** domains — Lighthouse at a pinned version, 360px scroll, keyboard reach, contrast pairs — and rewrites the generated block of `docs/quality-floor.md`. Needs Node and Chrome. Not in CI, by decision recorded in that doc. |

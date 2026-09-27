@@ -8,6 +8,17 @@ __pycache__/
 # Build output of the Cloudflare Pages copy step. Never edit these; edit shared/.
 hq/assets/shared/
 sailing/assets/shared/
+photos/public/assets/shared/
+
+# The photo site's local state: wrangler pages dev keeps its stand-in D1 and R2
+# under .wrangler/, and .dev.vars holds local values for the site's secrets.
+# .env holds the D1-scoped Cloudflare API token that wrangler reads from
+# photos/.env to apply migrations (README, the photo site). None of these is
+# ever committed; the real secrets live in Cloudflare only.
+.wrangler/
+.dev.vars
+.env
+.env.*
 
 # Originals never go under the served photos tree. Straight off a phone they
 # carry GPS, and Pages publishes whatever is committed here. Only photos.py's

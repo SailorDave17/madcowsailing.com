@@ -45,4 +45,10 @@ jobs:
       # python3 here, from the job's env; locally the pre-push driver resolves
       # it. Keeping the two lists identical is the rule this file's header
       # states, so a change here needs the same change there and vice versa.
-      - run: $PY tools/linkcheck.py hq sailing
+      # photos/public, not photos: the photo site's served root (#149).
+      - run: $PY tools/linkcheck.py hq sailing photos/public
+
+      # The third line of githooks/checks: the photo site's own tests,
+      # node --test over photos/test/ (#149). Node 24 above has everything
+      # they use built in.
+      - run: npm run --silent test

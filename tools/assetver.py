@@ -34,8 +34,8 @@ push instead of reaching a visitor. tools/photos.py stamps every page it
 renders, so regenerating a trip log cannot bring a stale version back.
 
 Usage:  python tools/assetver.py
-Rewrites every .html under hq/, sailing/ and tools/templates/ in place and
-prints each file it changed. Exit 0.
+Rewrites every .html under hq/, sailing/, photos/public/ and tools/templates/
+in place and prints each file it changed. Exit 0.
 """
 import hashlib
 import os
@@ -93,7 +93,10 @@ def stamp(text):
 
 
 def pages():
-    for top in ('hq', 'sailing', os.path.join('tools', 'templates')):
+    # photos/public/, not photos/: it is the photo site's served root (its Pages
+    # output directory), and the only part of photos/ holding pages (#149).
+    for top in ('hq', 'sailing', os.path.join('photos', 'public'),
+                os.path.join('tools', 'templates')):
         for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, top)):
             # assets/shared/ is the Pages build's gitignored copy of shared/,
             # present only on a machine that has run the build. Never stamp it.

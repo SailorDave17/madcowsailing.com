@@ -33,8 +33,11 @@ still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 **measured on production** rather than as an aspiration.
 
 Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
-A third site, photos.madcowsailing.com under `photos/`, is decided but not yet built
-(epic #147; see [The photo site](#the-photo-site--photosmadcowsailingcom)).
+A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
+#149 built its holding page, its Cloudflare project and its gate. Nothing else of
+it exists yet; epic #147 builds the rest. Its `develop` preview sits behind
+Access, and the domain serves nothing until a release carries `photos/`
+(see [The photo site](#the-photo-site--photosmadcowsailingcom)).
 The remaining open work is refinement rather than construction — self-hosted
 fonts, a second app's pages, copy sharpening — and it is
 tracked on the board, not here.
@@ -82,6 +85,21 @@ story, this is the paragraph to check.*
 │   ├── about.html            The boat, the name, who's behind it
 │   ├── 404.html              Served with a 404 for any missing path (#36)
 │   └── assets/photos/<trip-slug>/
+├── photos/                   → photos.madcowsailing.com (#149; see The photo site)
+│   ├── wrangler.jsonc        Bindings per environment. Never published.
+│   ├── package.json          Not a build: makes photos/ wrangler's project root
+│   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
+│   ├── functions/            Pages Functions: _middleware.js, api/health.js
+│   ├── lib/                  Code the Functions import that is not a route
+│   ├── migrations/           D1, NNNN_<what>.sql, additive only
+│   ├── test/                 node --test; `npm test` from the root
+│   └── public/               The served files and nothing else (the output dir)
+│       ├── index.html        The holding page, until #157
+│       ├── 404.html          Also what stops Pages treating the site as an SPA
+│       ├── _headers          Static files only; lib/headers.js holds the same
+│       ├── _routes.json      Which paths invoke a Function: /api/* for now
+│       ├── robots.txt        Allows crawling, on purpose
+│       └── css/site.css
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -109,18 +127,21 @@ records that choice and its reasoning.
 
 ## Hosting
 
-Two Cloudflare Pages projects from this one repo.
+Three Cloudflare Pages projects from this one repo. README.md's hosting table
+holds every setting, read back from the dashboard; this is the summary.
 
-| | hq | sailing |
-|---|---|---|
-| Root directory | `hq` | `sailing` |
-| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same |
-| Output directory | `.` | `.` |
-| Watch paths | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
-| Custom domain | madcowhq.com | madcowsailing.com |
+| | hq | sailing | photos |
+|---|---|---|---|
+| Root directory | `hq` | `sailing` | `photos` |
+| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same | `mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/` |
+| Output directory | `.` | `.` | `public` |
+| Watch paths | `hq/*`, `shared/*` | `sailing/*`, `shared/*` | `photos/*`, `shared/*` |
+| Custom domain | madcowhq.com | madcowsailing.com | photos.madcowsailing.com |
 
 Watch paths matter: without them, adding forty photos to a trip log rebuilds the
-portfolio site too.
+portfolio site too. The photo site's build command is still the one-line copy,
+pointed at its output folder. Its server code is compiled by Pages itself from
+`photos/functions/`, which is not a second command.
 
 That `cp` is a build step, and it is the point where "no build step" stops being
 worth defending. It is one line, not a framework — the sites remain static files
@@ -217,11 +238,15 @@ and need Wrangler 4.135.0 or later
 Pages is steered away from, not retired: its changelog shipped a build change on
 2026-08-11
 ([changelog](https://developers.cloudflare.com/changelog/post/2026-08-11-skip-superseded-builds/)),
-and no Pages page uses the word deprecated.
+and no Pages page uses the word deprecated. *Seen on 2026-09-27 (UTC), creating the
+project for #149:* the dashboard's Create application page leads with Workers, and
+reaches Pages only through a link reading *"Need to use the legacy Pages workflow?
+Continue to Pages"*. "Legacy" is not "deprecated", so the kill condition below is not
+met. It is the direction to watch.
 
 **The accepted costs of Pages.** The custom domain, build command, root directory, watch
 paths, branch controls and fail mode stay in the dashboard. So the README's hosting table
-remains the only other copy of them; #149 adds the column. Also, the project's
+remains the only other copy of them; #149 added the column. Also, the project's
 `*.pages.dev` address cannot be switched off, and Pages' preview access policy *"will only
 protect your preview deployments … and not your `*.pages.dev` domain or custom domain"*
 ([preview deployments](https://developers.cloudflare.com/pages/configuration/preview-deployments/)).
@@ -333,7 +358,9 @@ never serves a photo it could not check. A public GET never writes to D1.
 ```
 photos/
 ├── wrangler.jsonc   pages_build_output_dir, env.preview, env.production
+├── package.json     no build and no dependencies; see item 7
 ├── functions/       the server code (Pages Functions)
+├── lib/             code the Functions import that is not a route (added by #149)
 ├── migrations/      D1 migrations, NNNN_<what>.sql, additive only
 ├── test/            node --test
 └── public/          the served files, and nothing else
@@ -347,7 +374,8 @@ uploader skips only nine names: `_worker.js`, `_redirects`, `_headers`, `_routes
 ([workers-sdk `pages/validate.ts`](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/pages/validate.ts)).
 So an output of `.` would publish `wrangler.jsonc` and every migration. Whether Pages' own
 build uploads through that code is not documented. #149 checks it by requesting both
-files by path from the preview.
+files by path from the preview. Under `wrangler pages dev` 4.141.0, before the merge,
+both answered 404, as did `package.json`, the tests and the Function sources.
 
 In the Wrangler file, which Cloudflare recommends writing as `wrangler.jsonc` for new
 projects ([Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)):
@@ -388,6 +416,10 @@ applied by hand, in this order:
    `npx wrangler d1 migrations apply madcowphotos --remote --env production`.
 4. Then the promotion.
 
+Run them from `photos/`, as `npx --no-install wrangler …` so the pinned wrangler runs,
+with the D1-scoped API token in `photos/.env`. README.md, The photo site, names the token
+and shows how to check it. #149 ran this order first, with the no-op `0001_baseline.sql`.
+
 Pass `--remote` and `--env` every time, and name the database rather than the binding, as
 Cloudflare's migrations page advises
 ([D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)). Wrangler
@@ -398,7 +430,8 @@ Keep migrations small, because Wrangler warns that the database may not serve re
 while one runs. On the free plan, Time Travel reaches back 7 days
 ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)), and a restore
 overwrites the whole database. So a restore also un-hides every photo hidden since the
-restore point. The database names follow the project name, which #149 confirms (A6).
+restore point. The database names follow the project name, which the owner confirmed at
+#149's pickup (A6).
 
 ### 7. Tests and Wrangler
 
@@ -424,7 +457,11 @@ when its `alg` or `nbf` check was removed. #151's list of refusals covers `alg`
 Wrangler becomes an exact-pinned devDependency, added by #149 with the first code;
 4.141.0 was current on 2026-09-26 and needs Node 22 or later
 ([npm](https://www.npmjs.com/package/wrangler)). That same change updates
-`package.json`'s description. The committed lockfile and `npm ci` then pin wrangler's
+`package.json`'s description. **#149 also added `photos/package.json`**, with no
+dependencies. Wrangler's `pages dev` starts from the nearest `package.json`'s
+directory. From the repo root it found no `wrangler.jsonc` and ran the site with no
+bindings, with no warning. The file's `"type": "module"` also lets Node load the
+Functions as they are. The committed lockfile and `npm ci` then pin wrangler's
 whole dependency tree, as Cloudflare recommends
 ([install and update](https://developers.cloudflare.com/workers/wrangler/install-and-update/)).
 Not chosen: a pinned `npx wrangler@<version>`, which keeps `package.json` as it is but

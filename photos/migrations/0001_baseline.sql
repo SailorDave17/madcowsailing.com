@@ -1,0 +1,13 @@
+-- The photo site's first migration, and deliberately a no-op (#149).
+--
+-- It creates nothing. It exists for two reasons, both chosen by the owner at
+-- #149's pickup (2026-09-26):
+--   1. The apply order in CLAUDE.md (The photo site, item 6) runs once, on both
+--      databases, before any story needs a table: preview before the merge,
+--      production before the promotion. After it, each database's
+--      d1_migrations table names this file, and GET /api/health reports it.
+--   2. The preview can prove that nothing under photos/migrations/ is
+--      published, by requesting this file by path and reading a 404.
+--
+-- Every later migration is additive, and one per pull request.
+SELECT 1;
