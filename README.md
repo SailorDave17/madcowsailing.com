@@ -316,9 +316,8 @@ In the order `CLAUDE.md` item 6 sets, from `photos/`, with the token above:
 
 `npx --no-install wrangler d1 migrations list <database> --remote --env <env>`
 shows what is still to apply. Each database's `d1_migrations` table records what
-was applied, and `GET /api/health` reports the newest name. *As of 2026-09-27
-(UTC):* `0001_baseline.sql`, a no-op, is applied to `madcowphotos-preview` and
-still pending on `madcowphotos`.
+was applied, and `GET /api/health` reports the newest name. Read those rather
+than a date written here, which goes stale at the next apply.
 
 ## The push guard
 
