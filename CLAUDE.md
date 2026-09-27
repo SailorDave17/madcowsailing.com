@@ -33,6 +33,11 @@ still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 **measured on production** rather than as an aspiration.
 
 Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
+A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
+#149 built its holding page, its Cloudflare project and its gate. Nothing else of
+it exists yet; epic #147 builds the rest. Its `develop` preview sits behind
+Access, and the domain serves nothing until a release carries `photos/`
+(see [The photo site](#the-photo-site--photosmadcowsailingcom)).
 The remaining open work is refinement rather than construction — self-hosted
 fonts, a second app's pages, copy sharpening — and it is
 tracked on the board, not here.
@@ -80,6 +85,21 @@ story, this is the paragraph to check.*
 │   ├── about.html            The boat, the name, who's behind it
 │   ├── 404.html              Served with a 404 for any missing path (#36)
 │   └── assets/photos/<trip-slug>/
+├── photos/                   → photos.madcowsailing.com (#149; see The photo site)
+│   ├── wrangler.jsonc        Bindings per environment. Never published.
+│   ├── package.json          Not a build: makes photos/ wrangler's project root
+│   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
+│   ├── functions/            Pages Functions: _middleware.js, api/health.js
+│   ├── lib/                  Code the Functions import that is not a route
+│   ├── migrations/           D1, NNNN_<what>.sql, additive only
+│   ├── test/                 node --test; `npm test` from the root
+│   └── public/               The served files and nothing else (the output dir)
+│       ├── index.html        The holding page, until #157
+│       ├── 404.html          Also what stops Pages treating the site as an SPA
+│       ├── _headers          Static files only; lib/headers.js holds the same
+│       ├── _routes.json      Which paths invoke a Function: /api/* for now
+│       ├── robots.txt        Allows crawling, on purpose
+│       └── css/site.css
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -107,18 +127,21 @@ records that choice and its reasoning.
 
 ## Hosting
 
-Two Cloudflare Pages projects from this one repo.
+Three Cloudflare Pages projects from this one repo. README.md's hosting table
+holds every setting, read back from the dashboard; this is the summary.
 
-| | hq | sailing |
-|---|---|---|
-| Root directory | `hq` | `sailing` |
-| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same |
-| Output directory | `.` | `.` |
-| Watch paths | `hq/*`, `shared/*` | `sailing/*`, `shared/*` |
-| Custom domain | madcowhq.com | madcowsailing.com |
+| | hq | sailing | photos |
+|---|---|---|---|
+| Root directory | `hq` | `sailing` | `photos` |
+| Build command | `mkdir -p assets/shared && cp -R ../shared/. assets/shared/` | same | `mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/` |
+| Output directory | `.` | `.` | `public` |
+| Watch paths | `hq/*`, `shared/*` | `sailing/*`, `shared/*` | `photos/*`, `shared/*` |
+| Custom domain | madcowhq.com | madcowsailing.com | photos.madcowsailing.com |
 
 Watch paths matter: without them, adding forty photos to a trip log rebuilds the
-portfolio site too.
+portfolio site too. The photo site's build command is still the one-line copy,
+pointed at its output folder. Its server code is compiled by Pages itself from
+`photos/functions/`, which is not a second command.
 
 That `cp` is a build step, and it is the point where "no build step" stops being
 worth defending. It is one line, not a framework — the sites remain static files
@@ -154,6 +177,12 @@ the Outlook settings — and the Zoho feature *not* to use for the second domain
 Plain HTML, CSS, and vanilla JS. No framework, no dependencies beyond the copy step.
 The repo is part of the portfolio, so it should be readable.
 
+**That rule still holds for `hq/` and `sailing/`.** It does not cover the third site,
+photos.madcowsailing.com under `photos/`, which runs server code on Cloudflare Pages
+Functions. That exception was decided on purpose, in #148, and it is recorded in
+[The photo site](#the-photo-site--photosmadcowsailingcom) below. The vanilla-JS rule
+still covers it: no framework and no library, in the served code or the server code.
+
 Migrate to Astro only when shared layout across both sites becomes genuinely painful
 — realistically past ten or so pages per site. Not before.
 
@@ -172,6 +201,431 @@ too. Count before deciding; do not read this line as the count.*
 
 No analytics requiring a cookie banner, and since #105 no analytics script at
 all: Cloudflare Web Analytics is off in both zones (see Hosting).
+
+## The photo site — photos.madcowsailing.com
+
+**Decided on 2026-09-26 in #148, before any of its code existed.** Epic #147 builds a
+third site from this repo. Anyone can browse albums of the team's regatta and practice
+photos and videos. Parents holding the current invite link upload from their phones, and
+nothing appears until the owner approves it. It is the first server code in the repo, so
+the static rule in Stack does not cover it. Each decision below names the alternative not
+taken and the page it rests on. **Every page was read on 2026-09-26.** Several of them
+had changed that same week, so re-read the page before relying on a number. The evidence
+for each decision is on #148's pull request.
+
+### 1. Platform: a Pages project with Functions
+
+A third Cloudflare Pages project, built from `release`, with root directory `photos`,
+watch paths `photos/*` and `shared/*`, and its server code in `photos/functions/`.
+Previews build for `develop` only, as they do on the other two projects, through Pages'
+*Custom branches* control
+([branch build controls](https://developers.cloudflare.com/pages/configuration/branch-build-controls/)).
+Preview deployments get their own database and bucket, through `env.preview` in the
+Wrangler file
+([Pages Wrangler configuration](https://developers.cloudflare.com/pages/functions/wrangler-configuration/)).
+
+**Not chosen: a Worker with static assets**, even though Cloudflare's Pages overview now
+tells readers to *"Start new projects with Workers"*
+([Pages](https://developers.cloudflare.com/pages/)). Workers Builds previews *"every push
+to a branch that is not your production branch"*. Its only control is one on/off
+checkbox, with no branch filter
+([build branches](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)).
+Worker Previews, which give each branch preview its own bindings, launched on 2026-09-22
+([changelog](https://developers.cloudflare.com/changelog/post/2026-09-22-worker-previews/))
+and need Wrangler 4.135.0 or later
+([Worker Previews](https://developers.cloudflare.com/workers/previews/)). Keeping previews
+`develop`-only on a Worker would take a second, staging Worker or a GitHub Actions job.
+Pages is steered away from, not retired: its changelog shipped a build change on
+2026-08-11
+([changelog](https://developers.cloudflare.com/changelog/post/2026-08-11-skip-superseded-builds/)),
+and no Pages page uses the word deprecated. *Seen on 2026-09-27 (UTC), creating the
+project for #149:* the dashboard's Create application page leads with Workers, and
+reaches Pages only through a link reading *"Need to use the legacy Pages workflow?
+Continue to Pages"*. "Legacy" is not "deprecated", so the kill condition below is not
+met. It is the direction to watch.
+
+**The accepted costs of Pages.** The custom domain, build command, root directory, watch
+paths, branch controls and fail mode stay in the dashboard. So the README's hosting table
+remains the only other copy of them; #149 added the column. Also, the project's
+`*.pages.dev` address cannot be switched off, and Pages' preview access policy *"will only
+protect your preview deployments … and not your `*.pages.dev` domain or custom domain"*
+([preview deployments](https://developers.cloudflare.com/pages/configuration/preview-deployments/)).
+So on that address, the code's own check of the Access token is the only lock on
+`/admin`. #151 already requires that check.
+
+**Kill condition.** Move to a Worker, by the route in Cloudflare's migration guide
+([migrate from Pages](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/)),
+on any of this evidence:
+
+- a Cloudflare page or changelog entry that deprecates Pages or Pages Functions, or ends
+  support for either;
+- a story under #147 that needs a feature the guide's compatibility matrix gives only to
+  Workers, such as Cron Triggers, Durable Objects, Workers Logs or the Rate Limiting
+  binding;
+- #149's first `develop` build showing that Pages cannot give previews their own database
+  and bucket, or cannot limit previews to `develop`.
+
+### 2. Serving: the site's code checks every photo on every request
+
+Every photo response comes from a Function. It reads the photo's state in D1 first and
+answers 404 unless the photo is approved, so a takedown holds from the next request.
+Photos live in a private R2 bucket, one per environment. That bucket never gets a custom
+domain or an `r2.dev` address.
+
+**The quota arithmetic.** On the free plan the limit that binds is requests: *"Accounts on
+the Workers Free plan have a daily request limit of 100,000 requests, resetting at
+midnight UTC."* ([Workers limits](https://developers.cloudflare.com/workers/platform/limits/)).
+Pages Functions draw on the same account-wide 100,000
+([Pages Functions pricing](https://developers.cloudflare.com/pages/functions/pricing/)).
+Static files cost nothing, as long as `_routes.json` keeps them away from the Functions.
+An album view is the page plus 40 thumbnails, 41 requests. So one day holds
+**100,000 ÷ 41 ≈ 2,439 album views**. Each photo opened in the lightbox costs one
+request more. At that ceiling the other meters are far from theirs:
+
+- D1: about 81 rows read per view (one indexed query for the page, then one row per
+  thumbnail), so about 198,000 rows a day against 5 million;
+- R2: 40 reads per view, about 2.93 million a month against 10 million Class B
+  operations ([R2 pricing](https://developers.cloudflare.com/r2/pricing/)).
+
+Neither figure survives a query that scans a table instead of using an index, because D1
+counts every row a query scans
+([D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)).
+
+**When to switch.** As far as this workspace shows, no other project on the account runs
+a Function or a Worker: hq and sailing are static, and Taskr and Tender are on Vercel. So
+the photo site has the 100,000 to itself; the dashboard's Workers & Pages overview is the
+authority. Move to Workers Paid when any UTC day passes 80,000 requests, about 1,950
+album views, or when anyone reports an Error 1027. Workers Paid costs $5 a month for the
+account, which includes 10 million requests a month, then $0.30 per million
+([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)). 10
+million a month is about 8,130 album views a day.
+
+**Not chosen: a public R2 custom domain holding approved copies under unguessable
+keys.** It spends no request quota, but a takedown then needs a cache purge, and purging
+*"does not affect assets stored by a visitor’s browser"*. On this zone a browser keeps a
+cacheable file for at least the zone's Browser Cache TTL, 4 hours by default
+([Browser Cache TTL](https://developers.cloudflare.com/cache/how-to/edge-browser-cache-ttl/)).
+Its `X-Robots-Tag` would need a zone rule outside git, and anyone holding an image's URL
+could embed it anywhere. **Not chosen either: Workers Paid from the start**, which pays for
+traffic the site does not have.
+
+### 3. Cache lifetime: 300 seconds
+
+Every photo response carries `Cache-Control: private, max-age=300`, and no photo response
+may carry more. That is the longest a taken-down photo can survive in a browser that
+already loaded it, and #157 asserts it. `immutable` is never used, and no photo is ever
+served from under `/assets/`, which the other sites' `_headers` caches for a year
+(#95). `stale-while-revalidate` is not used either, because it would add its own
+window. On Pages, `_headers` never applies to a Function's response, so the code sets
+every header itself.
+
+**Read the header on `photos.madcowsailing.com`, not only on a local server or
+`*.pages.dev`.** The zone raises a shorter lifetime to its Browser Cache TTL. On
+2026-09-26, `madcowsailing.com/css/site.css` was served with `max-age=14400`, while
+`madcowsailing.pages.dev` served the same file with `max-age=0`. Whether the zone does the
+same to a Function's response is not documented. If the live header reads longer than
+300, add a Cache Rule scoped to the photos hostname, with Browser TTL set to *Respect
+origin*. The Free plan allows 10 Cache Rules
+([Cache Rules](https://developers.cloudflare.com/cache/how-to/cache-rules/)).
+
+Not chosen: 3,600 seconds, which saves requests on a same-evening revisit and lets a
+removed photo last an hour; or 86,400 seconds, which lets it last a day.
+
+### 4. Past the daily limit: fail closed, for the whole project
+
+Pages has one fail-mode setting per project, under Settings > Runtime, and none per route
+([Functions routing](https://developers.cloudflare.com/pages/functions/routing/)).
+Per-route modes exist only for a Worker attached by zone routes. Set it to **Fail
+closed**. *Fail open* keeps serving static assets where Functions would have run, and
+every album page, photo, upload and admin route here is a Function. So failing open would
+give a visitor nothing but static files. Failing closed also meets the rule that the admin
+and upload routes fail closed. Two rules keep that true:
+
+- nothing under `/admin` or `/api` exists as a static file;
+- the project ships a top-level `404.html`. Without one, Pages answers every unmatched
+  path with the home page and a 200
+  ([serving Pages](https://developers.cloudflare.com/pages/configuration/serving-pages/)).
+
+D1 has daily limits of its own, apart from the request limit, and has enforced them since
+2026-09-01
+([changelog](https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/)).
+Past 5 million rows read or 100,000 written in a UTC day, every query on the account
+errors until midnight UTC. So a public route treats a D1 error as *not approved*, and
+never serves a photo it could not check. A public GET never writes to D1.
+
+### 5. Configuration in git
+
+```
+photos/
+├── wrangler.jsonc   pages_build_output_dir, env.preview, env.production
+├── package.json     no build and no dependencies; see item 7
+├── functions/       the server code (Pages Functions)
+├── lib/             code the Functions import that is not a route (added by #149)
+├── migrations/      D1 migrations, NNNN_<what>.sql, additive only
+├── test/            node --test
+└── public/          the served files, and nothing else
+```
+
+The build command stays one line, pointed at the output folder:
+`mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/`, with output
+directory `public`. It cannot be `.`, as it is on the other two projects. Wrangler's Pages
+uploader skips only nine names: `_worker.js`, `_redirects`, `_headers`, `_routes.json`,
+`functions`, `.DS_Store`, `node_modules`, `.git` and `.wrangler`
+([workers-sdk `pages/validate.ts`](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/pages/validate.ts)).
+So an output of `.` would publish `wrangler.jsonc` and every migration. Whether Pages' own
+build uploads through that code is not documented. #149 checks it by requesting both
+files by path from the preview. Under `wrangler pages dev` 4.141.0, before the merge,
+both answered 404, as did `package.json`, the tests and the Function sources.
+
+In the Wrangler file, which Cloudflare recommends writing as `wrangler.jsonc` for new
+projects ([Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)):
+
+- `env.preview` and `env.production` each name their own D1 database and R2 bucket. Each
+  restates every binding, because overriding one non-inheritable key in an environment
+  means restating all of them.
+- The top-level bindings name the **preview** resources. An environment Wrangler cannot
+  match then falls back to preview rather than production.
+- Every `database_id` is written out. A resource Wrangler provisions during a Git deploy
+  gets an ID that will *"only be accessible via the dashboard"*.
+- `preview_database_id` and `preview_bucket_name` do not choose a preview deployment's
+  resources. They choose what `wrangler dev` uses.
+- No secret goes in the file or anywhere in the tree. The session-signing and
+  address-hashing keys are Pages secrets, listed by name only in the README.
+
+Once the file exists, the dashboard shows its bindings read-only. What stays in the
+dashboard goes in the README's hosting table: build command, root directory, watch paths,
+custom domain, branch controls, preview access policy and fail mode. Wrangler reads a JSON
+config from 3.91.0 on, but Pages does not document which Wrangler its builds use. So
+#149's first build confirms the file was read, by the bindings showing read-only. If it
+was not, use `wrangler.toml`.
+
+### 6. How a schema change reaches production
+
+No build applies a D1 migration. Pages documents no hook or token for it. Cloudflare's
+own suggestion is a `deploy` script that runs the migrations before deploying
+([deploy buttons](https://developers.cloudflare.com/workers/platform/deploy-buttons/)),
+which here would be the second build command that Hosting warns about. So migrations are
+applied by hand, in this order:
+
+1. The pull request adds one file under `photos/migrations/`, and the file is additive:
+   it creates a table, adds a column or adds an index.
+2. Before the pull request merges into `develop`, run
+   `npx wrangler d1 migrations apply madcowphotos-preview --remote --env preview`. The
+   merge builds the preview at once, so the preview database must already have the change.
+3. Before the owner merges `develop` into `release`, run
+   `npx wrangler d1 migrations apply madcowphotos --remote --env production`.
+4. Then the promotion.
+
+Run them from `photos/`, as `npx --no-install wrangler …` so the pinned wrangler runs,
+with the D1-scoped API token in `photos/.env`. README.md, The photo site, names the token
+and shows how to check it. #149 ran this order first, with the no-op `0001_baseline.sql`.
+
+Pass `--remote` and `--env` every time, and name the database rather than the binding, as
+Cloudflare's migrations page advises
+([D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)). Wrangler
+records what has been applied in each database's `d1_migrations` table. Running code must
+never meet a schema it does not know. So a change that drops or renames anything ships in
+two releases: first the code stops using the thing, then a later migration removes it.
+Keep migrations small, because Wrangler warns that the database may not serve requests
+while one runs. On the free plan, Time Travel reaches back 7 days
+([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)), and a restore
+overwrites the whole database. So a restore also un-hides every photo hidden since the
+restore point. The database names follow the project name, which the owner confirmed at
+#149's pickup (A6).
+
+### 7. Tests and Wrangler
+
+The site's own code is tested with `node --test`, with no dependency. Node 24, which CI
+runs, has `Request`, `Response`, `Headers` and `crypto.subtle` as globals. A Pages
+Function is a plain exported `onRequest(context)`, so a test calls it with a hand-built
+context and hand-written stand-ins for D1 and R2.
+
+Not chosen:
+
+- Cloudflare's recommended Vitest integration
+  ([testing](https://developers.cloudflare.com/workers/testing/)), which is a framework
+  plus `vitest` and `@cloudflare/vitest-plugin`;
+- `jose`, or Cloudflare's Access plugin, for the token check. Both are libraries.
+
+A hand-written token check needs tests that libraries would otherwise stand in for. A
+measured first version passed all 6 of its tests while it accepted a token with no `exp`,
+threw a 500 on a malformed token instead of answering 403, and had no test that failed
+when its `alg` or `nbf` check was removed. #151's list of refusals covers `alg`
+(`alg: none`, and HS256 signed with the public key). It names no case for a missing
+`exp`, a malformed token or `nbf`, so the session that picks up #151 adds those three.
+
+Wrangler becomes an exact-pinned devDependency, added by #149 with the first code;
+4.141.0 was current on 2026-09-26 and needs Node 22 or later
+([npm](https://www.npmjs.com/package/wrangler)). That same change updates
+`package.json`'s description. **#149 also added `photos/package.json`**, with no
+dependencies. Wrangler's `pages dev` starts from the nearest `package.json`'s
+directory. From the repo root it found no `wrangler.jsonc` and ran the site with no
+bindings, with no warning. The file's `"type": "module"` also lets Node load the
+Functions as they are. The committed lockfile and `npm ci` then pin wrangler's
+whole dependency tree, as Cloudflare recommends
+([install and update](https://developers.cloudflare.com/workers/wrangler/install-and-update/)).
+Not chosen: a pinned `npx wrangler@<version>`, which keeps `package.json` as it is but
+resolves wrangler's own dependencies afresh on each run. The accepted cost is that CI's
+`npm ci` installs wrangler, workerd and sharp on every run, although CI never runs them.
+
+### 8. Free-tier headroom
+
+| Meter | Free allowance | Where it ends here | The paid step |
+|---|---|---|---|
+| Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
+| CPU | 10 ms per request | not yet measured: the token check, rendered pages and clip parts, when #151, #157 and the video stories build them | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
+| R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
+| R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
+| D1 | 5 million rows read and 100,000 written a day; 5 GB in all, 500 MB per database | about 4% of reads at the request ceiling, if every query uses an index | with Workers Paid: 25 billion reads and 50 million writes a month |
+| Zero Trust | 50 users | the owner, plus anyone who signs in to a preview | $7 per user a month |
+
+Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
+[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
+[R2 pricing](https://developers.cloudflare.com/r2/pricing/),
+[D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/),
+[D1 limits](https://developers.cloudflare.com/d1/platform/limits/) and the
+[Zero Trust plans](https://www.cloudflare.com/plans/zero-trust-services/).
+
+Storage runs out first, and video is what fills it. R2 has no daily cut-off: past the
+free allowance it bills monthly, rounded up to whole units, and using R2 at all needs its
+subscription taken out at checkout. 100 clips of about 250 MB would cost about $0.25 a
+month. R2 bills the average of each day's peak storage, so a clip counts from the day it
+is stored, pending or rejected. So a rejected clip is deleted, not kept. Zero Trust asks
+for payment details at onboarding even on its Free plan, and a seat stays taken until
+the user is removed; seat expiration can remove users automatically.
+
+### 9. What an upload may be
+
+Each photo arrives as three JPEGs, and #154 refuses any outside these caps:
+
+| Size | Long edge | Largest file |
+|---|---|---|
+| grid | 480 px | 150 KB |
+| screen | 1600 px | 1 MB |
+| full | 2560 px | 3 MB |
+
+Measured on 2026-09-26, by saving the repo's 78 trip-log photos as JPEG at quality 85:
+the largest file was 75 KB at 480 px and 752 KB at 1600 px. The repo holds nothing larger
+than 2000 px (1,143 KB at most there), so 2560 px was scaled by pixel count, to about
+1.9 MB. The caps leave room above all three. A median photo comes to about 875 KB for all
+three sizes, which is where item 8's 11,000 comes from.
+
+A clip may run for up to 3 minutes. That was the owner's figure for pricing, and the
+video stories confirm it. Apple gives 70–105 MB for a minute of 1080p, the iPhone's
+default ([Apple](https://support.apple.com/en-us/127765)), so a 3-minute clip is roughly
+200–300 MB. Apple's figures are for exporting from iMovie, not for camera originals, so
+treat them as an estimate.
+
+### 10. Video: uploaded in parts, blanked in the browser, checked on the server
+
+**Added to the epic on 2026-09-26, while this story was being worked** (owner decision; it
+reverses #147's default A2, "photos only"). Clips go in the same private R2 bucket as the
+photos, through the site's own Functions, with the same approval.
+
+**Upload.** A Function accepts at most 100 MB per request on the Free plan
+([Workers limits](https://developers.cloudflare.com/workers/platform/limits/)), and
+Workers Paid does not raise that; only the zone's plan does. So the page sends an R2
+multipart upload through the Function's binding, and each part is still held to that
+limit ([R2 multipart](https://developers.cloudflare.com/r2/api/workers/workers-multipart-usage/)).
+Every part except the last must be the same size and at least 5 MiB
+([R2 uploads](https://developers.cloudflare.com/r2/objects/upload-objects/)).
+Parts are small, about 25 MB, and go one at a time: a failed part is retried alone. That
+matters because the runtime gives an in-flight request only a 30-second grace period
+when it restarts, which happens a few times a week. The binding does the auth, so no
+credential reaches the browser and nothing leaves the site's domain. R2 aborts an
+unfinished multipart upload after 7 days by default
+([R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/));
+a lifecycle rule on the bucket shortens that to 1 day.
+
+Whether a free Function can pass a 25 MB part into R2 within its 10 ms of CPU is not
+documented. **The first video story measures it before building on it.** If a part does
+not fit, the answer is Workers Paid, whose CPU limit defaults to 30 seconds, not a
+different upload path.
+
+**Location and camera data.** The page removes them before uploading, without
+re-encoding. A hand-written walker goes through the file's boxes (the named blocks an
+MP4 or MOV file is made of). It keeps the ones playback needs and overwrites every other
+box in place: the type becomes `free`, the contents become zeros, and the size stays the
+same. Nothing moves, so the offsets that point into the media stay valid, wherever the
+file keeps its index (`moov`). Apple's QuickTime documentation lets a `free` box stand
+in for removed metadata
+([metadata atoms](https://developer.apple.com/documentation/quicktime-file-format/metadata_atoms_and_types)),
+and Android's own media provider redacts video location in place, keeping every size. The
+walker must:
+
+- blank a whole `meta` box, a whole `udta` child or a whole track, never single items
+  inside `ilst`, where Apple does not allow `free` boxes;
+- leave `stsd` whole, because its entries carry the codec setup a player needs;
+- zero the contents of every existing `free` or `skip` box as well, because some
+  devices store GPS in a top-level `skip` box
+  ([exiftool QuickTime tags](https://exiftool.org/TagNames/QuickTime.html));
+- zero the samples of any track that is neither audio nor video, then blank the track,
+  because timed location data sits in the media data, not in `moov`.
+
+The phone does none of this for us. What iOS Safari's picker does to a video's metadata
+is undocumented, and Android's redaction skips `.mov` files and never touches camera
+identity. The test is `exiftool -a -G1 -ee -u`, run on real iPhone and Android clips
+before and after the walker: afterwards it must find no location, make, model,
+software, lens or free-text device tags. `-ee` reads timed metadata, and `-u` shows the
+vendor GPS boxes that exiftool otherwise hides. The promise covers location and camera
+data. The boxes playback needs still carry creation times; the video stories decide
+whether to zero those too.
+
+**The server checks rather than strips.** R2 cannot patch a stored object, and rewriting a
+300 MB clip through a free Function would not fit its CPU. So when an upload completes,
+the Function reads the clip's box headers with ranged reads, and deletes the clip before
+it can be approved if anything outside the walker's keep-list still holds data. R2
+deletes are strongly consistent. For photos, the server strips again; for clips, it
+refuses what was not stripped. Box headers cannot show samples that a blanked track left
+behind in the media data, so that one case rests on the walker and its tests.
+
+**Serving.** A Function serves clips the same way it serves photos. It checks the clip's
+state in D1, then answers range requests with `206` and `Content-Range`, which iOS
+requires of any server hosting media
+([Apple](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/CreatingVideoforSafarioniPhone/CreatingVideoforSafarioniPhone.html)).
+Cloudflare's own example R2 handler answers `200`, which is not enough. Clip responses
+carry the same `Cache-Control: private, max-age=300` as photos. Every range request is a
+Functions request. A third-party trace from 2023, not a Cloudflare figure, saw Chrome and
+Firefox make 3–4 requests per play, and Safari one request per few MB
+([zeng.dev](https://www.zeng.dev/post/2023-http-range-and-play-mp4-in-browser/)). For a
+250 MB clip that is about 70 requests.
+
+**Open until the video stories measure it:** clips are stored as recorded, so an iPhone's
+HEVC clip stays HEVC. Whether every browser the families use plays HEVC was not
+established.
+
+**Not chosen:**
+
+- **Cloudflare Stream.** It has no free tier: $5 a month per 1,000 minutes stored, plus
+  $1 per 1,000 minutes delivered
+  ([Stream pricing](https://developers.cloudflare.com/stream/pricing/)). With direct
+  uploads it keeps the parent's original, metadata and all, where the site cannot strip
+  it. Its delivery domain
+  sends no `X-Robots-Tag`, its manifests may not be proxied, and desktop Firefox has no
+  native HLS.
+- **Media Transformations**, Cloudflare's server-side re-encode. Output is capped at 60
+  seconds and input at 100 MB
+  ([transform videos](https://developers.cloudflare.com/stream/transform-videos/)).
+- **Presigned uploads straight to R2.** They need a hand-written request signer
+  (Cloudflare's examples use a library), an R2 secret key held by the site and a CORS
+  rule, and a signed URL cannot cap the file size.
+- **Re-encoding in the browser with its built-in recorder.** It runs in real time, so a
+  parent waits the clip's full length with the screen on, and nobody has shown the
+  iPhone audio route working.
+- **A library, Mediabunny, for a faster re-encode**, which the vanilla-JS rule rules out.
+
+**The terms question.** Cloudflare's CDN terms say: *"Unless you are an Enterprise
+customer, Cloudflare offers specific Paid Services (e.g., the Developer Platform, Images,
+and Stream) that you must use in order to serve video and other large files via the
+CDN."* ([service-specific terms](https://www.cloudflare.com/service-specific-terms-application-services/)).
+R2 and Pages are Developer Platform services. Cloudflare's 2023 announcement says
+*"customers can serve video and other large files using the CDN so long as that content
+is hosted by a Cloudflare service like Stream, Images, or R2"*
+([blog](https://blog.cloudflare.com/updated-tos/)). Whether free-tier use counts as a
+Paid Service is not settled by the text. **Owner decision, 2026-09-26: accept that and
+record it.** With clips kept at full size, storage passes the free 10 GB after roughly
+30–50 clips and is billed from then on anyway.
 
 ## The two-presentation rule
 

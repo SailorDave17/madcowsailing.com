@@ -27,9 +27,13 @@ jobs:
     env:
       PY: python3
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to the commit their tag named when pinned, with the
+      # tag kept as a comment (security-audit 2026-09-27, SA-3). A tag can be
+      # moved to other code; a commit SHA cannot. To update, resolve the new
+      # tag with `gh api repos/<owner>/<action>/git/ref/tags/<tag>`.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
           cache: npm
@@ -45,4 +49,10 @@ jobs:
       # python3 here, from the job's env; locally the pre-push driver resolves
       # it. Keeping the two lists identical is the rule this file's header
       # states, so a change here needs the same change there and vice versa.
-      - run: $PY tools/linkcheck.py hq sailing
+      # photos/public, not photos: the photo site's served root (#149).
+      - run: $PY tools/linkcheck.py hq sailing photos/public
+
+      # The third line of githooks/checks: the photo site's own tests,
+      # node --test over photos/test/ (#149). Node 24 above has everything
+      # they use built in.
+      - run: npm run --silent test
