@@ -1,0 +1,40 @@
+# Cloudflare Pages reads this from the OUTPUT directory, photos/public/, and
+# applies it to the static files only. It never applies to a response a
+# Function makes (Cloudflare's "Headers" page, read 2026-09-26), so
+# photos/lib/headers.js holds the same site-wide headers and
+# functions/_middleware.js sets them on everything a Function answers.
+# photos/test/headers.test.mjs fails if the /* block below and that file
+# ever disagree, so change both together.
+#
+# Rule order matters: Pages applies every matching rule, and a later one wins
+# on a repeated header name. Keep the broad rule first.
+#
+# X-Robots-Tag: every response says noindex (epic #147, D6). robots.txt
+# deliberately allows crawling, because a crawler refused a URL never reads its
+# noindex and can still list the URL from a link elsewhere.
+#
+# Content-Security-Policy: scripts, styles, fonts and connections from this
+# origin only. Images may also be blob: URLs, for the upload previews #155
+# draws. The page may not be framed by anyone. There is no 'unsafe-inline'
+# anywhere, so no page on this site may carry an inline <script>, an inline
+# style attribute or a <style> element.
+
+/*
+  X-Robots-Tag: noindex
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# The shared CSS, JS, fonts and images, copied from shared/ by the build.
+# Cached for a year, as on the other two sites: shared CSS and JS carry
+# ?v=<hash> (tools/assetver.py), and fonts and images are renamed rather than
+# replaced. No photo is ever served from under /assets/ (CLAUDE.md, The photo
+# site, item 3): a photo cached here for a year would outlive its takedown.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The HTML must not be cached, or a deploy would not reach anyone who had
+# already visited.
+/
+  Cache-Control: public, max-age=0, must-revalidate

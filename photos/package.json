@@ -1,0 +1,6 @@
+{
+  "name": "madcowphotos",
+  "private": true,
+  "type": "module",
+  "description": "Not a build and no dependencies (wrangler is pinned in the repo root's package.json). This file does two jobs. It makes photos/ its own project for wrangler pages dev, which otherwise takes the nearest package.json's directory, the repo root, as the project root, finds no wrangler.jsonc there and starts with no D1 or R2 bindings (measured with wrangler 4.141.0 on 2026-09-26, #149). And it tells Node that the site's .js files are ES modules, as the Pages runtime reads them."
+}

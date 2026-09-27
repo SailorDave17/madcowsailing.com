@@ -1,12 +1,14 @@
 {
   "name": "madcowsailing",
   "private": true,
-  "description": "Dev tooling only. The sites themselves have no dependencies and no build step beyond the one-line copy in the Cloudflare Pages config - see CLAUDE.md. Nothing here is served.",
+  "description": "Dev tooling only; nothing here is served. html-validate checks all three sites. wrangler runs the photo site locally (wrangler pages dev) and applies its D1 migrations; Cloudflare's own build never installs it. The sites themselves have no dependencies and no build step beyond the one-line copy in each Cloudflare Pages config - see CLAUDE.md.",
   "scripts": {
-    "check": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"docs/**/*.html\"",
-    "check:html": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"docs/**/*.html\""
+    "check": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"photos/**/*.html\" \"docs/**/*.html\"",
+    "check:html": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"photos/**/*.html\" \"docs/**/*.html\"",
+    "test": "node --test \"photos/test/*.test.js\""
   },
   "devDependencies": {
-    "html-validate": "10.17.0"
+    "html-validate": "10.17.0",
+    "wrangler": "4.141.0"
   }
 }

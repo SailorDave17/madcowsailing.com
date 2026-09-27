@@ -38,5 +38,14 @@
 #
 # There is no build step. The sites are static files plus the one-line copy in
 # the Cloudflare Pages config - see CLAUDE.md.
+#
+# The photo site joined all three lines in #149. html-validate reads photos/
+# through the glob in package.json's `check` script, and refuses an inline
+# style there (photos/.htmlvalidate.json), because the site's CSP would drop
+# one silently. linkcheck reads photos/public, not photos: that is the site's
+# served root, its Pages output directory. `npm run --silent test` runs the
+# site's own tests with node --test (photos/test/), which hold the Functions,
+# the headers, _routes.json and the Wrangler config.
 npm run --silent check
-$PY tools/linkcheck.py hq sailing
+$PY tools/linkcheck.py hq sailing photos/public
+npm run --silent test
