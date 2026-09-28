@@ -482,7 +482,7 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | not yet measured. The token check and the admin home: #151 reads their CPU time from the project's Functions metrics on production when it closes. Rendered album pages and clip parts: #157 and the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| CPU | 10 ms per request | not yet measured per route. The project's Metrics tab reports every Function together, with no unit on the page. At #151's close (2026-09-28), 38 production requests over 24 hours read p50 2,463 and p99 8,874, with 0 over the limit, so the unit is taken as microseconds and the slowest was about 1.1 ms under 10 ms. Per route, the token check and the admin home included: #157. Rendered album pages and clip parts: #157 and the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
