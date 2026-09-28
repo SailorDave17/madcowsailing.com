@@ -38,3 +38,6 @@
 # already visited.
 /
   Cache-Control: public, max-age=0, must-revalidate
+
+/share/
+  Cache-Control: public, max-age=0, must-revalidate

@@ -89,17 +89,21 @@ story, this is the paragraph to check.*
 │   ├── wrangler.jsonc        Bindings per environment. Never published.
 │   ├── package.json          Not a build: makes photos/ wrangler's project root
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
-│   ├── functions/            Pages Functions: _middleware.js, api/health.js
+│   ├── functions/            Pages Functions: _middleware.js, api/health.js,
+│   │                         api/join.js, and api/upload/, behind the upload guard
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
+│   ├── scripts/              seed-code.mjs: a database's first invite code, until #152
 │   ├── test/                 node --test; `npm test` from the root
 │   └── public/               The served files and nothing else (the output dir)
 │       ├── index.html        The holding page, until #157
+│       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /api/* for now
 │       ├── robots.txt        Allows crawling, on purpose
-│       └── css/site.css
+│       ├── css/site.css
+│       └── js/share.js
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -362,6 +366,7 @@ photos/
 ├── functions/       the server code (Pages Functions)
 ├── lib/             code the Functions import that is not a route (added by #149)
 ├── migrations/      D1 migrations, NNNN_<what>.sql, additive only
+├── scripts/         run by hand, never served (added by #150)
 ├── test/            node --test
 └── public/          the served files, and nothing else
 ```
@@ -626,6 +631,30 @@ is hosted by a Cloudflare service like Stream, Images, or R2"*
 Paid Service is not settled by the text. **Owner decision, 2026-09-26: accept that and
 record it.** With clips kept at full size, storage passes the free 10 GB after roughly
 30–50 clips and is billed from then on anyway.
+
+### 11. The invite code and the upload session
+
+**Built in #150, with two values confirmed by the owner at its pickup on 2026-09-27.**
+The code is 12 symbols of Crockford's base 32, 60 bits, grouped in fours
+(`K7QM-3XRD-9FWB`). It lives in D1 as it is, because the admin page shows it (#152).
+Earlier codes stay, so an old link can say the invite has changed rather than that it is
+wrong. The letters I, L and O are read as 1, 1 and 0.
+
+- **A session lasts 90 days.** Not chosen: the 180 the issue proposed, or 365. Rotating
+  the code ends every session whatever its age. The cookie is `__Host-upload`, signed with
+  `SESSION_SIGNING_KEY`, and it names the code's generation. The server checks the age
+  itself rather than trusting `Max-Age`.
+- **10 failed joins per address per hour, then 429.** Not chosen: 5 or 20. Only a wrong
+  or earlier code counts. The address is stored as an HMAC keyed with `ADDRESS_HASH_KEY`,
+  and an IPv6 address counts by its /64. Pages runs no scheduled job, so a failure is
+  deleted by the first join after it is an hour old, not on the hour.
+- **Every upload route sits under `functions/api/upload/`**, whose `_middleware.js` runs
+  the one guard, `requireUploadSession` in `lib/session.js`. `test/guard.test.js` calls
+  every Function route outside its `PUBLIC` list with four bad cookies and requires 401.
+  An admin route (#151) is refused by Access, not by this guard, so #151 declares its
+  routes to that test rather than listing them as public.
+
+Secrets and the seed command are in README.md, The photo site.
 
 ## The two-presentation rule
 
