@@ -40,6 +40,13 @@
 .lockup-mark { height: var(--space-5); width: auto; }
 .lockup-word { height: var(--space-3); width: auto; }
 
+/* ---- Hidden --------------------------------------------------------- */
+
+/* The hidden attribute is a user-agent rule, so any author rule that sets
+   display beats it: .button's inline-block would show share.js's hidden
+   "Try again". Restated here so a hidden element stays hidden. */
+[hidden] { display: none !important; }
+
 /* ---- Page head ------------------------------------------------------ */
 
 .page-head .lede {

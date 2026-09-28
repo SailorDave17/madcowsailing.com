@@ -268,9 +268,21 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
 
 By name only; a value never goes in this repo.
 
-- **Pages secrets: none yet.** #150 adds the session-signing key, and #150 and
-  #158 the key for hashing addresses. Each story that sets one adds its name
-  here, per environment.
+- **Pages secrets**, one value per environment, set in the dashboard under the
+  project's Settings → Variables and Secrets, as type *Secret*:
+  - `SESSION_SIGNING_KEY` (#150) signs the upload session cookie. Changing it
+    ends every session at once, as rotating the code does.
+  - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
+    stores instead of a network address.
+
+  Each is 32 random bytes, base64url-encoded. Preview and production get
+  different values. Without them, `POST /api/join` answers `503` and opens
+  nothing. Check that both exist in both environments on the dashboard, which
+  shows a secret's name and never its value.
+- **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
+  it): the same two names, with throwaway values. Make it with
+  `node -e "const k=()=>require('crypto').randomBytes(32).toString('base64url');require('fs').writeFileSync('.dev.vars','SESSION_SIGNING_KEY='+k()+'\nADDRESS_HASH_KEY='+k()+'\n')"`
+  from `photos/`, which prints nothing.
 - **Local only, in `photos/.env`** (gitignored; wrangler reads it from
   `photos/`): `CLOUDFLARE_API_TOKEN`, an API token named
   `madcowphotos D1 migrations` with Account → D1 → Edit on this account only,
@@ -285,8 +297,12 @@ From the repo root, once: `npm ci`. Then, from `photos/`:
 ```sh
 mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/   # the Pages build step
 npx --no-install wrangler d1 migrations apply madcowphotos-preview --local  # local stand-in database
+node scripts/seed-code.mjs --local                                         # a local invite code, once
 npx --no-install wrangler pages dev                                        # http://localhost:8788
 ```
+
+It also needs `photos/.dev.vars` (Secrets, above). The seed prints a
+`http://localhost:8788/share/#code=…` link, which joins in a browser.
 
 `GET /api/health` should answer `200` with `"environment":"preview"`, both
 bindings reachable, and the newest migration's name. The local database and
@@ -318,6 +334,26 @@ In the order `CLAUDE.md` item 6 sets, from `photos/`, with the token above:
 shows what is still to apply. Each database's `d1_migrations` table records what
 was applied, and `GET /api/health` reports the newest name. Read those rather
 than a date written here, which goes stale at the next apply.
+
+### The invite code
+
+A parent joins by opening `https://photos.madcowsailing.com/share/#code=<code>`.
+Each database needs its first code seeded **once**, after migration
+`0002_invite_code.sql` is applied there. From `photos/`, with the token above:
+
+```sh
+node scripts/seed-code.mjs --env preview      # madcowphotos-preview
+node scripts/seed-code.mjs --env production   # madcowphotos
+```
+
+It makes a code with the site's own generator, inserts it only if the database
+holds none, and prints the invite link. A second run changes nothing and prints
+the link again. The code is never written to a file or to git; this repo is
+public. **#152 replaces this script** with "Create code" and "Rotate code" on
+`/admin/code`.
+
+To read the current code without the script:
+`npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
 
 ## The push guard
 
