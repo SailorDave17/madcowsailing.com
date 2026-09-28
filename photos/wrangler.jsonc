@@ -16,6 +16,17 @@
 //   - Every database_id is written out, and no secret goes in this file or
 //     anywhere in the tree. Secrets are Pages secrets, named in README.md.
 //
+// The admin guard (#151, lib/access.js) reads two vars here. Neither is
+// secret: every Access token carries both.
+//   - ACCESS_TEAM_DOMAIN is the Zero Trust team's domain: the tokens' issuer,
+//     and where the signing keys are fetched from.
+//   - ACCESS_AUD is the AUD tag of the Access application that signs this
+//     environment's requests. Preview deployments sit behind the project's
+//     Pages preview application, production behind the admin application on
+//     photos.madcowsailing.com, so the two differ. A tag changes only if its
+//     application is deleted and recreated.
+// The admins' addresses, the third thing it reads, are the ADMIN_EMAILS secret.
+//
 // photos/test/config.test.mjs holds these rules, and it fails if preview and
 // production ever share a database or a bucket.
 {
@@ -23,7 +34,11 @@
   "pages_build_output_dir": "./public",
   "compatibility_date": "2026-09-25",
 
-  "vars": { "SITE_ENV": "preview" },
+  "vars": {
+    "SITE_ENV": "preview",
+    "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
+    "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700"
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -38,7 +53,11 @@
 
   "env": {
     "preview": {
-      "vars": { "SITE_ENV": "preview" },
+      "vars": {
+        "SITE_ENV": "preview",
+        "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
+        "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700"
+      },
       "d1_databases": [
         {
           "binding": "DB",
@@ -52,7 +71,11 @@
       ]
     },
     "production": {
-      "vars": { "SITE_ENV": "production" },
+      "vars": {
+        "SITE_ENV": "production",
+        "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
+        "ACCESS_AUD": "78d0a143ee4090db61bac7bf71d2d6a40055fcc1f99b6dfa82105175c33727f1"
+      },
       "d1_databases": [
         {
           "binding": "DB",
