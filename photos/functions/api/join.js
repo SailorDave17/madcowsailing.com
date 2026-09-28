@@ -18,6 +18,15 @@
  * stored as a keyed hash (lib/address.js), and a failure is deleted by the
  * first join after it is an hour old.
  *
+ * Recording a failure spends D1's daily writes, which the whole account
+ * shares, so it first spends one unit of the hour's FAILURE_BUDGET_PER_HOUR
+ * for the whole site (#177). Once that is spent, a failure is answered as
+ * usual and not recorded: the current code still joins, and an address
+ * already recorded 10 times is still refused. A new address can then try
+ * past the per-address limit until the hour turns, which the owner accepted
+ * on 2026-09-28: at 60 bits the guess stays hopeless, and the alternative,
+ * closing joining for everyone, hands anyone a cheap way to stop every parent.
+ *
  * The presented code is compared with every stored one through SHA-256
  * digests and timing.equal, so the time taken says nothing about how much of
  * a guess was right. Nothing here logs the code, the cookie or a key, and the
@@ -36,6 +45,14 @@ import { nowSeconds, sessionCookie } from '../../lib/session.js';
 // of a few parents pasting a broken link.
 export const FAILURE_LIMIT = 10;
 export const FAILURE_WINDOW_SECONDS = 60 * 60;
+
+// 100 recorded failures a clock hour, for the whole site (owner, 2026-09-28,
+// #177). A recorded failure costs 5 rows written with the budget's own write
+// (measured on preview; CLAUDE.md item 11), so the join route can spend at
+// most 5 × 100 × 24 = 12,000 of D1's 100,000 a day, whoever sends them.
+export const FAILURE_BUDGET_PER_HOUR = 100;
+const HOUR_SECONDS = 60 * 60;
+const BUDGET_KEPT_HOURS = 24;
 
 // A body this size holds any code with room to spare.
 const MAX_BODY_BYTES = 1024;
@@ -88,8 +105,35 @@ export async function onRequestPost({ request, env }) {
     });
   }
 
-  await DB.prepare('INSERT INTO join_failures (address_hash, failed_at) VALUES (?, ?)').bind(address, now).run();
+  if (await spendBudget(DB, now)) {
+    await DB.prepare('INSERT INTO join_failures (address_hash, failed_at) VALUES (?, ?)').bind(address, now).run();
+  }
   return answer(403, matched === null ? 'wrong' : 'rotated');
+}
+
+/**
+ * Spend one unit of this clock hour's recording budget, and say whether there
+ * was one. One statement: it creates the hour's row at 1, or adds 1 while the
+ * row is under the budget, and RETURNING gives a row only when it did either.
+ * A spent hour writes nothing. D1 counts 2 rows read and at most 1 written,
+ * whatever else is in the table (measured on preview, 2026-09-28). Rows over
+ * a day old are deleted here, at most once an hour, when a new hour's row is made.
+ */
+async function spendBudget(DB, now) {
+  const hour = Math.floor(now / HOUR_SECONDS);
+  const spent = await DB
+    .prepare(
+      'INSERT INTO join_budget (hour, recorded) VALUES (?, 1) ' +
+      'ON CONFLICT (hour) DO UPDATE SET recorded = recorded + 1 WHERE recorded < ? ' +
+      'RETURNING recorded',
+    )
+    .bind(hour, FAILURE_BUDGET_PER_HOUR)
+    .first();
+  if (spent === null) return false;
+  if (spent.recorded === 1) {
+    await DB.prepare('DELETE FROM join_budget WHERE hour < ?').bind(hour - BUDGET_KEPT_HOURS).run();
+  }
+  return true;
 }
 
 /**

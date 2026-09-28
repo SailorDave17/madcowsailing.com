@@ -648,6 +648,18 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   or earlier code counts. The address is stored as an HMAC keyed with `ADDRESS_HASH_KEY`,
   and an IPv6 address counts by its /64. Pages runs no scheduled job, so a failure is
   deleted by the first join after it is an hour old, not on the hour.
+- **Recording a failure spends one unit of a budget of 100 an hour for the whole site**
+  (owner, 2026-09-28, #177). It spends D1's daily writes, which the account shares.
+  Measured on the preview database with `meta.rows_written`, a recorded failure costs 5
+  rows written: 1 for the budget's counter row, 3 to insert it (the table and its two
+  indexes) and 1 to delete it an hour later. So the join route can spend at most
+  5 × 100 × 24 = 12,000 of D1's 100,000 a day, plus one cleanup write an hour. Without
+  the budget, 25,000 failures from any number of addresses would stop every D1 query on
+  the account until midnight UTC. Once the hour's budget is spent, a failure is answered
+  as usual and not recorded, and the current code still joins. Not chosen: closing
+  joining for everyone until the hour turns, which would let about 100 bad requests an
+  hour stop every parent. The accepted cost is that a new address can try codes past its
+  limit until the hour turns, which 60 bits makes hopeless.
 - **Every upload route sits under `functions/api/upload/`**, whose `_middleware.js` runs
   the one guard, `requireUploadSession` in `lib/session.js`. `test/guard.test.js` calls
   every Function route outside its `PUBLIC` list with four bad cookies and requires 401.
