@@ -5,7 +5,8 @@
 //
 // It implements the part of D1's API the site uses: prepare(), bind(),
 // first(), all() and run(). `sqlite` is the database underneath, for a test
-// to seed rows or read them back directly.
+// to seed rows or read them back directly. `statements` lists every SQL text
+// the code prepared, in order, for a test asserting what the code asked D1.
 import { readdirSync, readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -31,7 +32,15 @@ export function d1() {
       return { success: true, meta: { changes } };
     },
   });
-  return { sqlite, prepare: (sql) => statement(sql) };
+  const statements = [];
+  return {
+    sqlite,
+    statements,
+    prepare: (sql) => {
+      statements.push(sql);
+      return statement(sql);
+    },
+  };
 }
 
 export function seedCodes(db, ...codes) {
