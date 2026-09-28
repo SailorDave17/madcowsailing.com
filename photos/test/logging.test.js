@@ -13,7 +13,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-const FORBIDDEN = /\b(code|codes|presented|stored|cookie|cookies|value|signature|secret|secrets|key|keys|[A-Z_]*_KEY|body|text|headers|request|session)\b/i;
+// The last group is the admin guard's (#151): the Access token, what it
+// claims, and the owner's address, which is kept out of the public repo too.
+const FORBIDDEN = /\b(code|codes|presented|stored|cookie|cookies|value|signature|secret|secrets|key|keys|[A-Z_]*_KEY|body|text|headers|request|session|token|tokens|jwt|claims|payload|email|emails|owner|ADMIN_EMAILS)\b/i;
 
 function sources(dir) {
   const out = [];
@@ -73,6 +75,9 @@ test('the scanner finds a secret handed to a logging call, and passes a clean on
     'console.warn("key:", env.SESSION_SIGNING_KEY);',
     "console.info('body', await request.text());",
     "console.debug(\n  'split',\n  session.generation,\n);",
+    "console.error('refused', token);",
+    'console.warn(`not listed: ${claims.email}`);',
+    "console.log('allowed', env.ADMIN_EMAILS);",
   ];
   for (const source of planted) {
     const calls = consoleCalls(source);

@@ -161,11 +161,27 @@ test('every database_id is a real one, written out', () => {
   }
 });
 
-test('the config carries no secret: vars hold SITE_ENV and nothing else', () => {
+test('the config carries no secret: vars hold SITE_ENV and the two Access settings, nothing else', () => {
   // Secrets are Pages secrets, set in the dashboard and named in README.md.
+  // The admin allow-list is one of them (#151, owner's choice 2026-09-28), so
+  // the owner's address is not in this public repo.
   for (const env of [config, config.env.preview, config.env.production]) {
-    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV']);
+    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD']);
+    assert.ok(!('ADMIN_EMAILS' in env.vars));
   }
+});
+
+test('the admin guard trusts the madcowsailing team, with one Access application per environment', () => {
+  // #151. The issuer and the key URL both come from ACCESS_TEAM_DOMAIN, which
+  // renaming the Zero Trust team would change. A preview deployment is signed
+  // for the Pages preview application, production for the admin application,
+  // so their AUD tags differ; a tag Access issues is 64 hex characters.
+  const { preview, production } = config.env;
+  for (const env of [preview, production]) {
+    assert.equal(env.vars.ACCESS_TEAM_DOMAIN, 'https://madcowsailing.cloudflareaccess.com');
+    assert.match(env.vars.ACCESS_AUD, /^[0-9a-f]{64}$/);
+  }
+  assert.notEqual(preview.vars.ACCESS_AUD, production.vars.ACCESS_AUD);
 });
 
 test('migrations are numbered NNNN_name.sql, in order, once each', () => {

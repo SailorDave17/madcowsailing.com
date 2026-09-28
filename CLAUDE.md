@@ -34,8 +34,9 @@ still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 
 Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
 A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
-#149 built its holding page, its Cloudflare project and its gate. Nothing else of
-it exists yet; epic #147 builds the rest. Its `develop` preview sits behind
+#149 built its holding page, its Cloudflare project and its gate. #150 added the
+invite code and the upload session, and #151 the admin area's lock and its
+empty home page. Epic #147 builds the rest. Its `develop` preview sits behind
 Access, and the domain serves nothing until a release carries `photos/`
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
 The remaining open work is refinement rather than construction — self-hosted
@@ -90,7 +91,8 @@ story, this is the paragraph to check.*
 │   ├── package.json          Not a build: makes photos/ wrangler's project root
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
-│   │                         api/join.js, and api/upload/, behind the upload guard
+│   │                         api/join.js, api/upload/ behind the upload guard,
+│   │                         and admin/ and api/admin/ behind the admin guard
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
 │   ├── scripts/              seed-code.mjs: a database's first invite code, until #152
@@ -100,7 +102,7 @@ story, this is the paragraph to check.*
 │       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
-│       ├── _routes.json      Which paths invoke a Function: /api/* for now
+│       ├── _routes.json      Which paths invoke a Function: /api/*, /admin, /admin/*
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       └── js/share.js
@@ -395,7 +397,8 @@ projects ([Wrangler configuration](https://developers.cloudflare.com/workers/wra
 - `preview_database_id` and `preview_bucket_name` do not choose a preview deployment's
   resources. They choose what `wrangler dev` uses.
 - No secret goes in the file or anywhere in the tree. The session-signing and
-  address-hashing keys are Pages secrets, listed by name only in the README.
+  address-hashing keys are Pages secrets, listed by name only in the README, and so
+  is the admin allow-list (item 12).
 
 Once the file exists, the dashboard shows its bindings read-only. What stays in the
 dashboard goes in the README's hosting table: build command, root directory, watch paths,
@@ -456,8 +459,9 @@ A hand-written token check needs tests that libraries would otherwise stand in f
 measured first version passed all 6 of its tests while it accepted a token with no `exp`,
 threw a 500 on a malformed token instead of answering 403, and had no test that failed
 when its `alg` or `nbf` check was removed. #151's list of refusals covers `alg`
-(`alg: none`, and HS256 signed with the public key). It names no case for a missing
-`exp`, a malformed token or `nbf`, so the session that picks up #151 adds those three.
+(`alg: none`, and HS256 signed with the public key). It named no case for a missing
+`exp`, a malformed token or `nbf`, so #151 added those three, and item 12 says how each
+check was then proven.
 
 Wrangler becomes an exact-pinned devDependency, added by #149 with the first code;
 4.141.0 was current on 2026-09-26 and needs Node 22 or later
@@ -478,7 +482,7 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | not yet measured: the token check, rendered pages and clip parts, when #151, #157 and the video stories build them | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| CPU | 10 ms per request | not yet measured. The token check and the admin home: #151 reads their CPU time from the project's Functions metrics on production when it closes. Rendered album pages and clip parts: #157 and the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
@@ -663,10 +667,78 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
 - **Every upload route sits under `functions/api/upload/`**, whose `_middleware.js` runs
   the one guard, `requireUploadSession` in `lib/session.js`. `test/guard.test.js` calls
   every Function route outside its `PUBLIC` list with four bad cookies and requires 401.
-  An admin route (#151) is refused by Access, not by this guard, so #151 declares its
-  routes to that test rather than listing them as public.
+  An admin route (#151) answers to the admin guard instead (item 12). The test knows
+  admin routes by directory and holds them to 403, rather than listing them as public.
 
 Secrets and the seed command are in README.md, The photo site.
+
+### 12. The admin guard
+
+**Built in #151, 2026-09-28.** Every `/admin` page and admin API passes
+`requireOwner` in `lib/access.js`. It is run by `functions/admin/_middleware.js`, and by
+`functions/api/admin/_middleware.js` for the admin APIs. Access sits in front of `/admin`
+on `photos.madcowsailing.com`, but the project's `*.pages.dev` address is not behind it
+(item 1). So the lock is this check of the `Cf-Access-Jwt-Assertion` token, and the
+Access sign-in is the door to it. README.md, The photo site, records the two Access
+applications and their policies.
+
+- **What passes.** An RS256 signature by one of the team's published keys, looked up
+  by `kid`, with the algorithm pinned in the code and never read from the header. `iss`
+  must equal the team domain and `aud` must hold the application's tag. `exp` must be
+  present and not yet reached, and `nbf` present and reached, allowing 60 s of clock
+  drift for `nbf` only. The email must be on the list, compared without regard to
+  letter case. Anything else is 403, a malformed token included. Keys that cannot be
+  fetched give 503. Not chosen: reading the `CF_Authorization` cookie, which Access's
+  own docs say is not always passed.
+- **Who is let in. Owner decision, 2026-09-28, during #151: the admins, not the owner
+  alone.** A second address was added to the admin policy, to both `ADMIN_EMAILS`
+  secrets and to the preview policy, and the policy was named `Admins - photos admin`.
+  Not chosen: the owner alone, which is what epic #147 ("`/admin` answers only to the
+  owner") and #151's title were written for. Those still say "owner", and the code's
+  `requireOwner` and `context.data.owner` keep the name. The docs name no count: the
+  list is whatever `ADMIN_EMAILS` holds, and README.md says which four places change
+  when an admin is added.
+- **Where each value lives.** `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are vars in
+  `wrangler.jsonc`, one pair per environment, because every token carries both.
+  Preview deployments are signed for the Pages preview application, so the two
+  environments' tags differ. `ADMIN_EMAILS` is a Pages secret. **Owner's choice,
+  2026-09-28: keep the addresses out of this public repo.** Not chosen: an address
+  already published on the sites, in `wrangler.jsonc`. The cost: the list can't be
+  reviewed in a diff, and a change means retyping the whole secret in both
+  environments. Any of the three unset means every request is refused.
+- **Keys.** They are cached per isolate for an hour. They are fetched at most once a
+  minute, whether the last attempt worked or failed, and requests that arrive while a
+  fetch is in flight wait for that one. So neither made-up kids nor a certs outage can
+  make every request fetch. A failed fetch keeps the keys it had, so a made-up kid
+  during an outage cannot lock out a known one. The accepted costs: a token signed by a
+  key published less than a minute after the last fetch is refused until the minute is
+  up, and a failed fetch answers 503 for the rest of its minute. Access rotates every 6
+  weeks and keeps the previous key valid for 7 days. *Measured under `wrangler pages
+  dev` 4.141.0, not on the edge:* six concurrent requests on a cold isolate shared one
+  fetch and all passed, and a request whose client disconnected mid-fetch did not stop
+  another waiting on the same fetch.
+- **No bypass anywhere.** No flag, header, cookie or hostname turns the check off.
+  `test/access.test.js` tries five hosts (localhost, both `pages.dev` forms, the domain),
+  four environments and four headers, a valid token in the `CF_Authorization` cookie
+  among them, and requires 403 from each without the token header. Local development
+  runs the check unchanged against generated keys: `scripts/access-dev.mjs` stands in
+  for Access, and `.dev.vars` points `ACCESS_TEAM_DOMAIN` at it (README, Running it
+  locally).
+- **Pages are rendered, never static** (item 4). `lib/admin-page.js` holds a byte-for-byte
+  copy of the site's header and footer. It also holds the stylesheet links with their
+  `?v=` stamps, because `tools/assetver.py` stamps HTML files only.
+  `test/admin-page.test.js` fails until that copy matches the static pages again, and it
+  runs html-validate on the rendered page, which `npm run check` never sees.
+- **Proven, not only passing.** Each refusal was predicted before the check was written
+  (31 of 34 tests red against a stub that let everything through). A first round of 16
+  mutations, one per check, read 15 exact and one above. `review-fanout` then found three
+  holes that no mutation had reached: R23's `ACCESS_AUD` half could not fail, the three
+  timing values were tested with ticks derived from themselves, and nothing tried a
+  host or header bypass. After the fix, a second round of 26 mutations read 26 of 26
+  exactly as predicted, 11 of them on the new tests. Both rounds ran on a scratch copy of
+  `photos/`, and the tables are on #151's pull request. `test/guard.test.js` holds every
+  route under `admin/` or `api/admin/` to 403, both with no token and with a valid upload
+  session.
 
 ## The two-presentation rule
 

@@ -1,19 +1,28 @@
-// Every upload route calls the one guard (#150, criterion 5).
+// Every upload route calls the one upload guard (#150, criterion 5), and
+// every admin route the one admin guard (#151).
 //
 // This finds every Function route under functions/, runs each exported
 // handler through the chain of _middleware.js files Pages would run in front
-// of it, and requires a 401 for a missing, tampered, earlier-generation and
-// expired cookie. A route that skips the guard, whether it sits outside
-// functions/api/upload/ or that directory loses its _middleware.js, fails
-// here. The only routes excused are PUBLIC, each with its reason; adding one
-// there is a decision, and belongs in review.
-import { test } from 'node:test';
+// of it, and requires a refusal from the guard that route belongs to:
+//   - an admin route, anything under functions/admin/ or functions/api/admin/,
+//     answers 403 with no Access token, with only an upload session, and with
+//     a valid token for another email or another Access application;
+//   - every other route answers 401 for a missing, tampered,
+//     earlier-generation and expired upload cookie, and for an owner's valid
+//     Access token with no cookie.
+// A route that skips its guard, whether it sits outside its directory or the
+// directory loses its _middleware.js, fails here. The only routes excused are
+// PUBLIC, each with its reason; adding one there is a decision, and belongs
+// in review.
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { COOKIE_NAME, SESSION_SECONDS, nowSeconds, requireUploadSession, signSession } from '../lib/session.js';
+import { TOKEN_HEADER, keyCache, requireOwner } from '../lib/access.js';
+import { accessEnv, certs, claims, keyPair, mint } from './access.js';
 import { d1, seedCodes } from './d1.js';
 
 const FUNCTIONS = fileURLToPath(new URL('../functions/', import.meta.url));
@@ -24,6 +33,12 @@ const PUBLIC = {
   'api/health.js': 'reports whether the bindings answer, and nothing stored (#149)',
   'api/join.js': 'is how an upload session is opened (#150)',
 };
+
+// Admin routes answer to the admin guard, not the upload guard (#151).
+const isAdmin = (file) => /^(api\/)?admin\//.test(file);
+
+const team = await keyPair();
+beforeEach(() => keyCache.clear());
 
 const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 const handlerName = (method) => `onRequest${method[0]}${method.slice(1).toLowerCase()}`;
@@ -69,16 +84,20 @@ async function methodsOf(file) {
   return METHODS.filter((m) => route[handlerName(m)]);
 }
 
-async function call(file, method, cookie) {
-  const env = { DB: d1(), SESSION_SIGNING_KEY: KEY };
+async function call(file, method, cookie, token) {
+  const env = { DB: d1(), SESSION_SIGNING_KEY: KEY, ...accessEnv() };
   seedCodes(env.DB, 'AAAA-AAAA-AAAA', 'BBBB-BBBB-BBBB'); // generation 2 is current
   const headers = { Origin: SITE };
   if (cookie) headers.Cookie = `${COOKIE_NAME}=${cookie}`;
+  if (token) headers[TOKEN_HEADER] = token;
   const request = new Request(`${SITE}${routePath(file)}`, {
     method, headers, body: ['GET', 'HEAD'].includes(method) ? undefined : '{}',
   });
   const stack = await stackFor(file, method);
-  const run = (i) => stack[i]({ request, env, data: {}, params: {}, waitUntil() {}, next: () => run(i + 1) });
+  // One data object for the whole chain, as Pages passes it: a guard puts
+  // what it learned there for the route (#151 found a fresh {} per handler).
+  const data = {};
+  const run = (i) => stack[i]({ request, env, data, params: {}, waitUntil() {}, next: () => run(i + 1) });
   return run(0);
 }
 
@@ -101,11 +120,30 @@ test('the upload directory runs the one guard', async () => {
   assert.equal(mod.onRequest, requireUploadSession);
 });
 
-const guarded = routes.filter((file) => !(file in PUBLIC));
+test('both admin directories run the admin guard', async () => {
+  for (const dir of [['admin'], ['api', 'admin']]) {
+    const mod = await import(pathToFileURL(join(FUNCTIONS, ...dir, '_middleware.js')));
+    assert.equal(mod.onRequest, requireOwner, dir.join('/'));
+  }
+});
+
+const guarded = routes.filter((file) => !(file in PUBLIC) && !isAdmin(file));
+const admin = routes.filter((file) => !(file in PUBLIC) && isAdmin(file));
 
 test('at least one upload route exists, so the checks below check something', () => {
   assert.ok(guarded.length > 0);
 });
+
+test('at least one admin page and one admin API exist, so the checks below check something', () => {
+  assert.ok(admin.some((file) => file.startsWith('admin/')));
+  assert.ok(admin.some((file) => file.startsWith('api/admin/')));
+});
+
+test('no route is both public and admin', () => {
+  for (const file of Object.keys(PUBLIC)) assert.ok(!isAdmin(file), file);
+});
+
+const ownerToken = () => mint(team);
 
 for (const file of guarded) {
   for (const method of await methodsOf(file)) {
@@ -116,11 +154,46 @@ for (const file of guarded) {
         assert.equal(res.status, 401, `functions/${file} answered ${res.status}: does it skip the upload guard?`);
       });
     }
+    test(`${method} ${routePath(file)} with the owner's Access token and no cookie: 401`, async (t) => {
+      // An admin sign-in is not an upload session.
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, undefined, await ownerToken());
+      assert.equal(res.status, 401, `functions/${file} answered ${res.status}`);
+    });
     test(`${method} ${routePath(file)} with a current session: past the guard`, async () => {
       // The control: the route is reachable in this harness, so the 401s
       // above come from the guard and not from a route that refuses anyone.
       const res = await call(file, method, current);
       assert.notEqual(res.status, 401);
+    });
+  }
+}
+
+const ADMIN_CASES = {
+  'no Access token': async () => undefined,
+  'a token for another email': () => mint(team, claims({ email: 'someone@example.com' })),
+  'a token for another Access application': () => mint(team, claims({ aud: ['b'.repeat(64)] })),
+};
+
+for (const file of admin) {
+  for (const method of await methodsOf(file)) {
+    for (const [name, token] of Object.entries(ADMIN_CASES)) {
+      test(`${method} ${routePath(file)} with ${name}: 403`, async (t) => {
+        t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+        const res = await call(file, method, undefined, await token());
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the admin guard?`);
+      });
+    }
+    test(`${method} ${routePath(file)} with a current upload session and no Access token: 403`, async (t) => {
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, current);
+      assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an upload session opened it`);
+    });
+    test(`${method} ${routePath(file)} with the owner's Access token: past the guard`, async (t) => {
+      // The control, as above: the 403s come from the guard.
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, undefined, await ownerToken());
+      assert.ok(res.status < 400, `functions/${file} answered ${res.status} to the owner`);
     });
   }
 }

@@ -258,11 +258,31 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   `madcowsailing.cloudflareaccess.com`. It is the issuer #151 checks. `madcow`
   was wanted and is taken by another account: the rename answered `409`, while
   the confirmation dialog had already shown `madcow.cloudflareaccess.com`.
-- One Access application, created by the project's *Restrict previews*:
-  `madcowphotos - Cloudflare Pages` on `*.madcowphotos.pages.dev`. It covers
-  preview deployments only. `madcowphotos.pages.dev` and
-  `photos.madcowsailing.com` are not behind it, which is why #151's own token
-  check is the lock on `/admin`.
+- Two Access applications, read back from Zero Trust → Access controls →
+  Applications on 2026-09-28 (#151):
+
+  | | Admin (#151) | Previews (#149) |
+  |---|---|---|
+  | Name | `madcowphotos admin` | `madcowphotos - Cloudflare Pages` |
+  | Destinations | `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*` | `*.madcowphotos.pages.dev` |
+  | Policy | `Admins - photos admin`: Allow, Include Emails (the admins' addresses, the same list as `ADMIN_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, and since #151 the admins' addresses too) |
+  | Identity providers | One-time PIN only, instant authentication on | as #149 left it |
+  | AUD tag | `78d0a143…` = `env.production.vars.ACCESS_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_AUD` |
+
+  Both paths are listed because Access's `/admin/*` does not match `/admin`.
+  `madcowphotos.pages.dev`, the project's production address, is behind
+  neither. The admin application's destination list offered it on 2026-09-28,
+  so Access could cover it too. It was left out, so that address answers the
+  site's own `403`, which is the check #151's criteria read.
+  **The site's own token check is the lock; Access is the door to it.**
+  `photos/lib/access.js` reads the tag from `ACCESS_AUD` and the team domain
+  (`https://madcowsailing.cloudflareaccess.com`, issuer and key URL both) from
+  `ACCESS_TEAM_DOMAIN`, both in `photos/wrangler.jsonc`, one pair per
+  environment. It reads the addresses from the `ADMIN_EMAILS` secret (below),
+  so a person needs to be in a policy **and** in that environment's secret:
+  the policy alone gets a PIN and then a `403`. A tag changes only if its application is
+  deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
+  refuses everyone.
 
 ### Secrets
 
@@ -274,15 +294,26 @@ By name only; a value never goes in this repo.
     ends every session at once, as rotating the code does.
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
     stores instead of a network address.
+  - `ADMIN_EMAILS` (#151) is the comma-separated list of addresses the admin
+    guard lets in, compared without regard to letter case. It is a secret
+    only so the addresses stay out of this public repo (owner's choice,
+    2026-09-28). Unset or empty, every admin request is refused. A secret
+    cannot be read back or appended to, so changing the list means typing the
+    whole of it again, **in both environments**. Adding an admin is four
+    changes: `ADMIN_EMAILS` in production and in preview, the `Admins - photos
+    admin` policy, and the `Allow Members - Cloudflare Pages` policy, which
+    decides who can open a preview at all. Leave the last out only for an admin
+    meant to have no preview access; they then get Access's refusal there.
 
-  Each is 32 random bytes, base64url-encoded. Preview and production get
+  The first two are 32 random bytes each, base64url-encoded. Preview and production get
   different values. Without them, `POST /api/join` answers `503` and opens
-  nothing. Check that both exist in both environments on the dashboard, which
+  nothing. Check that all three exist in both environments on the dashboard, which
   shows a secret's name and never its value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
-  it): the same two names, with throwaway values. Make it with
+  it): the same two keys, with throwaway values. Make it with
   `node -e "const k=()=>require('crypto').randomBytes(32).toString('base64url');require('fs').writeFileSync('.dev.vars','SESSION_SIGNING_KEY='+k()+'\nADDRESS_HASH_KEY='+k()+'\n')"`
-  from `photos/`, which prints nothing.
+  from `photos/`, which prints nothing. For the admin pages, add the three
+  lines under Running it locally.
 - **Local only, in `photos/.env`** (gitignored; wrangler reads it from
   `photos/`): `CLOUDFLARE_API_TOKEN`, an API token named
   `madcowphotos D1 migrations` with Account → D1 → Edit on this account only,
@@ -308,6 +339,23 @@ It also needs `photos/.dev.vars` (Secrets, above). The seed prints a
 bindings reachable, and the newest migration's name. The local database and
 bucket are stand-ins under `photos/.wrangler/`, never the real ones.
 `--no-install` keeps `npx` on the wrangler pinned in the root `package.json`.
+
+**The admin pages run locally behind a stand-in for Access**, with the real
+token check and no way around it (#151). Add three lines to `photos/.dev.vars`,
+which `wrangler pages dev` reads in place of `wrangler.jsonc`'s values for
+those names:
+
+```sh
+ACCESS_TEAM_DOMAIN=http://127.0.0.1:8789
+ACCESS_AUD=local
+ADMIN_EMAILS=<any address>
+```
+
+Then, beside `wrangler pages dev`, run `node scripts/access-dev.mjs` from
+`photos/` and open `http://127.0.0.1:8789/admin/`. It generates a key pair,
+publishes the public half where the guard fetches a team's keys, and forwards
+each request to `:8788` with a freshly signed token. `/admin/` on `:8788`
+directly answers `403`, which is the other half worth seeing.
 
 **`photos/package.json` is what makes that work.** Wrangler 4.141.0's
 `pages dev` reads `wrangler.jsonc` from the current directory to find the

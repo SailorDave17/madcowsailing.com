@@ -1,7 +1,8 @@
 /**
  * Runs in front of every Function route, which public/_routes.json limits to
- * /api/* for now. Static files never reach it, so they cost no request from
- * the free plan's daily 100,000 (CLAUDE.md, The photo site, item 2).
+ * /api/* and /admin (#151). Static files never reach it, so they cost no
+ * request from the free plan's daily 100,000 (CLAUDE.md, The photo site,
+ * item 2).
  *
  * Its one job is the site-wide headers: X-Robots-Tag: noindex above all, and
  * the Content-Security-Policy. Pages applies public/_headers to static files
