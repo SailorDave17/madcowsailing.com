@@ -48,9 +48,10 @@ import shutil
 import subprocess
 import sys
 
-# Beside this file. Every page rendered below goes through its stamp(), so a
-# regenerated log always names the shared CSS and JS by their current version,
-# whatever version the template happens to carry (#95).
+# Beside this file. Every page rendered below goes through its stamp(), with
+# the path it is written to, so a regenerated log always names the shared CSS
+# and JS (#95) and sailing's own site.css (#176) by their current version,
+# whatever version the template happens to carry.
 from assetver import stamp
 
 try:
@@ -745,8 +746,8 @@ def render_trip(root, trip):
         "log_html": log_html(manifest["log"]),
         "gallery": gallery_html(trip, manifest["photos"]),
     })
-    page = stamp(page)
     out = os.path.join(root, "logs", trip, "index.html")
+    page = stamp(page, out)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(page)
     print("wrote %s" % out)
@@ -838,8 +839,8 @@ def render_index(root, quality=QUALITY):
         "template": "logs-index.html",
         "rows": rows,
     })
-    page = stamp(page)
     out = os.path.join(root, "logs", "index.html")
+    page = stamp(page, out)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(page)
     print("wrote %s (%d trips)" % (out, len(trips)))
