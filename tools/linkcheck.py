@@ -44,6 +44,9 @@ Scope, stated so a later reader does not over-trust a pass:
     files are served immutable for a year, so a replaced file reaches a
     returning visitor only under a new URL; a page left pointing at the old
     one is a failure here, not on production (story #95).
+  - so must a reference into a site's own css/ or js/ (hq/css/, sailing/css/,
+    photos/public/css/, photos/public/js/). The zones hold those for 4 hours
+    in a returning visitor's browser whatever the site says (story #176).
 
 Usage:  python tools/linkcheck.py hq [sailing ...]
 Exit 0 when every internal href resolves, 1 otherwise.

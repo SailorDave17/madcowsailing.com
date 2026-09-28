@@ -22,6 +22,18 @@ key their caches on the whole URL, query included - #95 measured the edge
 serving the new bytes for a cache-busting query while the plain URL served the
 old.
 
+Each site's own CSS and JS are versioned the same way since #176: hq/css/,
+sailing/css/, photos/public/css/ and photos/public/js/. Those are not served
+immutable, but all three zones raise their max-age=0 to a Browser Cache TTL of
+4 hours: /css/site.css read `max-age=14400` on madcowsailing.com, madcowhq.com
+and photos.madcowsailing.com on 2026-09-28, and `max-age=0` on *.pages.dev. So
+a changed site.css under its old URL could style a visitor's page for up to 4
+hours after the deploy. A site file is resolved against the site that serves
+the page: /css/site.css on an hq page is hq/css/site.css, never sailing's.
+tools/templates/ renders into sailing (tools/photos.py), so its pages are
+sailing's; only their root-relative URLs are stamped, since a relative one has
+no depth until the page is rendered.
+
 Not versioned, deliberately: fonts and images. Each font is named twice - a
 <link rel="preload"> in every page and a url() inside tokens.css - and a
 preload is used only when its URL matches the url() exactly, so versioning the
@@ -29,9 +41,10 @@ preload alone would fetch every font twice. Rename a font or an image rather
 than overwrite it; the _headers comment says the same.
 
 This script writes and tools/linkcheck.py checks. The gate refuses a page whose
-?v= does not match its file, so an edit to shared/ without a re-run fails the
-push instead of reaching a visitor. tools/photos.py stamps every page it
-renders, so regenerating a trip log cannot bring a stale version back.
+?v= does not match its file, so an edit to shared/ or to a site's own CSS or JS
+without a re-run fails the push instead of reaching a visitor. tools/photos.py
+stamps every page it renders, so regenerating a trip log cannot bring a stale
+version back.
 
 Usage:  python tools/assetver.py
 Rewrites every .html under hq/, sailing/, photos/public/ and tools/templates/
@@ -56,6 +69,15 @@ TARGET = re.compile(r'^(?P<prefix>/|(?:\.\.?/)*)assets/shared/'
                     r'(?P<rel>(?:%s)/[^?#]+)(?P<query>\?[^#]*)?(?P<frag>#.*)?$'
                     % '|'.join(VERSIONED_DIRS))
 
+# The served root of each site, as linkcheck is given it, and the templates
+# tools/photos.py renders into sailing.
+SITES = ('hq', 'sailing', 'photos/public')
+TEMPLATES = ('tools/templates', 'sailing')
+
+# Any other reference: its path, then an optional query and fragment.
+LOCAL = re.compile(r'^(?P<path>[^?#]*)(?P<query>\?[^#]*)?(?P<frag>#.*)?$')
+EXTERNAL = re.compile(r'^(?:[a-z][a-z0-9+.-]*:|//)', re.I)
+
 
 def version(path):
     """The first VERSION_LEN hex digits of the sha256 of path's bytes.
@@ -68,26 +90,61 @@ def version(path):
 
 
 def is_versioned(path):
-    """True for a path under shared/css/ or shared/js/, as linkcheck resolves it."""
-    return path.replace(os.sep, '/').startswith(tuple('shared/%s/' % d for d in VERSIONED_DIRS))
+    """True for a path under shared/css/ or shared/js/, or under a site's own
+    css/ or js/, as linkcheck resolves it (relative to the repo root)."""
+    path = path.replace(os.sep, '/')
+    roots = ['shared'] + list(SITES)
+    return path.startswith(tuple('%s/%s/' % (r, d) for r in roots for d in VERSIONED_DIRS))
 
 
-def stamp(text):
-    """text with every shared CSS and JS reference carrying its file's version.
+def site_of(page):
+    """(the site that serves page, whether page is a template), or (None, False)."""
+    rel = os.path.relpath(os.path.abspath(page), ROOT).replace(os.sep, '/')
+    if rel.startswith(TEMPLATES[0] + '/'):
+        return TEMPLATES[1], True
+    for site in SITES:
+        if rel.startswith(site + '/'):
+            return site, False
+    return None, False
+
+
+def stamp(text, page=None):
+    """text with every shared CSS and JS reference carrying its file's version,
+    and, given the page's path, every reference to its own site's CSS and JS.
 
     A reference to a file that does not exist is left exactly as it is:
     linkcheck reports it as missing, and inventing a version for it would make
-    it look cared for.
+    it look cared for. So is a reference that resolves outside the page's own
+    site: only the site that serves a page can serve it that file.
     """
+    site, templated = site_of(page) if page else (None, False)
+
     def one(m):
         t = TARGET.match(m.group(2))
-        if not t:
+        if t:
+            path = os.path.join(ROOT, 'shared', *t.group('rel').split('/'))
+            if not os.path.isfile(path):
+                return m.group(0)
+            value = '%sassets/shared/%s?v=%s%s' % (
+                t.group('prefix'), t.group('rel'), version(path), t.group('frag') or '')
+            return m.group(1) + value + m.group(3)
+
+        if site is None or EXTERNAL.match(m.group(2)):
             return m.group(0)
-        path = os.path.join(ROOT, 'shared', *t.group('rel').split('/'))
-        if not os.path.isfile(path):
+        ref = LOCAL.match(m.group(2))
+        target = ref.group('path')
+        if not target:
             return m.group(0)
-        value = '%sassets/shared/%s?v=%s%s' % (
-            t.group('prefix'), t.group('rel'), version(path), t.group('frag') or '')
+        if target.startswith('/'):
+            path = os.path.join(ROOT, *site.split('/'), *target.lstrip('/').split('/'))
+        elif templated:
+            return m.group(0)
+        else:
+            path = os.path.join(os.path.dirname(os.path.abspath(page)), *target.split('/'))
+        rel = os.path.relpath(os.path.normpath(path), ROOT).replace(os.sep, '/')
+        if not rel.startswith(site + '/') or not is_versioned(rel) or not os.path.isfile(path):
+            return m.group(0)
+        value = '%s?v=%s%s' % (target, version(path), ref.group('frag') or '')
         return m.group(1) + value + m.group(3)
     return ATTR.sub(one, text)
 
@@ -113,7 +170,7 @@ def main():
         # newline='' both ways, so the file's own line endings pass through.
         with open(path, encoding='utf-8', newline='') as fh:
             text = fh.read()
-        new = stamp(text)
+        new = stamp(text, path)
         if new != text:
             with open(path, 'w', encoding='utf-8', newline='') as fh:
                 fh.write(new)

@@ -108,7 +108,7 @@ story, this is the paragraph to check.*
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
 │   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
-│   ├── assetver.py           Writes ?v=<hash> onto every shared CSS/JS URL. linkcheck checks it.
+│   ├── assetver.py           Writes ?v=<hash> onto every shared and site CSS/JS URL. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
@@ -798,6 +798,13 @@ if a change takes a trip page below 85.
   under a new URL; the script writes `?v=<hash>` onto every reference, and the
   gate refuses a page whose version does not match its file (#95). Fonts and
   images are not versioned — rename them rather than overwrite.
+- **The same goes for each site's own CSS and JS** (`hq/css/`, `sailing/css/`,
+  `photos/public/css/`, `photos/public/js/`) since #176. They are not served
+  `immutable`, but all three zones hold them for 4 hours in a returning
+  visitor's browser: `/css/site.css` read `max-age=14400` on every custom domain
+  on 2026-09-28, against `max-age=0` on `*.pages.dev`. A reference is stamped
+  with the version of the file the page's own site serves, relative links
+  included.
 - Internal links name the URL Pages serves: `/about`, not `/about.html`, and a
   directory with its trailing slash (`/work/`). Pages 308s the `.html` form, so
   each such link costs a visitor a redirect (#113). Since #130 linkcheck
