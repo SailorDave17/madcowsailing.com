@@ -194,6 +194,32 @@ test('migrations are numbered NNNN_name.sql, in order, once each', () => {
   });
 });
 
+test('every migration is additive: nothing is dropped, renamed, rewritten or deleted', () => {
+  // Item 6: running code must never meet a schema it does not know, so a
+  // migration creates a table, adds a column or adds an index. A reference's
+  // ON DELETE / ON UPDATE clause is part of a new table, not a change to rows.
+  const dir = join(ROOT, config.d1_databases[0].migrations_dir);
+  const changes = /\b(DROP|RENAME|DELETE|UPDATE|REPLACE|TRUNCATE)\b/i;
+  for (const file of readdirSync(dir)) {
+    const sql = readFileSync(join(dir, file), 'utf8')
+      .replace(/--[^\n]*/g, '')
+      .replace(/\bON\s+(DELETE|UPDATE)\b/gi, '');
+    assert.doesNotMatch(sql, changes, `${file} changes what is already there`);
+  }
+  // The control: the check reads a DROP when there is one.
+  assert.match('DROP TABLE albums;', changes);
+});
+
+test('the README lists every migration, and nothing that is not one', () => {
+  // README.md, The photo site, Changing the schema: its table names each file.
+  const dir = config.d1_databases[0].migrations_dir;
+  const files = readdirSync(join(ROOT, dir)).sort();
+  const readme = readFileSync(join(ROOT, '..', 'README.md'), 'utf8');
+  const section = readme.split('### Changing the schema')[1]?.split(/\n## |\n### /)[0] ?? '';
+  const listed = [...section.matchAll(/^\| `(\d{4}_[a-z0-9_]+\.sql)` \|/gm)].map((m) => m[1]);
+  assert.deepEqual(listed, files);
+});
+
 // The pages: every URL root-relative, and one header and one footer copied
 // verbatim into all of them.
 const pages = publicFiles().filter((f) => f.endsWith('.html'));
