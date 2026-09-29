@@ -5,7 +5,8 @@
 // jpeg() makes a real baseline JPEG of any size: one flat grey, each 8x8
 // block coded as "no change, end of block" with one-code Huffman tables. A
 // decoder opens it (checked with Pillow at #154's pickup, 2026-09-29), and
-// its size costs 2 bits a block, so a 2560 px frame is a few KB.
+// its size costs 2 bits a block per component: 57,750 bytes at 2560x1920,
+// 2,175 at 480x360.
 //
 // exif() makes the APP1 block a phone writes, with a camera make and a GPS
 // position. The position is FICTIONAL: 12°34'56.78" N, 123°45'6.7" W is open
