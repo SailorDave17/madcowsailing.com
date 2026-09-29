@@ -35,8 +35,9 @@ still holds the visual direction, and `docs/quality-floor.md` holds the floor as
 Stories #2–#11 and #35 are closed, which is what built the above. The epic is #1.
 A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
 #149 built its holding page, its Cloudflare project and its gate. #150 added the
-invite code and the upload session, and #151 the admin area's lock and its
-empty home page. Epic #147 builds the rest. Its `develop` preview sits behind
+invite code and the upload session, #151 the admin area's lock and its
+home page, and #152 the admin page where the code is created and rotated.
+Epic #147 builds the rest. Its `develop` preview sits behind
 Access, and the domain serves nothing until a release carries `photos/`
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
 The remaining open work is refinement rather than construction — self-hosted
@@ -93,9 +94,10 @@ story, this is the paragraph to check.*
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
 │   │                         api/join.js, api/upload/ behind the upload guard,
 │   │                         and admin/ and api/admin/ behind the admin guard
+│   │                         (admin/code.js is the invite code, #152)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
-│   ├── scripts/              seed-code.mjs: a database's first invite code, until #152
+│   ├── scripts/              access-dev.mjs: a local stand-in for Access (#151)
 │   ├── test/                 node --test; `npm test` from the root
 │   └── public/               The served files and nothing else (the output dir)
 │       ├── index.html        The holding page, until #157
@@ -105,7 +107,9 @@ story, this is the paragraph to check.*
 │       ├── _routes.json      Which paths invoke a Function: /api/*, /admin, /admin/*
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
-│       └── js/share.js
+│       ├── js/share.js
+│       └── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
+│                             in lib/admin-page.js (#152)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -482,7 +486,7 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | not yet measured. The token check and the admin home: #151 reads their CPU time from the project's Functions metrics on production when it closes. Rendered album pages and clip parts: #157 and the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| CPU | 10 ms per request | not yet measured per route. The project's Metrics tab reports every Function together, with no unit on the page. At #151's close (2026-09-28), 38 production requests over 24 hours read p50 2,463 and p99 8,874, with 0 over the limit, so the unit is taken as microseconds and the slowest was about 1.1 ms under 10 ms. Per route, the token check and the admin home included: #157. Rendered album pages and clip parts: #157 and the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
@@ -669,8 +673,20 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   every Function route outside its `PUBLIC` list with four bad cookies and requires 401.
   An admin route (#151) answers to the admin guard instead (item 12). The test knows
   admin routes by directory and holds them to 403, rather than listing them as public.
+- **The admin page makes and changes the code** (#152, `/admin/code`). "Create code"
+  makes generation 1 only while the database holds none, so a second press, or a page
+  left open, never ends a session. "Rotate code" opens a native `<dialog>`, and only
+  its confirm button posts; the new code is the next generation, which ends every
+  session at its next request. Each is one `INSERT … SELECT`, so two presses at once
+  cannot make two codes of one generation. Both are plain form posts answered `303`
+  back to the page, so a reload cannot post again. The invite link names
+  `https://photos.madcowsailing.com` in production and the page's own origin
+  anywhere else, so a preview's link opens the preview. This replaced #150's seed
+  script. Not chosen: posting with `fetch`, which needs more script for the same
+  result, and one endpoint for both, which would let a stale "Create code" page
+  rotate the code with no warning.
 
-Secrets and the seed command are in README.md, The photo site.
+Secrets, and where the code is created and rotated, are in README.md, The photo site.
 
 ### 12. The admin guard
 
@@ -724,11 +740,23 @@ applications and their policies.
   runs the check unchanged against generated keys: `scripts/access-dev.mjs` stands in
   for Access, and `.dev.vars` points `ACCESS_TEAM_DOMAIN` at it (README, Running it
   locally).
+- **A write needs the site's own Origin as well** (#152). Both admin directories run
+  `[requireOwner, requireSameOrigin]`, and `requireSameOrigin` in `lib/origin.js`
+  refuses any method but GET and HEAD whose `Origin` is missing or another site's, with
+  403 `{"error":"origin"}`. So a page elsewhere cannot post a form into the admin area,
+  and a later admin write gets the check from its directory rather than from memory.
+  `test/guard.test.js` holds every admin write to it. `POST /api/join` uses the same
+  `sameOrigin`, since it sits behind no directory guard. Whether a browser sends
+  Access's cookie on a post from another site depends on the application's SameSite
+  setting, which lives in the dashboard and in no file here, so nothing rests on it.
 - **Pages are rendered, never static** (item 4). `lib/admin-page.js` holds a byte-for-byte
   copy of the site's header and footer. It also holds the stylesheet links with their
   `?v=` stamps, because `tools/assetver.py` stamps HTML files only.
   `test/admin-page.test.js` fails until that copy matches the static pages again, and it
-  runs html-validate on the rendered page, which `npm run check` never sees.
+  runs html-validate on the rendered page, which `npm run check` never sees. A
+  page's script is the same kind of copy: `/admin/code`'s `?v=` is written into
+  `lib/admin-page.js` by hand, and `test/admin-code.test.js` fails until it is
+  `public/js/admin-code.js`'s own hash.
 - **Proven, not only passing.** Each refusal was predicted before the check was written
   (31 of 34 tests red against a stub that let everything through). A first round of 16
   mutations, one per check, read 15 exact and one above. `review-fanout` then found three

@@ -6,7 +6,9 @@
 // of it, and requires a refusal from the guard that route belongs to:
 //   - an admin route, anything under functions/admin/ or functions/api/admin/,
 //     answers 403 with no Access token, with only an upload session, and with
-//     a valid token for another email or another Access application;
+//     a valid token for another email or another Access application; and a
+//     write (any method but GET and HEAD) answers 403 to the owner's valid
+//     token without the site's own Origin (#152);
 //   - every other route answers 401 for a missing, tampered,
 //     earlier-generation and expired upload cookie, and for an owner's valid
 //     Access token with no cookie.
@@ -22,6 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { COOKIE_NAME, SESSION_SECONDS, nowSeconds, requireUploadSession, signSession } from '../lib/session.js';
 import { TOKEN_HEADER, keyCache, requireOwner } from '../lib/access.js';
+import { requireSameOrigin } from '../lib/origin.js';
 import { accessEnv, certs, claims, keyPair, mint } from './access.js';
 import { d1, seedCodes } from './d1.js';
 
@@ -84,10 +87,11 @@ async function methodsOf(file) {
   return METHODS.filter((m) => route[handlerName(m)]);
 }
 
-async function call(file, method, cookie, token) {
+async function call(file, method, cookie, token, origin = SITE) {
   const env = { DB: d1(), SESSION_SIGNING_KEY: KEY, ...accessEnv() };
   seedCodes(env.DB, 'AAAA-AAAA-AAAA', 'BBBB-BBBB-BBBB'); // generation 2 is current
-  const headers = { Origin: SITE };
+  const headers = {};
+  if (origin !== null) headers.Origin = origin;
   if (cookie) headers.Cookie = `${COOKIE_NAME}=${cookie}`;
   if (token) headers[TOKEN_HEADER] = token;
   const request = new Request(`${SITE}${routePath(file)}`, {
@@ -120,10 +124,10 @@ test('the upload directory runs the one guard', async () => {
   assert.equal(mod.onRequest, requireUploadSession);
 });
 
-test('both admin directories run the admin guard', async () => {
+test('both admin directories run the admin guard, then the Origin guard', async () => {
   for (const dir of [['admin'], ['api', 'admin']]) {
     const mod = await import(pathToFileURL(join(FUNCTIONS, ...dir, '_middleware.js')));
-    assert.equal(mod.onRequest, requireOwner, dir.join('/'));
+    assert.deepEqual(mod.onRequest, [requireOwner, requireSameOrigin], dir.join('/'));
   }
 });
 
@@ -169,6 +173,13 @@ for (const file of guarded) {
   }
 }
 
+const SAFE = ['GET', 'HEAD'];
+const FOREIGN_ORIGINS = {
+  'no Origin': null,
+  'another site\'s Origin': 'https://evil.example',
+  'the sibling site\'s Origin': 'https://madcowsailing.com',
+};
+
 const ADMIN_CASES = {
   'no Access token': async () => undefined,
   'a token for another email': () => mint(team, claims({ email: 'someone@example.com' })),
@@ -195,5 +206,22 @@ for (const file of admin) {
       const res = await call(file, method, undefined, await ownerToken());
       assert.ok(res.status < 400, `functions/${file} answered ${res.status} to the owner`);
     });
+    if (SAFE.includes(method)) continue;
+    // A write needs the site's own Origin as well as the owner (#152), so a
+    // page elsewhere cannot post a form into the admin area.
+    for (const [name, origin] of Object.entries(FOREIGN_ORIGINS)) {
+      test(`${method} ${routePath(file)} with the owner's Access token and ${name}: 403`, async (t) => {
+        t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+        const res = await call(file, method, undefined, await ownerToken(), origin);
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the Origin guard?`);
+        assert.deepEqual(await res.json(), { error: 'origin' });
+      });
+    }
   }
 }
+
+test('at least one admin route takes a write, so the Origin checks above check something', async () => {
+  const writes = [];
+  for (const file of admin) writes.push(...(await methodsOf(file)).filter((m) => !SAFE.includes(m)));
+  assert.ok(writes.length > 0);
+});

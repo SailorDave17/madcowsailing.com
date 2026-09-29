@@ -328,12 +328,13 @@ From the repo root, once: `npm ci`. Then, from `photos/`:
 ```sh
 mkdir -p public/assets/shared && cp -R ../shared/. public/assets/shared/   # the Pages build step
 npx --no-install wrangler d1 migrations apply madcowphotos-preview --local  # local stand-in database
-node scripts/seed-code.mjs --local                                         # a local invite code, once
 npx --no-install wrangler pages dev                                        # http://localhost:8788
 ```
 
-It also needs `photos/.dev.vars` (Secrets, above). The seed prints a
-`http://localhost:8788/share/#code=…` link, which joins in a browser.
+It also needs `photos/.dev.vars` (Secrets, above). A local invite code is made
+the way a real one is, on the admin page (below): open
+`http://127.0.0.1:8789/admin/code`, press **Create code**, and open the
+`http://127.0.0.1:8788/share/#code=…` link it shows.
 
 `GET /api/health` should answer `200` with `"environment":"preview"`, both
 bindings reachable, and the newest migration's name. The local database and
@@ -355,7 +356,16 @@ Then, beside `wrangler pages dev`, run `node scripts/access-dev.mjs` from
 `photos/` and open `http://127.0.0.1:8789/admin/`. It generates a key pair,
 publishes the public half where the guard fetches a team's keys, and forwards
 each request to `:8788` with a freshly signed token. `/admin/` on `:8788`
-directly answers `403`, which is the other half worth seeing.
+directly answers `403`, which is the other half worth seeing. It passes its own
+Origin on as the site's, as one host does on production, so the admin pages'
+forms get past the site's Origin check (#152); any other Origin goes on
+unchanged, and is refused.
+
+**After restarting the stand-in, the admin pages answer `403` for up to a
+minute.** It makes a new key each time it starts, and the guard fetches a
+team's keys at most once a minute (`REFETCH_GAP_SECONDS` in `lib/access.js`),
+so the new key is unknown until then. On #152, two reads after a restart
+answered `403` and the next, 18 s after the second, `200`.
 
 **`photos/package.json` is what makes that work.** Wrangler 4.141.0's
 `pages dev` reads `wrangler.jsonc` from the current directory to find the
@@ -386,21 +396,30 @@ than a date written here, which goes stale at the next apply.
 ### The invite code
 
 A parent joins by opening `https://photos.madcowsailing.com/share/#code=<code>`.
-Each database needs its first code seeded **once**, after migration
-`0002_invite_code.sql` is applied there. From `photos/`, with the token above:
+The code is made and changed on the admin page, `/admin/code` (#152), signed in
+through Access: `https://photos.madcowsailing.com/admin/code` for production and
+`https://develop.madcowphotos.pages.dev/admin/code` for the preview. **This
+replaces the seed command #150 recorded**; `scripts/seed-code.mjs` is gone.
 
-```sh
-node scripts/seed-code.mjs --env preview      # madcowphotos-preview
-node scripts/seed-code.mjs --env production   # madcowphotos
-```
+- **Create code.** A database with no code shows only this button, and uploads
+  stay closed until a code exists. It makes the first code, and only while there
+  is still none, so a second press changes nothing. **Both remote databases
+  already hold a code**: #150 seeded the preview's, and #151's close seeded
+  production's (2026-09-28), each with the script this page replaced. So on both
+  the page opens on that code, and Create code appears only on a fresh or local
+  database.
+- **Copy code** and **Copy invite link.** The page shows the current code, when
+  it last changed, and the link. In production the link always names
+  `https://photos.madcowsailing.com`. Anywhere else it names the address the
+  page was opened on, so a preview's link opens the preview.
+- **Rotate code.** It opens a dialog, and only the dialog's **Rotate now** makes
+  a new code. Every upload session opened with the old one is refused from its
+  next request, and the old link tells whoever opens it that the invite has
+  changed. Send the new link to the team.
 
-It makes a code with the site's own generator, inserts it only if the database
-holds none, and prints the invite link. A second run changes nothing and prints
-the link again. The code is never written to a file or to git; this repo is
-public. **#152 replaces this script** with "Create code" and "Rotate code" on
-`/admin/code`.
+The code is never written to a file or to git; this repo is public.
 
-To read the current code without the script:
+To read the current code without the page:
 `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
 
 ## The push guard

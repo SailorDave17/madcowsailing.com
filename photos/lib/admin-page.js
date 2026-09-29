@@ -11,7 +11,10 @@
  *
  * The CSP has no 'unsafe-inline', so nothing here may carry an inline style
  * or script. Every URL is root-relative, as on every photos page.
+ *
+ * #152 added the invite-code page, adminCodePage(), and its script.
  */
+import { inviteLink } from './invite.js';
 
 const HEADER = String.raw`<header class="site-header">
   <div class="wrap header-inner">
@@ -35,7 +38,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=0dbf10726b">
+<link rel="stylesheet" href="/css/site.css?v=a89a1d639f">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -50,8 +53,16 @@ export const SECTIONS = [
   { href: '/admin/removals', name: 'Removal requests', what: 'photos someone asked to take down' },
 ];
 
-/** A whole admin page: the site's head, header and footer around `main`. */
-export function adminPage({ title, main }) {
+// The invite-code page's script (#152), stamped by hand for the same reason
+// as the stylesheets above: tools/assetver.py never sees this file.
+// test/admin-page.test.js fails until the ?v= is the script's own sha256.
+export const CODE_SCRIPT = '<script src="/js/admin-code.js?v=0c722e1793" defer></script>';
+
+/**
+ * A whole admin page: the site's head, header and footer around `main`, with
+ * `head` (a script tag, say) added after the stylesheets.
+ */
+export function adminPage({ title, main, head = '' }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -59,7 +70,7 @@ export function adminPage({ title, main }) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} — Mad Cow Sailing photos</title>
 <meta name="robots" content="noindex">
-${HEAD_LINKS}
+${HEAD_LINKS}${head ? `\n${head}` : ''}
 </head>
 
 <body>
@@ -92,6 +103,118 @@ export function adminHome(email) {
 ${items}
     </ul>
   </section>
+</main>`,
+  });
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * A moment as a <time>: the machine-readable instant, and text in UTC, which
+ * public/js/admin-code.js rewrites into the reader's own time zone. Built by
+ * hand rather than with Intl, so the text does not depend on a runtime's
+ * locale data.
+ */
+export function timeElement(seconds) {
+  const d = new Date(seconds * 1000);
+  const two = (n) => String(n).padStart(2, '0');
+  const text = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
+    `${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC`;
+  return `<time datetime="${d.toISOString()}">${text}</time>`;
+}
+
+// What the page says when a press arrived as a GET and changed nothing
+// (functions/api/admin/code/rotate.js). Each shows only in the state its
+// button lives in, so a stale ?unchanged= cannot contradict the page.
+const UNCHANGED = {
+  rotate: 'The code was not rotated. The press reached the site as a page load, which never changes it; this can happen when your sign-in has run out. Press Rotate code again to rotate it.',
+  create: 'No code was made. The press reached the site as a page load, which never makes one; this can happen when your sign-in has run out. Press Create code again.',
+};
+
+const notice = (key) => (UNCHANGED[key] ? `\n    <p role="status">${UNCHANGED[key]}</p>` : '');
+
+/**
+ * /admin/code (#152). `current` is lib/invite.js's currentCode(), or null
+ * when the database holds no code; `site` is where the invite link points;
+ * `unchanged` is the ?unchanged= value, if any.
+ *
+ * Rotating is a form POST from inside a native <dialog>. The page's "Rotate
+ * code" button only opens it (public/js/admin-code.js), its Cancel closes it
+ * through method="dialog", and only its "Rotate now" button posts. Cancel
+ * comes first, so Enter in the dialog cancels, and it takes the focus when
+ * the dialog opens.
+ */
+export function adminCodePage({ current, site, unchanged = null }) {
+  const head = (key) => `<section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Invite code</h1>
+    <p class="lede">Parents open the invite link to send photos to the team.
+      Anyone holding it can send, so rotate the code when the link has
+      travelled further than the team.</p>${notice(key)}
+  </section>`;
+
+  if (!current) {
+    return adminPage({
+      title: 'Invite code',
+      head: CODE_SCRIPT,
+      main: `<main id="main">
+  ${head(unchanged === 'create' ? 'create' : null)}
+
+  <section class="wrap" aria-labelledby="no-code">
+    <h2 id="no-code">No code yet</h2>
+    <p>There is no invite code, so nobody can send photos. Create one, then
+      send its link to the team.</p>
+    <form method="post" action="/api/admin/code/create">
+      <p><button type="submit" class="button">Create code</button></p>
+    </form>
+  </section>
+</main>`,
+    });
+  }
+
+  const changed = current.generation > 1
+    ? `Last rotated ${timeElement(current.createdAt)}.`
+    : `Created ${timeElement(current.createdAt)}. It has never been rotated.`;
+
+  return adminPage({
+    title: 'Invite code',
+    head: CODE_SCRIPT,
+    main: `<main id="main">
+  ${head(unchanged === 'rotate' ? 'rotate' : null)}
+
+  <section class="wrap" aria-labelledby="current-code">
+    <h2 id="current-code">The current code</h2>
+    <p class="invite-code"><code id="invite-code">${escapeHtml(current.code)}</code></p>
+    <p>${changed}</p>
+    <p class="invite-link"><code id="invite-link">${escapeHtml(inviteLink(site, current.code))}</code></p>
+    <p class="actions">
+      <button type="button" class="button" data-copy="invite-code">Copy code</button>
+      <button type="button" class="button" data-copy="invite-link">Copy invite link</button>
+    </p>
+    <p id="copy-status" role="status"></p>
+    <noscript><p>Copying and rotating need JavaScript. The code and the link
+      above can still be selected and copied by hand.</p></noscript>
+  </section>
+
+  <section class="wrap" aria-labelledby="rotate-heading">
+    <h2 id="rotate-heading">Rotate the code</h2>
+    <p>Rotating makes a new code at once. The old link stops working, and every
+      phone signed in to upload with it has to open the new link.</p>
+    <p><button type="button" class="button" id="rotate-open">Rotate code</button></p>
+  </section>
+
+  <dialog id="rotate-dialog" class="confirm" aria-labelledby="rotate-title">
+    <form method="post" action="/api/admin/code/rotate">
+      <h2 id="rotate-title">Rotate the invite code?</h2>
+      <p>Everyone signed in to upload will need the new link. The old link stops
+        working at once, and so does every phone that joined with it.</p>
+      <p class="actions">
+        <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
+        <button type="submit" class="button button-accent">Rotate now</button>
+      </p>
+    </form>
+  </dialog>
 </main>`,
   });
 }

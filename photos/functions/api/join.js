@@ -37,6 +37,7 @@
 import { addressHash } from '../../lib/address.js';
 import { sha256, timing } from '../../lib/crypto.js';
 import { normalizeCode } from '../../lib/invite.js';
+import { sameOrigin } from '../../lib/origin.js';
 import { nowSeconds, sessionCookie } from '../../lib/session.js';
 
 // 10 an hour: the owner's choice at #150's pickup, 2026-09-27, over 5 and 20.
@@ -134,16 +135,6 @@ async function spendBudget(DB, now) {
     await DB.prepare('DELETE FROM join_budget WHERE hour < ?').bind(hour - BUDGET_KEPT_HOURS).run();
   }
   return true;
-}
-
-/**
- * The site's own Origin is the origin the request arrived on, so this holds on
- * photos.madcowsailing.com, madcowphotos.pages.dev, a preview and localhost
- * alike. A browser sends Origin on every POST, same-origin included.
- */
-function sameOrigin(request) {
-  const origin = request.headers.get('Origin');
-  return origin !== null && origin === new URL(request.url).origin;
 }
 
 /**
