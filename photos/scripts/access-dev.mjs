@@ -3,7 +3,10 @@
  * A local stand-in for Cloudflare Access, so the admin pages run under
  * wrangler pages dev with the real token check (#151, criterion 5).
  *
- *   node scripts/access-dev.mjs          then open http://localhost:8789/admin/
+ *   node scripts/access-dev.mjs          then open http://127.0.0.1:8789/admin/
+ *
+ * 127.0.0.1, not localhost: it is the one origin passed on as the site's
+ * (below), so from localhost:8789 every admin form is refused, 403 origin.
  *
  * Run from photos/, beside `npx --no-install wrangler pages dev` on its
  * default port, 8788. It does what Access does in front of the site, with a
@@ -16,6 +19,9 @@
  * So the guard in lib/access.js runs unchanged: it fetches these keys, checks
  * the signature, iss, aud, exp, nbf and the list, and refuses as it would on
  * production. There is no flag that turns the check off, here or anywhere.
+ * It also passes this stand-in's own Origin on as the site's, as one host
+ * would on production, so the admin pages' forms get past the Origin guard
+ * (lib/origin.js). Any other Origin is left alone.
  *
  * It needs three lines in photos/.dev.vars (gitignored), which wrangler pages
  * dev reads in place of wrangler.jsonc's values for those names:
@@ -90,6 +96,12 @@ createServer(async (req, res) => {
     if (!DROP.has(name) && name !== 'host') headers.set(name, Array.isArray(value) ? value.join(', ') : value);
   }
   headers.set('Cf-Access-Jwt-Assertion', await token());
+  // The browser is on this stand-in's origin, and the site sees each request
+  // arrive on its own. On production, Access sits on the site's own host, so
+  // those are one origin. Say the same here, so a form the admin pages post
+  // passes the site's Origin guard (#152). Any other Origin goes on as it
+  // came, so the guard can still be seen refusing it.
+  if (headers.get('origin') === ISSUER) headers.set('origin', new URL(SITE).origin);
   const hasBody = !['GET', 'HEAD'].includes(req.method);
   try {
     const answer = await fetch(`${SITE}${req.url}`, {
