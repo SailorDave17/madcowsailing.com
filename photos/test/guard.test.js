@@ -124,6 +124,11 @@ test('the upload directory runs the one guard', async () => {
   assert.equal(mod.onRequest, requireUploadSession);
 });
 
+test('the albums directory runs the same guard (#153)', async () => {
+  const mod = await import(pathToFileURL(join(FUNCTIONS, 'api', 'albums', '_middleware.js')));
+  assert.equal(mod.onRequest, requireUploadSession);
+});
+
 test('both admin directories run the admin guard, then the Origin guard', async () => {
   for (const dir of [['admin'], ['api', 'admin']]) {
     const mod = await import(pathToFileURL(join(FUNCTIONS, ...dir, '_middleware.js')));

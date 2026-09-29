@@ -36,7 +36,8 @@ Stories #2–#11 and #35 are closed, which is what built the above. The epic is 
 A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
 #149 built its holding page, its Cloudflare project and its gate. #150 added the
 invite code and the upload session, #151 the admin area's lock and its
-home page, and #152 the admin page where the code is created and rotated.
+home page, #152 the admin page where the code is created and rotated, and
+#153 the albums the owner keeps for each regatta and practice.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access, and the domain serves nothing until a release carries `photos/`
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
@@ -92,9 +93,10 @@ story, this is the paragraph to check.*
 │   ├── package.json          Not a build: makes photos/ wrangler's project root
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
-│   │                         api/join.js, api/upload/ behind the upload guard,
-│   │                         and admin/ and api/admin/ behind the admin guard
-│   │                         (admin/code.js is the invite code, #152)
+│   │                         api/join.js, api/upload/ and api/albums/ behind
+│   │                         the upload guard, and admin/ and api/admin/
+│   │                         behind the admin guard (admin/code.js is the
+│   │                         invite code, #152; admin/albums.js the albums, #153)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
 │   ├── scripts/              access-dev.mjs: a local stand-in for Access (#151)
@@ -767,6 +769,59 @@ applications and their policies.
   `photos/`, and the tables are on #151's pull request. `test/guard.test.js` holds every
   route under `admin/` or `api/admin/` to 403, both with no token and with a valid upload
   session.
+
+### 13. Albums
+
+**Built in #153, 2026-09-28.** The owner keeps one album per regatta or practice day on
+`/admin/albums`, in the `albums` table (migration 0004). `lib/albums.js` holds the rules.
+
+- **The address is made once and never changes.** It is the date, then the title with
+  accents dropped, lowercased, and every run of anything but a–z and 0–9 made one hyphen,
+  cut back to a whole word within 60 characters: `2026-10-04-fall-regatta`. A title with
+  no letter or digit takes its kind's name. A second album with the same date and title
+  gets `-2`, then `-3`, and the UNIQUE constraint decides, so two made at once cannot
+  share one. Once all 50 are held, adding says so on the page and makes nothing. Editing the title, kind or date keeps the address, so a shared link keeps
+  working. Not chosen: an address that follows the title, which breaks every link sent
+  before an edit.
+- **A title is 1 to 80 characters on one line, with no control character**, stored as
+  typed, markup included.
+  Every page escapes it where it shows it; `GET /api/albums/open` returns it as JSON
+  data, so the share page (#155) must set it as text, never as HTML.
+- **Closing sets `closed_at`**, which takes the album off `GET /api/albums/open` and makes
+  `openAlbum()` find nothing. That is the check #154's upload route makes, answering 409.
+  Its approved photos stay public, so #157's public list must not filter on it.
+  Reopening clears it.
+- **Deleting an album that holds a photo is refused by the database.** Owner's choice
+  at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
+  `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
+  fails with `FOREIGN KEY constraint failed`
+  ([foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/), read
+  2026-09-28). So the refusal holds whatever state the photo is in, and an upload that
+  lands mid-delete cannot slip past a count taken first. The route catches the failure and
+  only then counts the photos, to say how many. `test/albums.test.js` holds the rule on a
+  stand-in `photos` table until #154 makes the real one. Its schema test fails if any table
+  but `photos` names albums, since the count reads `photos`, or if `photos.album_id` lacks
+  the reference or cascades. #154 carries the real-table proof as a criterion of its own.
+  Not chosen: creating the photos table in #153, which would design #154's schema before
+  its pickup; and moving the refusal into #154.
+- **The open list lives at `/api/albums/open`**, the path the story named, in its own
+  directory whose `_middleware.js` runs the same `requireUploadSession` as
+  `api/upload/`. `test/guard.test.js` checks both directories.
+- **"Newest first" is the latest date first, a future one included**, so an album made
+  ahead of time for next week's regatta sorts above today's practice. Which album the
+  share page preselects is #155's to decide: only one held today, else the most recent
+  past one, never a future one. Owner's choice at #153's review, 2026-09-28. Not chosen:
+  sorting today and past first, or hiding future albums, since each needs "today" in the
+  club's time zone while D1's clock is UTC.
+- **Every press is a plain form post answered 303** back to the page, with `?done=` or
+  `?error=` saying what happened, as on `/admin/code`. So the page has no script, and a
+  reload cannot post twice. The notice names an album by the title read from the
+  database, never from the address bar. Delete has no confirm dialog: only an empty album
+  deletes, and one deleted by mistake is made again at the same address.
+- **The page's fields are the first form fields on any of the three sites.** Their border
+  is `--deep`, because a field's edge must read 3:1 against the page (WCAG 1.4.11). On
+  `--hull`, the `--spray` hairline reads 1.64:1 and `--deep` 13.45:1 (computed from
+  `tokens.css`, #153).
 
 ## The two-presentation rule
 

@@ -12,8 +12,10 @@
  * The CSP has no 'unsafe-inline', so nothing here may carry an inline style
  * or script. Every URL is root-relative, as on every photos page.
  *
- * #152 added the invite-code page, adminCodePage(), and its script.
+ * #152 added the invite-code page, adminCodePage(), and its script. #153 added
+ * the albums page, adminAlbumsPage(), which needs no script.
  */
+import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
 
 const HEADER = String.raw`<header class="site-header">
@@ -38,7 +40,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=a89a1d639f">
+<link rel="stylesheet" href="/css/site.css?v=b34e6dd73f">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -122,6 +124,15 @@ export function timeElement(seconds) {
   const text = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
     `${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC`;
   return `<time datetime="${d.toISOString()}">${text}</time>`;
+}
+
+/**
+ * A day written YYYY-MM-DD as a <time>: "4 October 2026". It is a calendar
+ * day, not a moment, so no time zone can move it and no script rewrites it.
+ */
+export function dayElement(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return `<time datetime="${date}">${day} ${MONTHS[month - 1]} ${year}</time>`;
 }
 
 // What the page says when a press arrived as a GET and changed nothing
@@ -215,6 +226,158 @@ export function adminCodePage({ current, site, unchanged = null }) {
       </p>
     </form>
   </dialog>
+</main>`,
+  });
+}
+
+// ---- /admin/albums (#153) ----------------------------------------------
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// What the page says after a press. Every write in functions/api/admin/albums/
+// answers 303 back to the page with ?done= or ?error=, and &album= naming the
+// address it acted on. A title comes from the database, never from the
+// address bar, so a crafted link can put nothing on the page but a known
+// sentence and an address-shaped word, escaped.
+const DONE = {
+  created: (a) => `Added ${a.title}. Its address is <code>${a.address}</code>.`,
+  saved: (a) => `Saved ${a.title}. Its address stays <code>${a.address}</code>.`,
+  closed: (a) => `Closed ${a.title}. Parents can no longer send photos to it, and its approved photos stay public.`,
+  reopened: (a) => `Reopened ${a.title}. Parents can send photos to it again.`,
+};
+
+const ERRORS = {
+  title: `Nothing was saved: a title is 1 to ${TITLE_MAX} characters, on one line.`,
+  kind: 'Nothing was saved: choose Regatta or Practice.',
+  date: 'Nothing was saved: the date is not a real day.',
+  full: `Nothing was saved: ${MAX_SUFFIX} albums already hold every address this date and title can have. Change the title.`,
+  missing: 'Nothing was changed: that album does not exist, or was deleted.',
+  unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+};
+
+/**
+ * The notice for the page's query string, as HTML, or '' for none. `albums`
+ * is the list the page shows, which the named album is looked up in.
+ */
+export function albumsNotice(params, albums) {
+  const address = params.get('album');
+  const found = isAddress(address) ? albums.find((a) => a.address === address) : undefined;
+  const album = found && { title: escapeHtml(found.title), address: escapeHtml(found.address) };
+  const done = params.get('done');
+  const error = params.get('error');
+  let text = null;
+  if (done === 'deleted' && isAddress(address)) {
+    text = `Deleted <code>${escapeHtml(address)}</code>.`;
+  } else if (Object.hasOwn(DONE, done) && album) {
+    text = DONE[done](album);
+  } else if (error === 'not-empty' && album) {
+    const n = /^[1-9][0-9]{0,8}$/.test(params.get('photos') ?? '') ? Number(params.get('photos')) : null;
+    const holds = n === null ? 'it holds photos' : `it holds ${plural(n, 'photo', 'photos')}`;
+    text = `${album.title} was not deleted: ${holds}. Only an empty album can be deleted. Close it instead to stop uploads to it.`;
+  } else if (Object.hasOwn(ERRORS, error)) {
+    text = ERRORS[error];
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+// The title, kind and date fields, for a new album or for editing one. `id`
+// keeps each form's labels pointing at its own inputs.
+function albumFields(id, album = null) {
+  const kinds = Object.entries(KINDS).map(([value, name]) =>
+    `<label><input type="radio" name="kind" value="${value}" required${album?.kind === value ? ' checked' : ''}> ${name}</label>`)
+    .join('\n          ');
+  return `<p class="field">
+        <label for="${id}-title">Title</label>
+        <input id="${id}-title" name="title" type="text" required maxlength="${TITLE_MAX}" autocomplete="off"${album ? ` value="${escapeHtml(album.title)}"` : ''}>
+      </p>
+      <fieldset class="field">
+        <legend>Kind</legend>
+        <p class="choices">
+          ${kinds}
+        </p>
+      </fieldset>
+      <p class="field">
+        <label for="${id}-date">Date</label>
+        <input id="${id}-date" name="date" type="date" required${album ? ` value="${escapeHtml(album.date)}"` : ''}>
+      </p>`;
+}
+
+// One button that posts one album's address to one action. Its name adds the
+// title to the word on it, so a list of "Close" buttons can be told apart by
+// ear, and the visible word still starts the name (WCAG 2.5.3).
+function pressForm(action, label, album) {
+  return `<form method="post" action="/api/admin/albums/${action}">
+          <input type="hidden" name="address" value="${escapeHtml(album.address)}">
+          <button type="submit" class="button" aria-label="${label} ${escapeHtml(album.title)}">${label}</button>
+        </form>`;
+}
+
+function albumItem(album) {
+  const id = `album-${album.id}`;
+  const title = escapeHtml(album.title);
+  return `<li class="album">
+      <h3 id="${id}">${title}</h3>
+      <p class="album-facts">${KINDS[album.kind]} · ${dayElement(album.date)} · <code>${escapeHtml(album.address)}</code></p>
+      <details>
+        <summary aria-label="Edit ${title}">Edit</summary>
+        <form method="post" action="/api/admin/albums/update" class="album-form">
+          <input type="hidden" name="address" value="${escapeHtml(album.address)}">
+      ${albumFields(id, album)}
+          <p><button type="submit" class="button">Save</button></p>
+        </form>
+      </details>
+      <div class="actions">
+        ${pressForm(album.open ? 'close' : 'reopen', album.open ? 'Close' : 'Reopen', album)}
+        ${pressForm('delete', 'Delete', album)}
+      </div>
+    </li>`;
+}
+
+const albumList = (albums, empty) => (albums.length
+  ? `<ul class="albums">\n    ${albums.map(albumItem).join('\n    ')}\n    </ul>`
+  : `<p class="albums-empty">${empty}</p>`);
+
+/**
+ * /admin/albums (#153). `albums` is lib/albums.js's allAlbums(), newest
+ * first; `notice` is albumsNotice()'s HTML. Every press is a plain form post
+ * answered 303 back here, so a reload cannot post again, and the page needs
+ * no script. Editing sits in a <details> under each album.
+ */
+export function adminAlbumsPage({ albums, notice = '' }) {
+  const open = albums.filter((a) => a.open);
+  const closed = albums.filter((a) => !a.open);
+  return adminPage({
+    title: 'Albums',
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Albums</h1>
+    <p class="lede">One album for each regatta and each practice day. Parents
+      choose from the open albums when they send photos.</p>${notice}
+  </section>
+
+  <section class="wrap" aria-labelledby="add-album">
+    <h2 id="add-album">Add an album</h2>
+    <p>Its address, which links to it, is made from the date and the title,
+      and stays the same if either changes later.</p>
+    <form method="post" action="/api/admin/albums/create" class="album-form">
+      ${albumFields('new')}
+      <p><button type="submit" class="button">Add album</button></p>
+    </form>
+  </section>
+
+  <section class="wrap" aria-labelledby="open-albums">
+    <h2 id="open-albums">Open albums</h2>
+    <p>Parents can send photos to these. Close an album to stop that; its
+      approved photos stay public. Only an empty album can be deleted.</p>
+    ${albumList(open, 'No album is open, so parents have nowhere to send photos.')}
+  </section>
+
+  <section class="wrap" aria-labelledby="closed-albums">
+    <h2 id="closed-albums">Closed albums</h2>
+    <p>These take no photos. Their approved photos stay public.</p>
+    ${albumList(closed, 'No album is closed.')}
+  </section>
 </main>`,
   });
 }

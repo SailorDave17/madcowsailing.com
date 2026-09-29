@@ -393,6 +393,16 @@ shows what is still to apply. Each database's `d1_migrations` table records what
 was applied, and `GET /api/health` reports the newest name. Read those rather
 than a date written here, which goes stale at the next apply.
 
+The migrations, in the order they apply. `photos/test/site.test.js` fails until
+a new file is listed here.
+
+| File | Story | What it adds |
+|---|---|---|
+| `0001_baseline.sql` | #149 | Nothing: it proves the apply order on both databases |
+| `0002_invite_code.sql` | #150 | `invite_codes`, and `join_failures`, the failed-join log |
+| `0003_join_budget.sql` | #177 | `join_budget`, the site's hourly budget for recording failed joins |
+| `0004_albums.sql` | #153 | `albums`, one per regatta or practice day |
+
 ### The invite code
 
 A parent joins by opening `https://photos.madcowsailing.com/share/#code=<code>`.
@@ -421,6 +431,23 @@ The code is never written to a file or to git; this repo is public.
 
 To read the current code without the page:
 `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
+
+### Albums
+
+Parents send photos into an album, one per regatta or practice day, kept on
+`/admin/albums` (#153) behind the same Access sign-in as the code.
+
+- **Add album** takes a title, Regatta or Practice, and the date. Its address,
+  which a link to it names, is made then from the date and title
+  (`2026-10-04-fall-regatta`) and never changes, so editing the title, kind or
+  date under **Edit** keeps every link working. A second album with the same
+  date and title gets `-2`.
+- **Close** stops uploads to an album and takes it off the share page's list;
+  its approved photos stay public. **Reopen** undoes both.
+- **Delete** works only on an empty album. One holding any photo, waiting,
+  approved or hidden, is refused and the page says how many it holds.
+- `GET /api/albums/open` is the list the share page reads, newest first. It
+  answers only to a live upload session.
 
 ## The push guard
 

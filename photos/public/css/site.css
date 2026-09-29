@@ -87,6 +87,93 @@
   color: var(--deep);
 }
 
+/* ---- Admin: albums (#153) ------------------------------------------- */
+
+/* The first form fields on any of the three sites. The border is --deep, not
+   the --spray hairline, because a field's edge must read 3:1 against the
+   page to be seen as a field (WCAG 1.4.11): on --hull, --spray reads 1.64:1
+   and --deep 13.45:1. */
+.album-form .field {
+  margin-block-end: var(--space-3);
+}
+
+/* Each section's form or list sits a step below the sentence introducing it. */
+.album-form,
+.albums,
+.albums-empty {
+  margin-block-start: var(--space-3);
+}
+
+.album-form label,
+.album-form legend {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.album-form .choices label {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  margin-inline-end: var(--space-4);
+}
+
+.album-form fieldset {
+  border: none;
+  padding: 0;
+}
+
+.album-form input[type="text"],
+.album-form input[type="date"] {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.album-form input[type="text"] {
+  width: var(--measure);
+}
+
+/* Chrome's date field takes one Tab stop more than its three parts: the
+   calendar button, inside the input's own closed shadow tree. With focus
+   there the input matches neither :focus nor :focus-visible, only
+   :focus-within, so base.css's ring vanished and nothing on screen showed
+   where focus was (measured in Chrome, #153). */
+.album-form input[type="date"]:focus-within {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.albums {
+  list-style: none;
+  padding: 0;
+}
+
+.album {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.album-facts code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.album details {
+  margin-block: var(--space-2);
+}
+
+.album summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
 /* ---- Footer --------------------------------------------------------- */
 
 .footer-inner {
