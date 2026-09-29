@@ -218,9 +218,11 @@ def check(site):
 def stale(resolved, query):
     """Why a reference to resolved carries the wrong version, or None.
 
-    Only files under shared/css/ and shared/js/ are versioned (tools/assetver.py
-    says why fonts and images are not). A missing ?v= is as stale as a wrong
-    one: it is the URL the browser may already hold for a year.
+    Only CSS and JS are versioned: files under shared/css/ and shared/js/, and
+    since #176 each site's own css/ and js/. assetver.is_versioned() decides
+    which, and tools/assetver.py says why fonts and images are not. A missing
+    ?v= is as stale as a wrong one: it is the URL a browser may already hold,
+    for a year under /assets/ and for 4 hours for a site's own file.
     """
     if not assetver.is_versioned(resolved):
         return None
