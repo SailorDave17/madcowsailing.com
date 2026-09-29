@@ -6,8 +6,10 @@
 -- changed" rather than "wrong code". An upload session names the generation
 -- it was opened with (lib/session.js), so adding a row ends every session
 -- opened before it. The code is stored as it is, because the admin page
--- shows it (#152). Nothing in git ever holds a code: the first is seeded
--- per database by photos/scripts/seed-code.mjs (README, The photo site).
+-- shows it (#152). Nothing in git ever holds a code: the first is made per
+-- database with "Create code" on /admin/code (#152; README, The photo site).
+-- Until #152, photos/scripts/seed-code.mjs seeded it; the preview's and
+-- production's codes were made that way.
 CREATE TABLE invite_codes (
   generation INTEGER PRIMARY KEY,
   code       TEXT    NOT NULL UNIQUE,

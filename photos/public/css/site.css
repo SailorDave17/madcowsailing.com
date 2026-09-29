@@ -53,6 +53,40 @@
   font-size: var(--text-lg);
 }
 
+/* ---- Admin: the invite code (#152) ---------------------------------- */
+
+.invite-code code {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  letter-spacing: 0.08em;
+}
+
+/* The link is one unbroken word, longer than a 360 px screen is wide. */
+.invite-link code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A modal dialog is centred by the browser's own `margin: auto`, and base.css's
+   reset sets every margin to 0, so it is restated here or the dialog opens at
+   the top-left corner. The max-width keeps a gutter on a phone, as the
+   browser's own dialog width does. */
+.confirm {
+  margin: auto;
+  max-width: min(var(--measure), calc(100% - 2 * var(--space-4)));
+  border: var(--border-hair);
+  padding: var(--space-5);
+  background: var(--chalk);
+  color: var(--deep);
+}
+
 /* ---- Footer --------------------------------------------------------- */
 
 .footer-inner {
