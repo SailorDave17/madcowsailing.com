@@ -36,8 +36,10 @@ Stories #2–#11 and #35 are closed, which is what built the above. The epic is 
 A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
 #149 built its holding page, its Cloudflare project and its gate. #150 added the
 invite code and the upload session, #151 the admin area's lock and its
-home page, #152 the admin page where the code is created and rotated, and
-#153 the albums the owner keeps for each regatta and practice.
+home page, #152 the admin page where the code is created and rotated,
+#153 the albums the owner keeps for each regatta and practice, and #154 the
+upload API, which stores each photo's three JPEGs with their metadata removed,
+waiting for approval.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access, and the domain serves nothing until a release carries `photos/`
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
@@ -94,7 +96,8 @@ story, this is the paragraph to check.*
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
 │   │                         api/join.js, api/upload/ and api/albums/ behind
-│   │                         the upload guard, and admin/ and api/admin/
+│   │                         the upload guard (api/upload/index.js takes a
+│   │                         photo, #154), and admin/ and api/admin/
 │   │                         behind the admin guard (admin/code.js is the
 │   │                         invite code, #152; admin/albums.js the albums, #153)
 │   ├── lib/                  Code the Functions import that is not a route
@@ -512,7 +515,9 @@ the user is removed; seat expiration can remove users automatically.
 
 ### 9. What an upload may be
 
-Each photo arrives as three JPEGs, and #154 refuses any outside these caps:
+Each photo arrives as three JPEGs, and #154 refuses any outside these caps
+(item 14 says how). A KB here is 1,024 bytes and an MB 1,048,576, the
+generous reading, so the byte caps are 153,600, 1,048,576 and 3,145,728:
 
 | Size | Long edge | Largest file |
 |---|---|---|
@@ -671,8 +676,11 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   hour stop every parent. The accepted cost is that a new address can try codes past its
   limit until the hour turns, which 60 bits makes hopeless.
 - **Every upload route sits under `functions/api/upload/`**, whose `_middleware.js` runs
-  the one guard, `requireUploadSession` in `lib/session.js`. `test/guard.test.js` calls
-  every Function route outside its `PUBLIC` list with four bad cookies and requires 401.
+  the one guard, `requireUploadSession` in `lib/session.js`, then (since #154)
+  `requireSameOrigin`, so every upload write needs the site's own Origin as every admin
+  write does. `test/guard.test.js` calls
+  every Function route outside its `PUBLIC` list with four bad cookies and requires 401,
+  and holds every upload write to 403 without the site's Origin.
   An admin route (#151) answers to the admin guard instead (item 12). The test knows
   admin routes by directory and holds them to 403, rather than listing them as public.
 - **The admin page makes and changes the code** (#152, `/admin/code`). "Create code"
@@ -798,10 +806,11 @@ applications and their policies.
   ([foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/), read
   2026-09-28). So the refusal holds whatever state the photo is in, and an upload that
   lands mid-delete cannot slip past a count taken first. The route catches the failure and
-  only then counts the photos, to say how many. `test/albums.test.js` holds the rule on a
-  stand-in `photos` table until #154 makes the real one. Its schema test fails if any table
+  only then counts the photos, to say how many. `test/albums.test.js` holds the rule on
+  #154's real `photos` table (a stand-in until #154 made it), and `test/upload.test.js`
+  holds it on photos sent through the upload route. The schema test fails if any table
   but `photos` names albums, since the count reads `photos`, or if `photos.album_id` lacks
-  the reference or cascades. #154 carries the real-table proof as a criterion of its own.
+  the reference or cascades.
   Not chosen: creating the photos table in #153, which would design #154's schema before
   its pickup; and moving the refusal into #154.
 - **The open list lives at `/api/albums/open`**, the path the story named, in its own
@@ -822,6 +831,107 @@ applications and their policies.
   is `--deep`, because a field's edge must read 3:1 against the page (WCAG 1.4.11). On
   `--hull`, the `--spray` hairline reads 1.64:1 and `--deep` 13.45:1 (computed from
   `tokens.css`, #153).
+
+### 14. The upload API
+
+**Built in #154, 2026-09-29, with three owner decisions taken at its pickup and
+three at its review.**
+`POST /api/upload` (`functions/api/upload/index.js`) takes one photo as its three
+JPEG sizes, from a live upload session, into an open album, and stores it pending.
+`lib/photos.js` holds the rules and `lib/jpeg.js` the rebuild. The form's fields and
+every answer are in the route's header comment.
+
+- **Every metadata segment goes, by an allow-list.** Each JPEG is rebuilt from the
+  segments a decoder needs (frame, Huffman and quantisation tables, restart
+  interval, scans) and nothing else. So every APPn goes (EXIF and its GPS in APP1,
+  XMP, the ICC profile, IPTC, JFIF), as does every comment, every unknown marker,
+  and whatever follows the end-of-image marker, where a motion photo keeps its
+  video. The compressed data is copied as it came, so the picture is unchanged. Ten
+  Pillow variants and Chrome 154's canvas output decoded to identical pixels
+  afterwards, and a real `wrangler pages dev` run stored the canvas JPEGs with the
+  fictional GPS spliced in and read none of it back. Not chosen: a deny-list of
+  known metadata segments, which lets a vendor's new segment through.
+- **What the share page must do, because the strip removes it** (for #155). EXIF
+  orientation goes with the rest, so draw the photo upright before encoding, as #155
+  criterion 2 already says. The ICC profile goes too. Chrome's canvas writes an
+  sRGB one, which a browser assumes for an untagged JPEG, so nothing shifts, but
+  keep the canvas on its default `srgb` colour space: a `display-p3` canvas would
+  lose its profile here and its colours would shift.
+- **What is refused.** A file that does not start as a JPEG, or whose frame is
+  lossless, arithmetic-coded, 12-bit or neither one nor three components, is 415.
+  One that breaks off is 400. One over its size's bytes or long edge (item 9) is
+  413, as is a body past all three caps together, before any of it is parsed. A
+  caption is counted in characters, as the table's CHECK counts it, so an emoji is
+  one.
+- **The three sizes must be one picture's shape** (owner, 2026-09-29, at #154's
+  review). Each is no larger than the next, and each has the next's aspect ratio to
+  within a pixel of the browser's rounding, or the upload is 400 `sizes`. That
+  catches a broken share page. It cannot catch two different pictures of the same
+  shape sent on purpose by someone holding the code, and the owner approves after
+  seeing one size while the public sees the others. So #156 carries a criterion to
+  show all three before approving. Not chosen: the route check alone; accepting it
+  with rotation as the remedy.
+- **Objects first, then the row.** The three objects go into R2 under a random
+  128-bit `media_key` (`photos/<key>/grid.jpg`, `screen.jpg`, `full.jpg`). Only then
+  is the row written, by one `INSERT … SELECT` that finds the album open in the
+  same statement. So no row ever names missing objects, and an album closed or
+  deleted mid-send takes nothing. Any failure after the objects are stored deletes
+  them again, once every put has settled. If that delete fails too, the log names
+  the objects' `photos/<key>/` prefix, the only way to find them short of listing
+  the bucket against the table. The row's `id` is AUTOINCREMENT, so a rejected
+  photo's id (#156) is never given to a later one.
+- **The daily cap is 500 uploads per session per UTC day** (owner, 2026-09-29,
+  confirming the story's proposal), counted in `upload_counts` by one guarded upsert,
+  as #177's join budget is, so two uploads arriving together cannot both take the
+  last one. A unit is spent before the objects are stored, so a capped session costs
+  no R2 write, and given back by a guarded decrement when the bucket or the
+  database fails or the album closes mid-send. So the cap counts photos stored,
+  not attempts (a finding of #154's review). It stops a runaway phone. It does not
+  stop a leaked code, since whoever
+  holds the code can join again for a new session; rotating the code does that
+  (item 11). Not chosen: adding a sitewide cap of 2,000 a day, which lets any code
+  holder use up the day for every parent (the tradeoff #177 turned down for
+  joins); or 200 per session.
+- **What an upload costs D1.** *Measured on the preview database, 2026-09-29, with
+  `meta.rows_written`:* the photo insert writes 5 rows (the table, its three
+  indexes and the AUTOINCREMENT counter) and the cap's upsert 1, so a stored photo
+  costs 6. At the cap one session writes 3,000 a day, and the account's 100,000
+  hold about 16,600 uploads before every D1 query stops until midnight UTC. A
+  failure after the checks writes 2, the unit spent and given back.
+- **One table for photos and clips** (owner, 2026-09-29). `photos` carries every
+  state the epic needs (`uploading` for a clip whose parts are still arriving,
+  `pending`, `approved` and `hidden`) with the approval and takedown columns, and a
+  clip's `content_type`, `duration_ms` and R2 `upload_id`, left empty on a photo. So
+  the clip story (#198) and #156 and #158 add no migration to it, and the
+  album-delete refusal (item 13) covers clips as well. A rejected row is deleted,
+  not kept in a state. The accepted cost is that the clip columns were chosen
+  before the clip design exists, so #198 may still need one more column, which is
+  additive. Not chosen: a second migration for video, and building the clip upload
+  in #154.
+- **A clip's row can start empty** (owner, 2026-09-29, at #154's review).
+  `captured_at`, `width`, `height` and `bytes` are required by a CHECK in every
+  state but `uploading`, not by NOT NULL. A clip's row is made when its first part
+  arrives, before the server can check what the page says about it. And SQLite can
+  loosen a NOT NULL only by rebuilding the table, which the additive-only rule
+  (item 6) forbids, so this had to be settled before production had the table.
+  0005 was edited in place for it, and preview's empty copy was dropped and applied
+  again the same day, with `d1_migrations` row 5 deleted. Preview's `sqlite_master`
+  then matched the files object for object, and the old 0005 differed on `photos`
+  alone. Not chosen: writing page-declared values at `uploading` and overwriting
+  them; a rebuild in a 0006. **A migration already applied anywhere is not edited
+  again**: D1 records it by filename, so an edit reaches no database that has it.
+- **The clip upload is its own story**, #198, filed at #154's review (owner,
+  2026-09-29) as a placeholder under #147, carrying D11's caps, a size cap, the
+  bucket's lifecycle rule and the part-CPU measurement item 10 asks for first.
+- **A coach's upload has its own marker** (owner, 2026-09-29, for #192). `sender` is
+  `parent` or `coach`, and a coach's row names no code generation, since no code
+  opened the session. Not chosen: leaving #192 to add the column.
+- **The Origin check is the upload directory's** (see item 11), so the clip routes
+  get it without anyone remembering it.
+- **CPU.** *Measured in Node 24 on this machine, not on the edge:* rebuilding
+  Chrome's canvas full size (0.55 MiB) takes 0.3 ms warm and 1.1 ms cold, and a
+  Pillow quality-100 file (1.75 MiB) 3.1 ms, against the free plan's 10 ms a request.
+  The edge's own reading per route is #157's (item 8's CPU row).
 
 ## The two-presentation rule
 
