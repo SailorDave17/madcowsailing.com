@@ -174,6 +174,138 @@
   font-size: var(--text-sm);
 }
 
+/* ---- Share: sending photos (#155) ----------------------------------- */
+
+.sender {
+  margin-block-start: var(--space-5);
+}
+
+.sender > * + * {
+  margin-block-start: var(--space-3);
+}
+
+.sender .field label,
+.photo label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* The same field edge as .album-form's: --deep reads 3:1 and more against
+   the page and a card, where the --spray hairline does not (WCAG 1.4.11). */
+.sender select,
+.photo-caption {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.sender select {
+  width: var(--measure);
+}
+
+/* "Add photos" is the file input's label. The input is clipped out of sight
+   but stays in the keyboard order and speaks its label's name, so the label
+   draws the ring the input would have drawn, and only when the input would
+   have: on keyboard focus. :focus-within also matched the focus a tap leaves
+   behind when the photo picker closes, which ringed the button on a phone
+   (Android Chrome 154, measured on #155). */
+.pick {
+  position: relative;
+}
+
+.pick input {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(50%);
+}
+
+.pick:has(:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* A browser without :has() rings it on any focus: a ring after a tap beats
+   none after a Tab. */
+@supports not selector(:has(*)) {
+  .pick:focus-within {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+  }
+}
+
+/* A button that is not the page's action: Remove sits beside Try again in
+   every photo, and thirty solid blue buttons would shout over the photos. */
+.button-quiet {
+  background: transparent;
+  color: var(--blue-deep);
+  border: 1px solid var(--blue);
+}
+
+.button-quiet:hover {
+  background: var(--blue);
+  color: var(--chalk);
+}
+
+/* One column on a phone, as many as fit on a wider screen. */
+.photo-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(3 * var(--space-8))), 1fr));
+  gap: var(--space-4);
+}
+
+.photo {
+  background: var(--chalk);
+  border: var(--border-hair);
+  padding: var(--space-3);
+}
+
+/* A square the preview fits inside, there from the moment the photo is
+   chosen, so the card does not grow when the preview arrives. */
+.photo-frame {
+  aspect-ratio: 1;
+  background: var(--hull);
+}
+
+.photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.photo-state {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  margin-block: var(--space-2);
+}
+
+.photo[data-state="failed"] .photo-state,
+.photo[data-state="unreadable"] .photo-state {
+  font-weight: 500;
+}
+
+.photo-caption {
+  width: 100%;
+}
+
+.photo-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin-block-start: var(--space-1);
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
 /* ---- Footer --------------------------------------------------------- */
 
 .footer-inner {

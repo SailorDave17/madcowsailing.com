@@ -10,8 +10,8 @@
      /share/#code=<code>. share.js reads the code from the fragment, which a
      browser never sends to a server, takes the fragment out of the address
      bar, and trades the code for an upload session at POST /api/join.
-     #155 adds sending photos below the join step, and #159 the policy link
-     beside it.
+     #155 added sending photos below the join step, and #159 adds the policy
+     link beside it.
 
      The site is never indexed (epic #147, D6). Every response carries
      X-Robots-Tag: noindex, set by public/_headers for static files and by
@@ -36,9 +36,9 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=b34e6dd73f">
+<link rel="stylesheet" href="/css/site.css?v=e9ccfb2700">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
-<script src="/js/share.js?v=b202031936" defer></script>
+<script src="/js/share.js?v=ccddf45478" defer></script>
 </head>
 
 <body>
@@ -84,6 +84,32 @@
     <noscript><p>This page needs JavaScript to open an invite link. Turn it on,
       then open the link again.</p></noscript>
     <p><button type="button" class="button" id="join-retry" hidden>Try again</button></p>
+
+    <!-- Sending (#155), shown once this phone holds a session. share.js
+         fills the album list from GET /api/albums/open and preselects one,
+         makes each chosen photo's three JPEGs, and adds one list item per
+         photo. "Add photos" is the file input's label, styled as a button:
+         the input stays in the keyboard order and names itself by it, and
+         the label shows the focus ring. The summary is a second live region,
+         written only when a photo is sent or fails. Send is the page's one
+         accent. -->
+    <div class="sender" id="sender" hidden>
+      <p class="field">
+        <label for="album">Album</label>
+        <select id="album">
+          <option value="">Loading albums…</option>
+        </select>
+      </p>
+      <p id="album-note" hidden></p>
+      <p><button type="button" class="button" id="album-again" hidden>Check again</button></p>
+      <p class="actions">
+        <label class="button pick">Add photos<input type="file" id="photo-input" accept="image/*" multiple></label>
+        <button type="button" class="button button-accent" id="send" hidden>Send</button>
+      </p>
+      <p id="send-status" role="status"></p>
+      <p id="keep-open" hidden>Keep this page open until every photo says Sent.</p>
+      <ol class="photo-list" id="photo-list"></ol>
+    </div>
   </section>
 </main>
 <!-- ============================================================= FOOTER

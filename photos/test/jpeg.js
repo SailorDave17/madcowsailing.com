@@ -97,6 +97,58 @@ export function exif() {
   return segment(0xe1, bytes(ascii('Exif'), 0, 0, tiff));
 }
 
+/**
+ * An APP1 EXIF segment holding only the tags asked for (#155), in either byte
+ * order: 'II' is little-endian, as Pillow writes, and 'MM' big-endian, as an
+ * iPhone writes. `orientation` and `modified` (DateTime) go in IFD0; the capture times and their
+ * offsets ("+HH:MM") go in the Exif IFD, which IFD0 points to. A time is the
+ * 19-character "YYYY:MM:DD HH:MM:SS" EXIF uses, stored with its NUL.
+ */
+export function exifWith({
+  order = 'II', orientation = null, modified = null, original = null, originalOffset = null, digitized = null,
+  digitizedOffset = null,
+} = {}) {
+  const le = order === 'II';
+  const u16 = (n) => (le ? [n & 0xff, (n >> 8) & 0xff] : [(n >> 8) & 0xff, n & 0xff]);
+  const u32 = (n) => (le ? [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff]
+    : [(n >>> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]);
+  const text = (value) => [...ascii(value), 0];
+  // An IFD at `offset`: values of four bytes or fewer sit inline, left-justified,
+  // and the rest follow the table in order.
+  const table = (offset, entries) => {
+    const head = 2 + entries.length * 12 + 4;
+    let extra = [];
+    const out = [...u16(entries.length)];
+    for (const { tag, type, count, value } of entries) {
+      out.push(...u16(tag), ...u16(type), ...u32(count));
+      if (value.length <= 4) out.push(...value, ...new Array(4 - value.length).fill(0));
+      else {
+        out.push(...u32(offset + head + extra.length));
+        extra = [...extra, ...value];
+      }
+    }
+    out.push(...u32(0));
+    return [...out, ...extra];
+  };
+  const SHORT = 3;
+  const times = [
+    [0x9003, original], [0x9004, digitized], [0x9011, originalOffset], [0x9012, digitizedOffset],
+  ].filter(([, value]) => value !== null)
+    .map(([tag, value]) => ({ tag, type: ASCII, count: value.length + 1, value: text(value) }));
+  const ifd0Entries = [];
+  if (orientation !== null) ifd0Entries.push({ tag: 0x0112, type: SHORT, count: 1, value: u16(orientation) });
+  // IFD0's DateTime is when the file last changed, which an edit moves.
+  if (modified !== null) ifd0Entries.push({ tag: 0x0132, type: ASCII, count: modified.length + 1, value: text(modified) });
+  if (times.length) ifd0Entries.push({ tag: 0x8769, type: LONG, count: 1, value: u32(0) });
+  const ifd0Head = 2 + ifd0Entries.length * 12 + 4;
+  const ifd0Extra = ifd0Entries.reduce((n, e) => n + (e.value.length > 4 ? e.value.length : 0), 0);
+  const ifd0Size = ifd0Head + ifd0Extra;
+  if (times.length) ifd0Entries[ifd0Entries.length - 1].value = u32(8 + ifd0Size);
+  const tiff = [...ascii(order), ...u16(42), ...u32(8), ...table(8, ifd0Entries)];
+  if (times.length) tiff.push(...table(8 + ifd0Size, times));
+  return segment(0xe1, bytes(ascii('Exif'), 0, 0, tiff));
+}
+
 /** An XMP packet carrying the same position as text, in its own APP1. */
 export const xmp = () => segment(0xe1, bytes(
   ascii('http://ns.adobe.com/xap/1.0/'), 0,

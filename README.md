@@ -472,6 +472,11 @@ photo site, item 14.
   those checks leaves nothing in the bucket and does not count against the cap.
 - **If the log says** `bucket did not delete photos/<key>/ after a failure`,
   objects were left in the bucket with no row. Delete them by that prefix.
+- **The share page sends them** (#155). `/share/` makes each photo's three
+  JPEGs on the phone as soon as it is chosen, and sends three at a time. A HEIC
+  the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
+  item 15 has the decisions. To try it locally, open the invite link from
+  `/admin/code`, add an album on `/admin/albums`, and choose photos.
 - **To look at what is waiting** before the approval page exists (#156):
   `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT id, album_id, batch, sent_at, caption FROM photos WHERE state = 'pending' ORDER BY sent_at"`.
 
@@ -547,3 +552,4 @@ without an error, so the gate refuses it instead.
 | `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149), and, since #176, for a file in the page's own site's `css/` or `js/`. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95, #176). |
 | `trace_logo.py` | Re-traces `shared/img/` from `docs/source/madcow-lockup.pdf`. Needs Pillow. |
 | `quality_floor.mjs` | Measures the `CLAUDE.md` quality floor on both **production** domains — Lighthouse at a pinned version, 360px scroll, keyboard reach, contrast pairs — and rewrites the generated block of `docs/quality-floor.md`. Needs Node and Chrome. Not in CI, by decision recorded in that doc. |
+| `h2proxy.mjs` | Serves the photo site from `wrangler pages dev` over HTTP/2, so Lighthouse reads it locally the way production serves it. The photo site's floor is read through it (`CLAUDE.md`, Quality floor; #155). Needs a throwaway self-signed certificate; the header has the recipe. |
