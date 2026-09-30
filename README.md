@@ -196,7 +196,9 @@ the tree and never asks the host. It resolves an extensionless link the way
 Pages does: `/about` is `about.html`, and a directory is its `index.html`
 (#113). That stays right after #36: the host reports
 a `404` to a visitor who has already followed the broken link, and linkcheck
-refuses the link before the push.
+refuses the link before the push. On the photo site, a path `_routes.json`
+sends to a Function (`/`, since #157) is resolved against the route files in
+`photos/functions/` instead of a served file.
 
 <a id="previews-build-from-develop-only"></a>
 
@@ -497,14 +499,37 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
   them alone, and Enter in a caption field presses it. A caption typed for a
   photo someone approved after the page loaded is not saved, and the page says
   so.
-- **Approve** or **Approve all** approves photos, which is what the public
-  albums show once #157 builds them. **Reject** or
+- **Approve** or **Approve all** approves photos, which puts them in the public
+  albums at once (#157, below). **Reject** or
   **Reject all** asks first, then deletes each photo's row and its three files
   for good. Rejecting needs JavaScript.
 - **Approve all and Reject all act on the photos the page showed.** A photo
   sent into the batch after the page loaded keeps waiting.
 - The pictures come from `GET /api/admin/photos/<id>/<size>` (`grid`, `screen`
   or `full`), which answers only to an admin.
+
+### The public albums
+
+Anyone can browse them, with no code and no sign-in (#157; epic #147, D1).
+Nothing but an approved photo is ever listed, counted or served.
+
+- **`/`** lists every album holding at least one approved photo, latest date
+  first, each with its kind, day, count and first photo. An album whose photos
+  are all waiting is not listed, and a closed album still is.
+- **`/albums/<address>/`** shows an album's approved photos in the order they
+  were taken, in the trip logs' lightbox. The address is the one `/admin/albums`
+  shows, and it never changes, so a link sent to parents keeps working. An
+  album with nothing approved answers the site's 404 page.
+- **`/photos/<id>/<size>`** serves one size of an approved photo: `grid` in the
+  album, `screen` in the lightbox, and `full` from **Download**, saved as
+  `<address>-<nnn>.jpg` by its place in the album. Anything else is 404: a
+  photo waiting, hidden or deleted, an unknown id, or another size.
+- **A takedown holds from the next request.** Every photo response reads the
+  photo's state first and may be kept for 300 seconds by a browser that already
+  loaded it, never longer. Every page is `max-age=0`.
+- **The pages are built from `photos/templates/page.html`**, which is never
+  served. Edit the head, header or footer there. `tools/assetver.py` stamps it,
+  and `tools/linkcheck.py` and `npm run check` read it like any page.
 
 ## The push guard
 
@@ -575,7 +600,7 @@ without an error, so the gate refuses it instead.
 | Script | What it does |
 |---|---|
 | `photos.py` | Builds a trip log's AVIF/WebP derivatives and its `trip.json`. Strips EXIF always. Needs Pillow ≥ 11.3. |
-| `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149), and, since #176, for a file in the page's own site's `css/` or `js/`. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95, #176). |
+| `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149), and, since #176, for a file in the page's own site's `css/` or `js/`. Since #157 it stamps `photos/templates/` too. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95, #176). |
 | `trace_logo.py` | Re-traces `shared/img/` from `docs/source/madcow-lockup.pdf`. Needs Pillow. |
 | `quality_floor.mjs` | Measures the `CLAUDE.md` quality floor on both **production** domains — Lighthouse at a pinned version, 360px scroll, keyboard reach, contrast pairs — and rewrites the generated block of `docs/quality-floor.md`. Needs Node and Chrome. Not in CI, by decision recorded in that doc. |
 | `h2proxy.mjs` | Serves the photo site from `wrangler pages dev` over HTTP/2, so Lighthouse reads it locally the way production serves it. The photo site's floor is read through it (`CLAUDE.md`, Quality floor; #155). Needs a throwaway self-signed certificate; the header has the recipe. |

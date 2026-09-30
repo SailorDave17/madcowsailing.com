@@ -381,6 +381,129 @@
   margin-block-start: var(--space-2);
 }
 
+/* ---- Public: the albums (#157) -------------------------------------- */
+
+/* An album title is 1 to 80 characters as the owner typed it, and one long
+   word would push a 360 px page sideways. */
+.page-head h1,
+.album-row h2 {
+  overflow-wrap: anywhere;
+}
+
+/* Kind, day and count under a title, as the sailing logs set their dates. */
+.meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--blue);
+}
+
+/* The list and the grid follow the page head closely: base.css pads every
+   section of main by --space-7, which would leave a gap of twice that. */
+.album-list,
+.album-photos {
+  padding-block-start: 0;
+}
+
+/* The list at /: the cover beside the words, as on the sailing logs index.
+   The cover is cropped to 4:3, a thumbnail for the row, not the photo. */
+.album-rows {
+  list-style: none;
+  padding: 0;
+}
+
+.album-row {
+  display: grid;
+  grid-template-columns: calc(2 * var(--space-8)) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.album-cover img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: var(--border-hair);
+  background: var(--chalk);
+}
+
+.album-row h2 {
+  font-size: var(--text-xl);
+  margin-block-end: var(--space-1);
+}
+
+.album-row h2 a {
+  text-decoration: none;
+}
+
+.album-row h2 a:hover {
+  text-decoration: underline;
+}
+
+/* An album's photos: square tiles in fixed columns, 2 on a phone and 5 at
+   the widest (owner's choice at #157's pickup). The trip logs' justified
+   rows need an inline style on every figure, which this site's CSP refuses.
+   The fewest columns, a phone's 2, are lib/public-page.js's FIRST_ROW, the
+   photos in the first row at every width, which load at once, and
+   test/public.test.js fails if the two disagree. The lightbox shows each
+   photo whole. */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-2);
+}
+
+.gallery figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.gallery .frame {
+  display: block;
+  border: var(--border-hair);
+  background: var(--chalk);
+}
+
+/* The width and height attributes are the stored grid size; the square here
+   is set before the picture arrives, so nothing below it moves. */
+.gallery .frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.gallery figcaption {
+  margin-block-start: var(--space-1);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.caption-text {
+  display: block;
+}
+
+.download {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+@media (min-width: 30rem) {
+  .gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (min-width: 46rem) {
+  .gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 60rem) {
+  .gallery { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
 /* ---- Footer --------------------------------------------------------- */
 
 .footer-inner {
@@ -395,4 +518,11 @@
 
 @media (max-width: 46rem) {
   .page-head .lede { font-size: var(--text-base); }
+
+  /* A smaller cover still beside the words, so a season of albums stays a
+     list a thumb can scan rather than a column of pictures. */
+  .album-row {
+    grid-template-columns: calc(2 * var(--space-6)) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
 }

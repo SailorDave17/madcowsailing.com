@@ -36,6 +36,12 @@ const KEY = 'test-session-signing-key-0123456789abcdef';
 const PUBLIC = {
   'api/health.js': 'reports whether the bindings answer, and nothing stored (#149)',
   'api/join.js': 'is how an upload session is opened (#150)',
+  // Public viewing is epic #147's D1: the code gates uploading only. Each of
+  // these shows approved photos and nothing else, which test/public.test.js
+  // holds (#157).
+  'index.js': 'lists the albums holding an approved photo (#157)',
+  'albums/[address]/index.js': 'shows an album\'s approved photos (#157)',
+  'photos/[id]/[size].js': 'serves an approved photo, and 404s every other state (#157)',
 };
 
 // Admin routes answer to the admin guard, not the upload guard (#151).

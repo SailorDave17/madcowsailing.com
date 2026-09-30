@@ -40,10 +40,13 @@ home page, #152 the admin page where the code is created and rotated,
 #153 the albums the owner keeps for each regatta and practice, #154 the
 upload API, which stores each photo's three JPEGs with their metadata removed,
 waiting for approval, #155 the share page that makes those JPEGs on the
-phone and sends them, and #156 the queue where the owner approves or rejects
-them.
+phone and sends them, #156 the queue where the owner approves or rejects
+them, and #157 the public album list and album pages, which replaced the
+holding page at `/`.
 Epic #147 builds the rest. Its `develop` preview sits behind
-Access, and the domain serves nothing until a release carries `photos/`
+Access. The domain has served the site since release `50992c3` (2026-09-27),
+and each story reaches it with the next promotion, so read `release`, not this
+paragraph, for what production holds
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
 The remaining open work is refinement rather than construction — self-hosted
 fonts, a second app's pages, copy sharpening — and it is
@@ -97,7 +100,9 @@ story, this is the paragraph to check.*
 │   ├── package.json          Not a build: makes photos/ wrangler's project root
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
-│   │                         api/join.js, api/upload/ and api/albums/ behind
+│   │                         api/join.js, the public pages (#157: index.js is /,
+│   │                         albums/[address]/ an album, photos/[id]/[size].js
+│   │                         a photo), api/upload/ and api/albums/ behind
 │   │                         the upload guard (api/upload/index.js takes a
 │   │                         photo, #154), and admin/ and api/admin/
 │   │                         behind the admin guard (admin/code.js is the
@@ -105,15 +110,17 @@ story, this is the paragraph to check.*
 │   │                         admin/queue.js the approval queue, #156, with
 │   │                         api/admin/queue/ and api/admin/photos/)
 │   ├── lib/                  Code the Functions import that is not a route
+│   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
 │   ├── scripts/              access-dev.mjs: a local stand-in for Access (#151)
-│   ├── test/                 node --test; `npm test` from the root
+│   ├── test/                 node --test; `npm test` from the root, which loads
+│   │                         test/text-modules.js first so a .html imports (#157)
 │   └── public/               The served files and nothing else (the output dir)
-│       ├── index.html        The holding page, until #157
 │       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
-│       ├── _routes.json      Which paths invoke a Function: /api/*, /admin, /admin/*
+│       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
+│       │                     /api/*, /admin, /admin/*
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -124,7 +131,10 @@ story, this is the paragraph to check.*
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
 │   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
-│   ├── assetver.py           Writes ?v=<hash> onto every shared and site CSS/JS URL. linkcheck checks it.
+│   │                         Reads photos/templates/, and resolves a Function path against
+│   │                         photos/functions/ (#157).
+│   ├── assetver.py           Writes ?v=<hash> onto every shared and site CSS/JS URL, templates
+│   │                         included. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   ├── h2proxy.mjs           HTTP/2 in front of wrangler, to read the photo site's floor locally (#155). Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
@@ -383,6 +393,7 @@ photos/
 ├── functions/       the server code (Pages Functions)
 ├── lib/             code the Functions import that is not a route (added by #149)
 ├── migrations/      D1 migrations, NNNN_<what>.sql, additive only
+├── templates/       the public pages' shell, never served (added by #157)
 ├── scripts/         run by hand, never served (added by #150)
 ├── test/            node --test
 └── public/          the served files, and nothing else
@@ -1096,6 +1107,88 @@ here; an approved one leaves the public page through #158.
   so a clip's id posted to a press changes nothing; the clip story, #198, adds
   them.
 
+### 17. The public pages
+
+**Built in #157, 2026-09-30, with four owner decisions taken at its pickup and
+one on its floor.** `/` lists the albums (`functions/index.js`),
+`/albums/<address>/` shows one (`functions/albums/[address]/index.js`), and
+`/photos/<id>/<size>` serves a photo (`functions/photos/[id]/[size].js`).
+`lib/public.js` holds the queries and `lib/public-page.js` the markup.
+
+- **Only an approved photo is public.** Every public statement names
+  `state = 'approved' AND kind = 'photo'`, so a waiting, hidden or rejected
+  photo is never listed, counted or served, and clips wait for #198. A closed
+  album stays listed (item 13). An album holding no approved photo is not
+  listed, and its address answers the site's 404 page: the route calls
+  `next()`, and Pages' static files hold nothing under `/albums/`. The same
+  address without its trailing slash is sent to the one with it (308).
+- **An album is in capture order**, `captured_at` then `id`, so two photos
+  taken in the same second keep the order they were sent in. The same order
+  picks the list's cover and counts a photo's place for its alt text and its
+  download name.
+- **The pages' shell is a file** (owner, at pickup): `templates/page.html`,
+  never served, which Pages bundles as a text module
+  ([module support](https://developers.cloudflare.com/pages/functions/module-support/),
+  read 2026-09-30). `tools/assetver.py` stamps it, and `tools/linkcheck.py` and
+  html-validate read it like a page. `npm test` loads `test/text-modules.js`
+  first, so Node imports a `.html` file the same way. Not chosen: a string in
+  `lib/`, as the admin pages keep theirs, which linkcheck cannot read; and
+  moving the admin pages onto the template in this story.
+- **The grid is square tiles in fixed columns**, 2 on a phone and 5 at the
+  widest (owner, at pickup). The trip logs' justified rows need an inline style
+  on every figure, which this site's CSP refuses. Fixed columns are what let
+  the server know the first row at every width: the first `FIRST_ROW` (2)
+  photos load eager at `fetchpriority="high"` and every other lazily, so on a
+  phone nothing below the first row is eager, as `tools/photos.py` makes a
+  trip photo eager only in the first row of both its layouts. On a wide
+  screen the rest of the first row is lazy but in view, so it loads once the
+  page is laid out. `test/public.test.js` fails if `FIRST_ROW` stops being
+  the CSS's fewest columns. *(`FIRST_ROW` was 5, the widest row, until
+  #157's review found photos 3–5 eager on a phone.)* The lightbox shows each
+  photo whole. Not chosen: flex rows that keep each shape, whose first row
+  depends on the viewport; the exact trip-log rows through a per-response
+  CSP hash.
+- **The lightbox is `shared/js/gallery.js`, unchanged.** Each figure is a trip
+  log's: an `a.frame` linking to the screen size, which the lightbox shows,
+  around the grid `img`. A caption is the figcaption, the `alt` and the
+  lightbox's `data-caption`, escaped. A photo with no caption has the alt
+  "&lt;album&gt;, photo n of N".
+- **Download saves the full size as `<address>-<nnn>.jpg`.** The full size
+  answers `Content-Disposition: attachment` with that name, counted in the
+  page's order, so a browser that ignores the link's `download` attribute
+  still saves it named. The grid and screen sizes open in the page.
+- **An album page links back with an "All albums" eyebrow link** (owner, at
+  pickup). The header stays without a nav until a second kind of page needs
+  one (#159). Not chosen: a one-item nav now.
+- **Every page is `public, max-age=0, must-revalidate`** (#157, criterion 8),
+  so an approval or a takedown shows on the next load. Every photo is
+  `private, max-age=300` (item 3). A missing photo is a plain `404`,
+  `no-store`. Item 3 asks for the photo header to be read on
+  `photos.madcowsailing.com`, where the zone may raise it; #157 reads it there
+  at its step 9, after the promotion.
+- **HEAD is answered as GET is** on all three routes, as the static holding
+  page answered it at `/`, so a monitor or a link preview reads the real
+  status. It costs the same database read, and bucket read for a photo.
+- **A path that cannot name anything asks nothing.** A size outside the three
+  or an id that is not one is `404` with no query and no bucket read, and a
+  path under `/albums/` that is not an address is the 404 page at once, before
+  the trailing-slash redirect.
+- **A database that does not answer** leaves an image `404`, never served
+  unchecked (item 4), and a page `503`, saying the photos can't be shown right
+  now, rather than an empty list claiming nothing is posted.
+- **What a view costs D1.** The list reads one index entry per approved photo
+  on the whole site, plus one row per album holding one. So at item 8's
+  11,000 photos a list view reads about 11,000 rows, and D1's 5 million a day
+  hold about 450 list views, fewer than item 2's 2,439 album views. An album
+  page reads one row per approved photo in it, each grid or screen image one
+  row by its id (item 2's 81 for 40 photos), and a full size one row plus one
+  index entry per photo up to its place. *Reasoned from the queries and D1's
+  rule that every row scanned counts, not measured with `meta.rows_read`.* If
+  the list's reads ever bind first, the fix is a count kept on the album row,
+  which is a migration.
+- **The floor is lower for album pages**, ≥ 85 performance (owner,
+  2026-09-30, during #157; Quality floor, below).
+
 ## The two-presentation rule
 
 A sailing app appears in three places, and the text must be different in each.
@@ -1242,6 +1335,21 @@ which comes after the review it should inform; and holding plain wrangler to
 95, which the page as shipped cannot reach. A compressing proxy was tried and
 moved nothing, since Lighthouse counts decoded bytes. Ask again if production
 and the proxy stop agreeing.
+
+**Album pages on the photo site are held to ≥ 85 performance, by owner
+decision (2026-09-30, #157).** Through the proxy, an album of 44 approved
+photos (sent through the share page from 44 trip-log photos), with its first 5
+photos eager, read 87, 84 and 88 (median 87), with accessibility 100. With
+every photo blocked it read 96, 96 and 96, with the web fonts blocked 93, 93
+and 94, and with both 99, 99 and 98. So the photos on the first screen are
+what cost, as on the trip pages (#53). No loading change reached 95 in that
+batch: fewer eager photos, one at high priority and no font preloads read
+between 76 and 93. The decision was taken on those readings. As shipped, with
+only the first row at every width eager (2 photos, item 17), the page read 90,
+91, 91, 91 and 91 (median 91), accessibility 100. The album list at `/` reads
+96, 96 and 96 and is held to 95. The evidence is on #157 and its PR, and
+production is read at its step 9. Ask again if a change takes an album page
+below 85.
 
 ## Conventions
 

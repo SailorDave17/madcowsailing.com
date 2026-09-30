@@ -5,7 +5,7 @@
   "scripts": {
     "check": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"photos/**/*.html\" \"docs/**/*.html\"",
     "check:html": "html-validate \"hq/**/*.html\" \"sailing/**/*.html\" \"photos/**/*.html\" \"docs/**/*.html\"",
-    "test": "node --test \"photos/test/*.test.js\""
+    "test": "node --import ./photos/test/text-modules.js --test \"photos/test/*.test.js\""
   },
   "devDependencies": {
     "html-validate": "10.17.0",
