@@ -3,23 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Team photos — Mad Cow Sailing</title>
-<meta name="description" content="Photos and videos from the team's regattas and practices, sent in by parents. Nothing is posted yet.">
+<title>{{title}}</title>
 
-<!-- Story #149: the holding page for photos.madcowsailing.com, served before
-     any feature exists. #157 replaces the <main> below with the albums.
+<!-- Story #157: the shell of every public page a Function renders, the album
+     list at / and each album at /albums/<address>/. It is never served:
+     Pages publishes photos/public/ only. lib/public-page.js imports it as a
+     Pages text module and fills its two placeholders, the title above and
+     the main below, each exactly once.
 
-     The site is never indexed (epic #147, D6). Every response carries
-     X-Robots-Tag: noindex, set by public/_headers for static files and by
-     functions/_middleware.js for everything a Function answers. The meta tag
-     below says the same for a reader of the HTML alone. There is no
-     rel="canonical" and there are no og: tags: a canonical names the URL to
-     index, and a page that is never indexed has none. robots.txt allows
-     crawling on purpose; it says why.
+     It is a file rather than a string in lib/ so the gate reads it like a
+     page: tools/assetver.py stamps its ?v= values, tools/linkcheck.py checks
+     them against the files, and html-validate checks the markup (owner's
+     choice at #157's pickup, 2026-09-30). The admin pages keep their own
+     shell in lib/admin-page.js for now.
 
-     Every URL here is ROOT-RELATIVE, because pages on this site are served at
-     any depth, and a relative URL resolves against the path that was asked
-     for (the depth trap #7 and #10 hit on the sailing site). -->
+     gallery.js is here on every page it renders. On the list it finds no
+     .gallery and stops, and it is a static file, so it costs no Function
+     request (CLAUDE.md, The photo site, item 2).
+
+     Every URL here is ROOT-RELATIVE, as on every photos page. No
+     rel="canonical" and no og: tags: the site is never indexed (epic #147,
+     D6). -->
 <meta name="robots" content="noindex">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
@@ -32,8 +36,9 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=a89a1d639f">
+<link rel="stylesheet" href="/css/site.css?v=025b2113e1">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
+<script src="/assets/shared/js/gallery.js?v=f39bf2b628" defer></script>
 </head>
 
 <body>
@@ -49,9 +54,12 @@
      are copied from sailing/404.html, so a change to the sailing lockup is a
      change here too.
 
-     There is no nav yet. The first story with a second page to reach (#157,
-     the albums) adds one, as root-relative hrefs, for the depth trap #7
-     and #10 hit on the sailing site.
+     There is no nav. An album page links back to the list with an eyebrow
+     link instead (owner's choice at #157's pickup), and a nav comes when a
+     second kind of page needs one (#159). When it does, its hrefs are
+     root-relative, for the depth trap #7 and #10 hit on the sailing site.
+     The public pages a Function renders take this block from
+     templates/page.html (#157), and the admin pages from lib/admin-page.js.
      ============================================================= -->
 <header class="site-header">
   <div class="wrap header-inner">
@@ -64,18 +72,7 @@
 <!-- =========================================================== /HEADER -->
 
 <main id="main">
-
-  <!-- The holding page (#149). It says what the site will hold and that
-       nothing is here yet, and nothing more: no upload link, since uploading
-       arrives with #155, and no album list, since that is #157, which
-       replaces this <main>. -->
-
-  <section class="wrap page-head">
-    <p class="eyebrow">Photos</p>
-    <h1>Team photos</h1>
-    <p class="lede">Photos and videos from the team's regattas and practices,
-      sent in by parents, will be here. Nothing is posted yet.</p>
-  </section>
+{{main}}
 </main>
 <!-- ============================================================= FOOTER
      COPY THIS BLOCK VERBATIM into every other photos page. Story #149 owns

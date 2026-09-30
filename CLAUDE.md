@@ -36,9 +36,17 @@ Stories #2–#11 and #35 are closed, which is what built the above. The epic is 
 A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
 #149 built its holding page, its Cloudflare project and its gate. #150 added the
 invite code and the upload session, #151 the admin area's lock and its
-home page, and #152 the admin page where the code is created and rotated.
+home page, #152 the admin page where the code is created and rotated,
+#153 the albums the owner keeps for each regatta and practice, #154 the
+upload API, which stores each photo's three JPEGs with their metadata removed,
+waiting for approval, #155 the share page that makes those JPEGs on the
+phone and sends them, #156 the queue where the owner approves or rejects
+them, and #157 the public album list and album pages, which replaced the
+holding page at `/`.
 Epic #147 builds the rest. Its `develop` preview sits behind
-Access, and the domain serves nothing until a release carries `photos/`
+Access. The domain has served the site since release `50992c3` (2026-09-27),
+and each story reaches it with the next promotion, so read `release`, not this
+paragraph, for what production holds
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
 The remaining open work is refinement rather than construction — self-hosted
 fonts, a second app's pages, copy sharpening — and it is
@@ -92,30 +100,43 @@ story, this is the paragraph to check.*
 │   ├── package.json          Not a build: makes photos/ wrangler's project root
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
-│   │                         api/join.js, api/upload/ behind the upload guard,
-│   │                         and admin/ and api/admin/ behind the admin guard
-│   │                         (admin/code.js is the invite code, #152)
+│   │                         api/join.js, the public pages (#157: index.js is /,
+│   │                         albums/[address]/ an album, photos/[id]/[size].js
+│   │                         a photo), api/upload/ and api/albums/ behind
+│   │                         the upload guard (api/upload/index.js takes a
+│   │                         photo, #154), and admin/ and api/admin/
+│   │                         behind the admin guard (admin/code.js is the
+│   │                         invite code, #152; admin/albums.js the albums, #153;
+│   │                         admin/queue.js the approval queue, #156, with
+│   │                         api/admin/queue/ and api/admin/photos/)
 │   ├── lib/                  Code the Functions import that is not a route
+│   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
 │   ├── scripts/              access-dev.mjs: a local stand-in for Access (#151)
-│   ├── test/                 node --test; `npm test` from the root
+│   ├── test/                 node --test; `npm test` from the root, which loads
+│   │                         test/text-modules.js first so a .html imports (#157)
 │   └── public/               The served files and nothing else (the output dir)
-│       ├── index.html        The holding page, until #157
 │       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
-│       ├── _routes.json      Which paths invoke a Function: /api/*, /admin, /admin/*
+│       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
+│       │                     /api/*, /admin, /admin/*
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
-│       └── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
-│                             in lib/admin-page.js (#152)
+│       ├── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
+│       │                     in lib/admin-page.js (#152)
+│       └── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
 │   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
-│   ├── assetver.py           Writes ?v=<hash> onto every shared and site CSS/JS URL. linkcheck checks it.
+│   │                         Reads photos/templates/, and resolves a Function path against
+│   │                         photos/functions/ (#157).
+│   ├── assetver.py           Writes ?v=<hash> onto every shared and site CSS/JS URL, templates
+│   │                         included. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
+│   ├── h2proxy.mjs           HTTP/2 in front of wrangler, to read the photo site's floor locally (#155). Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
 ├── docs/
@@ -372,6 +393,7 @@ photos/
 ├── functions/       the server code (Pages Functions)
 ├── lib/             code the Functions import that is not a route (added by #149)
 ├── migrations/      D1 migrations, NNNN_<what>.sql, additive only
+├── templates/       the public pages' shell, never served (added by #157)
 ├── scripts/         run by hand, never served (added by #150)
 ├── test/            node --test
 └── public/          the served files, and nothing else
@@ -510,7 +532,9 @@ the user is removed; seat expiration can remove users automatically.
 
 ### 9. What an upload may be
 
-Each photo arrives as three JPEGs, and #154 refuses any outside these caps:
+Each photo arrives as three JPEGs, and #154 refuses any outside these caps
+(item 14 says how). A KB here is 1,024 bytes and an MB 1,048,576, the
+generous reading, so the byte caps are 153,600, 1,048,576 and 3,145,728:
 
 | Size | Long edge | Largest file |
 |---|---|---|
@@ -669,8 +693,11 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   hour stop every parent. The accepted cost is that a new address can try codes past its
   limit until the hour turns, which 60 bits makes hopeless.
 - **Every upload route sits under `functions/api/upload/`**, whose `_middleware.js` runs
-  the one guard, `requireUploadSession` in `lib/session.js`. `test/guard.test.js` calls
-  every Function route outside its `PUBLIC` list with four bad cookies and requires 401.
+  the one guard, `requireUploadSession` in `lib/session.js`, then (since #154)
+  `requireSameOrigin`, so every upload write needs the site's own Origin as every admin
+  write does. `test/guard.test.js` calls
+  every Function route outside its `PUBLIC` list with four bad cookies and requires 401,
+  and holds every upload write to 403 without the site's Origin.
   An admin route (#151) answers to the admin guard instead (item 12). The test knows
   admin routes by directory and holds them to 403, rather than listing them as public.
 - **The admin page makes and changes the code** (#152, `/admin/code`). "Create code"
@@ -767,6 +794,400 @@ applications and their policies.
   `photos/`, and the tables are on #151's pull request. `test/guard.test.js` holds every
   route under `admin/` or `api/admin/` to 403, both with no token and with a valid upload
   session.
+
+### 13. Albums
+
+**Built in #153, 2026-09-28.** The owner keeps one album per regatta or practice day on
+`/admin/albums`, in the `albums` table (migration 0004). `lib/albums.js` holds the rules.
+
+- **The address is made once and never changes.** It is the date, then the title with
+  accents dropped, lowercased, and every run of anything but a–z and 0–9 made one hyphen,
+  cut back to a whole word within 60 characters: `2026-10-04-fall-regatta`. A title with
+  no letter or digit takes its kind's name. A second album with the same date and title
+  gets `-2`, then `-3`, and the UNIQUE constraint decides, so two made at once cannot
+  share one. Once all 50 are held, adding says so on the page and makes nothing. Editing the title, kind or date keeps the address, so a shared link keeps
+  working. Not chosen: an address that follows the title, which breaks every link sent
+  before an edit.
+- **A title is 1 to 80 characters on one line, with no control character**, stored as
+  typed, markup included.
+  Every page escapes it where it shows it; `GET /api/albums/open` returns it as JSON
+  data, so the share page (#155) must set it as text, never as HTML.
+- **Closing sets `closed_at`**, which takes the album off `GET /api/albums/open` and makes
+  `openAlbum()` find nothing. That is the check #154's upload route makes, answering 409.
+  Its approved photos stay public, so #157's public list must not filter on it.
+  Reopening clears it.
+- **Deleting an album that holds a photo is refused by the database.** Owner's choice
+  at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
+  `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
+  fails with `FOREIGN KEY constraint failed`
+  ([foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/), read
+  2026-09-28). So the refusal holds whatever state the photo is in, and an upload that
+  lands mid-delete cannot slip past a count taken first. The route catches the failure and
+  only then counts the photos, to say how many. `test/albums.test.js` holds the rule on
+  #154's real `photos` table (a stand-in until #154 made it), and `test/upload.test.js`
+  holds it on photos sent through the upload route. The schema test fails if any table
+  but `photos` names albums, since the count reads `photos`, or if `photos.album_id` lacks
+  the reference or cascades.
+  Not chosen: creating the photos table in #153, which would design #154's schema before
+  its pickup; and moving the refusal into #154.
+- **The open list lives at `/api/albums/open`**, the path the story named, in its own
+  directory whose `_middleware.js` runs the same `requireUploadSession` as
+  `api/upload/`. `test/guard.test.js` checks both directories.
+- **"Newest first" is the latest date first, a future one included**, so an album made
+  ahead of time for next week's regatta sorts above today's practice. Which album the
+  share page preselects is #155's to decide: only one held today, else the most recent
+  past one, never a future one. Owner's choice at #153's review, 2026-09-28. Not chosen:
+  sorting today and past first, or hiding future albums, since each needs "today" in the
+  club's time zone while D1's clock is UTC.
+- **Every press is a plain form post answered 303** back to the page, with `?done=` or
+  `?error=` saying what happened, as on `/admin/code`. So the page has no script, and a
+  reload cannot post twice. The notice names an album by the title read from the
+  database, never from the address bar. Delete has no confirm dialog: only an empty album
+  deletes, and one deleted by mistake is made again at the same address.
+- **The page's fields are the first form fields on any of the three sites.** Their border
+  is `--deep`, because a field's edge must read 3:1 against the page (WCAG 1.4.11). On
+  `--hull`, the `--spray` hairline reads 1.64:1 and `--deep` 13.45:1 (computed from
+  `tokens.css`, #153).
+
+### 14. The upload API
+
+**Built in #154, 2026-09-29, with three owner decisions taken at its pickup and
+three at its review.**
+`POST /api/upload` (`functions/api/upload/index.js`) takes one photo as its three
+JPEG sizes, from a live upload session, into an open album, and stores it pending.
+`lib/photos.js` holds the rules and `lib/jpeg.js` the rebuild. The form's fields and
+every answer are in the route's header comment.
+
+- **Every metadata segment goes, by an allow-list.** Each JPEG is rebuilt from the
+  segments a decoder needs (frame, Huffman and quantisation tables, restart
+  interval, scans) and nothing else. So every APPn goes (EXIF and its GPS in APP1,
+  XMP, the ICC profile, IPTC, JFIF), as does every comment, every unknown marker,
+  and whatever follows the end-of-image marker, where a motion photo keeps its
+  video. The compressed data is copied as it came, so the picture is unchanged. Ten
+  Pillow variants and Chrome 154's canvas output decoded to identical pixels
+  afterwards, and a real `wrangler pages dev` run stored the canvas JPEGs with the
+  fictional GPS spliced in and read none of it back. Not chosen: a deny-list of
+  known metadata segments, which lets a vendor's new segment through.
+- **What the share page must do, because the strip removes it** (for #155). EXIF
+  orientation goes with the rest, so draw the photo upright before encoding, as #155
+  criterion 2 already says. The ICC profile goes too. Chrome's canvas writes an
+  sRGB one, which a browser assumes for an untagged JPEG, so nothing shifts, but
+  keep the canvas on its default `srgb` colour space: a `display-p3` canvas would
+  lose its profile here and its colours would shift.
+- **What is refused.** A file that does not start as a JPEG, or whose frame is
+  lossless, arithmetic-coded, 12-bit or neither one nor three components, is 415.
+  One that breaks off is 400. One over its size's bytes or long edge (item 9) is
+  413, as is a body past all three caps together, before any of it is parsed. A
+  caption is counted in characters, as the table's CHECK counts it, so an emoji is
+  one.
+- **The three sizes must be one picture's shape** (owner, 2026-09-29, at #154's
+  review). Each is no larger than the next, and each has the next's aspect ratio to
+  within a pixel of the browser's rounding, or the upload is 400 `sizes`. That
+  catches a broken share page. It cannot catch two different pictures of the same
+  shape sent on purpose by someone holding the code, and the owner approves after
+  seeing one size while the public sees the others. So #156 carries a criterion to
+  show all three before approving. Not chosen: the route check alone; accepting it
+  with rotation as the remedy.
+- **Objects first, then the row.** The three objects go into R2 under a random
+  128-bit `media_key` (`photos/<key>/grid.jpg`, `screen.jpg`, `full.jpg`). Only then
+  is the row written, by one `INSERT … SELECT` that finds the album open in the
+  same statement. So no row ever names missing objects, and an album closed or
+  deleted mid-send takes nothing. Any failure after the objects are stored deletes
+  them again, once every put has settled. If that delete fails too, the log names
+  the objects' `photos/<key>/` prefix, the only way to find them short of listing
+  the bucket against the table. The row's `id` is AUTOINCREMENT, so a rejected
+  photo's id (#156) is never given to a later one.
+- **The daily cap is 500 uploads per session per UTC day** (owner, 2026-09-29,
+  confirming the story's proposal), counted in `upload_counts` by one guarded upsert,
+  as #177's join budget is, so two uploads arriving together cannot both take the
+  last one. A unit is spent before the objects are stored, so a capped session costs
+  no R2 write, and given back by a guarded decrement when the bucket or the
+  database fails or the album closes mid-send. So the cap counts photos stored,
+  not attempts (a finding of #154's review). It stops a runaway phone. It does not
+  stop a leaked code, since whoever
+  holds the code can join again for a new session; rotating the code does that
+  (item 11). Not chosen: adding a sitewide cap of 2,000 a day, which lets any code
+  holder use up the day for every parent (the tradeoff #177 turned down for
+  joins); or 200 per session.
+- **What an upload costs D1.** *Measured on the preview database, 2026-09-29, with
+  `meta.rows_written`:* the photo insert writes 5 rows (the table, its three
+  indexes and the AUTOINCREMENT counter) and the cap's upsert 1, so a stored photo
+  costs 6. At the cap one session writes 3,000 a day, and the account's 100,000
+  hold about 16,600 uploads before every D1 query stops until midnight UTC. A
+  failure after the checks writes 2, the unit spent and given back.
+- **One table for photos and clips** (owner, 2026-09-29). `photos` carries every
+  state the epic needs (`uploading` for a clip whose parts are still arriving,
+  `pending`, `approved` and `hidden`) with the approval and takedown columns, and a
+  clip's `content_type`, `duration_ms` and R2 `upload_id`, left empty on a photo. So
+  the clip story (#198) and #156 and #158 add no migration to it, and the
+  album-delete refusal (item 13) covers clips as well. A rejected row is deleted,
+  not kept in a state. The accepted cost is that the clip columns were chosen
+  before the clip design exists, so #198 may still need one more column, which is
+  additive. Not chosen: a second migration for video, and building the clip upload
+  in #154.
+- **A clip's row can start empty** (owner, 2026-09-29, at #154's review).
+  `captured_at`, `width`, `height` and `bytes` are required by a CHECK in every
+  state but `uploading`, not by NOT NULL. A clip's row is made when its first part
+  arrives, before the server can check what the page says about it. And SQLite can
+  loosen a NOT NULL only by rebuilding the table, which the additive-only rule
+  (item 6) forbids, so this had to be settled before production had the table.
+  0005 was edited in place for it, and preview's empty copy was dropped and applied
+  again the same day, with `d1_migrations` row 5 deleted. Preview's `sqlite_master`
+  then matched the files object for object, and the old 0005 differed on `photos`
+  alone. Not chosen: writing page-declared values at `uploading` and overwriting
+  them; a rebuild in a 0006. **A migration already applied anywhere is not edited
+  again**: D1 records it by filename, so an edit reaches no database that has it.
+- **The clip upload is its own story**, #198, filed at #154's review (owner,
+  2026-09-29) as a placeholder under #147, carrying D11's caps, a size cap, the
+  bucket's lifecycle rule and the part-CPU measurement item 10 asks for first.
+- **A coach's upload has its own marker** (owner, 2026-09-29, for #192). `sender` is
+  `parent` or `coach`, and a coach's row names no code generation, since no code
+  opened the session. Not chosen: leaving #192 to add the column.
+- **The Origin check is the upload directory's** (see item 11), so the clip routes
+  get it without anyone remembering it.
+- **CPU.** *Measured in Node 24 on this machine, not on the edge:* rebuilding
+  Chrome's canvas full size (0.55 MiB) takes 0.3 ms warm and 1.1 ms cold, and a
+  Pillow quality-100 file (1.75 MiB) 3.1 ms, against the free plan's 10 ms a request.
+  The edge's own reading per route is #157's (item 8's CPU row).
+
+### 15. The share page's sending
+
+**Built in #155, 2026-09-29.** `public/js/share.js` joins (item 11), then sends:
+the link, "Add photos", the photos, "Send", with nothing typed. `test/share.test.js`
+runs the script in `node:vm` against stand-ins for the DOM, the canvas and the
+image decoder, and sends through the real routes into SQLite, so the page and
+`POST /api/upload` are tested as one contract.
+
+- **Each photo is made ready as soon as it is chosen, one at a time.** Its capture
+  time is EXIF's DateTimeOriginal with its offset, else DateTimeDigitized, else the
+  file's date, in seconds. DateTime is not read, because an edit moves it. Without an
+  offset the time is read in the phone's own zone. The photo is decoded with
+  `createImageBitmap`, and `<canvas>` makes full (2560), screen (1600) and grid
+  (480) as JPEG, each drawn from the size above it. It tries quality 0.85, then lower,
+  until each size is under its cap. Every size is worked out from the photo's own
+  shape, never from the size above, so the three always pass `sizesAgree`. That was
+  checked over a million random shapes. Not chosen: making them when Send is
+  pressed, which makes the parent wait after Send and tells them about a HEIC too
+  late; or several at once, since a phone holds one photo's pixels at a time this way.
+- **Upright, whatever the browser does.** *Measured in Chrome 154:*
+  `createImageBitmap` turns all eight EXIF orientations upright by itself, and
+  `imageOrientation: 'none'` changes nothing. So the page asks once, of a 2 × 1 JPEG
+  marked "turn 90°", and turns a photo itself only where the browser did not. A
+  photo turned by both would arrive on its side. With Chrome made to decode as a
+  browser that does not turn would (EXIF taken out before it decodes), all eight
+  arrived upright, read from their stored pixels. So did two portraits the owner
+  sent from a Samsung (Chrome 154, Android 16).
+- **No more than three upload at once, one batch per press of Send.** Try again
+  sends a failed photo into the album chosen now, in its first batch. A 401 (the
+  invite ended) or a 429 (the day's 500) fails every queued photo at once rather
+  than sending each to be refused. Opening the new invite link in the same tab
+  joins without a reload (the `hashchange` listener), so the photos are still there
+  to try again.
+- **An album closed mid-send (409) stops every queued photo bound for it**, and
+  only those: a later Send or a Try again may have queued photos for another album.
+  The list then reloads and **preselects nothing** (owner, #155's review), so the
+  photos that failed go only to an album the parent chooses. Not chosen: keeping the
+  preselect, which quietly filed today's photos into last Saturday's album on one
+  tap of Try again; or preselecting only a same-day twin.
+- **A photo the phone cannot hand over says so**, apart from one it cannot open.
+  On the owner's Samsung, six stale picker entries for files just replaced were
+  refused with the format wording, whose advice (add a JPEG copy) was wrong for
+  them. The page now reads the file's first bytes before decoding anything.
+- **An album's day is shown in UTC.** A date with no time of day is a calendar
+  day: made at local midnight, or shown in the phone's zone, it slips a day on one
+  side of UTC. The tests give the page a fixed clock at a moment when Chatham's date
+  is a day ahead of UTC's, and show dates in a zone west of UTC by default, so a slip
+  either way fails every run (#155's review measured the old pin missing both).
+- **A caption is counted in characters, as the server counts it, with no
+  `maxlength`.** Browsers count `maxlength` in UTF-16 units, where an emoji is two.
+  WebKit has counted it in whole symbols, which would let through a caption the
+  server refuses. Line breaks and tabs are sent as spaces.
+- **Remove**, until a photo starts sending. The owner added it at the pickup. The
+  story's criteria had no way to take a chosen photo back out.
+- **Leaving while photos are queued or sending asks first** (`beforeunload`), and
+  a line says to keep the page open. Measured in desktop Chrome 154. Whether
+  iPhone Safari shows that prompt was not measured; it is read with the iPhone
+  check (#155's criterion 7).
+- **The summary is written once per change.** Everything that changes in one turn
+  is written to the live region together, and only when its words change. So a
+  screen reader hears a photo sent, not every step.
+- **The floor is read through `tools/h2proxy.mjs`** (Quality floor, the owner's
+  decision at #155's review). Through it the page read 96, 97 and 96 with
+  accessibility 100, against `develop`'s 97, 97 and 97. The point it costs is
+  `share.js`'s size, measured by swapping the branch's script for `develop`'s: the
+  page's CSS and markup cost nothing.
+
+### 16. The approval queue
+
+**Built in #156, 2026-09-30, with three owner decisions taken at its pickup.**
+`/admin/queue` (`functions/admin/queue.js`) shows every waiting photo, and its
+forms post to `functions/api/admin/queue/`: `approve`, `reject` and `captions`.
+`lib/queue.js` holds the rules. Only a pending photo is approved or rejected
+here; an approved one leaves the public page through #158.
+
+- **A batch is one press of Send, in one album.** A photo retried into another
+  album keeps its first batch (item 15), so the album is part of the key. The
+  oldest batch comes first, each with its album, when it was sent and how many
+  photos it holds.
+- **A batch over 200 photos is shown in parts of 200**, each its own form, whose
+  Approve all and Reject all mean the part (owner, at #156's review). Nothing but
+  the share page's habit keeps a batch small, and a form carries every caption
+  in it: a part of 200 photos each captioned with 200 emoji comes to about
+  485,000 characters, under the 512 KiB a queue form may be, and a press names
+  at most 200 photos. Not chosen: a notice plus a command-line recipe for a batch
+  too big to post, which left an abusive batch stuck; leaving it.
+- **All three sizes are in view before approving** (owner, at pickup). The
+  screen size is shown large enough to tell faces apart, and the grid and the
+  full, which the public sees, sit smaller beside each other, each a link to
+  itself. That is the check item 14 left to this page: two different
+  pictures of one shape pass the upload route. Not chosen: the grid and the
+  full as links only, which a busy evening would skip; all three at one size,
+  which makes faces smallest. The cost is data, about 0.9 MB a photo and up to
+  4.2 MB (item 9), fetched lazily as the page scrolls, and requests: each size
+  shown is a Function request, so clearing a 500-photo regatta takes about
+  1,500 of the account's 100,000 a day (item 2), against about 500 for the
+  links-only option.
+- **Every picture comes through `GET /api/admin/photos/<id>/<size>`**, under
+  the admin guard, so no token is 403 with nothing read. It serves a photo in
+  any state but uploading, so a size opened from the queue still opens once
+  approved, with `Cache-Control: private, max-age=300` (item 3), which also
+  spares the reload after each press from fetching every picture again.
+- **Every press in a batch saves every caption typed in it** (owner, at
+  pickup). Each batch is one form, so Approve, Approve all, Reject, Reject all
+  and Save captions all post its captions, and a reload never loses one. A
+  waiting photo's caption can be saved while it keeps waiting; its state
+  changes only when a press names it. An emptied field publishes no caption.
+  Not chosen: saving only the approved photos' captions, which drops the rest
+  on the reload; posting with a script and no reload. **Save captions is the
+  form's action and its first button**, so Enter in a caption field saves
+  rather than approving the batch's first photo. A caption typed for a photo
+  approved since the page loaded is not saved, since a public caption changes
+  only through its own approval, and the notice says how many were not.
+- **A caption stops at 200 characters on the page** (`admin-queue.js`, counted
+  by code point as the server counts, as the share page does), and a tab or
+  other control character becomes a space on the server rather than refusing
+  the press (owner, at #156's review). One refused caption refuses the press,
+  and the reload then shows the stored captions, so every caption typed in the
+  batch would have to be typed again; now only a browser without the script can
+  send one over 200. Not `maxlength`: browsers count it in UTF-16 units, where an
+  emoji is two, and WebKit in whole symbols, which lets through a caption the
+  server refuses (item 15). Not chosen: re-rendering the typed captions on a
+  refusal, which breaks the post-then-redirect every admin page follows.
+- **Approve all and Reject all act on the photos the page showed**, which the
+  form names, never on the batch as it stands when the press arrives. A photo
+  that joined the batch after the page loaded has not been seen, so it waits.
+  A batch of one shows neither.
+- **Rejecting is confirmed in a native `<dialog>`.** Reject and Reject all only
+  open it (`public/js/admin-queue.js`) and point its confirm button at their
+  batch's form through the `form` attribute, so the confirm posts that batch's
+  captions with it. The dialog sits after every batch, so no batch form's first
+  button is its confirm, and Cancel takes the focus. Rejecting needs
+  JavaScript; approving and saving do not.
+- **A rejected photo's row goes first, then its three objects**, the mirror of
+  the upload's objects-first, so no row ever names objects that are gone. A
+  delete the bucket refuses leaves objects no row names, and the log names
+  each one's `photos/<key>/` prefix (README, The photo site).
+- **A press is at most three statements, whatever the batch holds.** D1 allows
+  50 queries a request on the free plan and 100 bound parameters a query
+  ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/), read
+  2026-09-30), so the ids and the captions each travel as one JSON value, read
+  with `json_each()`. A queue form may be 512 KiB, far past the albums' 4 KB,
+  since it carries a caption for every photo in the batch. R2 deletes at most
+  1,000 keys a call, so a reject deletes 333 photos' objects a call.
+- **The admin home shows how many photos wait and the storage used**, the sum
+  of every stored row's `bytes` in any state, against item 8's free 10
+  GB-month. R2's pricing page does not say which GB it means
+  ([R2 pricing](https://developers.cloudflare.com/r2/pricing/), read
+  2026-09-30), so the page takes the smaller, 10^9 bytes, and runs out early
+  rather than late. The sum reads every row, about 11,000 at the allowance,
+  against D1's 5 million a day. It counts rows, so objects a refused reject
+  left in the bucket, which R2 still bills, are in the log and not in the
+  figure.
+- **Clips are not in the queue yet.** Every statement names `kind = 'photo'`,
+  so a clip's id posted to a press changes nothing; the clip story, #198, adds
+  them.
+
+### 17. The public pages
+
+**Built in #157, 2026-09-30, with four owner decisions taken at its pickup and
+one on its floor.** `/` lists the albums (`functions/index.js`),
+`/albums/<address>/` shows one (`functions/albums/[address]/index.js`), and
+`/photos/<id>/<size>` serves a photo (`functions/photos/[id]/[size].js`).
+`lib/public.js` holds the queries and `lib/public-page.js` the markup.
+
+- **Only an approved photo is public.** Every public statement names
+  `state = 'approved' AND kind = 'photo'`, so a waiting, hidden or rejected
+  photo is never listed, counted or served, and clips wait for #198. A closed
+  album stays listed (item 13). An album holding no approved photo is not
+  listed, and its address answers the site's 404 page: the route calls
+  `next()`, and Pages' static files hold nothing under `/albums/`. The same
+  address without its trailing slash is sent to the one with it (308).
+- **An album is in capture order**, `captured_at` then `id`, so two photos
+  taken in the same second keep the order they were sent in. The same order
+  picks the list's cover and counts a photo's place for its alt text and its
+  download name.
+- **The pages' shell is a file** (owner, at pickup): `templates/page.html`,
+  never served, which Pages bundles as a text module
+  ([module support](https://developers.cloudflare.com/pages/functions/module-support/),
+  read 2026-09-30). `tools/assetver.py` stamps it, and `tools/linkcheck.py` and
+  html-validate read it like a page. `npm test` loads `test/text-modules.js`
+  first, so Node imports a `.html` file the same way. Not chosen: a string in
+  `lib/`, as the admin pages keep theirs, which linkcheck cannot read; and
+  moving the admin pages onto the template in this story.
+- **The grid is square tiles in fixed columns**, 2 on a phone and 5 at the
+  widest (owner, at pickup). The trip logs' justified rows need an inline style
+  on every figure, which this site's CSP refuses. Fixed columns are what let
+  the server know the first row at every width: the first `FIRST_ROW` (2)
+  photos load eager at `fetchpriority="high"` and every other lazily, so on a
+  phone nothing below the first row is eager, as `tools/photos.py` makes a
+  trip photo eager only in the first row of both its layouts. On a wide
+  screen the rest of the first row is lazy but in view, so it loads once the
+  page is laid out. `test/public.test.js` fails if `FIRST_ROW` stops being
+  the CSS's fewest columns. *(`FIRST_ROW` was 5, the widest row, until
+  #157's review found photos 3–5 eager on a phone.)* The lightbox shows each
+  photo whole. Not chosen: flex rows that keep each shape, whose first row
+  depends on the viewport; the exact trip-log rows through a per-response
+  CSP hash.
+- **The lightbox is `shared/js/gallery.js`, unchanged.** Each figure is a trip
+  log's: an `a.frame` linking to the screen size, which the lightbox shows,
+  around the grid `img`. A caption is the figcaption, the `alt` and the
+  lightbox's `data-caption`, escaped. A photo with no caption has the alt
+  "&lt;album&gt;, photo n of N".
+- **Download saves the full size as `<address>-<nnn>.jpg`.** The full size
+  answers `Content-Disposition: attachment` with that name, counted in the
+  page's order, so a browser that ignores the link's `download` attribute
+  still saves it named. The grid and screen sizes open in the page.
+- **An album page links back with an "All albums" eyebrow link** (owner, at
+  pickup). The header stays without a nav until a second kind of page needs
+  one (#159). Not chosen: a one-item nav now.
+- **Every page is `public, max-age=0, must-revalidate`** (#157, criterion 8),
+  so an approval or a takedown shows on the next load. Every photo is
+  `private, max-age=300` (item 3). A missing photo is a plain `404`,
+  `no-store`. Item 3 asks for the photo header to be read on
+  `photos.madcowsailing.com`, where the zone may raise it; #157 reads it there
+  at its step 9, after the promotion.
+- **HEAD is answered as GET is** on all three routes, as the static holding
+  page answered it at `/`, so a monitor or a link preview reads the real
+  status. It costs the same database read, and bucket read for a photo.
+- **A path that cannot name anything asks nothing.** A size outside the three
+  or an id that is not one is `404` with no query and no bucket read, and a
+  path under `/albums/` that is not an address is the 404 page at once, before
+  the trailing-slash redirect.
+- **A database that does not answer** leaves an image `404`, never served
+  unchecked (item 4), and a page `503`, saying the photos can't be shown right
+  now, rather than an empty list claiming nothing is posted.
+- **What a view costs D1.** The list reads one index entry per approved photo
+  on the whole site, plus one row per album holding one. So at item 8's
+  11,000 photos a list view reads about 11,000 rows, and D1's 5 million a day
+  hold about 450 list views, fewer than item 2's 2,439 album views. An album
+  page reads one row per approved photo in it, each grid or screen image one
+  row by its id (item 2's 81 for 40 photos), and a full size one row plus one
+  index entry per photo up to its place. *Reasoned from the queries and D1's
+  rule that every row scanned counts, not measured with `meta.rows_read`.* If
+  the list's reads ever bind first, the fix is a count kept on the album row,
+  which is a migration.
+- **The floor is lower for album pages**, ≥ 85 performance (owner,
+  2026-09-30, during #157; Quality floor, below).
 
 ## The two-presentation rule
 
@@ -881,8 +1302,10 @@ index needs ≥ 90 performance while two trip covers share its first screen.**
 With one trip it read 95 on a single 58 KB cover, with no margin. The second
 trip put a second cover on a phone's first screen, and every lever that keeps
 the pictures as they are read 94 locally: 4:3 cover derivatives, a 640 rung,
-and every split of `loading` and `fetchpriority` hints. Production reads about
-a point below a local serve. 95 was reached only by dropping the covers to
+and every split of `loading` and `fetchpriority` hints. Production was expected
+to read about a point below that local serve, and at #96's step 9 it read a
+point above (96 against 95, 94 and 94), so the offset is per page: measure it
+rather than apply it. 95 was reached only by dropping the covers to
 quality 50. Accessibility stays at 100. The evidence is on #96 and its PR. Ask
 again if a change takes the page below 90.
 
@@ -898,6 +1321,35 @@ first screen of both layouts loads eager. The evidence is on #53 and its PR.
 Each trip page's number is in `tools/quality_floor.mjs`'s `PERF_FLOORS`, keyed by
 file, so a new trip is judged against 95 until it has an entry there. Ask again
 if a change takes a trip page below 85.
+
+**The photo site's floor is read on a local server over HTTP/2, by owner
+decision (2026-09-29, #155).** `wrangler pages dev` serves HTTP/1.1, and
+Lighthouse's simulation charges a page for that: the share page as shipped read
+93–94 under wrangler, 98–99 on production and 96–97 through a local HTTP/2
+proxy, `tools/h2proxy.mjs`, whose header has the recipe. So a photo page meets
+the performance floor when it reads ≥ 95 through that proxy. A reading under
+plain wrangler is compared with `develop`'s under wrangler, never with 95.
+Accessibility, 360 px, focus and reduced motion are read as on the other sites.
+Not chosen: reading the Access-protected `develop` preview after each merge,
+which comes after the review it should inform; and holding plain wrangler to
+95, which the page as shipped cannot reach. A compressing proxy was tried and
+moved nothing, since Lighthouse counts decoded bytes. Ask again if production
+and the proxy stop agreeing.
+
+**Album pages on the photo site are held to ≥ 85 performance, by owner
+decision (2026-09-30, #157).** Through the proxy, an album of 44 approved
+photos (sent through the share page from 44 trip-log photos), with its first 5
+photos eager, read 87, 84 and 88 (median 87), with accessibility 100. With
+every photo blocked it read 96, 96 and 96, with the web fonts blocked 93, 93
+and 94, and with both 99, 99 and 98. So the photos on the first screen are
+what cost, as on the trip pages (#53). No loading change reached 95 in that
+batch: fewer eager photos, one at high priority and no font preloads read
+between 76 and 93. The decision was taken on those readings. As shipped, with
+only the first row at every width eager (2 photos, item 17), the page read 90,
+91, 91, 91 and 91 (median 91), accessibility 100. The album list at `/` reads
+96, 96 and 96 and is held to 95. The evidence is on #157 and its PR, and
+production is read at its step 9. Ask again if a change takes an album page
+below 85.
 
 ## Conventions
 

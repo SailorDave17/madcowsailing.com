@@ -27,7 +27,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=a89a1d639f">
+<link rel="stylesheet" href="/css/site.css?v=025b2113e1">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -44,9 +44,12 @@
      are copied from sailing/404.html, so a change to the sailing lockup is a
      change here too.
 
-     There is no nav yet. The first story with a second page to reach (#157,
-     the albums) adds one, as root-relative hrefs, for the depth trap #7
-     and #10 hit on the sailing site.
+     There is no nav. An album page links back to the list with an eyebrow
+     link instead (owner's choice at #157's pickup), and a nav comes when a
+     second kind of page needs one (#159). When it does, its hrefs are
+     root-relative, for the depth trap #7 and #10 hit on the sailing site.
+     The public pages a Function renders take this block from
+     templates/page.html (#157), and the admin pages from lib/admin-page.js.
      ============================================================= -->
 <header class="site-header">
   <div class="wrap header-inner">

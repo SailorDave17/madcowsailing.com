@@ -196,7 +196,9 @@ the tree and never asks the host. It resolves an extensionless link the way
 Pages does: `/about` is `about.html`, and a directory is its `index.html`
 (#113). That stays right after #36: the host reports
 a `404` to a visitor who has already followed the broken link, and linkcheck
-refuses the link before the push.
+refuses the link before the push. On the photo site, a path `_routes.json`
+sends to a Function (`/`, since #157) is resolved against the route files in
+`photos/functions/` instead of a served file.
 
 <a id="previews-build-from-develop-only"></a>
 
@@ -393,6 +395,17 @@ shows what is still to apply. Each database's `d1_migrations` table records what
 was applied, and `GET /api/health` reports the newest name. Read those rather
 than a date written here, which goes stale at the next apply.
 
+The migrations, in the order they apply. `photos/test/site.test.js` fails until
+a new file is listed here.
+
+| File | Story | What it adds |
+|---|---|---|
+| `0001_baseline.sql` | #149 | Nothing: it proves the apply order on both databases |
+| `0002_invite_code.sql` | #150 | `invite_codes`, and `join_failures`, the failed-join log |
+| `0003_join_budget.sql` | #177 | `join_budget`, the site's hourly budget for recording failed joins |
+| `0004_albums.sql` | #153 | `albums`, one per regatta or practice day |
+| `0005_photos.sql` | #154 | `photos`, every photo and clip in every state, and `upload_counts`, each session's uploads per UTC day |
+
 ### The invite code
 
 A parent joins by opening `https://photos.madcowsailing.com/share/#code=<code>`.
@@ -421,6 +434,102 @@ The code is never written to a file or to git; this repo is public.
 
 To read the current code without the page:
 `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
+
+### Albums
+
+Parents send photos into an album, one per regatta or practice day, kept on
+`/admin/albums` (#153) behind the same Access sign-in as the code.
+
+- **Add album** takes a title, Regatta or Practice, and the date. Its address,
+  which a link to it names, is made then from the date and title
+  (`2026-10-04-fall-regatta`) and never changes, so editing the title, kind or
+  date under **Edit** keeps every link working. A second album with the same
+  date and title gets `-2`.
+- **Close** stops uploads to an album and takes it off the share page's list;
+  its approved photos stay public. **Reopen** undoes both.
+- **Delete** works only on an empty album. One holding any photo, waiting,
+  approved or hidden, is refused and the page says how many it holds.
+- `GET /api/albums/open` is the list the share page reads, newest first. It
+  answers only to a live upload session.
+
+### Uploads
+
+`POST /api/upload` (#154) takes one photo into an open album, as the three
+JPEG sizes the share page makes, and stores it **pending**: nothing is public
+until the owner approves it. It answers only to a live upload session and the
+site's own Origin. The fields and every answer are in the header comment of
+`photos/functions/api/upload/index.js`, and the decisions in `CLAUDE.md`, The
+photo site, item 14.
+
+- **What is stored.** Three objects in the environment's bucket,
+  `photos/<media_key>/grid.jpg`, `screen.jpg` and `full.jpg`, each rebuilt with
+  every metadata segment removed (EXIF, GPS, XMP, the colour profile, comments,
+  and anything after the image), and one `photos` row naming the album, the
+  batch, the code generation and each size's dimensions.
+- **What is refused, and stores nothing.** Anything that is not a JPEG (415), a
+  file that breaks off (400), a file over its size's cap (413), three sizes that
+  are not one picture's shape (400), a caption over 200 characters or holding a
+  line break (400), an album that is not open (409), and a session's 501st
+  stored photo in a UTC day (429, with `Retry-After`). An upload that fails after
+  those checks leaves nothing in the bucket and does not count against the cap.
+- **If the log says** `bucket did not delete photos/<key>/ after a failure`,
+  or `after a reject` (below), objects were left in the bucket with no row.
+  Delete them by that prefix.
+- **The share page sends them** (#155). `/share/` makes each photo's three
+  JPEGs on the phone as soon as it is chosen, and sends three at a time. A HEIC
+  the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
+  item 15 has the decisions. To try it locally, open the invite link from
+  `/admin/code`, add an album on `/admin/albums`, and choose photos.
+
+### Approving
+
+Nothing is public until an admin approves it on `/admin/queue` (#156), behind
+the same Access sign-in as the code and the albums. The admin home says how
+many photos are waiting and how much of R2's free 10 GB the stored photos take.
+`CLAUDE.md`, The photo site, item 16 has the decisions.
+
+- **Each batch is one press of Send**, oldest first, with its album, when it
+  was sent and how many photos it holds. A batch over 200 photos comes in parts
+  of 200, and each part's Approve all and Reject all mean that part. Every
+  photo shows its screen size large and its grid and full sizes beside it; each
+  opens alone when tapped. Check each against the families who opted out of the
+  media release.
+- **Every button in a batch saves the captions typed in it.** Clear a caption
+  to publish none; a caption stops at 200 characters. **Save captions** saves
+  them alone, and Enter in a caption field presses it. A caption typed for a
+  photo someone approved after the page loaded is not saved, and the page says
+  so.
+- **Approve** or **Approve all** approves photos, which puts them in the public
+  albums at once (#157, below). **Reject** or
+  **Reject all** asks first, then deletes each photo's row and its three files
+  for good. Rejecting needs JavaScript.
+- **Approve all and Reject all act on the photos the page showed.** A photo
+  sent into the batch after the page loaded keeps waiting.
+- The pictures come from `GET /api/admin/photos/<id>/<size>` (`grid`, `screen`
+  or `full`), which answers only to an admin.
+
+### The public albums
+
+Anyone can browse them, with no code and no sign-in (#157; epic #147, D1).
+Nothing but an approved photo is ever listed, counted or served.
+
+- **`/`** lists every album holding at least one approved photo, latest date
+  first, each with its kind, day, count and first photo. An album whose photos
+  are all waiting is not listed, and a closed album still is.
+- **`/albums/<address>/`** shows an album's approved photos in the order they
+  were taken, in the trip logs' lightbox. The address is the one `/admin/albums`
+  shows, and it never changes, so a link sent to parents keeps working. An
+  album with nothing approved answers the site's 404 page.
+- **`/photos/<id>/<size>`** serves one size of an approved photo: `grid` in the
+  album, `screen` in the lightbox, and `full` from **Download**, saved as
+  `<address>-<nnn>.jpg` by its place in the album. Anything else is 404: a
+  photo waiting, hidden or deleted, an unknown id, or another size.
+- **A takedown holds from the next request.** Every photo response reads the
+  photo's state first and may be kept for 300 seconds by a browser that already
+  loaded it, never longer. Every page is `max-age=0`.
+- **The pages are built from `photos/templates/page.html`**, which is never
+  served. Edit the head, header or footer there. `tools/assetver.py` stamps it,
+  and `tools/linkcheck.py` and `npm run check` read it like any page.
 
 ## The push guard
 
@@ -491,6 +600,7 @@ without an error, so the gate refuses it instead.
 | Script | What it does |
 |---|---|
 | `photos.py` | Builds a trip log's AVIF/WebP derivatives and its `trip.json`. Strips EXIF always. Needs Pillow ≥ 11.3. |
-| `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149), and, since #176, for a file in the page's own site's `css/` or `js/`. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95, #176). |
+| `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149), and, since #176, for a file in the page's own site's `css/` or `js/`. Since #157 it stamps `photos/templates/` too. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95, #176). |
 | `trace_logo.py` | Re-traces `shared/img/` from `docs/source/madcow-lockup.pdf`. Needs Pillow. |
 | `quality_floor.mjs` | Measures the `CLAUDE.md` quality floor on both **production** domains — Lighthouse at a pinned version, 360px scroll, keyboard reach, contrast pairs — and rewrites the generated block of `docs/quality-floor.md`. Needs Node and Chrome. Not in CI, by decision recorded in that doc. |
+| `h2proxy.mjs` | Serves the photo site from `wrangler pages dev` over HTTP/2, so Lighthouse reads it locally the way production serves it. The photo site's floor is read through it (`CLAUDE.md`, Quality floor; #155). Needs a throwaway self-signed certificate; the header has the recipe. |

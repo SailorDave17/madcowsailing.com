@@ -11,7 +11,8 @@
 //     token without the site's own Origin (#152);
 //   - every other route answers 401 for a missing, tampered,
 //     earlier-generation and expired upload cookie, and for an owner's valid
-//     Access token with no cookie.
+//     Access token with no cookie; and a write under api/upload/ answers 403
+//     to a current session without the site's own Origin (#154).
 // A route that skips its guard, whether it sits outside its directory or the
 // directory loses its _middleware.js, fails here. The only routes excused are
 // PUBLIC, each with its reason; adding one there is a decision, and belongs
@@ -35,6 +36,12 @@ const KEY = 'test-session-signing-key-0123456789abcdef';
 const PUBLIC = {
   'api/health.js': 'reports whether the bindings answer, and nothing stored (#149)',
   'api/join.js': 'is how an upload session is opened (#150)',
+  // Public viewing is epic #147's D1: the code gates uploading only. Each of
+  // these shows approved photos and nothing else, which test/public.test.js
+  // holds (#157).
+  'index.js': 'lists the albums holding an approved photo (#157)',
+  'albums/[address]/index.js': 'shows an album\'s approved photos (#157)',
+  'photos/[id]/[size].js': 'serves an approved photo, and 404s every other state (#157)',
 };
 
 // Admin routes answer to the admin guard, not the upload guard (#151).
@@ -119,8 +126,13 @@ test('every PUBLIC entry is a route that exists', () => {
   for (const file of Object.keys(PUBLIC)) assert.ok(routes.includes(file), `PUBLIC names ${file}, which is not a route`);
 });
 
-test('the upload directory runs the one guard', async () => {
+test('the upload directory runs the one guard, then the Origin guard (#154)', async () => {
   const mod = await import(pathToFileURL(join(FUNCTIONS, 'api', 'upload', '_middleware.js')));
+  assert.deepEqual(mod.onRequest, [requireUploadSession, requireSameOrigin]);
+});
+
+test('the albums directory runs the same guard (#153)', async () => {
+  const mod = await import(pathToFileURL(join(FUNCTIONS, 'api', 'albums', '_middleware.js')));
   assert.equal(mod.onRequest, requireUploadSession);
 });
 
@@ -149,6 +161,13 @@ test('no route is both public and admin', () => {
 
 const ownerToken = () => mint(team);
 
+const SAFE = ['GET', 'HEAD'];
+const FOREIGN_ORIGINS = {
+  'no Origin': null,
+  'another site\'s Origin': 'https://evil.example',
+  'the sibling site\'s Origin': 'https://madcowsailing.com',
+};
+
 for (const file of guarded) {
   for (const method of await methodsOf(file)) {
     for (const [name, cookie] of Object.entries(CASES)) {
@@ -169,16 +188,29 @@ for (const file of guarded) {
       // above come from the guard and not from a route that refuses anyone.
       const res = await call(file, method, current);
       assert.notEqual(res.status, 401);
+      assert.notEqual(res.status, 403);
     });
+    // An upload write needs the site's own Origin as well as a session (#154),
+    // so a page elsewhere cannot post into a parent's session. The albums
+    // directory holds reads only, and runs no Origin guard.
+    if (SAFE.includes(method) || !file.startsWith('api/upload/')) continue;
+    for (const [name, origin] of Object.entries(FOREIGN_ORIGINS)) {
+      test(`${method} ${routePath(file)} with a current session and ${name}: 403`, async () => {
+        const res = await call(file, method, current, undefined, origin);
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the Origin guard?`);
+        assert.deepEqual(await res.json(), { error: 'origin' });
+      });
+    }
   }
 }
 
-const SAFE = ['GET', 'HEAD'];
-const FOREIGN_ORIGINS = {
-  'no Origin': null,
-  'another site\'s Origin': 'https://evil.example',
-  'the sibling site\'s Origin': 'https://madcowsailing.com',
-};
+test('at least one upload route takes a write, so the Origin checks above check something', async () => {
+  const writes = [];
+  for (const file of guarded.filter((f) => f.startsWith('api/upload/'))) {
+    writes.push(...(await methodsOf(file)).filter((m) => !SAFE.includes(m)));
+  }
+  assert.ok(writes.length > 0);
+});
 
 const ADMIN_CASES = {
   'no Access token': async () => undefined,
@@ -201,10 +233,13 @@ for (const file of admin) {
       assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an upload session opened it`);
     });
     test(`${method} ${routePath(file)} with the owner's Access token: past the guard`, async (t) => {
-      // The control, as above: the 403s come from the guard.
+      // The control, as above: the 403s come from the guard. A route with a
+      // [param] in its path names a thing this harness never made (#156's
+      // photo sizes), so its own 404 is the route answering, past the guard.
       t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
       const res = await call(file, method, undefined, await ownerToken());
-      assert.ok(res.status < 400, `functions/${file} answered ${res.status} to the owner`);
+      const reached = res.status < 400 || (file.includes('[') && res.status === 404);
+      assert.ok(reached, `functions/${file} answered ${res.status} to the owner`);
     });
     if (SAFE.includes(method)) continue;
     // A write needs the site's own Origin as well as the owner (#152), so a

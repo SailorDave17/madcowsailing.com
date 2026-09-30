@@ -1,8 +1,9 @@
 /**
- * Runs in front of every Function route, which public/_routes.json limits to
- * /api/* and /admin (#151). Static files never reach it, so they cost no
- * request from the free plan's daily 100,000 (CLAUDE.md, The photo site,
- * item 2).
+ * Runs in front of every Function route, the paths public/_routes.json names
+ * (read the list there). Since #157 they include the public pages and every
+ * photo, so each album view is about 41 Function requests. Static files never
+ * reach it, so they cost no request from the free plan's daily 100,000
+ * (CLAUDE.md, The photo site, item 2).
  *
  * Its one job is the site-wide headers: X-Robots-Tag: noindex above all, and
  * the Content-Security-Policy. Pages applies public/_headers to static files

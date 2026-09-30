@@ -104,7 +104,8 @@ async function joinWith(env, code) {
 /** GET /api/upload/session with `cookie`: an upload call through the upload guard. */
 async function uploadCall(env, cookie) {
   const request = new Request(`${SITE}/api/upload/session`, { headers: { Cookie: `${COOKIE_NAME}=${cookie}` } });
-  return (await chain([root, uploadGuard, uploadSession], request, env)).status;
+  // The directory's guard is a list since #154 (the session, then the Origin).
+  return (await chain([root, uploadGuard, uploadSession].flat(), request, env)).status;
 }
 
 test('the zone pin took effect: this process is not on a whole-hour offset', () => {
@@ -165,7 +166,7 @@ test('GET /admin/code answers HTML that no cache may keep, since it carries the 
 });
 
 test('the admin home links to the page', () => {
-  assert.match(block(adminHome('owner@example.com'), 'main'), /<a href="\/admin\/code">Invite code<\/a>/);
+  assert.match(block(adminHome('owner@example.com', { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/code">Invite code<\/a>/);
 });
 
 // ---- Criterion 2: the dialog --------------------------------------------
@@ -462,7 +463,7 @@ test('one h1, a main, noindex, and no inline script, style or handler', () => {
 });
 
 test('its chrome and stylesheets are the admin home\'s, and its one script is stamped with its own hash', () => {
-  const home = adminHome('owner@example.com');
+  const home = adminHome('owner@example.com', { waiting: 0, bytes: 0 });
   for (const html of [withCode, noCode]) {
     assert.equal(block(html, 'header'), block(home, 'header'));
     assert.equal(block(html, 'footer'), block(home, 'footer'));
