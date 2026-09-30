@@ -39,10 +39,11 @@ const ADDRESS_MAX = 10 + 1 + SLUG_MAX + 3;
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 // Every control character (Unicode's Cc: C0, DEL and C1, NEL among them) and
-// the line and paragraph separators: a title is one line. The separators are
-// built from their code points, since an editor can turn their escapes into
-// the characters themselves, which end a regex literal.
-const CONTROL = new RegExp(`[\\p{Cc}${String.fromCharCode(0x2028, 0x2029)}]`, 'u');
+// the line and paragraph separators: a title is one line, and so is a
+// photo's caption (lib/photos.js). The separators are built from their code
+// points, since an editor can turn their escapes into the characters
+// themselves, which end a regex literal.
+export const CONTROL = new RegExp(`[\\p{Cc}${String.fromCharCode(0x2028, 0x2029)}]`, 'u');
 
 /**
  * The title's part of an address: accents dropped, lowercase, every run of

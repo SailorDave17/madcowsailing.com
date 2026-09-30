@@ -98,20 +98,22 @@ async function add(env, fields = FALL) {
   return landing(await post(env, 'create', fields)).album;
 }
 
-// A photos table standing in for #154's, until #154 makes the real one: each
-// photo references its album, and nothing else here depends on its columns.
+// Rows in #154's real photos table, one per state given. Each references its
+// album, which is all the delete refusal reads; the other columns hold what
+// the table's checks require of a parent's photo in that state.
+let madePhotos = 0;
 function photos(env, address, states) {
   const { sqlite } = env.DB;
-  const exists = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos'").get();
-  if (!exists) {
-    sqlite.exec(`CREATE TABLE photos (
-      id INTEGER PRIMARY KEY,
-      album_id INTEGER NOT NULL REFERENCES albums (id),
-      state TEXT NOT NULL
-    )`);
-  }
   const { id } = sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address);
-  for (const state of states) sqlite.prepare('INSERT INTO photos (album_id, state) VALUES (?, ?)').run(id, state);
+  const insert = sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, ' +
+    "approved_at, hidden_at) VALUES (?, 'photo', ?, ?, 'batch', 'parent', 2, 1, 1, 1, 2560, 1920, 480, 360, " +
+    '1600, 1200, 10, ?, ?)',
+  );
+  for (const state of states) {
+    insert.run(id, state, `photo-${++madePhotos}`, state === 'pending' ? null : 5, state === 'hidden' ? 6 : null);
+  }
 }
 
 const validator = new HtmlValidate(new FileSystemConfigLoader());
@@ -352,16 +354,20 @@ function albumReferenceProblems(sqlite) {
 }
 
 test('every table that names albums is #154\'s photos, with album_id referencing albums (id) and no ON DELETE', () => {
-  // The real schema, every migration applied. Before #154 no table names
-  // albums, and this holds; from #154 on, it holds only if the delete
-  // refusal's reference is there, under the name the count reads.
-  assert.deepEqual(albumReferenceProblems(site().DB.sqlite), []);
+  // The real schema, every migration applied, #154's photos table included:
+  // it holds only while the delete refusal's reference is there, under the
+  // name the count reads.
+  const { sqlite } = site().DB;
+  assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos'").get(), 'no photos table: #154\'s migration did not apply');
+  assert.deepEqual(albumReferenceProblems(sqlite), []);
 });
 
 test('the reference check fails a table under another name, a missing reference, and a cascade', () => {
-  // The controls, each a migrated schema plus one table #154 might write.
+  // The controls, each a migrated schema with one table #154 might have
+  // written in place of the real one, so each is judged alone.
   const withTable = (sql) => {
     const { sqlite } = site().DB;
+    sqlite.exec('DROP TABLE photos');
     sqlite.exec(sql);
     return albumReferenceProblems(sqlite);
   };

@@ -104,7 +104,8 @@ async function joinWith(env, code) {
 /** GET /api/upload/session with `cookie`: an upload call through the upload guard. */
 async function uploadCall(env, cookie) {
   const request = new Request(`${SITE}/api/upload/session`, { headers: { Cookie: `${COOKIE_NAME}=${cookie}` } });
-  return (await chain([root, uploadGuard, uploadSession], request, env)).status;
+  // The directory's guard is a list since #154 (the session, then the Origin).
+  return (await chain([root, uploadGuard, uploadSession].flat(), request, env)).status;
 }
 
 test('the zone pin took effect: this process is not on a whole-hour offset', () => {

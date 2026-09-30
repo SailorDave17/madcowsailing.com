@@ -402,6 +402,7 @@ a new file is listed here.
 | `0002_invite_code.sql` | #150 | `invite_codes`, and `join_failures`, the failed-join log |
 | `0003_join_budget.sql` | #177 | `join_budget`, the site's hourly budget for recording failed joins |
 | `0004_albums.sql` | #153 | `albums`, one per regatta or practice day |
+| `0005_photos.sql` | #154 | `photos`, every photo and clip in every state, and `upload_counts`, each session's uploads per UTC day |
 
 ### The invite code
 
@@ -448,6 +449,31 @@ Parents send photos into an album, one per regatta or practice day, kept on
   approved or hidden, is refused and the page says how many it holds.
 - `GET /api/albums/open` is the list the share page reads, newest first. It
   answers only to a live upload session.
+
+### Uploads
+
+`POST /api/upload` (#154) takes one photo into an open album, as the three
+JPEG sizes the share page makes, and stores it **pending**: nothing is public
+until the owner approves it. It answers only to a live upload session and the
+site's own Origin. The fields and every answer are in the header comment of
+`photos/functions/api/upload/index.js`, and the decisions in `CLAUDE.md`, The
+photo site, item 14.
+
+- **What is stored.** Three objects in the environment's bucket,
+  `photos/<media_key>/grid.jpg`, `screen.jpg` and `full.jpg`, each rebuilt with
+  every metadata segment removed (EXIF, GPS, XMP, the colour profile, comments,
+  and anything after the image), and one `photos` row naming the album, the
+  batch, the code generation and each size's dimensions.
+- **What is refused, and stores nothing.** Anything that is not a JPEG (415), a
+  file that breaks off (400), a file over its size's cap (413), three sizes that
+  are not one picture's shape (400), a caption over 200 characters or holding a
+  line break (400), an album that is not open (409), and a session's 501st
+  stored photo in a UTC day (429, with `Retry-After`). An upload that fails after
+  those checks leaves nothing in the bucket and does not count against the cap.
+- **If the log says** `bucket did not delete photos/<key>/ after a failure`,
+  objects were left in the bucket with no row. Delete them by that prefix.
+- **To look at what is waiting** before the approval page exists (#156):
+  `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT id, album_id, batch, sent_at, caption FROM photos WHERE state = 'pending' ORDER BY sent_at"`.
 
 ## The push guard
 
