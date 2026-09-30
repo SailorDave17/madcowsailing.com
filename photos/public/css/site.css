@@ -487,9 +487,15 @@
   display: block;
 }
 
+/* The same 24 px box as "Remove this photo" below it (#158): the link is 16 px
+   tall on its own, and with the button 3 px under it the spacing exception
+   no longer holds, so axe read target-size (WCAG 2.5.8) on every Download
+   until the link had a box of its own. */
 .download {
+  display: inline-block;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  padding-block: var(--space-1);
 }
 
 @media (min-width: 30rem) {
@@ -502,6 +508,131 @@
 
 @media (min-width: 60rem) {
   .gallery { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+/* ---- Public: the policy (#159) -------------------------------------- */
+
+/* A page of prose in short sections. They follow each other closely:
+   base.css pads every section of main by --space-7 at both ends, which
+   would leave twice that between two of them. The reset takes every margin
+   and a list's indent, so both are put back here. */
+.policy {
+  padding-block-start: 0;
+}
+
+.policy > * + * {
+  margin-block-start: var(--space-3);
+}
+
+.policy ul {
+  padding-inline-start: var(--space-4);
+}
+
+.policy li + li {
+  margin-block-start: var(--space-1);
+}
+
+/* ---- Public: "Remove this photo" (#158) ----------------------------- */
+
+/* Under each photo, below Download. It is a button, because it posts (to
+   the confirmation page, without JavaScript), dressed as a quiet link, so a
+   grid of them does not shout over the photos. The block padding makes its
+   target at least 24 px tall (WCAG 2.5.8) with no layout of its own. */
+.remove {
+  display: block;
+}
+
+.remove-open {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--blue);
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The note, in the dialog and on the confirmation page. The field's edge is
+   --deep, as the admin forms' are, for WCAG 1.4.11. */
+.remove-form .field {
+  margin-block: var(--space-3);
+}
+
+.remove-form label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.remove-form textarea {
+  display: block;
+  width: 100%;
+  max-width: var(--measure);
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  resize: vertical;
+}
+
+.hint {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+/* The confirmation page follows its head closely, as the album grid does. */
+.remove-confirm {
+  padding-block-start: 0;
+}
+
+/* The photo on the confirmation page, and each on /admin/removals, at its
+   stored grid size or narrower. */
+.remove-picture img,
+.removal-picture img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: var(--border-hair);
+  background: var(--chalk);
+}
+
+/* ---- Admin: removal requests (#158) --------------------------------- */
+
+.removals {
+  list-style: none;
+  padding: 0;
+}
+
+.removal {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.removal > * + * {
+  margin-block-start: var(--space-2);
+}
+
+.removal h2 {
+  font-size: var(--text-xl);
+}
+
+.removal-picture {
+  display: inline-block;
+}
+
+.removal-note-heading {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* A note keeps the line breaks it was written with; they are text, never
+   markup, so the stylesheet keeps them. */
+.removal-note {
+  white-space: pre-line;
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
 }
 
 /* ---- Footer --------------------------------------------------------- */

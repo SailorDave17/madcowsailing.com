@@ -292,19 +292,22 @@ export async function waitingBatches(db) {
 }
 
 /**
- * What the admin home shows: how many photos wait, and the bytes every stored
- * row's objects take, whatever its state. One query. The sum reads every row,
- * about 11,000 at the storage allowance (CLAUDE.md item 8) against D1's
- * 5 million a day, and only an admin loads the home.
+ * What the admin home shows: how many photos wait, how many removal requests
+ * wait (#158: a photo taken down with "Remove this photo" is hidden until an
+ * admin puts it back or deletes it), and the bytes every stored row's objects
+ * take, whatever its state. One query. The sum reads every row, about 11,000
+ * at the storage allowance (CLAUDE.md item 8) against D1's 5 million a day,
+ * and only an admin loads the home.
  */
 export async function queueSummary(db) {
   const row = await db
     .prepare(
       "SELECT COUNT(CASE WHEN state = 'pending' AND kind = 'photo' THEN 1 END) AS waiting, " +
+      "COUNT(CASE WHEN state = 'hidden' AND kind = 'photo' THEN 1 END) AS removals, " +
       'COALESCE(SUM(bytes), 0) AS bytes FROM photos',
     )
     .first();
-  return { waiting: row.waiting, bytes: row.bytes };
+  return { waiting: row.waiting, removals: row.removals, bytes: row.bytes };
 }
 
 /**

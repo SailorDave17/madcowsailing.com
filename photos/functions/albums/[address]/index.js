@@ -15,6 +15,9 @@
  *
  * A public GET: no session, no Access, never a write to D1. HEAD is answered
  * the same way, as for /.
+ *
+ * ?removed shows the takedown notice: POST /api/remove sends the browser back
+ * here after hiding one of the album's photos (#158).
  */
 import { isAddress } from '../../../lib/albums.js';
 import { albumPage, htmlResponse, unavailablePage } from '../../../lib/public-page.js';
@@ -34,7 +37,7 @@ export async function onRequestGet({ request, env, params, next }) {
     return htmlResponse(unavailablePage(), 503);
   }
   if (album === null) return next();
-  return htmlResponse(albumPage(album));
+  return htmlResponse(albumPage(album, { removed: url.searchParams.has('removed') }));
 }
 
 export const onRequestHead = onRequestGet;

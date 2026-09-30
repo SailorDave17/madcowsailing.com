@@ -309,7 +309,8 @@ By name only; a value never goes in this repo.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
   different values. Without them, `POST /api/join` answers `503` and opens
-  nothing. Check that all three exist in both environments on the dashboard, which
+  nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` answers `503`
+  and takes nothing down. Check that all three exist in both environments on the dashboard, which
   shows a secret's name and never its value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
@@ -405,6 +406,7 @@ a new file is listed here.
 | `0003_join_budget.sql` | #177 | `join_budget`, the site's hourly budget for recording failed joins |
 | `0004_albums.sql` | #153 | `albums`, one per regatta or practice day |
 | `0005_photos.sql` | #154 | `photos`, every photo and clip in every state, and `upload_counts`, each session's uploads per UTC day |
+| `0006_removal_requests.sql` | #158 | `removal_requests`, the hour's takedowns per address that rate-limit "Remove this photo" |
 
 ### The invite code
 
@@ -473,8 +475,8 @@ photo site, item 14.
   stored photo in a UTC day (429, with `Retry-After`). An upload that fails after
   those checks leaves nothing in the bucket and does not count against the cap.
 - **If the log says** `bucket did not delete photos/<key>/ after a failure`,
-  or `after a reject` (below), objects were left in the bucket with no row.
-  Delete them by that prefix.
+  `after a reject` or `after a delete` (below), objects were left in the
+  bucket with no row. Delete them by that prefix.
 - **The share page sends them** (#155). `/share/` makes each photo's three
   JPEGs on the phone as soon as it is chosen, and sends three at a time. A HEIC
   the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
@@ -530,6 +532,94 @@ Nothing but an approved photo is ever listed, counted or served.
 - **The pages are built from `photos/templates/page.html`**, which is never
   served. Edit the head, header or footer there. `tools/assetver.py` stamps it,
   and `tools/linkcheck.py` and `npm run check` read it like any page.
+
+### The policy
+
+`/policy` says who sees a photo, who can send one, what the site keeps and
+how to have a photo taken down (#159). It is a static page,
+`photos/public/policy.html`. Every page's footer links it, and the share page
+links it beside the join step. `CLAUDE.md`, The photo site, item 18 has the
+decisions.
+
+- **It states what the code does.** Its head comment traces every claim to
+  the file or decision behind it, so change the page in the same change as
+  any of them. `npm test` fails if its 90 days, its hour, its 2,560 pixels or
+  its 500 a day stop matching the code.
+- **#192 will change it** (a coach's Access sign-in), and carries that as a
+  criterion: who can send, the lede, and what is kept for a coach. #158
+  ("Remove this photo") changed it once already: the button, what a
+  taken-down photo keeps (its copies, `hidden_at` and the free-text
+  `hidden_note`) and how long its limit keeps a scrambled address. `npm test`
+  holds its 10 an hour and its 500 characters to the code too.
+- **The header and footer live in five files**: `photos/public/404.html`,
+  `policy.html`, `share/index.html`, `photos/templates/page.html` and
+  `photos/lib/admin-page.js`. The header's nav links the album list and
+  `/policy`, and marks no `aria-current`, so all five stay byte for byte the
+  same. The tests fail until they agree.
+
+### Taking a photo down
+
+Anyone can, with **Remove this photo** under each photo on an album page
+(#158; epic #147, D7). `CLAUDE.md`, The photo site, item 19 has the
+decisions.
+
+- **It hides the photo from everyone at once.** A dialog says so first and
+  takes an optional note of up to 500 characters; without JavaScript, the
+  button opens a page that asks the same, at `/remove`. Both post to
+  `POST /api/remove`, which sets the photo `hidden` with the time and the
+  note. Its image routes answer 404 from the next request and its album page
+  no longer lists it. A browser that already loaded the photo may keep it for
+  300 seconds (`CLAUDE.md`, The photo site, item 3).
+- **10 takedowns an hour from one network address**, then 429. Only a
+  takedown that hid a photo counts, in `removal_requests` (migration 0006),
+  which keeps the address as a keyed hash, as the join limit does. A row is
+  deleted once it is over an hour old by the next takedown, or sooner by the
+  next load of `/admin` or `/admin/removals`.
+- **An email takedown** (the policy gives `dave@madcowsailing.com`) is done
+  the same way: open the photo's album and press the button. The photo's id
+  is the number in its link, `/photos/<id>/screen`. When the button is
+  refused, by the limit on your own network (429) or because the site cannot
+  take photos down (503), do it by hand (below).
+
+### Taking a photo down by hand
+
+The fallback for when **Remove this photo** is refused (owner, at #158's
+review): an admin handling several emailed takedowns can pass the 10 an hour
+on their own network, and without `ADDRESS_HASH_KEY` the button answers 503.
+From `photos/`, with the D1 token in `photos/.env` (above):
+
+1. Find the photo's id: the number in its link on the album page,
+   `/photos/<id>/screen`. If the sender attached the file instead, open the
+   album and match it by eye.
+2. Hide it:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET state = 'hidden', hidden_at = unixepoch(), hidden_note = NULL WHERE id = <id> AND kind = 'photo' AND state = 'approved'"
+   ```
+
+3. Read it back. `--command "SELECT id, state FROM photos WHERE id = <id>"`
+   must say `hidden`, and `https://photos.madcowsailing.com/photos/<id>/grid`
+   must answer 404. A browser that already loaded the photo may keep it for 300
+   seconds (`CLAUDE.md`, The photo site, item 3).
+
+The photo then waits on `/admin/removals` like any other, with no note, and
+no takedown is counted against anyone's limit. `photos/test/policy.test.js`
+runs the step-2 statement against the real schema, so it fails if the schema
+stops taking it.
+
+### Removal requests
+
+Every photo taken down waits on `/admin/removals` (#158), behind the same
+Access sign-in as the queue, the oldest takedown first, with its album, when
+it was hidden and the note. The admin home says how many wait.
+
+- **Put it back** makes it approved and public again. When it was hidden and
+  the note stay on its row as a record, and a later takedown writes over
+  them.
+- **Delete permanently** asks first, in a dialog, then deletes its row and
+  its three files for good. It needs JavaScript.
+- A hidden photo keeps its row and its three files until one of those, so
+  nothing is lost while it waits.
 
 ## The push guard
 
