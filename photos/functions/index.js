@@ -10,11 +10,14 @@
  * HEAD is answered the same way, as the static holding page answered it: a
  * monitor or a link preview asking HEAD / gets what GET gets, and Pages sends
  * no body. It costs the same query as a GET.
+ *
+ * ?removed shows the takedown notice: POST /api/remove sends the browser here
+ * when the photo it hid was the last its album showed (#158).
  */
 import { albumListPage, htmlResponse, unavailablePage } from '../lib/public-page.js';
 import { publicAlbums } from '../lib/public.js';
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ request, env }) {
   let albums;
   try {
     albums = await publicAlbums(env.DB);
@@ -22,7 +25,8 @@ export async function onRequestGet({ env }) {
     console.error('albums: the database did not answer:', err instanceof Error ? err.message : String(err));
     return htmlResponse(unavailablePage(), 503);
   }
-  return htmlResponse(albumListPage(albums));
+  const removed = new URL(request.url).searchParams.has('removed');
+  return htmlResponse(albumListPage(albums, { removed }));
 }
 
 export const onRequestHead = onRequestGet;

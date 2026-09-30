@@ -15,6 +15,8 @@
  * #152 added the invite-code page, adminCodePage(), and its script. #153 added
  * the albums page, adminAlbumsPage(), which needs no script. #156 added the
  * approval queue, adminQueuePage(), and its script, and the home's counts.
+ * #158 added the removal requests, adminRemovalsPage(), and its script, and
+ * the home's count of them.
  */
 import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
@@ -50,7 +52,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=d2b15643dc">
+<link rel="stylesheet" href="/css/site.css?v=70c2619187">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -62,7 +64,7 @@ export const SECTIONS = [
   { href: '/admin/code', name: 'Invite code', what: 'the link parents join with, and changing it' },
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
   { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
-  { href: '/admin/removals', name: 'Removal requests', what: 'photos someone asked to take down' },
+  { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
 ];
 
 // The invite-code page's script (#152), stamped by hand for the same reason
@@ -104,6 +106,12 @@ export function waitingText(waiting) {
   return `${plural(waiting, 'photo is', 'photos are')} waiting for approval.`;
 }
 
+/** How many removal requests wait (#158): each is one hidden photo. */
+export function removalsText(removals) {
+  if (removals === 0) return 'No removal request is waiting.';
+  return `${plural(removals, 'removal request is', 'removal requests are')} waiting.`;
+}
+
 /**
  * The storage the stored photos take, against the free allowance #148
  * recorded (lib/queue.js, FREE_STORAGE_BYTES). Decimal units, as the
@@ -122,9 +130,10 @@ export function storageText(bytes) {
 
 /**
  * The admin home for the admin signed in as `email`. `summary` is
- * lib/queue.js's queueSummary(): how many photos wait, and the bytes stored.
+ * lib/queue.js's queueSummary(): how many photos wait, how many removal
+ * requests wait, and the bytes stored.
  */
-export function adminHome(email, { waiting, bytes }) {
+export function adminHome(email, { waiting, removals, bytes }) {
   const items = SECTIONS.map(({ href, name, what }) =>
     `      <li><a href="${href}">${escapeHtml(name)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   return adminPage({
@@ -139,6 +148,7 @@ export function adminHome(email, { waiting, bytes }) {
   <section class="wrap" aria-labelledby="admin-now">
     <h2 id="admin-now">At a glance</h2>
     <p>${waitingText(waiting)}</p>
+    <p>${removalsText(removals)}</p>
     <p>${storageText(bytes)}</p>
   </section>
 
@@ -589,6 +599,112 @@ ${list ? `\n  ${list}\n` : ''}
       <p class="actions">
         <button type="submit" class="button" autofocus>Cancel</button>
         <button type="submit" class="button button-accent" id="reject-confirm" formaction="/api/admin/queue/reject" formmethod="post" name="reject">Reject</button>
+      </p>
+    </form>
+  </dialog>
+</main>`,
+  });
+}
+
+// ---- /admin/removals (#158) ---------------------------------------------
+
+// The removals page's script, stamped by hand as CODE_SCRIPT is.
+// test/removals.test.js fails until the ?v= is the script's own sha256.
+export const REMOVALS_SCRIPT = '<script src="/js/admin-removals.js?v=5655a624bb" defer></script>';
+
+// What the page says after a press. Both presses in
+// functions/api/admin/removals/ answer 303 back with ?done= or ?error= and a
+// photo's id; anything else in the address bar is ignored, so a crafted link
+// can show only a known sentence and a number.
+const REMOVALS_ERRORS = {
+  form: 'Nothing was changed: the press did not say which photo it was for. Reload the page and press again.',
+  gone: 'Nothing was changed: that photo is no longer waiting here, so another admin may have got to it first.',
+  unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+};
+
+/** The notice for the removals page's query string, as HTML, or '' for none. */
+export function removalsNotice(params) {
+  const photo = /^[1-9][0-9]{0,14}$/.test(params.get('photo') ?? '') ? Number(params.get('photo')) : null;
+  const done = params.get('done');
+  const error = params.get('error');
+  let text = null;
+  if (done === 'restored' && photo) {
+    text = `Put photo ${photo} back. It is public again.`;
+  } else if (done === 'deleted' && photo) {
+    text = `Deleted photo ${photo}, with its three sizes.`;
+    if (params.get('kept') === '1') text += ' The storage did not delete its files; the log names their folder.';
+  } else if (Object.hasOwn(REMOVALS_ERRORS, error)) {
+    text = REMOVALS_ERRORS[error];
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+// One hidden photo: its grid size, linking to the screen size to see it
+// larger, the album it was in, when it was hidden, the note, and the two
+// presses. The note is kept as typed, so it is escaped, and its line breaks
+// are kept by the stylesheet (white-space: pre-line), never turned into
+// markup here.
+function removalItem(photo) {
+  const { id } = photo;
+  const note = photo.note === null
+    ? '<p class="removal-note removal-note-none">No note was left.</p>'
+    : `<p class="removal-note">${escapeHtml(photo.note)}</p>`;
+  const caption = photo.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(photo.caption)}</p>`;
+  return `<li class="removal" id="photo-${id}">
+      <h2>Photo ${id}</h2>
+      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · hidden ${timeElement(photo.hiddenAt)}</p>
+      <a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${photo.grid.width}" height="${photo.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>${caption}
+      <h3 class="removal-note-heading">The note</h3>
+      ${note}
+      <div class="actions">
+        <form method="post" action="/api/admin/removals/restore">
+          <button type="submit" class="button" name="photo" value="${id}" aria-label="Put it back: photo ${id}">Put it back</button>
+        </form>
+        <button type="button" class="button button-quiet" data-delete="${id}" aria-label="Delete permanently: photo ${id}">Delete permanently</button>
+      </div>
+    </li>`;
+}
+
+/**
+ * /admin/removals (#158). `photos` is lib/removals.js's hiddenPhotos(), the
+ * oldest takedown first; `notice` is removalsNotice()'s HTML.
+ *
+ * "Put it back" is a plain form post: it only undoes the takedown. "Delete
+ * permanently" is a form post from the one native <dialog> at the end of the
+ * page, as rejecting is on the queue: the button only opens it
+ * (public/js/admin-removals.js) and gives its confirm button the photo's id,
+ * so only the confirm posts. Cancel comes first and takes the focus.
+ */
+export function adminRemovalsPage({ photos, notice = '' }) {
+  const summary = photos.length
+    ? `${plural(photos.length, 'photo is', 'photos are')} hidden, the oldest takedown first.`
+    : 'No photo is hidden. A photo someone takes down with "Remove this photo" appears here.';
+  const list = photos.length
+    ? `\n  <section class="wrap" aria-label="Hidden photos">
+    <ul class="removals">
+    ${photos.map(removalItem).join('\n    ')}
+    </ul>
+  </section>\n`
+    : '';
+  return adminPage({
+    title: 'Removal requests',
+    head: REMOVALS_SCRIPT,
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Removal requests</h1>
+    <p class="lede">Anyone can take down an approved photo with "Remove this photo". It is hidden from everyone until an admin puts it back or deletes it.</p>
+    <p>${summary} Putting a photo back makes it public again. Deleting it removes it and all three of its sizes for good.</p>${notice}
+    <noscript><p>Deleting needs JavaScript. Putting a photo back does not.</p></noscript>
+  </section>
+${list}
+  <dialog id="delete-dialog" class="confirm" aria-labelledby="delete-title">
+    <form method="post" action="/api/admin/removals/delete">
+      <h2 id="delete-title">Delete this photo permanently?</h2>
+      <p>The photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
+      <p class="actions">
+        <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
+        <button type="submit" class="button button-accent" id="delete-confirm" name="photo" value="">Delete</button>
       </p>
     </form>
   </dialog>

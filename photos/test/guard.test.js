@@ -42,6 +42,11 @@ const PUBLIC = {
   'index.js': 'lists the albums holding an approved photo (#157)',
   'albums/[address]/index.js': 'shows an album\'s approved photos (#157)',
   'photos/[id]/[size].js': 'serves an approved photo, and 404s every other state (#157)',
+  // "Remove this photo" is for anyone (epic #147, D7): a parent needs no code
+  // to take a photo of their child down. The takedown checks the Origin
+  // itself and is rate-limited per address; test/removals.test.js holds both.
+  'remove.js': 'shows the no-JavaScript confirmation for an approved photo, and changes nothing (#158)',
+  'api/remove.js': 'takes an approved photo down, from the site\'s own Origin, 10 an hour per address (#158)',
 };
 
 // Admin routes answer to the admin guard, not the upload guard (#151).
