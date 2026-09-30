@@ -84,13 +84,15 @@ test('every href and src on it is root-relative, absolute or a fragment', () => 
   }
 });
 
-test('its header and footer are every static page\'s, byte for byte', () => {
-  const pages = staticPages();
+test('its header and footer are every static page\'s and the public pages\' template\'s, byte for byte', () => {
+  // The public pages a Function renders take theirs from templates/page.html
+  // (#157), which replaced the static holding page at /.
+  const pages = [...staticPages().map((file) => `public/${file}`), 'templates/page.html'];
   assert.ok(pages.length >= 3, pages.join(', '));
   for (const file of pages) {
-    const html = read('public', ...file.split('/'));
-    assert.equal(block(page, 'header'), block(html, 'header'), `the admin header differs from public/${file}'s: copy it into lib/admin-page.js`);
-    assert.equal(block(page, 'footer'), block(html, 'footer'), `the admin footer differs from public/${file}'s: copy it into lib/admin-page.js`);
+    const html = read(...file.split('/'));
+    assert.equal(block(page, 'header'), block(html, 'header'), `the admin header differs from ${file}'s: copy it into lib/admin-page.js`);
+    assert.equal(block(page, 'footer'), block(html, 'footer'), `the admin footer differs from ${file}'s: copy it into lib/admin-page.js`);
   }
 });
 

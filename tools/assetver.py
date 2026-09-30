@@ -32,7 +32,9 @@ hours after the deploy. A site file is resolved against the site that serves
 the page: /css/site.css on an hq page is hq/css/site.css, never sailing's.
 tools/templates/ renders into sailing (tools/photos.py), so its pages are
 sailing's; only their root-relative URLs are stamped, since a relative one has
-no depth until the page is rendered.
+no depth until the page is rendered. photos/templates/ is the photo site's
+the same way (#157): its Functions render the public pages from it, so its
+pages are photos/public's.
 
 Not versioned, deliberately: fonts and images. Each font is named twice - a
 <link rel="preload"> in every page and a url() inside tokens.css - and a
@@ -47,8 +49,8 @@ stamps every page it renders, so regenerating a trip log cannot bring a stale
 version back.
 
 Usage:  python tools/assetver.py
-Rewrites every .html under hq/, sailing/, photos/public/ and tools/templates/
-in place and prints each file it changed. Exit 0.
+Rewrites every .html under hq/, sailing/, photos/public/, tools/templates/ and
+photos/templates/ in place and prints each file it changed. Exit 0.
 """
 import hashlib
 import os
@@ -69,10 +71,12 @@ TARGET = re.compile(r'^(?P<prefix>/|(?:\.\.?/)*)assets/shared/'
                     r'(?P<rel>(?:%s)/[^?#]+)(?P<query>\?[^#]*)?(?P<frag>#.*)?$'
                     % '|'.join(VERSIONED_DIRS))
 
-# The served root of each site, as linkcheck is given it, and the templates
-# tools/photos.py renders into sailing.
+# The served root of each site, as linkcheck is given it, and each directory
+# of templates with the site its pages are rendered into: tools/photos.py
+# renders tools/templates/ into sailing, and the photo site's Functions render
+# photos/templates/ (#157).
 SITES = ('hq', 'sailing', 'photos/public')
-TEMPLATES = ('tools/templates', 'sailing')
+TEMPLATES = (('tools/templates', 'sailing'), ('photos/templates', 'photos/public'))
 
 # Any other reference: its path, then an optional query and fragment.
 LOCAL = re.compile(r'^(?P<path>[^?#]*)(?P<query>\?[^#]*)?(?P<frag>#.*)?$')
@@ -100,8 +104,9 @@ def is_versioned(path):
 def site_of(page):
     """(the site that serves page, whether page is a template), or (None, False)."""
     rel = os.path.relpath(os.path.abspath(page), ROOT).replace(os.sep, '/')
-    if rel.startswith(TEMPLATES[0] + '/'):
-        return TEMPLATES[1], True
+    for templates, site in TEMPLATES:
+        if rel.startswith(templates + '/'):
+            return site, True
     for site in SITES:
         if rel.startswith(site + '/'):
             return site, False
@@ -152,8 +157,9 @@ def stamp(text, page=None):
 def pages():
     # photos/public/, not photos/: it is the photo site's served root (its Pages
     # output directory), and the only part of photos/ holding pages (#149).
-    for top in ('hq', 'sailing', os.path.join('photos', 'public'),
-                os.path.join('tools', 'templates')):
+    tops = [os.path.join(*site.split('/')) for site in SITES]
+    tops += [os.path.join(*templates.split('/')) for templates, _ in TEMPLATES]
+    for top in tops:
         for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, top)):
             # assets/shared/ is the Pages build's gitignored copy of shared/,
             # present only on a machine that has run the build. Never stamp it.
