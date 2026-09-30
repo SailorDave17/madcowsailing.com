@@ -308,13 +308,17 @@ test('FIRST_ROW is the grid\'s fewest columns in site.css, a phone\'s two, so no
   assert.equal(Math.min(...counts), FIRST_ROW);
 });
 
-test('the page loads shared/js/gallery.js, stamped with its own hash, and no inline script or style', async () => {
+test('the page loads shared/js/gallery.js and js/remove.js, each stamped with its own hash, and no inline script or style', async () => {
   const { env, fall } = await site();
   seed(env, fall);
   const html = await (await get(env, `/albums/${fall}/`)).text();
-  const script = `<script src="/assets/shared/js/gallery.js?v=${sha10('..', 'shared', 'js', 'gallery.js')}" defer></script>`;
-  assert.equal(block(html, 'head').split(script).length, 2, 'the head carries gallery.js once, at its current version');
-  assert.doesNotMatch(html.replace(script, ''), /<script|<style|\sstyle="|\son[a-z]+="/i);
+  const gallery = `<script src="/assets/shared/js/gallery.js?v=${sha10('..', 'shared', 'js', 'gallery.js')}" defer></script>`;
+  // "Remove this photo"'s dialog (#158).
+  const remove = `<script src="/js/remove.js?v=${sha10('public', 'js', 'remove.js')}" defer></script>`;
+  for (const script of [gallery, remove]) {
+    assert.equal(block(html, 'head').split(script).length, 2, `the head carries ${script} once, at its current version`);
+  }
+  assert.doesNotMatch(html.replace(gallery, '').replace(remove, ''), /<script|<style|\sstyle="|\son[a-z]+="/i);
 });
 
 test('an unknown address, a malformed one, and an album with nothing approved answer the site\'s 404', async () => {
@@ -542,7 +546,9 @@ test('Download under each photo saves the full size, named from the album addres
     assert.equal(f.downloadHref, `/photos/${idOf(f.src)}/full`);
     assert.equal(f.downloadName, name);
     assert.equal(f.downloadLabel, `Download photo ${i + 1}`);
-    assert.match(f.figcaption, />Download<\/a>$/);
+    // Download is the caption's last link; only "Remove this photo"'s form
+    // (#158) follows it.
+    assert.match(f.figcaption, />Download<\/a>\s*<form class="remove"[^>]*><button\b[^>]*>Remove this photo<\/button><\/form>$/);
     const res = await get(env, f.downloadHref);
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('Content-Disposition'), `attachment; filename="${name}"`, `photo ${i + 1}`);
@@ -572,6 +578,7 @@ test('the template\'s stylesheets and script carry the ?v= tools/assetver.py wri
   const refs = [...block(TEMPLATE, 'head').matchAll(/\s(?:href|src)="(\/(?:assets\/shared\/)?(?:css|js)\/[^"?]+)\?v=([0-9a-f]+)"/g)];
   assert.deepEqual(refs.map((m) => m[1]), [
     '/assets/shared/css/tokens.css', '/assets/shared/css/base.css', '/css/site.css', '/assets/shared/js/gallery.js',
+    '/js/remove.js',
   ]);
   for (const [, url, version] of refs) {
     const file = url.startsWith('/assets/shared/') ? ['..', 'shared', ...url.slice('/assets/shared/'.length).split('/')] : ['public', ...url.slice(1).split('/')];

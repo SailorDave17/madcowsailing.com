@@ -42,8 +42,9 @@ upload API, which stores each photo's three JPEGs with their metadata removed,
 waiting for approval, #155 the share page that makes those JPEGs on the
 phone and sends them, #156 the queue where the owner approves or rejects
 them, #157 the public album list and album pages, which replaced the
-holding page at `/`, and #159 the policy at `/policy`, which every page's
-footer links.
+holding page at `/`, #159 the policy at `/policy`, which every page's
+footer links, and #158 "Remove this photo", which hides a photo at once
+and queues it on `/admin/removals`.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
@@ -103,13 +104,17 @@ story, this is the paragraph to check.*
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
 │   │                         api/join.js, the public pages (#157: index.js is /,
 │   │                         albums/[address]/ an album, photos/[id]/[size].js
-│   │                         a photo), api/upload/ and api/albums/ behind
+│   │                         a photo), "Remove this photo" (#158: remove.js
+│   │                         asks without JavaScript, api/remove.js takes it
+│   │                         down), api/upload/ and api/albums/ behind
 │   │                         the upload guard (api/upload/index.js takes a
 │   │                         photo, #154), and admin/ and api/admin/
 │   │                         behind the admin guard (admin/code.js is the
 │   │                         invite code, #152; admin/albums.js the albums, #153;
 │   │                         admin/queue.js the approval queue, #156, with
-│   │                         api/admin/queue/ and api/admin/photos/)
+│   │                         api/admin/queue/ and api/admin/photos/;
+│   │                         admin/removals.js the removal requests, #158,
+│   │                         with api/admin/removals/)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -123,13 +128,16 @@ story, this is the paragraph to check.*
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /api/*, /admin, /admin/*
+│       │                     /remove, /api/*, /admin, /admin/*
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
+│       ├── js/remove.js      An album page's "Remove this photo" dialog; the
+│       │                     template loads it, so assetver stamps it (#158)
 │       ├── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
 │       │                     in lib/admin-page.js (#152)
-│       └── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
+│       ├── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
+│       └── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -1218,16 +1226,20 @@ page's footer link it, and the share page links it beside the join step.
 - **The check is described, not promised as an outcome** (owner, at the
   review). The page says an admin turns down any photo they recognize as a
   sailor whose family opted out, and that a check can miss one, with the
-  email as the route. Not chosen: "a photo of a sailor whose family opted out
+  email as the route (and, since #158, "Remove this photo" before it). Not
+  chosen: "a photo of a sailor whose family opted out
   is turned down", which approval cannot guarantee
   (cairn's `memory/projects/madcowsailing-photo-space-2026-09-26.md`: it
   "cannot see what it enforces"), and any admin can approve, not only the one
   who knows the list.
-- **A takedown is done by hand until #158** (owner, at the review): README,
-  Taking a photo down by hand, one `wrangler d1 execute` that sets the row
-  `hidden`, which the public routes already answer 404. `test/policy.test.js`
-  runs that statement from README against the real schema. Nothing else on
-  any release hides an approved photo: rejecting deletes pending ones only.
+- **A takedown was done by hand until #158** (owner, at the review): README,
+  Taking a photo down by hand, one `wrangler d1 execute` that set the row
+  `hidden`, which the public routes already answered 404. `test/policy.test.js`
+  ran that statement from README against the real schema. **#158 kept it
+  as the fallback** (owner, at #158's review): an email takedown is the same
+  button pressed by an admin (item 19), and the hand statement is for when
+  the button is refused. #158 had first retired it, and its review found no
+  route left past the limit or a 503.
 - **The invite link is for parents, sailors and coaches** (owner, at pickup).
   Not chosen: parents and coaches, which the story proposed; parents only,
   D9's end state once coaches sign in through Access (#192).
@@ -1241,13 +1253,14 @@ page's footer link it, and the share page links it beside the join step.
   story's design review): the parent who wants a photo down is the one in a
   hurry, and the foot of the page sat about 3,400 px down at 360 px. Not
   chosen: moving the removal section first; leaving it last.
-- **"Remove this photo" is #158's to name** (owner, at pickup). The page gives
-  the email route only, so it is true on any release. Not chosen: naming the
-  link now and holding the promotion until #158 ships. **#158 carries a
-  criterion for the page** (owner, at the review): the link, what a
-  taken-down photo keeps (its copies, `hidden_at` and the free-text
-  `hidden_note`, which 0005 already has, so no file in the trace table changes
-  when #158 fills them), and how long its rate limit keeps a scrambled address.
+- **"Remove this photo" was #158's to name** (owner, at pickup). Until #158
+  the page gave the email route only, so it was true on any release. Not
+  chosen: naming the link then and holding the promotion until #158 shipped.
+  **#158 carried a criterion for the page** (owner, at the review): the link,
+  what a taken-down photo keeps (its copies, `hidden_at` and the free-text
+  `hidden_note`, which 0005 already had, so 0005's row in the trace table did
+  not change), and how long its rate limit keeps a scrambled address. Since
+  #158 the page names the button first and the email second (item 19).
 - **#192 will make the page wrong**, because a coach sends through Access with
   no invite link. #192 carries a comment saying so: who can send, the lede,
   and what is kept for a coach.
@@ -1273,6 +1286,92 @@ page's footer link it, and the share page links it beside the join step.
   `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
   `test/public.test.js` fail until they agree, and `test/policy.test.js` until
   each nav and footer links `/policy`.
+
+### 19. Remove this photo
+
+**Built in #158, 2026-09-30, with four owner decisions taken at its pickup
+and two at its review.**
+"Remove this photo" sits under every photo on an album page, and anyone may
+press it (epic #147, D7). The photo is hidden from everyone at once and waits
+on `/admin/removals` until an admin puts it back or deletes it.
+`lib/removals.js` holds the rules, `functions/api/remove.js` takes a photo
+down, and `functions/remove.js` asks first for a browser without JavaScript.
+
+- **10 takedowns an hour from one network address, and only a takedown that
+  hid a photo counts** (owner, at pickup, confirming the story's figure). The
+  address is the keyed hash item 11's join limit uses, IPv6 by its /64, in
+  `removal_requests` (migration 0006). A request naming a photo that is not
+  public is 404 and writes nothing, so a wrong id costs no D1 write. Not
+  chosen: counting every request, 404s included, which is a write per bad
+  request, the cost #177 budgets on the join route; 5 an hour; 20 an hour.
+  The limit is read first, so an address past it is 429 whatever it names.
+- **Two takedowns at once cannot both take an address's tenth.** One
+  statement counts the hour and inserts the row together, and only then is
+  the photo hidden, by a statement that finds it still approved. If another
+  takedown got there first, or that statement throws, the row is deleted
+  again, so a unit is spent only by a photo hidden. Once the photo is hidden
+  the answer is a 303, whatever fails after it: the album lookup failing
+  sends the browser to the list. The review of #158 found both: a throw kept
+  the unit, and a failed lookup answered 503 "Nothing was changed" for a
+  hidden photo.
+- **A row over an hour old is deleted by the next takedown, and by every load
+  of `/admin` and `/admin/removals`** (owner, at #158's review), never by a
+  refusal. So a scrambled address is kept no longer than the next admin
+  visit. Pages runs no scheduled job, and the next takedown alone could keep
+  one for months, which the review escalated against criterion 3's "a keyed
+  hash that expires". A load with nothing expired writes no row. Not chosen:
+  the next takedown alone, with the criterion annotated; every request,
+  refusals included, which reverses the pickup's no-write rule.
+- **README keeps the hand takedown as the fallback** (owner, at #158's
+  review): README, Taking a photo down by hand, for when the button is
+  refused, by the limit on an admin's own network or a 503.
+  `test/policy.test.js` runs its statement against the schema. Not chosen: an
+  admin take-down press behind Access with no limit; rewording the 429 and 503
+  pages; accepting the hour's wait.
+- **Without JavaScript, the button opens a page that asks first** (owner, at
+  pickup). Each photo's button is a form posting its id to `/remove`, which
+  answers the dialog's words, the photo, the note and a "Remove it" button.
+  `public/js/remove.js` opens the album page's native `<dialog>` instead.
+  Both end in one `POST /api/remove`. Not chosen: a post that hides at once,
+  which gives a reader without JavaScript no note and lets a stray tap hide a
+  photo until an admin puts it back.
+- **The button sits under each photo in the grid, beside Download, and not in
+  the lightbox** (owner, at pickup), so `shared/js/gallery.js` stays as the
+  sailing site's trip logs have it. Not chosen: the lightbox as well.
+- **After a takedown the browser goes back to the album**, with `?removed`
+  showing one fixed sentence, or to the list when the album has nothing
+  public left, since its page is then the site's 404. The address bar can
+  show only that sentence.
+- **The note is at most 500 characters, and a longer one is cut, not
+  refused.** The takedown matters more than the note. The field's
+  `maxlength` counts UTF-16 units in every current browser, so it is never
+  looser than the server. WebKit counted a whole emoji as one until
+  260838@main (bug 252900, 2023-02-25), so an older Safari can send a longer
+  note, which is cut; with some 220 family emoji it can pass the form's 16 KiB,
+  and then the whole form reads empty and the takedown is refused as naming
+  nothing. The review of #158 corrected "WebKit counts whole symbols", which
+  this line said first. A note keeps its line breaks, and every other control
+  character becomes a space.
+- **Download is a 24 px target since #158.** "Remove this photo" sits 3 px
+  under it, which took away the spacing the 16 px link passed WCAG 2.5.8 on;
+  `.download` now has the button's box. `ux-design`'s audit found it (axe
+  `target-size` ×6, 0 on the same page without the remove forms).
+- **"Put it back" keeps when the photo was hidden and the note** (owner, at
+  pickup), as a record; a later takedown writes over both. `/policy` says a
+  note stays with the photo until it is deleted. Not chosen: clearing both.
+- **"Delete permanently" deletes the row, then its three objects**, as a
+  reject does (item 16), so no row names objects that are gone. A bucket that
+  refuses leaves objects the log names by their `photos/<key>/` prefix. It is
+  confirmed in a native `<dialog>`, and needs JavaScript, as rejecting does.
+- **The dialog says "one of the site's admins" reviews it, not "the site's
+  owner"** as the criterion was written, for item 18's reason.
+- **The admin home counts the hidden photos** as removal requests waiting,
+  photos only: every statement names `kind = 'photo'`, and clips wait for
+  #198.
+- **Anyone can hide every photo from enough addresses.** Ten an hour per
+  address stops one person, not a crowd of IPv6 /64s, and "Put it back" is
+  one photo at a time. D7 accepts that anyone can hide a photo; this is that
+  cost at its largest, and nothing past the per-address limit is built.
 
 ## The two-presentation rule
 

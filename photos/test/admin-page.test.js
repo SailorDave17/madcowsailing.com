@@ -22,7 +22,7 @@ const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
 const block = (html, tag) => html.match(new RegExp(`<${tag}[\\s>][\\s\\S]*?</${tag}>`))?.[0];
 
 const EMAIL = 'owner@example.com';
-const EMPTY = { waiting: 0, bytes: 0 };
+const EMPTY = { waiting: 0, removals: 0, bytes: 0 };
 const page = adminHome(EMAIL, EMPTY);
 
 // Where the gate would find the page if it were a file: photos/, so the

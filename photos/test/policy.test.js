@@ -8,7 +8,7 @@
 // the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,9 +17,13 @@ import { createAlbum } from '../lib/albums.js';
 import { HTML_CACHE, albumListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
 import { DAILY_UPLOADS, SIZES } from '../lib/photos.js';
+import {
+  NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
+} from '../lib/removals.js';
 import { SESSION_DAYS } from '../lib/session.js';
 import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
 import { d1 } from './d1.js';
+import { r2 } from './r2.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
@@ -42,7 +46,7 @@ const everyPage = () => ({
   ...Object.fromEntries(staticPages().map((file) => [`public/${file}`, read('public', ...file.split('/'))])),
   'templates/page.html': read('templates', 'page.html'),
   'the album list, rendered': albumListPage([]),
-  'the admin home, rendered': adminHome('owner@example.com', { waiting: 0, bytes: 0 }),
+  'the admin home, rendered': adminHome('owner@example.com', { waiting: 0, removals: 0, bytes: 0 }),
 });
 
 // What a reader sees: comments and tags out, whitespace folded.
@@ -189,17 +193,51 @@ test('the policy uses none of CLAUDE.md\'s banned words, nor actually, really, t
   assert.deepEqual(seen.join(' ').match(pattern), null);
 });
 
-// ---- The promise behind "it comes down": README's manual takedown ---------
+// ---- #158: "Remove this photo" on the page ------------------------------------
 
-test('README\'s manual takedown hides the approved photo it names, and nothing else', async () => {
-  // Until #158, this statement is what makes "email ... and it comes down"
-  // true (owner, at #159's review). It is read from README, so the schema
-  // cannot move out from under the runbook unnoticed.
-  const section = read('..', 'README.md').split('### Taking a photo down by hand')[1]?.split(/\n## |\n### /)[0] ?? '';
-  const sql = section.match(/--command "(UPDATE photos [^"]+)"/)?.[1];
-  assert.ok(sql && sql.includes('<id>'), 'README has no takedown statement naming <id>');
+const section = (heading) => {
+  const start = POLICY.indexOf(`<h2>${heading}</h2>`);
+  assert.ok(start > 0, `no "${heading}" section`);
+  return POLICY.slice(start, POLICY.indexOf('</section>', start));
+};
 
+test('"Having a photo taken down" names "Remove this photo" beside the email, and the lede and the check both give the button', () => {
+  const takedown = words(section('Having a photo taken down'));
+  assert.match(takedown, /^Having a photo taken down Press "Remove this photo" under it on its album page\. It is hidden from everyone at once/);
+  assert.match(takedown, /Or email dave@madcowsailing\.com with the photo attached/);
+  assert.ok(section('Having a photo taken down').includes('<a href="mailto:dave@madcowsailing.com">'));
+  // words() leaves a space where the link's closing tag was.
+  assert.match(words(POLICY.match(/<p class="lede">[\s\S]*?<\/p>/)[0]), /To take a photo down, press "Remove this photo" under it, or email dave@madcowsailing\.com ?\.$/);
+  assert.match(words(section('Every photo is checked first')), /press "Remove this photo" under it, or email the address above, and it comes down\./);
+});
+
+test('"What the site keeps" says what a taken-down photo keeps, that a put-back photo keeps it, and how long the limit keeps its scrambled address', () => {
+  const kept = words(section('What the site keeps'));
+  for (const claim of [
+    // hidden_at, hidden_note and the three objects, which a takedown leaves.
+    'When someone takes a photo down with "Remove this photo", nothing is deleted yet. The site keeps the photo\'s three copies, when it was taken down, and the note left with it, if any, which can hold a name',
+    // Owner, at #158's pickup: restorePhoto leaves both on the row.
+    'The time and the note stay with the photo if an admin puts it back, and go with it when an admin deletes it.',
+    'kept only in the same scrambled form',
+    // Owner, at #158's review: the admin pages clear the log too.
+    'A takedown counts for an hour. After that it is deleted the next time anyone takes a photo down or one of the site\'s admins opens the admin pages.',
+    'Pressing it on a photo that is not showing counts for nothing, and nothing is kept.',
+  ]) {
+    assert.ok(kept.includes(claim), `"What the site keeps" no longer says "${claim}"`);
+  }
+});
+
+test('the takedown figures are the code\'s: 10 an hour, the hour, and 500 characters', () => {
+  assert.match(MAIN, new RegExp(`one network can take down at most ${REMOVAL_LIMIT} photos an hour\\.`));
+  assert.equal(REMOVAL_WINDOW_SECONDS, 60 * 60, 'the takedown limit\'s window moved; the page says "an hour"');
+  assert.match(MAIN, new RegExp(`a note for the site's admins, up to ${NOTE_MAX} characters\\.`));
+});
+
+test('the page\'s promises about a takedown are what the code does', async () => {
+  // "It is hidden from everyone at once", "the time and the note stay with the
+  // photo if an admin puts it back", "and go with it when an admin deletes it".
   const db = d1();
+  const bucket = r2();
   const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
   const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   const photo = (state, key) => Number(db.sqlite.prepare(
@@ -209,13 +247,80 @@ test('README\'s manual takedown hides the approved photo it names, and nothing e
   ).run(album, state, key, state === 'pending' ? null : 3).lastInsertRowid);
   const target = photo('approved', 'a'.repeat(32));
   const other = photo('approved', 'b'.repeat(32));
+  const row = () => db.sqlite.prepare('SELECT state, hidden_at, hidden_note FROM photos WHERE id = ?').get(target);
+
+  assert.equal(await approvedPhoto(db, target), 'a'.repeat(32), 'the fixture photo is public before the takedown');
+  const result = await requestRemoval(db, { id: target, note: 'My daughter', address: 'h', now: 1_790_000_500 });
+  assert.equal(result.outcome, 'hidden');
+  assert.equal(await approvedPhoto(db, target), null, 'the photo is still public');
+  assert.equal(await approvedPhoto(db, other), 'b'.repeat(32), 'another photo was taken down');
+  assert.deepEqual({ ...row() }, { state: 'hidden', hidden_at: 1_790_000_500, hidden_note: 'My daughter' });
+  assert.equal(await restorePhoto(db, target), true);
+  assert.deepEqual({ ...row() }, { state: 'approved', hidden_at: 1_790_000_500, hidden_note: 'My daughter' });
+  // A later takedown writes its own time and note over the kept ones.
+  await requestRemoval(db, { id: target, note: null, address: 'h', now: 1_790_000_600 });
+  assert.deepEqual({ ...row() }, { state: 'hidden', hidden_at: 1_790_000_600, hidden_note: null });
+  assert.equal((await deletePhoto(db, bucket, target)).deleted, true);
+  assert.equal(row(), undefined, 'a deleted photo keeps its time and note');
+});
+
+test('the head comment traces every takedown claim to a file that exists', () => {
+  const comment = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0];
+  for (const source of ['lib/removals.js', 'functions/api/remove.js', 'migrations/0006_removal_requests.sql',
+    'REMOVAL_LIMIT', 'NOTE_MAX', 'restorePhoto', 'deletePhoto', 'requestRemoval', 'clearExpiredTakedowns',
+    'Taking a photo down by hand']) {
+    assert.ok(comment.includes(source), `the trace table does not name ${source}`);
+  }
+  // Every file the table names is one on disk, so a rename cannot leave the
+  // trace pointing nowhere.
+  const files = [...comment.matchAll(/\b((?:lib|functions|migrations|public)\/[\w./-]+\.(?:js|sql|html))\b/g)].map((m) => m[1]);
+  assert.ok(files.length >= 8, files.join(', '));
+  for (const file of files) assert.ok(existsSync(join(ROOT, file)), `the trace table names ${file}, which does not exist`);
+  // The control: a name the pattern reads that is not there is caught.
+  assert.equal(existsSync(join(ROOT, 'lib/no-such-file.js')), false);
+});
+
+test('README gives the button as the route for an email request, and the hand takedown for when it is refused', () => {
+  const readme = read('..', 'README.md');
+  const takedown = readme.split('### Taking a photo down\n')[1]?.split(/\n## |\n### /)[0] ?? '';
+  assert.match(takedown, /\*\*Remove this photo\*\*/);
+  assert.match(takedown, /\*\*An email takedown\*\*/);
+  assert.match(takedown, /When the button is\s+refused, by the limit on your own network \(429\) or because the site cannot\s+take photos down \(503\), do it by hand \(below\)\./);
+  assert.match(readme.split('### Removal requests\n')[1] ?? '', /`\/admin\/removals`/);
+});
+
+// ---- The promise behind "it comes down": README's hand takedown ------------
+
+test('README\'s hand takedown, the fallback when the button is refused, hides the approved photo it names, and nothing else', async () => {
+  // Kept at #158's review (owner): past the button's limit on an admin's own
+  // network, or at a 503, this statement is what makes "email ... and the
+  // photo comes down" true. It is read from README, so the schema cannot move
+  // out from under the runbook unnoticed.
+  const section = read('..', 'README.md').split('### Taking a photo down by hand')[1]?.split(/\n## |\n### /)[0] ?? '';
+  const sql = section.match(/--command "(UPDATE photos [^"]+)"/)?.[1];
+  assert.ok(sql && sql.includes('<id>'), 'README has no takedown statement naming <id>');
+
+  const db = d1();
+  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  const photo = (state, key, note = null) => Number(db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at, hidden_note) ' +
+    "VALUES (?, 'photo', ?, ?, 'b', 'parent', 1, 1, 1, 2, 4, 3, 4, 3, 4, 3, 10, ?, ?)",
+  ).run(album, state, key, state === 'pending' ? null : 3, note).lastInsertRowid);
+  // The target was taken down and put back once, so it carries a kept note.
+  const target = photo('approved', 'a'.repeat(32), 'an earlier takedown\'s note');
+  const other = photo('approved', 'b'.repeat(32));
   const waiting = photo('pending', 'c'.repeat(32));
   const run = (id) => db.sqlite.prepare(sql.replace('<id>', '?')).run(id).changes;
 
   assert.equal(await approvedPhoto(db, target), 'a'.repeat(32), 'the fixture photo is public before the takedown');
   assert.equal(run(target), 1);
   assert.equal(await approvedPhoto(db, target), null, 'the photo is still public');
-  assert.equal(db.sqlite.prepare('SELECT state FROM photos WHERE id = ?').get(target).state, 'hidden');
+  const row = db.sqlite.prepare('SELECT state, hidden_at, hidden_note FROM photos WHERE id = ?').get(target);
+  assert.equal(row.state, 'hidden');
+  assert.ok(row.hidden_at > 1_790_000_000, 'the time it was hidden is now');
+  assert.equal(row.hidden_note, null, 'a takedown by hand writes over a kept note, as the button does');
   assert.equal(await approvedPhoto(db, other), 'b'.repeat(32), 'another photo was taken down');
   // Only an approved photo is taken down: a waiting one is untouched.
   assert.equal(run(waiting), 0);
