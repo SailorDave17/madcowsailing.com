@@ -39,8 +39,9 @@ invite code and the upload session, #151 the admin area's lock and its
 home page, #152 the admin page where the code is created and rotated,
 #153 the albums the owner keeps for each regatta and practice, #154 the
 upload API, which stores each photo's three JPEGs with their metadata removed,
-waiting for approval, and #155 the share page that makes those JPEGs on the
-phone and sends them.
+waiting for approval, #155 the share page that makes those JPEGs on the
+phone and sends them, and #156 the queue where the owner approves or rejects
+them.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access, and the domain serves nothing until a release carries `photos/`
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
@@ -100,7 +101,9 @@ story, this is the paragraph to check.*
 │   │                         the upload guard (api/upload/index.js takes a
 │   │                         photo, #154), and admin/ and api/admin/
 │   │                         behind the admin guard (admin/code.js is the
-│   │                         invite code, #152; admin/albums.js the albums, #153)
+│   │                         invite code, #152; admin/albums.js the albums, #153;
+│   │                         admin/queue.js the approval queue, #156, with
+│   │                         api/admin/queue/ and api/admin/photos/)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
 │   ├── scripts/              access-dev.mjs: a local stand-in for Access (#151)
@@ -114,8 +117,9 @@ story, this is the paragraph to check.*
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
-│       └── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
-│                             in lib/admin-page.js (#152)
+│       ├── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
+│       │                     in lib/admin-page.js (#152)
+│       └── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -1001,6 +1005,96 @@ image decoder, and sends through the real routes into SQLite, so the page and
   accessibility 100, against `develop`'s 97, 97 and 97. The point it costs is
   `share.js`'s size, measured by swapping the branch's script for `develop`'s: the
   page's CSS and markup cost nothing.
+
+### 16. The approval queue
+
+**Built in #156, 2026-09-30, with three owner decisions taken at its pickup.**
+`/admin/queue` (`functions/admin/queue.js`) shows every waiting photo, and its
+forms post to `functions/api/admin/queue/`: `approve`, `reject` and `captions`.
+`lib/queue.js` holds the rules. Only a pending photo is approved or rejected
+here; an approved one leaves the public page through #158.
+
+- **A batch is one press of Send, in one album.** A photo retried into another
+  album keeps its first batch (item 15), so the album is part of the key. The
+  oldest batch comes first, each with its album, when it was sent and how many
+  photos it holds.
+- **A batch over 200 photos is shown in parts of 200**, each its own form, whose
+  Approve all and Reject all mean the part (owner, at #156's review). Nothing but
+  the share page's habit keeps a batch small, and a form carries every caption
+  in it: a part of 200 photos each captioned with 200 emoji comes to about
+  485,000 characters, under the 512 KiB a queue form may be, and a press names
+  at most 200 photos. Not chosen: a notice plus a command-line recipe for a batch
+  too big to post, which left an abusive batch stuck; leaving it.
+- **All three sizes are in view before approving** (owner, at pickup). The
+  screen size is shown large enough to tell faces apart, and the grid and the
+  full, which the public sees, sit smaller beside each other, each a link to
+  itself. That is the check item 14 left to this page: two different
+  pictures of one shape pass the upload route. Not chosen: the grid and the
+  full as links only, which a busy evening would skip; all three at one size,
+  which makes faces smallest. The cost is data, about 0.9 MB a photo and up to
+  4.2 MB (item 9), fetched lazily as the page scrolls, and requests: each size
+  shown is a Function request, so clearing a 500-photo regatta takes about
+  1,500 of the account's 100,000 a day (item 2), against about 500 for the
+  links-only option.
+- **Every picture comes through `GET /api/admin/photos/<id>/<size>`**, under
+  the admin guard, so no token is 403 with nothing read. It serves a photo in
+  any state but uploading, so a size opened from the queue still opens once
+  approved, with `Cache-Control: private, max-age=300` (item 3), which also
+  spares the reload after each press from fetching every picture again.
+- **Every press in a batch saves every caption typed in it** (owner, at
+  pickup). Each batch is one form, so Approve, Approve all, Reject, Reject all
+  and Save captions all post its captions, and a reload never loses one. A
+  waiting photo's caption can be saved while it keeps waiting; its state
+  changes only when a press names it. An emptied field publishes no caption.
+  Not chosen: saving only the approved photos' captions, which drops the rest
+  on the reload; posting with a script and no reload. **Save captions is the
+  form's action and its first button**, so Enter in a caption field saves
+  rather than approving the batch's first photo. A caption typed for a photo
+  approved since the page loaded is not saved, since a public caption changes
+  only through its own approval, and the notice says how many were not.
+- **A caption stops at 200 characters on the page** (`admin-queue.js`, counted
+  by code point as the server counts, as the share page does), and a tab or
+  other control character becomes a space on the server rather than refusing
+  the press (owner, at #156's review). One refused caption refuses the press,
+  and the reload then shows the stored captions, so every caption typed in the
+  batch would have to be typed again; now only a browser without the script can
+  send one over 200. Not `maxlength`: browsers count it in UTF-16 units, where an
+  emoji is two, and WebKit in whole symbols, which lets through a caption the
+  server refuses (item 15). Not chosen: re-rendering the typed captions on a
+  refusal, which breaks the post-then-redirect every admin page follows.
+- **Approve all and Reject all act on the photos the page showed**, which the
+  form names, never on the batch as it stands when the press arrives. A photo
+  that joined the batch after the page loaded has not been seen, so it waits.
+  A batch of one shows neither.
+- **Rejecting is confirmed in a native `<dialog>`.** Reject and Reject all only
+  open it (`public/js/admin-queue.js`) and point its confirm button at their
+  batch's form through the `form` attribute, so the confirm posts that batch's
+  captions with it. The dialog sits after every batch, so no batch form's first
+  button is its confirm, and Cancel takes the focus. Rejecting needs
+  JavaScript; approving and saving do not.
+- **A rejected photo's row goes first, then its three objects**, the mirror of
+  the upload's objects-first, so no row ever names objects that are gone. A
+  delete the bucket refuses leaves objects no row names, and the log names
+  each one's `photos/<key>/` prefix (README, The photo site).
+- **A press is at most three statements, whatever the batch holds.** D1 allows
+  50 queries a request on the free plan and 100 bound parameters a query
+  ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/), read
+  2026-09-30), so the ids and the captions each travel as one JSON value, read
+  with `json_each()`. A queue form may be 512 KiB, far past the albums' 4 KB,
+  since it carries a caption for every photo in the batch. R2 deletes at most
+  1,000 keys a call, so a reject deletes 333 photos' objects a call.
+- **The admin home shows how many photos wait and the storage used**, the sum
+  of every stored row's `bytes` in any state, against item 8's free 10
+  GB-month. R2's pricing page does not say which GB it means
+  ([R2 pricing](https://developers.cloudflare.com/r2/pricing/), read
+  2026-09-30), so the page takes the smaller, 10^9 bytes, and runs out early
+  rather than late. The sum reads every row, about 11,000 at the allowance,
+  against D1's 5 million a day. It counts rows, so objects a refused reject
+  left in the bucket, which R2 still bills, are in the log and not in the
+  figure.
+- **Clips are not in the queue yet.** Every statement names `kind = 'photo'`,
+  so a clip's id posted to a press changes nothing; the clip story, #198, adds
+  them.
 
 ## The two-presentation rule
 

@@ -13,10 +13,13 @@
  * or script. Every URL is root-relative, as on every photos page.
  *
  * #152 added the invite-code page, adminCodePage(), and its script. #153 added
- * the albums page, adminAlbumsPage(), which needs no script.
+ * the albums page, adminAlbumsPage(), which needs no script. #156 added the
+ * approval queue, adminQueuePage(), and its script, and the home's counts.
  */
 import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
+import { CAPTION_MAX } from './photos.js';
+import { FREE_STORAGE_BYTES } from './queue.js';
 
 const HEADER = String.raw`<header class="site-header">
   <div class="wrap header-inner">
@@ -40,7 +43,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=e9ccfb2700">
+<link rel="stylesheet" href="/css/site.css?v=7aebe7cc2a">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -86,8 +89,35 @@ ${FOOTER}
 `;
 }
 
-/** The admin home for the owner signed in as `email`. */
-export function adminHome(email) {
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** How many photos wait, as the admin home says it. */
+export function waitingText(waiting) {
+  if (waiting === 0) return 'No photo is waiting for approval.';
+  return `${plural(waiting, 'photo is', 'photos are')} waiting for approval.`;
+}
+
+/**
+ * The storage the stored photos take, against the free allowance #148
+ * recorded (lib/queue.js, FREE_STORAGE_BYTES). Decimal units, as the
+ * allowance is read: KB under a megabyte, MB under a gigabyte, then GB.
+ */
+export function storageText(bytes) {
+  // The unit is chosen after rounding, so 999,500 bytes reads 1 MB, never
+  // 1000 KB (#156's review).
+  const kb = Math.round(bytes / 1e3);
+  const mb = Math.round(bytes / 1e6);
+  const used = kb < 1000 ? `${kb} KB` : mb < 1000 ? `${mb} MB` : `${(bytes / 1e9).toFixed(2)} GB`;
+  const share = (bytes / FREE_STORAGE_BYTES) * 100;
+  const text = `Storage used: ${used} of the free ${FREE_STORAGE_BYTES / 1e9} GB (${share.toFixed(1)}%).`;
+  return bytes > FREE_STORAGE_BYTES ? `${text} R2 bills what is over it every month.` : text;
+}
+
+/**
+ * The admin home for the admin signed in as `email`. `summary` is
+ * lib/queue.js's queueSummary(): how many photos wait, and the bytes stored.
+ */
+export function adminHome(email, { waiting, bytes }) {
   const items = SECTIONS.map(({ href, name, what }) =>
     `      <li><a href="${href}">${escapeHtml(name)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   return adminPage({
@@ -97,6 +127,12 @@ export function adminHome(email) {
     <p class="eyebrow">Admin</p>
     <h1>Photo site admin</h1>
     <p class="lede">Signed in as ${escapeHtml(email)}.</p>
+  </section>
+
+  <section class="wrap" aria-labelledby="admin-now">
+    <h2 id="admin-now">At a glance</h2>
+    <p>${waitingText(waiting)}</p>
+    <p>${storageText(bytes)}</p>
   </section>
 
   <section class="wrap" aria-labelledby="admin-sections">
@@ -231,8 +267,6 @@ export function adminCodePage({ current, site, unchanged = null }) {
 }
 
 // ---- /admin/albums (#153) ----------------------------------------------
-
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // What the page says after a press. Every write in functions/api/admin/albums/
 // answers 303 back to the page with ?done= or ?error=, and &album= naming the
@@ -378,6 +412,179 @@ export function adminAlbumsPage({ albums, notice = '' }) {
     <p>These take no photos. Their approved photos stay public.</p>
     ${albumList(closed, 'No album is closed.')}
   </section>
+</main>`,
+  });
+}
+
+// ---- /admin/queue (#156) -----------------------------------------------
+
+// The queue's script, stamped by hand as CODE_SCRIPT is.
+// test/queue.test.js fails until the ?v= is the script's own sha256.
+export const QUEUE_SCRIPT = '<script src="/js/admin-queue.js?v=d888c4fa39" defer></script>';
+
+// What the queue says after a press. Every press in
+// functions/api/admin/queue/ answers 303 back with ?done= or ?error=, and a
+// photo's id or a count; anything else in the address bar is ignored, so a
+// crafted link can show only a known sentence and a number.
+const QUEUE_ERRORS = {
+  form: 'Nothing was changed: the press did not say which photos it was for. Reload the page and press again.',
+  gone: 'No photo was approved or rejected: those photos are no longer waiting, so another admin may have got to them first.',
+  unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+};
+
+/** The notice for the queue's query string, as HTML, or '' for none. */
+export function queueNotice(params) {
+  const count = (name) => (/^[1-9][0-9]{0,14}$/.test(params.get(name) ?? '') ? Number(params.get(name)) : null);
+  const photo = count('photo');
+  const n = count('n');
+  const kept = count('kept');
+  const unsaved = count('unsaved');
+  const done = params.get('done');
+  const error = params.get('error');
+  let text = null;
+  if (done === 'approved' && (photo || n)) {
+    text = photo ? `Approved photo ${photo}.` : `Approved ${plural(n, 'photo', 'photos')}.`;
+  } else if (done === 'rejected' && (photo || n)) {
+    text = photo
+      ? `Rejected photo ${photo}. It is deleted, with its three sizes.`
+      : `Rejected ${plural(n, 'photo', 'photos')}. They are deleted, with their three sizes.`;
+    if (kept) text += ` The storage did not delete the files of ${plural(kept, 'photo', 'photos')}; the log names each one's folder.`;
+  } else if (done === 'saved') {
+    text = n ? `Saved ${plural(n, 'caption', 'captions')}.` : 'No caption had changed.';
+  } else if (error === 'caption' && photo) {
+    // Only a browser without the page's script can send one (lib/queue.js,
+    // readPress), and the reload shows the stored captions, so it says so.
+    text = `Nothing was changed: the caption typed for photo ${photo} was over ${CAPTION_MAX} characters. The captions typed in that batch were not saved, so type them again, keeping that one to ${CAPTION_MAX}.`;
+  } else if (Object.hasOwn(QUEUE_ERRORS, error)) {
+    text = QUEUE_ERRORS[error];
+  }
+  if (text && unsaved && (done || error === 'gone')) {
+    text += ` ${plural(unsaved, 'caption was', 'captions were')} not saved: ${unsaved === 1 ? 'its photo was' : 'their photos were'} approved after this page was loaded.`;
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+const photoUrl = (id, size) => `/api/admin/photos/${id}/${size}`;
+
+// One stored size as an <img>, at the dimensions the row records, so the page
+// does not shift as each picture arrives.
+function sizeImage(photo, size, lazy) {
+  const { width, height } = photo.sizes[size];
+  return `<img src="${photoUrl(photo.id, size)}" width="${width}" height="${height}" alt="Photo ${photo.id} at ${size} size"${lazy ? ' loading="lazy"' : ''}>`;
+}
+
+// A photo: the screen size large enough to see a face, then the grid and the
+// full, which the public sees (#157), smaller beside each other. Each links
+// to itself, to open alone. The owner's choice at #156's pickup: all three in
+// view, so a swapped picture shows without a tap. Not chosen: the grid and
+// full as links only, or all three at one size.
+function waitingPhoto(photo, formId, first) {
+  const { id } = photo;
+  const size = (name, label) => `<figure>
+              <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
+              <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
+            </figure>`;
+  return `<li class="waiting" id="photo-${id}">
+          <h3>Photo ${id}</h3>
+          <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}</p>
+          <a class="waiting-screen" href="${photoUrl(id, 'screen')}">${sizeImage(photo, 'screen', !first)}</a>
+          <div class="waiting-sizes">
+            ${size('grid', 'Grid')}
+            ${size('full', 'Full')}
+          </div>
+          <p class="field">
+            <label for="caption-${id}">Caption for photo ${id}</label>
+            <input id="caption-${id}" name="caption-${id}" type="text" autocomplete="off" value="${escapeHtml(photo.caption ?? '')}">
+          </p>
+          <p class="actions">
+            <button type="submit" class="button" formaction="/api/admin/queue/approve" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>
+            <button type="button" class="button button-quiet" data-reject="${id}" data-form="${formId}" aria-label="Reject photo ${id}">Reject</button>
+          </p>
+        </li>`;
+}
+
+// A batch: one form, whose action and first button save its captions, so
+// Enter in a caption field saves rather than approving the first photo. Every
+// other button in it saves them too (lib/queue.js). "Approve all" and "Reject
+// all" are left out of a batch of one, where they would repeat its photo's.
+// A batch over lib/queue.js's PART_PHOTOS comes in parts, each one of these,
+// and its "all" means the part.
+function batchSection(batch, total) {
+  const index = batch.number;
+  const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
+  const n = batch.photos.length;
+  // The batch is a UUID wherever the upload route wrote it (lib/photos.js,
+  // isBatch), but the column has no CHECK and later stories add writers
+  // (#192, #198), so it is escaped here like any stored text (security-audit
+  // at #156's review, SA-1).
+  const id = escapeHtml(batch.id);
+  const formId = `${id}-form`;
+  const title = escapeHtml(batch.album.title);
+  const all = n > 1 ? `
+        <button type="submit" class="button" formaction="/api/admin/queue/approve" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>
+        <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
+  // Labelled by the facts as well as the title: two batches sent to one
+  // album would otherwise be two regions with one name.
+  return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
+    <h2 id="${id}-title">${title}</h2>
+    <p class="batch-facts" id="${id}-facts">Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>
+    <form method="post" action="/api/admin/queue/captions" id="${formId}" class="batch-form">
+      <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
+      <input type="hidden" name="anchor" value="${id}">
+      <p class="actions">
+        <button type="submit" class="button button-quiet">Save captions</button>${all}
+      </p>
+      <ul class="queue">
+        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0)).join('\n        ')}
+      </ul>
+    </form>
+  </section>`;
+}
+
+/**
+ * /admin/queue (#156). `batches` is lib/queue.js's waitingBatches(), oldest
+ * first; `notice` is queueNotice()'s HTML.
+ *
+ * Its first line is the media-release reminder (epic #147, D5): the owner
+ * knows the families who opted out, and checks every photo against them here.
+ *
+ * Rejecting is a form post from the one native <dialog> at the end of the
+ * page. A "Reject" or "Reject all" button only opens it
+ * (public/js/admin-queue.js), and points its confirm button at that batch's
+ * form, so only the confirm button posts. Cancel comes first, so Enter in the
+ * dialog cancels, and it takes the focus when the dialog opens. The dialog
+ * sits after every batch, so no batch form's first button is its confirm.
+ */
+export function adminQueuePage({ batches, notice = '' }) {
+  const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
+  // A batch in parts is several entries with one number.
+  const total = new Set(batches.map((batch) => batch.number)).size;
+  const summary = waiting
+    ? `${plural(waiting, 'photo', 'photos')} in ${plural(total, 'batch', 'batches')}, oldest first.`
+    : 'No photo is waiting. What parents send appears here, oldest first.';
+  const list = batches.map((batch) => batchSection(batch, total)).join('\n\n  ');
+  return adminPage({
+    title: 'Waiting for approval',
+    head: QUEUE_SCRIPT,
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Waiting for approval</h1>
+    <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
+    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>${notice}
+    <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
+  </section>
+${list ? `\n  ${list}\n` : ''}
+  <dialog id="reject-dialog" class="confirm" aria-labelledby="reject-title">
+    <form method="dialog">
+      <h2 id="reject-title">Reject this photo?</h2>
+      <p>A rejected photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
+      <p class="actions">
+        <button type="submit" class="button" autofocus>Cancel</button>
+        <button type="submit" class="button button-accent" id="reject-confirm" formaction="/api/admin/queue/reject" formmethod="post" name="reject">Reject</button>
+      </p>
+    </form>
+  </dialog>
 </main>`,
   });
 }
