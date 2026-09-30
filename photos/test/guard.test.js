@@ -227,10 +227,13 @@ for (const file of admin) {
       assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an upload session opened it`);
     });
     test(`${method} ${routePath(file)} with the owner's Access token: past the guard`, async (t) => {
-      // The control, as above: the 403s come from the guard.
+      // The control, as above: the 403s come from the guard. A route with a
+      // [param] in its path names a thing this harness never made (#156's
+      // photo sizes), so its own 404 is the route answering, past the guard.
       t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
       const res = await call(file, method, undefined, await ownerToken());
-      assert.ok(res.status < 400, `functions/${file} answered ${res.status} to the owner`);
+      const reached = res.status < 400 || (file.includes('[') && res.status === 404);
+      assert.ok(reached, `functions/${file} answered ${res.status} to the owner`);
     });
     if (SAFE.includes(method)) continue;
     // A write needs the site's own Origin as well as the owner (#152), so a

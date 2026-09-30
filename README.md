@@ -471,14 +471,40 @@ photo site, item 14.
   stored photo in a UTC day (429, with `Retry-After`). An upload that fails after
   those checks leaves nothing in the bucket and does not count against the cap.
 - **If the log says** `bucket did not delete photos/<key>/ after a failure`,
-  objects were left in the bucket with no row. Delete them by that prefix.
+  or `after a reject` (below), objects were left in the bucket with no row.
+  Delete them by that prefix.
 - **The share page sends them** (#155). `/share/` makes each photo's three
   JPEGs on the phone as soon as it is chosen, and sends three at a time. A HEIC
   the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
   item 15 has the decisions. To try it locally, open the invite link from
   `/admin/code`, add an album on `/admin/albums`, and choose photos.
-- **To look at what is waiting** before the approval page exists (#156):
-  `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT id, album_id, batch, sent_at, caption FROM photos WHERE state = 'pending' ORDER BY sent_at"`.
+
+### Approving
+
+Nothing is public until an admin approves it on `/admin/queue` (#156), behind
+the same Access sign-in as the code and the albums. The admin home says how
+many photos are waiting and how much of R2's free 10 GB the stored photos take.
+`CLAUDE.md`, The photo site, item 16 has the decisions.
+
+- **Each batch is one press of Send**, oldest first, with its album, when it
+  was sent and how many photos it holds. A batch over 200 photos comes in parts
+  of 200, and each part's Approve all and Reject all mean that part. Every
+  photo shows its screen size large and its grid and full sizes beside it; each
+  opens alone when tapped. Check each against the families who opted out of the
+  media release.
+- **Every button in a batch saves the captions typed in it.** Clear a caption
+  to publish none; a caption stops at 200 characters. **Save captions** saves
+  them alone, and Enter in a caption field presses it. A caption typed for a
+  photo someone approved after the page loaded is not saved, and the page says
+  so.
+- **Approve** or **Approve all** approves photos, which is what the public
+  albums show once #157 builds them. **Reject** or
+  **Reject all** asks first, then deletes each photo's row and its three files
+  for good. Rejecting needs JavaScript.
+- **Approve all and Reject all act on the photos the page showed.** A photo
+  sent into the batch after the page loaded keeps waiting.
+- The pictures come from `GET /api/admin/photos/<id>/<size>` (`grid`, `screen`
+  or `full`), which answers only to an admin.
 
 ## The push guard
 

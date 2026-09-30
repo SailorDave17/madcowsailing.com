@@ -8,7 +8,8 @@
 // takes time, so code that stops waiting at the first failure (Promise.all)
 // and deletes straight away finds nothing yet to delete, and what lands
 // after stays behind where a test can see it. `failDelete` makes delete()
-// reject and delete nothing.
+// reject and delete nothing, and a delete of more than 1,000 keys rejects,
+// as R2's does.
 //
 // `idle()` waits until every put started so far has landed or failed. A test
 // asserting that nothing is left must await it first: a route that answers
@@ -47,7 +48,12 @@ export function r2({ failPut = () => false, failDelete = false } = {}) {
     },
     async delete(keys) {
       if (failDelete) throw new Error('bucket unreachable');
-      for (const key of [keys].flat()) objects.delete(key);
+      const list = [keys].flat();
+      // As R2 does: "Up to 1000 keys may be deleted per call" (Workers R2 API
+      // reference, read 2026-09-30). A stand-in taking any number could not
+      // disagree with code that forgot it (#156's review).
+      if (list.length > 1000) throw new Error(`R2 deletes at most 1,000 keys a call, not ${list.length}`);
+      for (const key of list) objects.delete(key);
     },
   };
 }

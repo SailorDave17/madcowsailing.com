@@ -15,13 +15,15 @@ import { FileSystemConfigLoader, HtmlValidate } from 'html-validate';
 import { SECTIONS, adminHome } from '../lib/admin-page.js';
 import { onRequestGet as home } from '../functions/admin/index.js';
 import { onRequestGet as session } from '../functions/api/admin/session.js';
+import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
 const block = (html, tag) => html.match(new RegExp(`<${tag}[\\s>][\\s\\S]*?</${tag}>`))?.[0];
 
 const EMAIL = 'owner@example.com';
-const page = adminHome(EMAIL);
+const EMPTY = { waiting: 0, bytes: 0 };
+const page = adminHome(EMAIL, EMPTY);
 
 // Where the gate would find the page if it were a file: photos/, so the
 // validator reads photos/.htmlvalidate.json and the root config above it.
@@ -44,7 +46,7 @@ test('the admin home says who is signed in', () => {
 });
 
 test('the email is escaped, so a token cannot put markup on the page', () => {
-  const html = adminHome('a<b>"c\'&@example.com');
+  const html = adminHome('a<b>"c\'&@example.com', EMPTY);
   assert.match(html, /Signed in as a&lt;b&gt;&quot;c&#39;&amp;@example\.com\./);
   assert.doesNotMatch(html, /a<b>/);
 });
@@ -102,7 +104,9 @@ test('its stylesheets, fonts and icon are the share page\'s, stamps included', (
 });
 
 test('GET /admin answers the page, as HTML, never cached', async () => {
-  const res = home({ data: { owner: { email: EMAIL } } });
+  // An empty database: nothing waiting, nothing stored (#156's counts are
+  // held in test/queue.test.js).
+  const res = await home({ data: { owner: { email: EMAIL } }, env: { DB: d1() } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Type'), 'text/html; charset=utf-8');
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
