@@ -37,9 +37,10 @@ A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
 #149 built its holding page, its Cloudflare project and its gate. #150 added the
 invite code and the upload session, #151 the admin area's lock and its
 home page, #152 the admin page where the code is created and rotated,
-#153 the albums the owner keeps for each regatta and practice, and #154 the
+#153 the albums the owner keeps for each regatta and practice, #154 the
 upload API, which stores each photo's three JPEGs with their metadata removed,
-waiting for approval.
+waiting for approval, and #155 the share page that makes those JPEGs on the
+phone and sends them.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access, and the domain serves nothing until a release carries `photos/`
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
@@ -121,6 +122,7 @@ story, this is the paragraph to check.*
 │   ├── linkcheck.py          Resolves every internal href AND src against disk. In the gate.
 │   ├── assetver.py           Writes ?v=<hash> onto every shared and site CSS/JS URL. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
+│   ├── h2proxy.mjs           HTTP/2 in front of wrangler, to read the photo site's floor locally (#155). Not in the gate.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
 ├── docs/
@@ -933,6 +935,73 @@ every answer are in the route's header comment.
   Pillow quality-100 file (1.75 MiB) 3.1 ms, against the free plan's 10 ms a request.
   The edge's own reading per route is #157's (item 8's CPU row).
 
+### 15. The share page's sending
+
+**Built in #155, 2026-09-29.** `public/js/share.js` joins (item 11), then sends:
+the link, "Add photos", the photos, "Send", with nothing typed. `test/share.test.js`
+runs the script in `node:vm` against stand-ins for the DOM, the canvas and the
+image decoder, and sends through the real routes into SQLite, so the page and
+`POST /api/upload` are tested as one contract.
+
+- **Each photo is made ready as soon as it is chosen, one at a time.** Its capture
+  time is EXIF's DateTimeOriginal with its offset, else DateTimeDigitized, else the
+  file's date, in seconds. DateTime is not read, because an edit moves it. Without an
+  offset the time is read in the phone's own zone. The photo is decoded with
+  `createImageBitmap`, and `<canvas>` makes full (2560), screen (1600) and grid
+  (480) as JPEG, each drawn from the size above it. It tries quality 0.85, then lower,
+  until each size is under its cap. Every size is worked out from the photo's own
+  shape, never from the size above, so the three always pass `sizesAgree`. That was
+  checked over a million random shapes. Not chosen: making them when Send is
+  pressed, which makes the parent wait after Send and tells them about a HEIC too
+  late; or several at once, since a phone holds one photo's pixels at a time this way.
+- **Upright, whatever the browser does.** *Measured in Chrome 154:*
+  `createImageBitmap` turns all eight EXIF orientations upright by itself, and
+  `imageOrientation: 'none'` changes nothing. So the page asks once, of a 2 × 1 JPEG
+  marked "turn 90°", and turns a photo itself only where the browser did not. A
+  photo turned by both would arrive on its side. With Chrome made to decode as a
+  browser that does not turn would (EXIF taken out before it decodes), all eight
+  arrived upright, read from their stored pixels. So did two portraits the owner
+  sent from a Samsung (Chrome 154, Android 16).
+- **No more than three upload at once, one batch per press of Send.** Try again
+  sends a failed photo into the album chosen now, in its first batch. A 401 (the
+  invite ended) or a 429 (the day's 500) fails every queued photo at once rather
+  than sending each to be refused. Opening the new invite link in the same tab
+  joins without a reload (the `hashchange` listener), so the photos are still there
+  to try again.
+- **An album closed mid-send (409) stops every queued photo bound for it**, and
+  only those: a later Send or a Try again may have queued photos for another album.
+  The list then reloads and **preselects nothing** (owner, #155's review), so the
+  photos that failed go only to an album the parent chooses. Not chosen: keeping the
+  preselect, which quietly filed today's photos into last Saturday's album on one
+  tap of Try again; or preselecting only a same-day twin.
+- **A photo the phone cannot hand over says so**, apart from one it cannot open.
+  On the owner's Samsung, six stale picker entries for files just replaced were
+  refused with the format wording, whose advice (add a JPEG copy) was wrong for
+  them. The page now reads the file's first bytes before decoding anything.
+- **An album's day is shown in UTC.** A date with no time of day is a calendar
+  day: made at local midnight, or shown in the phone's zone, it slips a day on one
+  side of UTC. The tests give the page a fixed clock at a moment when Chatham's date
+  is a day ahead of UTC's, and show dates in a zone west of UTC by default, so a slip
+  either way fails every run (#155's review measured the old pin missing both).
+- **A caption is counted in characters, as the server counts it, with no
+  `maxlength`.** Browsers count `maxlength` in UTF-16 units, where an emoji is two.
+  WebKit has counted it in whole symbols, which would let through a caption the
+  server refuses. Line breaks and tabs are sent as spaces.
+- **Remove**, until a photo starts sending. The owner added it at the pickup. The
+  story's criteria had no way to take a chosen photo back out.
+- **Leaving while photos are queued or sending asks first** (`beforeunload`), and
+  a line says to keep the page open. Measured in desktop Chrome 154. Whether
+  iPhone Safari shows that prompt was not measured; it is read with the iPhone
+  check (#155's criterion 7).
+- **The summary is written once per change.** Everything that changes in one turn
+  is written to the live region together, and only when its words change. So a
+  screen reader hears a photo sent, not every step.
+- **The floor is read through `tools/h2proxy.mjs`** (Quality floor, the owner's
+  decision at #155's review). Through it the page read 96, 97 and 96 with
+  accessibility 100, against `develop`'s 97, 97 and 97. The point it costs is
+  `share.js`'s size, measured by swapping the branch's script for `develop`'s: the
+  page's CSS and markup cost nothing.
+
 ## The two-presentation rule
 
 A sailing app appears in three places, and the text must be different in each.
@@ -1046,8 +1115,10 @@ index needs ≥ 90 performance while two trip covers share its first screen.**
 With one trip it read 95 on a single 58 KB cover, with no margin. The second
 trip put a second cover on a phone's first screen, and every lever that keeps
 the pictures as they are read 94 locally: 4:3 cover derivatives, a 640 rung,
-and every split of `loading` and `fetchpriority` hints. Production reads about
-a point below a local serve. 95 was reached only by dropping the covers to
+and every split of `loading` and `fetchpriority` hints. Production was expected
+to read about a point below that local serve, and at #96's step 9 it read a
+point above (96 against 95, 94 and 94), so the offset is per page: measure it
+rather than apply it. 95 was reached only by dropping the covers to
 quality 50. Accessibility stays at 100. The evidence is on #96 and its PR. Ask
 again if a change takes the page below 90.
 
@@ -1063,6 +1134,20 @@ first screen of both layouts loads eager. The evidence is on #53 and its PR.
 Each trip page's number is in `tools/quality_floor.mjs`'s `PERF_FLOORS`, keyed by
 file, so a new trip is judged against 95 until it has an entry there. Ask again
 if a change takes a trip page below 85.
+
+**The photo site's floor is read on a local server over HTTP/2, by owner
+decision (2026-09-29, #155).** `wrangler pages dev` serves HTTP/1.1, and
+Lighthouse's simulation charges a page for that: the share page as shipped read
+93–94 under wrangler, 98–99 on production and 96–97 through a local HTTP/2
+proxy, `tools/h2proxy.mjs`, whose header has the recipe. So a photo page meets
+the performance floor when it reads ≥ 95 through that proxy. A reading under
+plain wrangler is compared with `develop`'s under wrangler, never with 95.
+Accessibility, 360 px, focus and reduced motion are read as on the other sites.
+Not chosen: reading the Access-protected `develop` preview after each merge,
+which comes after the review it should inform; and holding plain wrangler to
+95, which the page as shipped cannot reach. A compressing proxy was tried and
+moved nothing, since Lighthouse counts decoded bytes. Ask again if production
+and the proxy stop agreeing.
 
 ## Conventions
 
