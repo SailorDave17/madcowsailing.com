@@ -40,3 +40,8 @@
 # lib/public-page.js: this file never applies to them.
 /share/
   Cache-Control: public, max-age=0, must-revalidate
+
+# The policy (#159), served at /policy from policy.html. A correction to it
+# must reach a returning reader at once.
+/policy
+  Cache-Control: public, max-age=0, must-revalidate

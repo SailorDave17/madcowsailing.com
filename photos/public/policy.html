@@ -3,27 +3,59 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Send photos — Mad Cow Sailing photos</title>
-<meta name="description" content="Send the team your regatta and practice photos from the invite link you were given.">
+<title>Who sees these photos — Mad Cow Sailing photos</title>
+<meta name="description" content="Who can see and send the team's photos, what the site keeps, and how to have a photo taken down.">
 
-<!-- Story #150: the share page, where an invite link lands. The link is
-     /share/#code=<code>. share.js reads the code from the fragment, which a
-     browser never sends to a server, takes the fragment out of the address
-     bar, and trades the code for an upload session at POST /api/join.
-     #155 added sending photos below the join step, and #159 adds the policy
-     link beside it.
+<!-- Story #159: the site's policy, served at /policy. It is a static file, so
+     it costs no Function request (CLAUDE.md, The photo site, item 2), and
+     public/_headers gives it the site's headers and a Cache-Control that
+     lets a correction reach a returning reader.
 
-     The site is never indexed (epic #147, D6). Every response carries
-     X-Robots-Tag: noindex, set by public/_headers for static files and by
-     functions/_middleware.js for everything a Function answers. The meta tag
-     below says the same for a reader of the HTML alone. There is no
-     rel="canonical" and there are no og: tags: a canonical names the URL to
-     index, and a page that is never indexed has none. robots.txt allows
-     crawling on purpose; it says why.
+     EVERY claim on this page is traceable to the code or to an owner
+     decision, listed here. When either changes, change the page with it:
 
-     Every URL here is ROOT-RELATIVE, because pages on this site are served at
-     any depth, and a relative URL resolves against the path that was asked
-     for (the depth trap #7 and #10 hit on the sailing site). -->
+       Anyone sees an approved photo     D1; lib/public.js reads approved
+                                         rows only (#157)
+       Anyone can download one           the album page's Download link (#157)
+       Search engines are asked not to   X-Robots-Tag: noindex in _headers and
+       list it                           lib/headers.js, and the meta below (D6)
+       Only the invite link sends        requireUploadSession in lib/session.js
+                                         (#150)
+       Who the link is for               owner, at #159's pickup, 2026-09-30
+       90 days; a new link ends it       CLAUDE.md, The photo site, item 11
+                                         (#150, #152)
+       Every photo and caption checked   D2, D5, D8; the approval queue (#156)
+       against the media release         and README.md, Approving. It states
+                                         the check, not a guaranteed outcome
+                                         (owner, at #159's review)
+       Turned down means deleted         rejectPhotos in lib/queue.js (#156)
+       It comes down on request          README.md, Taking a photo down by
+                                         hand, until #158 builds the button
+       Location and camera details       public/js/share.js draws each photo
+                                         anew on a canvas (#155), and
+                                         lib/jpeg.js strips every metadata
+                                         segment on arrival (#154)
+       What is kept for a photo          migrations/0005_photos.sql
+       A daily count per phone           upload_counts in 0005; DAILY_UPLOADS
+                                         in lib/photos.js (#154)
+       Failed joins, up to a set number  FAILURE_BUDGET_PER_HOUR in
+       each hour                         functions/api/join.js (#177)
+       The scrambled address, an hour    migrations/0002_invite_code.sql and
+                                         functions/api/join.js (#150). Deleted
+                                         by the next join after the hour, so
+                                         it has no upper bound
+       No set limit                      owner, at #159's pickup, 2026-09-30
+       The address for removals          owner, at #159's pickup, 2026-09-30
+
+     Two stories will change this page, and each carries it as a criterion:
+     #158 ("Remove this photo") adds the link, what a taken-down photo keeps
+     (its copies, hidden_at and hidden_note) and how long its rate limit
+     keeps a scrambled address; #192 (a coach's Access sign-in) changes who
+     can send, the lede, and what is kept for a coach. Until then the page
+     names neither, so it is true on every release.
+
+     The site is never indexed (epic #147, D6): no rel="canonical" and no og:
+     tags, as on every photos page. Every URL here is ROOT-RELATIVE. -->
 <meta name="robots" content="noindex">
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
@@ -38,7 +70,6 @@
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
 <link rel="stylesheet" href="/css/site.css?v=d2b15643dc">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
-<script src="/js/share.js?v=ccddf45478" defer></script>
 </head>
 
 <body>
@@ -81,53 +112,107 @@
 
 <main id="main">
 
-  <!-- The join step (#150). The status line is a live region: share.js
-       replaces its text with each answer from /api/join, and a screen reader
-       reads the new text out. What it says for each answer is in share.js.
-       The text below is what a visitor sees before the script has run, or
-       when they arrive with no code and no session. -->
+  <!-- The nav is the way back to the albums. The lede ends with the removal
+       address, so the parent who wants a photo down finds it on the first
+       screen at 360 px rather than at the foot of the page (owner, at #159's
+       design review). -->
 
   <section class="wrap page-head">
     <p class="eyebrow">Photos</p>
-    <h1>Send photos</h1>
-    <p class="lede" id="join-status" role="status">Open the invite link you were
-      sent to start sending photos to the team.</p>
-    <noscript><p>This page needs JavaScript to open an invite link. Turn it on,
-      then open the link again.</p></noscript>
-    <p><button type="button" class="button" id="join-retry" hidden>Try again</button></p>
-    <!-- #159: the policy, beside the join step, so a sender can read who
-         sees a photo before opening the invite or sending anything. It is
-         always shown: share.js never touches it. -->
-    <p><a href="/policy">Who sees these photos</a></p>
+    <h1>Who sees these photos</h1>
+    <p class="lede">Anyone can look at a photo here once it is approved. Only
+      people with the team's invite link can send one, and nothing shows until
+      one of the site's admins has checked it. To have a photo taken down,
+      email <a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>.</p>
+  </section>
 
-    <!-- Sending (#155), shown once this phone holds a session. share.js
-         fills the album list from GET /api/albums/open and preselects one,
-         makes each chosen photo's three JPEGs, and adds one list item per
-         photo. "Add photos" is the file input's label, styled as a button:
-         the input stays in the keyboard order and names itself by it, and
-         the label shows the focus ring. The summary is a second live region,
-         written only when a photo is sent or fails. Send is the page's one
-         accent. -->
-    <div class="sender" id="sender" hidden>
-      <p class="field">
-        <label for="album">Album</label>
-        <select id="album">
-          <option value="">Loading albums…</option>
-        </select>
-      </p>
-      <p id="album-note" hidden></p>
-      <p><button type="button" class="button" id="album-again" hidden>Check again</button></p>
-      <p class="actions">
-        <label class="button pick">Add photos<input type="file" id="photo-input" accept="image/*" multiple></label>
-        <button type="button" class="button button-accent" id="send" hidden>Send</button>
-      </p>
-      <p id="send-status" role="status"></p>
-      <p id="keep-open" hidden>Keep this page open until every photo says Sent.</p>
-      <!-- #159: captions are public once a photo is approved (D8). -->
-      <p>A caption shows beside its photo once the photo is approved, so leave
-        children's full names out of it.</p>
-      <ol class="photo-list" id="photo-list"></ol>
-    </div>
+  <section class="wrap policy">
+    <h2>Who can see a photo</h2>
+    <p>Anyone who visits photos.madcowsailing.com, with no sign-in. They see
+      every approved photo and its caption, and they can download a full-size
+      copy.</p>
+    <p>Every page and every photo asks search engines not to list it. A search
+      engine that follows the request leaves the photos out of its results,
+      but it is a request, not a lock.</p>
+    <p>A photo waiting to be checked is never shown, and neither is one that
+      was turned down.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>Who can send a photo</h2>
+    <p>Only someone holding the team's invite link, which is for the team's
+      parents, sailors and coaches. Opening the link on a phone lets that
+      phone send photos for 90 days, with no account, and no name or email
+      address. When the link is changed, every phone that opened the old one
+      stops sending until it opens the new one.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>Every photo is checked first</h2>
+    <p>Nothing sent shows up straight away. One of the site's admins looks at
+      each photo and its caption, and checks it against the media release
+      families sign when they register with the team. The admin turns down
+      any photo they recognize as showing a sailor whose family opted out,
+      and can edit or clear a caption before the photo goes up.</p>
+    <p>A check can miss one. If a photo is up that should not be, email the
+      address above and it comes down.</p>
+    <p>A photo that is turned down is deleted for good.</p>
+    <p>A caption shows beside its photo once the photo is approved, so leave
+      children's full names out of it.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>Location and camera details stay on the phone</h2>
+    <p>The page you send from makes three smaller copies of each photo on your
+      phone, the largest at most 2,560 pixels on its long side, and sends only
+      those. The copies carry no location, no camera make or model, and none
+      of the original's other hidden details. When a photo arrives, the site strips any such
+      details again, in case a copy carried some. Your original stays on your
+      phone as it was.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>What the site keeps</h2>
+    <p>For each photo sent:</p>
+    <ul>
+      <li>three copies of it, sized for the album page, the screen and
+        download;</li>
+      <li>its caption, if it has one;</li>
+      <li>the album it was sent to;</li>
+      <li>when it was taken, and when it was sent;</li>
+      <li>which invite link it was sent with, and when that phone opened
+        it.</li>
+    </ul>
+    <p>No names, no accounts and no email addresses are kept for anyone who
+      sends photos. The phone keeps one small cookie, which is what lets it
+      send for 90 days.</p>
+    <p>The site also counts how many photos each phone sends in a day, so no
+      phone can send more than 500. The count is kept under the invite link
+      and the time the phone opened it, and is cleared the next day that
+      phone sends.</p>
+    <p>An invite link carrying an old or wrong code is refused. So that nobody
+      can try code after code, the site records failed attempts, up to a set
+      number each hour. It keeps the network address each attempt came from
+      only in a scrambled form, made with a secret key, so it can match a
+      repeat attempt without storing the address. An attempt counts for an
+      hour, and is deleted the next time anyone opens an invite link after
+      that.</p>
+    <p>The site runs on Cloudflare, which carries every visit to it. This page
+      covers what the site itself keeps.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>How long photos stay</h2>
+    <p>There is no set limit. An approved photo stays up until it is taken
+      down, when someone asks or when an admin decides to.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>Having a photo taken down</h2>
+    <p>Email <a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>
+      with the photo attached, or its link copied from the album page. A
+      photo's number in its album can change as other photos are added, so a
+      number alone may point at the wrong one.</p>
   </section>
 </main>
 <!-- ============================================================= FOOTER
