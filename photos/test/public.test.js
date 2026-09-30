@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FileSystemConfigLoader, HtmlValidate } from 'html-validate';
@@ -619,7 +619,13 @@ test('the list, an album page and the unavailable page pass the photo site\'s ht
 });
 
 test('its header and footer are every static page\'s, byte for byte', () => {
-  for (const file of ['404.html', 'share/index.html']) {
+  // Every .html under public/, not a list: a list missed #159's policy page
+  // (its mutation round). assets/ is the build's copy of shared/.
+  const pages = readdirSync(join(ROOT, 'public'), { recursive: true })
+    .map((file) => String(file).replaceAll('\\', '/'))
+    .filter((file) => file.endsWith('.html') && !file.startsWith('assets/'));
+  assert.ok(pages.length >= 3 && pages.includes('policy.html'), pages.join(', '));
+  for (const file of pages) {
     const html = read('public', ...file.split('/'));
     assert.equal(block(TEMPLATE, 'header'), block(html, 'header'), file);
     assert.equal(block(TEMPLATE, 'footer'), block(html, 'footer'), file);

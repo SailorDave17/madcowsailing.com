@@ -41,8 +41,9 @@ home page, #152 the admin page where the code is created and rotated,
 upload API, which stores each photo's three JPEGs with their metadata removed,
 waiting for approval, #155 the share page that makes those JPEGs on the
 phone and sends them, #156 the queue where the owner approves or rejects
-them, and #157 the public album list and album pages, which replaced the
-holding page at `/`.
+them, #157 the public album list and album pages, which replaced the
+holding page at `/`, and #159 the policy at `/policy`, which every page's
+footer links.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
@@ -117,6 +118,8 @@ story, this is the paragraph to check.*
 │   │                         test/text-modules.js first so a .html imports (#157)
 │   └── public/               The served files and nothing else (the output dir)
 │       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
+│       ├── policy.html       /policy: who sees a photo, what is kept, how to have
+│       │                     one taken down (#159). Every page's footer links it
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
@@ -1158,8 +1161,8 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
   page's order, so a browser that ignores the link's `download` attribute
   still saves it named. The grid and screen sizes open in the page.
 - **An album page links back with an "All albums" eyebrow link** (owner, at
-  pickup). The header stays without a nav until a second kind of page needs
-  one (#159). Not chosen: a one-item nav now.
+  pickup). Not chosen: a one-item nav now. #159 added the second kind of page,
+  and with it a two-item nav (item 18); the eyebrow stays.
 - **Every page is `public, max-age=0, must-revalidate`** (#157, criterion 8),
   so an approval or a takedown shows on the next load. Every photo is
   `private, max-age=300` (item 3). A missing photo is a plain `404`,
@@ -1188,6 +1191,88 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
   which is a migration.
 - **The floor is lower for album pages**, ≥ 85 performance (owner,
   2026-09-30, during #157; Quality floor, below).
+
+### 18. The policy
+
+**Built in #159, 2026-09-30, with four owner decisions taken at its pickup,
+one at its design review and five at its `review-fanout`.** `/policy`
+(`public/policy.html`, a static page, so it costs no Function request) says
+who sees a photo, who can send one, how each is checked, what the site keeps,
+for how long, and how to have a photo taken down. The header's nav and every
+page's footer link it, and the share page links it beside the join step.
+
+- **Every claim is traced to its source**, in a table in the page's head
+  comment: the code or the decision that makes it true. A change to either is
+  a change to the page. `test/policy.test.js` holds the page's figures (90
+  days, an hour, 2,560 pixels, 500 a day) to the constants in
+  `lib/session.js`, `functions/api/join.js` and `lib/photos.js`, so a change
+  there fails until the page agrees.
+- **The header has a nav: All albums and Who sees these photos** (owner, at
+  the review). This **overruled** the recommendation, which was to keep the
+  footer link and eyebrow and record "no nav". #157 had left the header
+  without one until a second kind of page needed it, and the Quality floor
+  names a real `<nav>`. It marks no `aria-current`, so all five header copies
+  stay byte for byte the same, which three tests hold. Not chosen: marking
+  the current page, which would need those tests to strip the attribute as
+  the sailing site's hash check does.
+- **The check is described, not promised as an outcome** (owner, at the
+  review). The page says an admin turns down any photo they recognize as a
+  sailor whose family opted out, and that a check can miss one, with the
+  email as the route. Not chosen: "a photo of a sailor whose family opted out
+  is turned down", which approval cannot guarantee
+  (cairn's `memory/projects/madcowsailing-photo-space-2026-09-26.md`: it
+  "cannot see what it enforces"), and any admin can approve, not only the one
+  who knows the list.
+- **A takedown is done by hand until #158** (owner, at the review): README,
+  Taking a photo down by hand, one `wrangler d1 execute` that sets the row
+  `hidden`, which the public routes already answer 404. `test/policy.test.js`
+  runs that statement from README against the real schema. Nothing else on
+  any release hides an approved photo: rejecting deletes pending ones only.
+- **The invite link is for parents, sailors and coaches** (owner, at pickup).
+  Not chosen: parents and coaches, which the story proposed; parents only,
+  D9's end state once coaches sign in through Access (#192).
+- **Photos are kept with no set limit** (owner, at pickup). An approved photo
+  stays until it is taken down. Not chosen: through the season, or a fixed
+  number of years. Pages runs no scheduled job, so either needs a deletion
+  story before the page can promise it.
+- **Removal requests go to dave@madcowsailing.com** (owner, at pickup), the
+  sailing site's address. Not chosen: the hq address, or a new photos@ alias.
+  **The lede gives it**, as well as the section at the foot (owner, at the
+  story's design review): the parent who wants a photo down is the one in a
+  hurry, and the foot of the page sat about 3,400 px down at 360 px. Not
+  chosen: moving the removal section first; leaving it last.
+- **"Remove this photo" is #158's to name** (owner, at pickup). The page gives
+  the email route only, so it is true on any release. Not chosen: naming the
+  link now and holding the promotion until #158 ships. **#158 carries a
+  criterion for the page** (owner, at the review): the link, what a
+  taken-down photo keeps (its copies, `hidden_at` and the free-text
+  `hidden_note`, which 0005 already has, so no file in the trace table changes
+  when #158 fills them), and how long its rate limit keeps a scrambled address.
+- **#192 will make the page wrong**, because a coach sends through Access with
+  no invite link. #192 carries a comment saying so: who can send, the lede,
+  and what is kept for a coach.
+- **The scrambled address counts for an hour and has no upper bound.** It is
+  deleted by the first join after it is an hour old (item 11), and in the
+  off-season that can be months. The page says exactly that. *(This bullet
+  said "kept about an hour" until the review, and so did the pickup comment,
+  which was corrected on the issue.)* The story's criterion asked for "a
+  stated number of days", written before #150 set the window. Not chosen: a
+  delete on a busier route to make a real bound, which spends D1 writes on
+  public requests against item 2's arithmetic.
+- **A removal names the photo by its link or the file, never its number.** A
+  download's `<nnn>` is the photo's place at download time, which moves as
+  earlier-taken photos are approved (the review's finding).
+- **The page lists what the story's list left out**: when a photo was sent,
+  which invite link and session it came through (0005), and the daily count
+  per phone (`upload_counts`). Leaving them out would make a list headed "what
+  the site keeps" wrong.
+- **"One of the site's admins" checks a photo, not "the owner"**, since item
+  12 lets every address in `ADMIN_EMAILS` approve.
+- **A header or footer change is five copies**: `public/404.html`,
+  `public/policy.html`, `public/share/index.html`, `templates/page.html` and
+  `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
+  `test/public.test.js` fail until they agree, and `test/policy.test.js` until
+  each nav and footer links `/policy`.
 
 ## The two-presentation rule
 

@@ -531,6 +531,53 @@ Nothing but an approved photo is ever listed, counted or served.
   served. Edit the head, header or footer there. `tools/assetver.py` stamps it,
   and `tools/linkcheck.py` and `npm run check` read it like any page.
 
+### The policy
+
+`/policy` says who sees a photo, who can send one, what the site keeps and
+how to have a photo taken down (#159). It is a static page,
+`photos/public/policy.html`. Every page's footer links it, and the share page
+links it beside the join step. `CLAUDE.md`, The photo site, item 18 has the
+decisions.
+
+- **It states what the code does.** Its head comment traces every claim to
+  the file or decision behind it, so change the page in the same change as
+  any of them. `npm test` fails if its 90 days, its hour, its 2,560 pixels or
+  its 500 a day stop matching the code.
+- **Two stories will change it**, and each carries that as a criterion. #158
+  ("Remove this photo") adds the link, what a taken-down photo keeps (its
+  copies, `hidden_at` and the free-text `hidden_note`) and how long its rate
+  limit keeps a scrambled address. #192 (a coach's Access sign-in) changes who
+  can send, the lede, and what is kept for a coach.
+- **The header and footer live in five files**: `photos/public/404.html`,
+  `policy.html`, `share/index.html`, `photos/templates/page.html` and
+  `photos/lib/admin-page.js`. The header's nav links the album list and
+  `/policy`, and marks no `aria-current`, so all five stay byte for byte the
+  same. The tests fail until they agree.
+
+### Taking a photo down by hand (until #158)
+
+Until #158 builds "Remove this photo", nothing on the site hides an approved
+photo, and the policy says one comes down when someone emails. So an admin
+does it by hand, from `photos/`, with the D1 token in `photos/.env` (above):
+
+1. Find the photo's id: the number in its link on the album page,
+   `/photos/<id>/screen`. If the sender attached the file instead, open the
+   album and match it by eye.
+2. Hide it:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET state = 'hidden', hidden_at = unixepoch() WHERE id = <id> AND state = 'approved'"
+   ```
+
+3. Read it back. `--command "SELECT id, state FROM photos WHERE id = <id>"`
+   must say `hidden`, and `https://photos.madcowsailing.com/photos/<id>/grid`
+   must answer 404. A browser that already loaded the photo may keep it for 300
+   seconds (`CLAUDE.md`, The photo site, item 3).
+
+Hidden keeps the row and its three copies in the bucket. Whether a takedown
+keeps them is #158's to decide. `photos/test/policy.test.js` runs the step-2
+statement against the real schema, so it fails if the schema stops taking it.
+
 ## The push guard
 
 `githooks/pre-push` refuses a local push to `develop`, `main`, `master` or

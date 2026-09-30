@@ -504,6 +504,28 @@
   .gallery { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
+/* ---- Public: the policy (#159) -------------------------------------- */
+
+/* A page of prose in short sections. They follow each other closely:
+   base.css pads every section of main by --space-7 at both ends, which
+   would leave twice that between two of them. The reset takes every margin
+   and a list's indent, so both are put back here. */
+.policy {
+  padding-block-start: 0;
+}
+
+.policy > * + * {
+  margin-block-start: var(--space-3);
+}
+
+.policy ul {
+  padding-inline-start: var(--space-4);
+}
+
+.policy li + li {
+  margin-block-start: var(--space-1);
+}
+
 /* ---- Footer --------------------------------------------------------- */
 
 .footer-inner {
