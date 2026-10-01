@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Measure the CLAUDE.md quality floor on both PRODUCTION domains and write the
+// Measure the CLAUDE.md quality floor on the three PRODUCTION sites and write the
 // numbers into docs/quality-floor.md, between its generated-block markers.
 //
 //   node tools/quality_floor.mjs                 every page, 3 Lighthouse runs each
@@ -8,6 +8,9 @@
 //   node tools/quality_floor.mjs --base-hq http://127.0.0.1:8765 --base-sailing http://127.0.0.1:8766
 //                                                measure a local serve instead (the
 //                                                negative controls in the doc use this)
+//   node tools/quality_floor.mjs --base-photos http://127.0.0.1:8788 --photos-album 2026-10-04-fall-regatta
+//                                                the photo site somewhere else, and the
+//                                                album page to measure on it (#161)
 //
 // Not wired into CI, on purpose. CLAUDE.md says there is no build pipeline and
 // this is a measurement of the DEPLOYED sites, taken after a promotion, not a
@@ -53,6 +56,14 @@
 // Pages are DERIVED from the tree, not listed here: every .html under hq/ and
 // sailing/ except the copied assets/. A page added to the repo is measured on
 // the next run without anyone editing this file.
+//
+// The photo site is the exception (#161). Its pages are rendered by Functions,
+// so no .html file names them: the tool measures its home, `/`, and one album
+// page, the first album `/` lists unless --photos-album names one. Each is
+// keyed by the Function that renders it, which is what PERF_FLOORS reads. When
+// `/` lists no album, the album page is reported NOT MEASURED and the run exits
+// 1, because a page left out of the run would otherwise read as a page that
+// passed.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -81,6 +92,9 @@ const PERF_FLOORS = {
   'sailing/logs/2025-07-12-put-in-bay/index.html': 85,
   'sailing/logs/2026-07-04-mullett-lake/index.html': 85,
   'sailing/logs/2026-09-19-foundry/index.html': 85,
+  // An album page on the photo site: the photos on its first screen are what
+  // cost, as on the trip pages, and no loading change reached 95 (#157).
+  'photos/functions/albums/[address]/index.js': 85,
 };
 const NARROW = 360;
 const WIDE = 1280;
@@ -106,7 +120,9 @@ const ONLY = opt('--only', null);
 const BASES = {
   hq: (opt('--base-hq', 'https://madcowhq.com')).replace(/\/$/, ''),
   sailing: (opt('--base-sailing', 'https://madcowsailing.com')).replace(/\/$/, ''),
+  photos: (opt('--base-photos', 'https://photos.madcowsailing.com')).replace(/\/$/, ''),
 };
+const PHOTOS_ALBUM = opt('--photos-album', null);
 const SKIP_LH = args.includes('--skip-lighthouse');
 const WRITE = !args.includes('--no-write');
 
@@ -124,7 +140,32 @@ function walk(dir, out = []) {
   return out;
 }
 
-function pages() {
+// The photo site's two pages (see the header). The album's address is read
+// from the home page's own links, so the run measures an album production
+// actually lists; a home page that does not answer stops the run, since
+// nothing about the site could then be said.
+async function photoPages() {
+  const home = { site: 'photos', file: 'photos/functions/index.js', url: BASES.photos + '/' };
+  const album = { site: 'photos', file: 'photos/functions/albums/[address]/index.js' };
+  let address = PHOTOS_ALBUM;
+  if (!address) {
+    const res = await fetch(home.url, { headers: { Accept: 'text/html' } }).catch((e) => {
+      throw new Error(`${home.url} could not be fetched (${e.cause?.code || e.message}), so its album list could not be read`);
+    });
+    if (!res.ok) throw new Error(`${home.url} answered ${res.status}, so its album list could not be read`);
+    const m = (await res.text()).match(/href="\/albums\/([^"/?#]+)\/"/);
+    address = m ? m[1] : null;
+  }
+  if (address) {
+    album.url = `${BASES.photos}/albums/${address}/`;
+  } else {
+    album.url = `${BASES.photos}/albums/`;
+    album.missing = `${home.url} lists no album, so no album page could be measured; pass --photos-album <address> to name one`;
+  }
+  return [home, album];
+}
+
+async function pages() {
   const list = [];
   for (const site of ['hq', 'sailing']) {
     for (const file of walk(join(REPO, site)).sort()) {
@@ -133,6 +174,13 @@ function pages() {
       list.push({ site, file: relative(REPO, file).split(sep).join('/'), url: BASES[site] + path });
     }
   }
+  // Read only when the run can include the photo site, so an --only run of the
+  // other two sites never depends on the photo site answering. A filter that
+  // could match either photo URL counts: part of `<base>/albums/` (which holds
+  // the home URL too), a path under /albums/, or the photo site's host.
+  const wantPhotos = !ONLY || (BASES.photos + '/albums/').includes(ONLY) ||
+    ONLY.includes('/albums/') || ONLY.includes(new URL(BASES.photos).host);
+  if (wantPhotos) list.push(...await photoPages());
   return ONLY ? list.filter((p) => p.url.includes(ONLY)) : list;
 }
 
@@ -639,7 +687,7 @@ function render(results, meta) {
   const name = (rgb) => names[rgb] || rgb;
   const lines = [];
   lines.push(START);
-  lines.push(`_Generated by \`node tools/quality_floor.mjs\` on ${meta.date}. ${SKIP_LH ? 'Lighthouse SKIPPED (--skip-lighthouse)' : `Lighthouse ${meta.lhVersion}, mobile preset, ${meta.runs} run(s) per page, performance = median`}. Bases: ${meta.bases.hq} and ${meta.bases.sailing}. Per-page Lighthouse command:_`);
+  lines.push(`_Generated by \`node tools/quality_floor.mjs\` on ${meta.date}. ${SKIP_LH ? 'Lighthouse SKIPPED (--skip-lighthouse)' : `Lighthouse ${meta.lhVersion}, mobile preset, ${meta.runs} run(s) per page, performance = median`}. Bases: ${meta.bases.hq}, ${meta.bases.sailing} and ${meta.bases.photos}. Per-page Lighthouse command:_`);
   lines.push('');
   lines.push('```');
   lines.push(`npx --yes lighthouse@${meta.lhVersion} <url> --only-categories=performance,accessibility --form-factor=mobile --screenEmulation.mobile --chrome-flags="--headless=new" --output=json`);
@@ -649,7 +697,12 @@ function render(results, meta) {
   lines.push('');
   lines.push('| Page | Performance | Accessibility | CLS | 360px scrollWidth | Keyboard | Date | Lighthouse |');
   lines.push('|---|---|---|---|---|---|---|---|');
+  const measured = results.filter((r) => !r.page.missing);
   for (const r of results) {
+    if (r.page.missing) {
+      lines.push(`| ${r.page.url.replace(/^https?:\/\//, '')} | **not measured**, see below | — | — | — | — | ${meta.date} | — |`);
+      continue;
+    }
     const pf = perfFloor(r.page);
     const perf = r.lh ? `${r.lh.perf}${r.lh.perf < pf ? ' **under floor**' : ''} (${r.lh.perfRuns.join('/')})${pf !== FLOOR ? `, floor ${pf}` : ''}` : 'skipped';
     const a11y = r.lh ? `${r.lh.a11y}${r.lh.a11y < FLOOR ? ' **under floor**' : ''}` : 'skipped';
@@ -659,10 +712,17 @@ function render(results, meta) {
     lines.push(`| ${r.page.url.replace(/^https?:\/\//, '')} | ${perf} | ${a11y} | ${cls} | ${sw} | ${kb} | ${meta.date} | ${r.lh ? r.lh.version : '—'} |`);
   }
   lines.push('');
-  const under = results.filter((r) => r.lh && (r.lh.perf < perfFloor(r.page) || r.lh.a11y < FLOOR));
+  const under = measured.filter((r) => r.lh && (r.lh.perf < perfFloor(r.page) || r.lh.a11y < FLOOR));
+  const missing = results.filter((r) => r.page.missing);
+  if (missing.length) {
+    lines.push('### Not measured');
+    lines.push('');
+    for (const r of missing) lines.push(`- **${r.page.url}** — ${r.page.missing}.`);
+    lines.push('');
+  }
   lines.push('### Under the floor');
   lines.push('');
-  if (!under.length) lines.push(`Nothing. Every page scored at or above its floor on both categories in this run: ${FLOOR}, or the performance floor shown beside its score.`);
+  if (!under.length) lines.push(`Nothing. Every page ${missing.length ? 'measured ' : ''}scored at or above its floor on both categories in this run: ${FLOOR}, or the performance floor shown beside its score.`);
   for (const r of under) {
     const pf = perfFloor(r.page);
     lines.push(`- **${r.page.url}** — performance ${r.lh.perf}${pf !== FLOOR ? ` against a floor of ${pf}` : ''}, accessibility ${r.lh.a11y}; simulated FCP ${r.lh.fcpMs} ms, LCP ${r.lh.lcpMs} ms (last run; observed first paint in the unthrottled trace ${r.lh.observedFcpMs} ms). LCP element: \`${r.lh.lcpElement.replace(/`/g, "'")}\`. Weighted audits under 1: ${[...r.lh.failingPerf, ...r.lh.failingA11y].join(', ') || 'none'}. Render-blocking per Lighthouse: ${r.lh.blocking.join('; ') || 'none'}.`);
@@ -674,7 +734,7 @@ function render(results, meta) {
   lines.push('');
   lines.push(`On a page carrying a \`.gallery\` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open \`<dialog>\`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards and the page is re-walked, so the page's own count is measured before and after.`);
   lines.push('');
-  for (const r of results) {
+  for (const r of measured) {
     const problems = kbProblems(r.kb);
     const lb = r.kb.lightbox;
     const lbNote = lb && lb.opened
@@ -690,7 +750,7 @@ function render(results, meta) {
   lines.push('| Text | Background | Ratio | Smallest use | Pages | Sample | Floor |');
   lines.push('|---|---|---|---|---|---|---|');
   const merged = {};
-  for (const r of results) {
+  for (const r of measured) {
     for (const p of r.contrast) {
       const key = p.fg + '|' + p.bg;
       const m = merged[key] || (merged[key] = { ...p, pages: new Set() });
@@ -729,7 +789,7 @@ async function main() {
   for (const file of Object.keys(PERF_FLOORS)) {
     if (!existsSync(join(REPO, file))) throw new Error(`PERF_FLOORS names ${file}, which is not in the tree`);
   }
-  const list = pages();
+  const list = await pages();
   if (!list.length) throw new Error(`no pages matched${ONLY ? ' --only ' + ONLY : ''} under ${REPO}`);
   const outDir = mkdtempSync(join(tmpdir(), 'quality-floor-'));
   console.error(`${list.length} page(s); Lighthouse JSON and the Chrome profile under ${outDir}`);
@@ -742,6 +802,11 @@ async function main() {
   try {
     for (const page of list) {
       console.error(`→ ${page.url}`);
+      if (page.missing) {
+        console.error(`   NOT MEASURED: ${page.missing}`);
+        results.push({ page });
+        continue;
+      }
       const narrow = await measureNarrow(cdp, page.url);
       const kb = await measureKeyboard(cdp, page.url);
       const contrast = await measureContrast(cdp, page.url);
@@ -766,7 +831,9 @@ async function main() {
   } else {
     console.log(block);
   }
-  const bad = results.filter((r) => (r.lh && (r.lh.perf < perfFloor(r.page) || r.lh.a11y < FLOOR)) || r.narrow.scrollWidth > NARROW || kbProblems(r.kb).length);
+  // A page not measured is counted with the pages under the floor: exit 0 says
+  // every page met it, and an unmeasured page has not.
+  const bad = results.filter((r) => r.page.missing || (r.lh && (r.lh.perf < perfFloor(r.page) || r.lh.a11y < FLOOR)) || r.narrow.scrollWidth > NARROW || kbProblems(r.kb).length);
   process.exitCode = bad.length ? 1 : 0;
 }
 
