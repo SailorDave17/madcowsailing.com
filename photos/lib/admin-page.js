@@ -32,7 +32,6 @@ const HEADER = String.raw`<header class="site-header">
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/">All albums</a></li>
-        <li><a href="/policy">Who sees these photos</a></li>
       </ul>
     </nav>
   </div>
