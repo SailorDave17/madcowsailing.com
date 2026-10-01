@@ -13,14 +13,23 @@ const RSA = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
 export const TEAM = 'https://testteam.cloudflareaccess.com';
 export const AUD = 'a'.repeat(64);
 export const OWNER = 'owner@example.com';
+// The coaches' application and list (#192). Each differs from the admins',
+// as on photos.madcowsailing.com, so a test can tell which one a guard read.
+export const COACH_AUD = 'c'.repeat(64);
+export const COACH = 'coach@example.com';
 
-// The env the admin guard reads, as the Pages config and secret supply it.
+// The env both guards read, as the Pages config and secrets supply it.
 export const accessEnv = (extra = {}) => ({
   ACCESS_TEAM_DOMAIN: TEAM,
   ACCESS_AUD: AUD,
   ADMIN_EMAILS: OWNER,
+  ACCESS_COACH_AUD: COACH_AUD,
+  COACH_EMAILS: COACH,
   ...extra,
 });
+
+/** The claims of a coach's token that should pass at /coach. */
+export const coachClaims = (overrides = {}) => claims({ aud: [COACH_AUD], email: COACH, ...overrides });
 
 let kids = 0;
 

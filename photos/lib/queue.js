@@ -246,7 +246,7 @@ export const acted = (ids) => (ids.length === 1 ? { photo: ids[0] } : { n: ids.l
 export async function waitingBatches(db) {
   const { results } = await db
     .prepare(
-      'SELECT p.id, p.batch, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
+      'SELECT p.id, p.batch, p.sender, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
       'p.grid_width, p.grid_height, p.screen_width, p.screen_height, ' +
       'a.id AS album_id, a.title AS album_title, a.address AS album_address ' +
       'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
@@ -267,6 +267,7 @@ export async function waitingBatches(db) {
     }
     batches.get(key).photos.push({
       id: row.id,
+      sender: row.sender,
       caption: row.caption,
       capturedAt: row.captured_at,
       sentAt: row.sent_at,

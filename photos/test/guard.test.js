@@ -1,18 +1,25 @@
-// Every upload route calls the one upload guard (#150, criterion 5), and
-// every admin route the one admin guard (#151).
+// Every upload route calls the one upload guard (#150, criterion 5), every
+// admin route the one admin guard (#151), and every coach route the coach
+// guard (#192).
 //
 // This finds every Function route under functions/, runs each exported
 // handler through the chain of _middleware.js files Pages would run in front
 // of it, and requires a refusal from the guard that route belongs to:
 //   - an admin route, anything under functions/admin/ or functions/api/admin/,
 //     answers 403 with no Access token, with only an upload session, and with
-//     a valid token for another email or another Access application; and a
-//     write (any method but GET and HEAD) answers 403 to the owner's valid
-//     token without the site's own Origin (#152);
+//     a valid token for another email or another Access application, a
+//     coach's included; and a write (any method but GET and HEAD) answers 403
+//     to the owner's valid token without the site's own Origin (#152);
+//   - a coach route, anything under functions/coach/, answers 403 with no
+//     Access token, with only an upload session, with the owner's admin
+//     token, and with a token for an address not on the coach list or for
+//     another Access application (#192);
 //   - every other route answers 401 for a missing, tampered,
-//     earlier-generation and expired upload cookie, and for an owner's valid
-//     Access token with no cookie; and a write under api/upload/ answers 403
-//     to a current session without the site's own Origin (#154).
+//     earlier-generation and expired upload cookie, for a coach's cookie that
+//     is tampered, expired or names an address off the coach list, and for an
+//     owner's or a coach's valid Access token with no cookie; and a write
+//     under api/upload/ answers 403 to a current session without the site's
+//     own Origin (#154).
 // A route that skips its guard, whether it sits outside its directory or the
 // directory loses its _middleware.js, fails here. The only routes excused are
 // PUBLIC, each with its reason; adding one there is a decision, and belongs
@@ -23,10 +30,12 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { COOKIE_NAME, SESSION_SECONDS, nowSeconds, requireUploadSession, signSession } from '../lib/session.js';
-import { TOKEN_HEADER, keyCache, requireOwner } from '../lib/access.js';
+import {
+  COOKIE_NAME, SESSION_SECONDS, coachTag, nowSeconds, requireUploadSession, signCoachSession, signSession,
+} from '../lib/session.js';
+import { TOKEN_HEADER, keyCache, requireCoach, requireOwner } from '../lib/access.js';
 import { requireSameOrigin } from '../lib/origin.js';
-import { accessEnv, certs, claims, keyPair, mint } from './access.js';
+import { COACH, COACH_AUD, accessEnv, certs, claims, coachClaims, keyPair, mint } from './access.js';
 import { d1, seedCodes } from './d1.js';
 
 const FUNCTIONS = fileURLToPath(new URL('../functions/', import.meta.url));
@@ -49,8 +58,10 @@ const PUBLIC = {
   'api/remove.js': 'takes an approved photo down, from the site\'s own Origin, 10 an hour per address (#158)',
 };
 
-// Admin routes answer to the admin guard, not the upload guard (#151).
+// Admin routes answer to the admin guard, not the upload guard (#151), and
+// coach routes to the coach guard (#192).
 const isAdmin = (file) => /^(api\/)?admin\//.test(file);
+const isCoach = (file) => /^coach\//.test(file);
 
 const team = await keyPair();
 beforeEach(() => keyCache.clear());
@@ -119,12 +130,20 @@ async function call(file, method, cookie, token, origin = SITE) {
 
 const now = nowSeconds();
 const signature = (value) => value.split('.').pop();
+// Alter the signature's FIRST character: the last one of a 32-byte signature
+// carries two padding bits, so A and B there can decode alike.
+const tamper = (value) => value.replace(signature(value), (signature(value)[0] === 'A' ? 'B' : 'A') + signature(value).slice(1));
 const current = await signSession(KEY, 2, now);
+// A coach's session (#192), for the address accessEnv() lists as a coach.
+const coachCurrent = await signCoachSession(KEY, await coachTag(KEY, COACH), now);
 const CASES = {
   'no cookie': undefined,
-  'a tampered signature': current.replace(signature(current), (signature(current)[0] === 'A' ? 'B' : 'A') + signature(current).slice(1)),
+  'a tampered signature': tamper(current),
   'an earlier generation': await signSession(KEY, 1, now),
   'an expired cookie': await signSession(KEY, 2, now - SESSION_SECONDS),
+  'a coach\'s cookie with a tampered signature': tamper(coachCurrent),
+  'an expired coach\'s cookie': await signCoachSession(KEY, await coachTag(KEY, COACH), now - SESSION_SECONDS),
+  'a coach\'s cookie for an address off the list': await signCoachSession(KEY, await coachTag(KEY, 'former@example.com'), now),
 };
 
 test('every PUBLIC entry is a route that exists', () => {
@@ -148,8 +167,14 @@ test('both admin directories run the admin guard, then the Origin guard', async 
   }
 });
 
-const guarded = routes.filter((file) => !(file in PUBLIC) && !isAdmin(file));
+test('the coach directory runs the coach guard (#192)', async () => {
+  const mod = await import(pathToFileURL(join(FUNCTIONS, 'coach', '_middleware.js')));
+  assert.deepEqual(mod.onRequest, [requireCoach]);
+});
+
+const guarded = routes.filter((file) => !(file in PUBLIC) && !isAdmin(file) && !isCoach(file));
 const admin = routes.filter((file) => !(file in PUBLIC) && isAdmin(file));
+const coach = routes.filter((file) => !(file in PUBLIC) && isCoach(file));
 
 test('at least one upload route exists, so the checks below check something', () => {
   assert.ok(guarded.length > 0);
@@ -160,8 +185,12 @@ test('at least one admin page and one admin API exist, so the checks below check
   assert.ok(admin.some((file) => file.startsWith('api/admin/')));
 });
 
-test('no route is both public and admin', () => {
-  for (const file of Object.keys(PUBLIC)) assert.ok(!isAdmin(file), file);
+test('no route is both public and admin, or public and coach', () => {
+  for (const file of Object.keys(PUBLIC)) assert.ok(!isAdmin(file) && !isCoach(file), file);
+});
+
+test('the coach route exists, so the checks below check something (#192)', () => {
+  assert.ok(coach.includes('coach/index.js'));
 });
 
 const ownerToken = () => mint(team);
@@ -188,10 +217,22 @@ for (const file of guarded) {
       const res = await call(file, method, undefined, await ownerToken());
       assert.equal(res.status, 401, `functions/${file} answered ${res.status}`);
     });
+    test(`${method} ${routePath(file)} with a coach's Access token and no cookie: 401`, async (t) => {
+      // Nor is a coach's: only /coach turns one into a session (#192).
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, undefined, await mint(team, coachClaims()));
+      assert.equal(res.status, 401, `functions/${file} answered ${res.status}`);
+    });
     test(`${method} ${routePath(file)} with a current session: past the guard`, async () => {
       // The control: the route is reachable in this harness, so the 401s
       // above come from the guard and not from a route that refuses anyone.
       const res = await call(file, method, current);
+      assert.notEqual(res.status, 401);
+      assert.notEqual(res.status, 403);
+    });
+    test(`${method} ${routePath(file)} with a coach's current session: past the guard`, async () => {
+      // The control for the coach's cookies above (#192).
+      const res = await call(file, method, coachCurrent);
       assert.notEqual(res.status, 401);
       assert.notEqual(res.status, 403);
     });
@@ -221,6 +262,12 @@ const ADMIN_CASES = {
   'no Access token': async () => undefined,
   'a token for another email': () => mint(team, claims({ email: 'someone@example.com' })),
   'a token for another Access application': () => mint(team, claims({ aud: ['b'.repeat(64)] })),
+  // #192: a coach signs in through Access too, for the coaches' application.
+  'a coach\'s token': () => mint(team, coachClaims()),
+  // The owner's own address in a token signed for the coaches' application:
+  // only the aud check refuses it, since the address is on the admin list
+  // (#192's review: the case above is refused by the list as well).
+  'the owner\'s address in a token for the coaches\' application': () => mint(team, claims({ aud: [COACH_AUD] })),
 };
 
 for (const file of admin) {
@@ -236,6 +283,11 @@ for (const file of admin) {
       t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
       const res = await call(file, method, current);
       assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an upload session opened it`);
+    });
+    test(`${method} ${routePath(file)} with a coach's upload session and no Access token: 403`, async (t) => {
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, coachCurrent);
+      assert.equal(res.status, 403, `functions/${file} answered ${res.status}: a coach's session opened it`);
     });
     test(`${method} ${routePath(file)} with the owner's Access token: past the guard`, async (t) => {
       // The control, as above: the 403s come from the guard. A route with a
@@ -265,3 +317,40 @@ test('at least one admin route takes a write, so the Origin checks above check s
   for (const file of admin) writes.push(...(await methodsOf(file)).filter((m) => !SAFE.includes(m)));
   assert.ok(writes.length > 0);
 });
+
+// The coach routes (#192, criterion 2): the coach guard, and no session set
+// by any refusal. The admin application's tag differs from the coaches' in
+// accessEnv(), as on photos.madcowsailing.com.
+const COACH_CASES = {
+  'no Access token': async () => undefined,
+  'the owner\'s admin token': () => ownerToken(),
+  'a token for an address not on the coach list': () => mint(team, coachClaims({ email: 'someone@example.com' })),
+  'a token for another Access application': () => mint(team, coachClaims({ aud: ['b'.repeat(64)] })),
+  'a coach\'s address in a token for the admin application': () => mint(team, coachClaims({ aud: claims().aud })),
+};
+
+for (const file of coach) {
+  for (const method of await methodsOf(file)) {
+    for (const [name, token] of Object.entries(COACH_CASES)) {
+      test(`${method} ${routePath(file)} with ${name}: 403, and no session set`, async (t) => {
+        t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+        const res = await call(file, method, undefined, await token());
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the coach guard?`);
+        assert.equal(res.headers.get('Set-Cookie'), null);
+      });
+    }
+    test(`${method} ${routePath(file)} with a current upload session and no Access token: 403`, async (t) => {
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      for (const cookie of [current, coachCurrent]) {
+        const res = await call(file, method, cookie);
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an upload session opened it`);
+      }
+    });
+    test(`${method} ${routePath(file)} with a coach's Access token: past the guard`, async (t) => {
+      // The control: the 403s above come from the guard.
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, undefined, await mint(team, coachClaims()));
+      assert.ok(res.status < 400, `functions/${file} answered ${res.status} to a coach`);
+    });
+  }
+}

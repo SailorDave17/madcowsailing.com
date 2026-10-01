@@ -5,6 +5,8 @@
  * which never reaches a server by itself (#150). The answers:
  *
  *   204  the current code: one Set-Cookie, the session (lib/session.js)
+ *   204  no Set-Cookie: the request already carries the session of a coach
+ *        still on COACH_EMAILS (#192), whatever code it presents
  *   403  {"error":"origin"}   no Origin, or another site's
  *   403  {"error":"wrong"}    not a code this site has had
  *   403  {"error":"rotated"}  an earlier code, so the page can say the invite
@@ -13,6 +15,13 @@
  *                             last hour, whatever this request carries
  *   400  a body that is not {"code": "<string>"}
  *   503  the database or a secret is missing: closed, never open
+ *
+ * A coach signed in at /coach who opens the invite link keeps their coach's
+ * session (owner, at #192's review). The cookie name is shared, so joining
+ * would otherwise put a parent's session in its place: their photos would be
+ * stored as a parent's, and the next rotation would end their sending. A
+ * coach no longer on the list is joined like anyone else. This answer reads
+ * no database and records nothing.
  *
  * Only a 403 for a wrong or earlier code counts as a failure. The address is
  * stored as a keyed hash (lib/address.js), and a failure is deleted by the
@@ -38,7 +47,7 @@ import { addressHash } from '../../lib/address.js';
 import { sha256, timing } from '../../lib/crypto.js';
 import { normalizeCode } from '../../lib/invite.js';
 import { sameOrigin } from '../../lib/origin.js';
-import { nowSeconds, sessionCookie } from '../../lib/session.js';
+import { coachListed, nowSeconds, readSession, sessionCookie } from '../../lib/session.js';
 
 // 10 an hour: the owner's choice at #150's pickup, 2026-09-27, over 5 and 20.
 // At 60 bits a guesser gets nowhere at any of them. The limit is for the
@@ -73,6 +82,11 @@ export async function onRequestPost({ request, env }) {
     // Names what is missing by kind only; no value is ever printed.
     console.error('join: the database or a secret is not configured, so joining is closed');
     return answer(503, 'closed');
+  }
+
+  const held = await readSession(request, SESSION_SIGNING_KEY);
+  if (held?.sender === 'coach' && (await coachListed(SESSION_SIGNING_KEY, held.coach, env.COACH_EMAILS))) {
+    return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
   }
 
   const now = nowSeconds();

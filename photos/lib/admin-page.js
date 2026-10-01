@@ -227,8 +227,9 @@ export function adminCodePage({ current, site, unchanged = null }) {
 
   <section class="wrap" aria-labelledby="no-code">
     <h2 id="no-code">No code yet</h2>
-    <p>There is no invite code, so nobody can send photos. Create one, then
-      send its link to the team.</p>
+    <p>There is no invite code, so no parent can send photos. Coaches who
+      signed in at /coach still can. Create one, then send its link to the
+      team.</p>
     <form method="post" action="/api/admin/code/create">
       <p><button type="submit" class="button">Create code</button></p>
     </form>
@@ -271,8 +272,9 @@ export function adminCodePage({ current, site, unchanged = null }) {
   <dialog id="rotate-dialog" class="confirm" aria-labelledby="rotate-title">
     <form method="post" action="/api/admin/code/rotate">
       <h2 id="rotate-title">Rotate the invite code?</h2>
-      <p>Everyone signed in to upload will need the new link. The old link stops
-        working at once, and so does every phone that joined with it.</p>
+      <p>Every parent signed in to upload will need the new link. The old link stops
+        working at once, and so does every phone that joined with it. Coaches
+        who signed in at /coach keep sending.</p>
       <p class="actions">
         <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
         <button type="submit" class="button button-accent">Rotate now</button>
@@ -501,9 +503,13 @@ function waitingPhoto(photo, formId, first) {
               <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
               <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
             </figure>`;
+  // A coach's photo says so (#192): it came through a coach's Access sign-in,
+  // not the invite link. Per photo rather than per batch, so it stays true
+  // whatever a batch holds.
+  const from = photo.sender === 'coach' ? ' · sent by a coach' : '';
   return `<li class="waiting" id="photo-${id}">
           <h3>Photo ${id}</h3>
-          <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}</p>
+          <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}${from}</p>
           <a class="waiting-screen" href="${photoUrl(id, 'screen')}">${sizeImage(photo, 'screen', !first)}</a>
           <div class="waiting-sizes">
             ${size('grid', 'Grid')}
