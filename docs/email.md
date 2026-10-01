@@ -223,6 +223,13 @@ fetch alongside send-as.
   `dave@madcowsailing.com` on sailing. Both zones have Email Address Obfuscation **off**
   (#105), so whatever address the pages carry is served as written.
 - **`taskr.madcowhq.com`.** Resend keeps signing Taskr's auth mail on the subdomain.
+- **`photos.madcowsailing.com`** (#217, 2026-10-01). The photo site sends through
+  Resend from that subdomain, on a Resend account of its own. Its records
+  (`send.photos` and `rsend.photos` CNAMEs, the `resend._domainkey.photos` TXT) sit
+  beside this zone's Zoho records and neither cover nor conflict with them: the apex's
+  MX, SPF, DKIM and `_dmarc` read the same before and after. It has no MX and no
+  `_dmarc.photos`, so `_dmarc.madcowsailing.com` covers it by fallback. README.md,
+  The photo site, Email, is the record.
 - **Hosting.** Pages, the custom domains and the Redirect Rules are as `CLAUDE.md`
   describes; MX and TXT records sit beside them in the same zones.
 

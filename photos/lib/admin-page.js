@@ -16,10 +16,11 @@
  * the albums page, adminAlbumsPage(), which needs no script. #156 added the
  * approval queue, adminQueuePage(), and its script, and the home's counts.
  * #158 added the removal requests, adminRemovalsPage(), and its script, and
- * the home's count of them.
+ * the home's count of them. #217 added the test email, adminMailPage().
  */
 import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
+import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
 import { CAPTION_MAX } from './photos.js';
 import { FREE_STORAGE_BYTES } from './queue.js';
 
@@ -32,7 +33,6 @@ const HEADER = String.raw`<header class="site-header">
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/">All albums</a></li>
-        <li><a href="/policy">Who sees these photos</a></li>
       </ul>
     </nav>
   </div>
@@ -65,6 +65,7 @@ export const SECTIONS = [
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
   { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
   { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
+  { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
 ];
 
 // The invite-code page's script (#152), stamped by hand for the same reason
@@ -714,6 +715,78 @@ ${list}
       </p>
     </form>
   </dialog>
+</main>`,
+  });
+}
+
+// ---- /admin/mail (#217) -------------------------------------------------
+
+// What the page says after a press. functions/api/admin/mail/test.js answers
+// 303 back with ?done=sent or ?error= and lib/mail.js's reason, plus Resend's
+// status for a refusal. The address is never in the query, so it is in no
+// browser history or log; a crafted link can show only a known sentence and a
+// status code.
+const MAIL_ERRORS = {
+  address: 'Nothing was sent: that is not one email address. Type a single address, like name@example.com.',
+  'not-configured': 'Nothing was sent: this environment has no RESEND_API_KEY secret, so the site cannot send email here. README.md, The photo site, Secrets, says where it is set.',
+  message: 'Nothing was sent: the site wrote a subject or text it does not send, so it never contacted Resend. The log says so.',
+  quota: "Nothing was sent: Resend's free limit is used up. It is 100 emails a day, which resets at midnight UTC, and 3,000 a month, and every email the site sends counts toward it.",
+  rate: 'Nothing was sent: Resend had too many requests in the same second. Press it again.',
+  unreachable: 'Resend did not confirm the send: it did not answer within 10 seconds, the connection dropped, or it answered with a server error. The email may still arrive, so look for it before pressing again.',
+  unchanged: 'Nothing was sent. The press reached the site as a page load, which never sends anything; this can happen when your sign-in has run out. Press it again.',
+};
+
+/** The notice for the mail page's query string, as HTML, or '' for none. */
+export function mailNotice(params) {
+  const error = params.get('error');
+  let text = null;
+  if (params.get('done') === 'sent') {
+    text = 'Sent. Resend accepted the message, so it should arrive within a minute or two. If it does not, look in the spam folder.';
+  } else if (error === 'refused') {
+    const status = /^4[0-9]{2}$/.test(params.get('status') ?? '') ? ` (status ${params.get('status')})` : '';
+    text = `Nothing was sent: Resend refused the message${status}. The log names Resend's reason.`;
+  } else if (Object.hasOwn(MAIL_ERRORS, error)) {
+    text = MAIL_ERRORS[error];
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+const angleAddress = (mailbox) => mailbox.match(/<([^>]+)>$/)?.[1] ?? mailbox;
+
+/**
+ * /admin/mail (#217): who the site's email comes from, and a form that sends
+ * a test message. `email` is the signed-in admin's address, which the field
+ * starts with; `notice` is mailNotice()'s HTML. The press is a plain form
+ * post answered 303 back here, so a reload cannot send twice and the page
+ * needs no script.
+ */
+export function adminMailPage({ email, notice = '' }) {
+  return adminPage({
+    title: 'Email',
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Email</h1>
+    <p class="lede">The site sends email through Resend, from
+      <code>${escapeHtml(angleAddress(MAIL_FROM))}</code>. Replies go to
+      <code>${escapeHtml(MAIL_REPLY_TO)}</code>.</p>${notice}
+  </section>
+
+  <section class="wrap" aria-labelledby="test-email">
+    <h2 id="test-email">Send a test email</h2>
+    <p>It sends a short message saying which site sent it and when. Use it
+      after anything about the site's email changes, and see where it lands:
+      the inbox, or spam.</p>
+    <p>Each test counts toward Resend's free limit of 100 emails a day, which
+      every email the site sends shares.</p>
+    <form method="post" action="/api/admin/mail/test" class="album-form">
+      <p class="field">
+        <label for="mail-to">Send to</label>
+        <input id="mail-to" name="to" type="text" inputmode="email" autocomplete="email" spellcheck="false" autocapitalize="off" required maxlength="254" value="${escapeHtml(email)}">
+      </p>
+      <p><button type="submit" class="button">Send test email</button></p>
+    </form>
+  </section>
 </main>`,
   });
 }
