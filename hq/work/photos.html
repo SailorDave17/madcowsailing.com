@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Taskr — case study — Mad Cow HQ</title>
-<meta name="description" content="How Taskr splits a household's chores by each person's minutes, and why its split says so plainly when a fair split cannot be reached.">
-<link rel="canonical" href="https://madcowhq.com/work/taskr">
-<meta property="og:title" content="Taskr — case study — Mad Cow HQ">
-<meta property="og:description" content="How Taskr splits a household's chores by each person's minutes, and why its split says so plainly when a fair split cannot be reached.">
+<title>photos.madcowsailing.com — case study — Mad Cow HQ</title>
+<meta name="description" content="How a sailing club's photo site keeps children's photos private until approved: JPEGs rebuilt from an allow-list on the phone and again on the server, and every image checked on every request.">
+<link rel="canonical" href="https://madcowhq.com/work/photos">
+<meta property="og:title" content="photos.madcowsailing.com — case study — Mad Cow HQ">
+<meta property="og:description" content="How a sailing club's photo site keeps children's photos private until approved: JPEGs rebuilt from an allow-list on the phone and again on the server, and every image checked on every request.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/work/taskr">
+<meta property="og:url" content="https://madcowhq.com/work/photos">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -72,244 +72,184 @@
 
   <!-- The case-study shape from CLAUDE.md, in its fixed order: header (name,
        summary, role, stack, timeframe, links), the problem, what I built, a
-       decision I'd defend, outcome. Same five <h2>s in the same order as
-       race-timer.html and tender.html, so a skimmer learns the shape once.
+       decision I'd defend, outcome. Same five <h2>s in the same order as the
+       other case studies. Added by #230.
 
-       SOURCES. Every number here traces to the Taskr repo at origin/release
-       (74aed25), read 2026-09-14, and #65's PR lists them claim by claim:
-       docs/allocation-corpus.md (the 10-point tolerance, its two bounds, the
-       thirteen shapes, both corpus figures and the date they were recorded),
-       src/lib/allocation.corpus.js (the granularity-floor household),
-       docs/refresh-charter.md (the prototype's findings, the 2020 bar, the
-       no-button ruling), docs/rebalance-churn.md (every churn figure),
-       docs/capacity-model.md (an override of zero), docs/access-model.md
-       (the day the live app could not hold a household), README.md (the 60
-       and 300 minutes, 150 of 300 and 30 of 60, the database clock, the
-       race run forty times) and src/components/Split.jsx (the verdict's
-       wording, and what the split does not count).
+       SOURCES. Every claim traces to this repo at origin/release 53b06b6
+       (whose tree equals develop a037a7e), read 2026-10-01: CLAUDE.md's
+       photo-site section, items 2-3 (every image through a function, 300 s
+       private cache), 9 and 14 (the three sizes, the allow-list rebuild, the
+       ten Pillow variants and Chrome's canvas, the spliced GPS read back as
+       nothing, the deny-list not chosen, what is refused), 15 (capture time,
+       the canvas sizes, the orientation probe on a 2 x 1 JPEG, three at a
+       time), 12 (the guard's 26 of 26 mutations), 8 (CPU per route on
+       production, #161) and 20 (the coach's sign-in time left out, and why);
+       docs/quality-floor.md (Lighthouse 13.4.1 on production, 2026-10-01);
+       epic #147 (the problem in its own words, A3's second strip, the shared
+       album considered and not chosen, D5 consent); .gitignore and cairn
+       madcowsailing-trip-log-posting-traps-2026-09-25.md (the six GPS-tagged
+       originals); cairn a-timestamp-joins-to-the-log-that-names-it-2026-10-01.md.
+       The test count is `npm test` run on a037a7e on 2026-10-01: 932 pass.
+       Dates from `git log --first-parent origin/release`.
 
-       Auto-assignment is cited to Taskr #49 and #284 and to Split.jsx, not
-       to the README, whose engine paragraph still says the allocator has no
-       writer. That sentence is stale; Taskr #453 corrects it. The owner chose
-       on 2026-09-14, at #65's pickup, to ship this page without waiting.
+       NOT ON THIS PAGE, on purpose: binding and secret names, resource names,
+       the invite code's form, rate limits and request ceilings, the guard's
+       internals, any team's name, and any photo. The site serves photos of
+       minors; this page shows none.
 
-       SCREENSHOTS. Both come from one throwaway demo household on
-       production with placeholder names, walked in a fresh browser context
-       on 2026-09-14 and deleted from the app afterwards. It reproduces the
-       corpus's granularity-floor shape: level first, then one person's week
-       drops to 25 minutes and the allocator re-assigns on its own. Taskr
-       #452 is the command that will produce them instead of a hand walk.
+       The two-presentation rule: this page shares no sentence with the photo
+       site's own pages (policy, share, the album template), checked per block
+       as in cairn a-sentence-diff-must-split-on-blocks-2026-09-13.md. -->
 
-       The header shot is fetchpriority="low" on purpose. The page's largest
-       paint is text, and at default priority the image competed with it:
-       measured on a local serve, three Lighthouse runs each, 94 at default,
-       95 at low, 96 with no image at all (#65).
-
-       The two-presentation rule: this page shares no sentence with the
-       tester page at /apps/taskr/, the /work/ row or the /apps/ row. The
-       lede is Taskr's one-liner (#75, D9), which repeats on purpose. -->
-
-  <section class="wrap page-head cs-head">
-    <div>
-      <p class="eyebrow">Case study</p>
-      <h1>Taskr</h1>
-      <p class="lede">Splits a household's chores by the time each person has.</p>
-      <dl class="facts">
-        <dt>Role</dt>
-        <dd>Sole developer of the rebuild: the charter, the design, the code,
-          and the migrations applied to the live project.</dd>
-        <dt>Stack</dt>
-        <dd>React as an installable web app, Supabase Postgres with row-level
-          security and column grants, Vercel, and an allocation module in
-          plain JavaScript with no React in it.</dd>
-        <dt>Timeframe</dt>
-        <dd>A five-person classroom project in 2020, rebuilt from a charter
-          since August 2026. Still in progress.</dd>
-        <dt>Links</dt>
-        <dd><a href="https://taskr.madcowhq.com/">The app</a> &middot;
-          <a href="/apps/taskr/">How to start testing it</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></dd>
-      </dl>
-    </div>
-    <div class="shot shot-phone">
-      <img src="/assets/img/taskr/case-split-level.png" width="320" height="359"
-           loading="eager" fetchpriority="low" decoding="async"
-           alt="Taskr's split for a demo household of three under the verdict 'The split is level.': Alex at 80 of 150 minutes, Robin and Sam at 55 of 100 each, and their three bars at the same height.">
-    </div>
+  <section class="wrap page-head">
+    <p class="eyebrow">Case study</p>
+    <!-- The <wbr>s let the address break after each dot. Without them it is
+         one word in the display face, and at 360 px it pushed the page to
+         573 px wide (#230's floor run). -->
+    <h1>photos.<wbr>madcowsailing.<wbr>com</h1>
+    <p class="lede">A sailing club&rsquo;s photo site: parents and coaches send
+      regatta and practice photos from their phones, and nothing is public
+      until it has been approved.</p>
+    <dl class="facts">
+      <dt>Role</dt>
+      <dd>Sole developer: the decision record, the server, the phone-side
+        encoding, the tests, and the production checks.</dd>
+      <dt>Stack</dt>
+      <dd>Cloudflare Pages Functions, D1 and a private R2 bucket; plain HTML,
+        CSS and JavaScript with no framework and no library; Cloudflare Access
+        for sign-in; Resend for email; Node&rsquo;s built-in test runner.</dd>
+      <dt>Timeframe</dt>
+      <dd>Decided on 26 September 2026, with public albums on production four
+        days later. Still in progress.</dd>
+      <dt>Links</dt>
+      <dd><a href="https://photos.madcowsailing.com/">photos.madcowsailing.com</a> &middot;
+        <a href="https://github.com/SailorDave17/madcowsailing.com/tree/develop/photos">Source on GitHub</a></dd>
+    </dl>
   </section>
 
   <section class="wrap">
     <h2>The problem</h2>
-    <p>Households divide chores by habit, by nagging, or by an even split that
-      is not even. Give a parent with 300 free minutes a week and a child with
-      60 the same number of chores, and the child&rsquo;s week is gone while
-      the parent&rsquo;s has barely started. A count is the wrong unit. So is
-      a total of minutes: what has to match is how much of <em>each
-      person&rsquo;s own week</em> the work takes.</p>
-    <p>Taskr began in 2020 as a five-person classroom project with that idea
-      at its centre and a view with one progress bar per person. It ran as
-      desktop pages against <code>localhost</code>, over a database a startup
-      script regenerated, so it had no deployment, no persistence and no
-      phone. The rebuild&rsquo;s charter kept the idea and set the bar at
-      phone-usable for a real household, which the old architecture failed by
-      its structure rather than by degree. So it was rebuilt, not
-      refactored.</p>
-    <p>Fairness by time has a sharp edge, too. When somebody&rsquo;s week is
-      close to the size of one chore, no arrangement of the work is fair, and
-      an app that divides it anyway has to decide what to tell the
-      household.</p>
+    <p>At a regatta or a practice, the best photos are on parents&rsquo;
+      phones, and there was nowhere the whole team could find them. A shared
+      album was the obvious answer, and it was weighed. What it lacks is what
+      matters when the people in the photos are children: approval before
+      anything is public, a way to take a photo down from the public page
+      itself, and the photo&rsquo;s metadata gone before it leaves the
+      phone.</p>
+    <p>That last one was not hypothetical. The day before this site was
+      decided, six phone originals for a trip log sat in this
+      repository&rsquo;s served folder, one careless commit from going live on the sailing site,
+      each carrying the GPS position where it was taken. Nothing in the build
+      would have refused them. A phone photo says where a family was standing,
+      and an upload form that forgets that is publishing it.</p>
+    <p>Consent comes from the families&rsquo; registration media release, so
+      approval is the one place a photo is checked against it. The design has
+      to make that check unavoidable, and make everything around it safe
+      whether or not the check is perfect.</p>
   </section>
 
   <section class="wrap">
     <h2>What I built</h2>
-    <p>An installable web app for a household&rsquo;s phones. Each person is a
-      budget of minutes for the week and each chore a number of expected
-      minutes with a due date, and the app opens on the split: every
-      person&rsquo;s load drawn as a share of their own capacity. A parent at
-      150 of 300 minutes and a child at 30 of 60 are level, and the bars show
-      it without a number being read. Members stay in roster order and are
-      never sorted by load, because ranking people by output is the exact
-      inversion of what the app is for.</p>
-    <p>The allocator is a pure module with no React and no database in it.
-      It is handed each person&rsquo;s minutes for the week rather than
-      reading them, so capacity is a fact about a week and not about a
-      person, and an override of zero minutes wins over the baseline instead
-      of being mistaken for a missing value. It is judged against a corpus of
-      thirteen household shapes whose expected outcomes were worked out by
-      hand before the module ran against any of them, because expectations
-      generated by the code under test only prove the code still does what
-      it did.</p>
-    <p>Its answer is written, not only drawn. When somebody&rsquo;s week
-      changes, the household&rsquo;s open chores re-assign with nobody
-      pressing anything, and a chore a person placed by hand stays where they
-      put it. At setup, when nobody holds anything yet, one control,
-      <em>Deal these out</em>, hands out the unheld work. There is no
-      re-balance button: the charter ruled one out, because a button someone
-      has to press is the negotiation moved rather than removed.</p>
-    <p>Re-running an allocator from scratch moves most of the list, which is
-      fair and infuriating. Over the corpus with each household&rsquo;s
-      largest capacity halved, a re-balance with no stability rule moved 25
-      of 43 held jobs and 1,240 minutes. Preferring whoever already holds a
-      job when two placements tie, plus a budget of 120 minutes of movement,
-      brings that to 11 jobs and 355 minutes.</p>
-    <p>The rest is where trust has to live. Row-level security scopes every
-      row to its household, and column grants decide which columns a client
-      may read or write, since a row policy says nothing about columns. The
-      moment a chore is done is stamped by the database&rsquo;s clock, so a
-      phone set to the wrong date cannot move work between weeks. The build
-      refuses a key shaped like a secret in any variable that gets inlined
-      into the client, a check added after one reached a preview bundle in
-      August. Every migration is replayed in CI against an in-process
-      Postgres. The live suite that tested the policies over the wire, as a
-      client would, ran until September, when retiring the
-      organizer&rsquo;s password mint broke its fixture; rebuilding it is
-      Taskr #436.</p>
-    <p>Shipping is two acts in an order somebody chooses. Production builds
-      from a release branch that only a pull request I merge can enter, and a
-      migration is applied to the live database before the client that needs
-      it is promoted. The order exists because it once ran the other way: in
-      August a merge was a deploy, client code went live ahead of two
-      migrations nobody had applied, and for a day the live app could not
-      hold a household at all.</p>
-    <p>Where two phones can race, the race is run rather than reasoned about.
-      Two clients finishing the same shopping run at the same instant, ten
-      repetitions a run against the live project, produced one winner and
-      one refusal forty times out of forty.</p>
+    <p>A Pages project whose functions sit in front of a D1 database and a
+      private R2 bucket, written in plain HTML, CSS and JavaScript with no
+      framework and no library on either side.</p>
+    <p>The share page does the heavy work on the phone. Each photo is decoded
+      the moment it is chosen and drawn into a canvas at three sizes, 2560,
+      1600 and 480 pixels on the long edge, as fresh JPEGs that carry none of
+      the original&rsquo;s metadata. Only the capture time is read out first,
+      so an album can be put in order. The page sends no more than three
+      photos at once, and never keeps more than one photo&rsquo;s pixels in
+      memory.</p>
+    <p>The server trusts none of that. The upload route rebuilds every JPEG
+      before storing it, keeps all three sizes pending, and an admin approves
+      or rejects them a batch at a time. Every image request then goes through
+      a function that reads the photo&rsquo;s state in the database before
+      serving a byte, and a browser may keep its copy for 300 seconds at most.
+      Each public photo carries a control that hides it at once and queues it
+      for review, so a takedown does not wait for me.</p>
+    <p>Coaches sign in through Cloudflare Access rather than an invite link, a
+      policy page says who sees the photos, and the site can now send email
+      from its own domain.</p>
+    <p>One privacy fault is worth telling, because its test passed. A
+      coach&rsquo;s upload row kept the second that coach signed in. The same
+      second sits beside the coach&rsquo;s address in the sign-in
+      provider&rsquo;s log, so the two together name the coach. A test that
+      searched the row for the coach&rsquo;s identity passed throughout,
+      because the identity was never in the row; the join was. The row no
+      longer keeps that time, and the policy says plainly that the time a
+      photo was sent could still be matched.</p>
   </section>
 
   <section class="wrap">
     <h2>A decision I&rsquo;d defend</h2>
-    <p><strong>When a fair split is out of reach, the split says so and says
-      why. It never rounds until the bars look level.</strong></p>
-    <p>Level has a number. The split counts as level when the highest and
-      lowest shares of their own capacity are at most 10 percentage points
-      apart. Outside that, the verdict above the bars says how many minutes
-      off level the household is and who is carrying the extra. When no
-      arrangement can reach level, it says that instead, and names the
-      person and the two figures that make it arithmetic: their fair share
-      and the smallest job on the list.</p>
-    <p>The case that forced it is small. A household with 25, 100 and 150
-      minutes this week and jobs of 40, 35, 30, 30, 25, 20 and 10 minutes
-      sits near 69% of its capacity, so the person with 25 minutes should
-      carry about 17. The smallest job is 10. They land on 40% or 80%, and
-      no arrangement puts them near 69%. The prototype hit exactly this
-      before the rebuild began: a greedy allocator was ragged in 3 of 5
-      scenarios, and a local-search pass fixed two of them and could not fix
-      this one.</p>
-    <div class="cs-figure shot-phone">
-      <img src="/assets/img/taskr/case-split-unreachable.png" width="320" height="544"
-           loading="lazy" decoding="async"
-           alt="The same demo household after Sam's week drops to 25 minutes. The verdict reads 3 min off level, and that level cannot be reached this week because Sam's fair share is 17 min and the smallest job is 10 min. A line below says the re-balance moved 120 min and the change budget held the rest. Alex carries 105 of 150 minutes, Robin 65 of 100, Sam 20 of 25.">
-    </div>
-    <p>So the honest answer had to be the product&rsquo;s answer. An allocator
-      that reports level over a visibly ragged set spends the one number the
-      whole app rests on, and the households it would mislead are the ones it
-      was built for: a child&rsquo;s week, or somebody&rsquo;s short one, is
-      where a budget comes close to the size of a single job. Naming the
-      reason is what makes the verdict read as the fairness claim holding up
-      rather than as the app failing.</p>
+    <p><strong>Metadata is removed by keeping only what a decoder needs, on the
+      phone and again on the server, never by deleting what is known to be
+      dangerous.</strong></p>
+    <p>A JPEG is a run of segments. The server&rsquo;s rebuild keeps the frame,
+      the Huffman and quantisation tables, the restart interval and the scans,
+      byte for byte, and drops everything else: every application segment
+      (EXIF with its GPS, XMP, IPTC, the colour profile), every comment, every
+      marker it does not recognise, and whatever follows the end-of-image
+      marker, which is where a motion photo carries its video. The compressed
+      data is copied as it came, so the picture does not change.</p>
+    <p>That was checked rather than assumed. Ten Pillow variants and
+      Chrome&rsquo;s canvas output decoded to identical pixels after the
+      rebuild, and a real local run stored canvas JPEGs with a made-up GPS
+      position spliced in and read none of it back.</p>
+    <p>The phone&rsquo;s re-encode already leaves the metadata behind, and the
+      server strips again anyway. The server cannot tell the share page from
+      anything else that posts to the same address, so the second strip is
+      the one that holds whatever arrives.</p>
     <p>What it rejected, and why:</p>
     <ul class="rejected">
-      <li><strong>A tolerance of 15 points or more.</strong> The prototype
-        measured a split with a 15% spread and called it ragged. A tolerance
-        at or above that calls a measured-ragged split level, which is the one
-        failure the verdict exists to prevent.</li>
-      <li><strong>A tighter tolerance.</strong> Ordinary indivisibility would
-        trip it on healthy households, and a notice that fires on a healthy
-        household is an absent notice: it teaches everyone to ignore the real
-        one.</li>
-      <li><strong>Reporting level whenever the allocator has done its
-        best.</strong> The bars would contradict the sentence above them,
-        and the first household to notice would stop believing either.</li>
-      <li><strong>Moving a chore somebody placed by hand to reach
-        level.</strong> A person overrode the model on purpose. The allocator
-        leaves the chore where it is and says the week cannot be level,
-        rather than undoing them to make its own number look better.</li>
-      <li><strong>Counting chores instead of minutes.</strong> Equal counts
-        are not equal shares. The corpus&rsquo;s first shape is a child and a
-        parent at exactly level with one chore against five, and the
-        prototype&rsquo;s first narration, which counted ten chores moved
-        while each person&rsquo;s count changed by one, was true and read as
-        broken.</li>
+      <li><strong>A deny-list of known metadata segments.</strong> It removes
+        what was known on the day it was written, and lets through the next
+        segment a camera maker invents.</li>
+      <li><strong>Trusting the phone&rsquo;s re-encode alone.</strong> It is
+        one browser&rsquo;s behaviour on one day, and the server would be
+        taking a client&rsquo;s word for the one property this site most
+        needs.</li>
+      <li><strong>A shared album on an existing photo service.</strong> It
+        costs nothing and already lets its owner remove anyone&rsquo;s photos,
+        but it has no approval before publication, no takedown on the public
+        page, and no strip.</li>
     </ul>
-    <p>The cost is stated rather than hidden. Level is a band, so two people
-      up to 10 points apart both read as level. The allocator is greedy, so
-      when it places a job it cannot see the final spread. In the stability
-      corpus that cost one shape its levelness once ties went to the
-      incumbent, and it makes the movement budget non-monotone. A budget of 0
-      minutes reaches level in 2 of the 10 contested shapes, 30 and 60
-      minutes in 1, and 120 in 2 again. And the split counts only time spent
-      doing the work. Noticing, planning and remembering it are work the app
-      does not count, and the split screen says so.</p>
+    <p>The cost is that the strip takes everything, including what a photo
+      needs to look right. Orientation goes, so the share page must draw each
+      photo upright before encoding. Chrome&rsquo;s decoder already turns all
+      eight orientations by itself, so the page asks the browser once, with a
+      two-pixel test image marked &ldquo;turn 90&deg;&rdquo;, rather than
+      turning a photo twice. The colour profile goes, which is harmless only
+      while the canvas stays sRGB. Lossless, arithmetic-coded and 12-bit JPEGs
+      are refused outright. The capture time does leave the phone, because an
+      album needs it. And an iPhone sending to production has not been checked
+      end to end yet; that is an open story.</p>
   </section>
 
   <section class="wrap">
     <h2>Outcome</h2>
-    <p>Open for testing at
-      <a href="https://taskr.madcowhq.com/">taskr.madcowhq.com</a>, where
-      anybody can start a household. As recorded in the repo on 2026-08-08
-      and read from it on 2026-09-14, the allocator reaches level in 10 of its
-      13 corpus shapes (76.9%), and in 7 of the 10 (70.0%) where level is a
-      real question. Both figures are given because three shapes have fewer
-      than two people with any minutes, and a set that small is level by
-      arithmetic rather than by anything the allocator did.</p>
-    <p>The 2020 code is kept at a tag, and none of it is on the branch that
-      ships. The charter&rsquo;s test for every proposal in the rebuild was
-      whether a screenshot of the old one-bar-per-person view could satisfy
-      it; if one could, the proposal had failed.</p>
-    <p>What is not proven yet is the part only a real household can settle:
-      whether people accept a split nobody negotiated, week after week. That
-      has its own epic in the tracker, and until it is read this page makes
-      no claim about it. Still in progress.</p>
+    <p>Public albums reached production on 30 September 2026, four days after
+      the platform was decided, and coach sign-in and email followed on
+      1 October.</p>
+    <p>Measured on production on 1 October, Lighthouse on a phone profile read
+      98 for performance on the album list and 96 on an album of twelve
+      photos, with accessibility at 100 and no layout shift on either. Each
+      public route&rsquo;s slowest request in a sampled minute used 7.1 to
+      7.5&nbsp;ms of CPU, against a limit of 10.</p>
+    <p>The suite is 932 tests on Node&rsquo;s own runner, with hand-written
+      stand-ins for D1 and R2. The admin guard&rsquo;s tests were made to fail
+      on purpose before they were trusted: 26 mutations, every one red exactly
+      as predicted.</p>
+    <p>There are no usage numbers here, because none have been recorded yet,
+      and this page will not estimate them. Next are accounts that replace
+      the invite link, and a section for a second program. Still in
+      progress.</p>
   </section>
 
-  <!-- The quiet link to the page for the person who will use the app. It
-       sits at the end of <main>, as race-timer.html's does, because the
-       footer is copied verbatim and story #5 owns it. -->
   <section class="wrap page-foot">
-    <p>Households wanting to try Taskr rather than read about it are better
-      served by the <a href="/apps/taskr/">tester page</a>, which walks
-      through the first steps.</p>
+    <p>Parents and coaches looking for the photos rather than the engineering
+      should go straight to
+      <a href="https://photos.madcowsailing.com/">photos.madcowsailing.com</a>.</p>
   </section>
 </main>
 

@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Work — Mad Cow HQ</title>
-<meta name="description" content="Dave Alvarado's work, grouped by where it stands: Taskr, Race Timer and Tender in testing, then what is still being built, then the tooling behind it.">
+<meta name="description" content="Dave Alvarado's work, grouped by where it stands: a sailing club's photo site, Taskr, Race Timer and Tender in testing, then what is still being built, then Cairn and the tooling behind it.">
 <link rel="canonical" href="https://madcowhq.com/work/">
 <meta property="og:title" content="Work — Mad Cow HQ">
-<meta property="og:description" content="Dave Alvarado's work, grouped by where it stands: Taskr, Race Timer and Tender in testing, then what is still being built, then the tooling behind it.">
+<meta property="og:description" content="Dave Alvarado's work, grouped by where it stands: a sailing club's photo site, Taskr, Race Timer and Tender in testing, then what is still being built, then Cairn and the tooling behind it.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://madcowhq.com/work/">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
@@ -86,7 +86,17 @@
        its case study, as Race Timer's and Tender's do (#65). A private repo
        gets no source link rather than a link to a 404. id="burgee" and id="buoyant" stay
        as the anchors /work/#burgee and /work/#buoyant; the home page's Buoyant
-       card linked the second until #85 put Taskr in its place. -->
+       card linked the second until #85 put Taskr in its place.
+
+       #230 (2026-10-01) added the photo site to In testing, with its case
+       study: it is live on production for the people it is for, though no
+       usage had been recorded that day, so the row claims none. #230 also
+       replaced the COHSSA Attendance row with Coaches' Dockbox, which
+       superseded it on 2026-09-29. Dockbox gets
+       no source link: its repo is public only until the first real sailor's
+       record (Dockbox decision D1), and a link that later 404s is the case
+       the rule above exists for. Cairn's row now links its case study; the
+       repo itself stays unlinked because it is private. -->
 
   <section class="wrap page-head">
     <p class="eyebrow">Work</p>
@@ -101,6 +111,16 @@
     <section class="group">
       <h2>In testing</h2>
       <ul class="rows">
+
+        <li>
+          <h3><a href="/work/photos">photos.madcowsailing.com</a></h3>
+          <p>A sailing club's regatta and practice photos, sent from parents'
+            and coaches' phones and public only once approved.</p>
+          <ul class="tags"><li>Cloudflare Pages Functions</li><li>D1</li><li>R2</li></ul>
+          <p class="links"><a href="/work/photos">Read the case study</a> &middot;
+            <a href="https://photos.madcowsailing.com/">photos.madcowsailing.com</a> &middot;
+            <a href="https://github.com/SailorDave17/madcowsailing.com/tree/develop/photos">Source on GitHub</a></p>
+        </li>
 
         <li>
           <h3><a href="/work/taskr">Taskr</a></h3>
@@ -161,10 +181,11 @@
             or alongside Burgee.</p>
         </li>
 
-        <li>
-          <h3>COHSSA Attendance</h3>
-          <p>Replaces a high-school sailing team's paper attendance sheet with a
-            phone app that writes to the spreadsheet the coaches already keep.</p>
+        <li id="coaches-dockbox">
+          <h3>Coaches' Dockbox</h3>
+          <p>Attendance, emergency contacts, schedules and a coaching library for
+            a sailing club's coaches, piloting with one junior team in spring
+            2027.</p>
         </li>
 
         <li>
@@ -189,10 +210,11 @@
         </li>
 
         <li>
-          <h3>Cairn</h3>
-          <p>The engineering record behind everything above: decisions with
-            their reasoning, mistakes with their corrections, and the hooks and
-            checks that stop them recurring.</p>
+          <h3><a href="/work/cairn">Cairn</a></h3>
+          <p>The guardrails and the record behind everything above: what AI
+            coding agents may do unreviewed, the hooks that refuse the rest, and
+            every mistake kept with its correction.</p>
+          <p class="links"><a href="/work/cairn">Read the case study</a></p>
         </li>
 
       </ul>
@@ -209,6 +231,7 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
       <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
