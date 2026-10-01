@@ -19,11 +19,36 @@
        Anyone can download one           the album page's Download link (#157)
        Search engines are asked not to   X-Robots-Tag: noindex in _headers and
        list it                           lib/headers.js, and the meta below (D6)
-       Only the invite link sends        requireUploadSession in lib/session.js
-                                         (#150)
+       The invite link sends, and so do  requireUploadSession in lib/session.js
+       the coaches, who sign in          (#150, #192)
        Who the link is for               owner, at #159's pickup, 2026-09-30
        90 days; a new link ends it       CLAUDE.md, The photo site, item 11
                                          (#150, #152)
+       A coach signs in at /coach with   requireCoach in lib/access.js, run by
+       an address the admins listed      functions/coach/_middleware.js
+                                         against COACH_EMAILS (#192; D9)
+       A coach's phone: 90 days, until   readSession and coachListed in
+       they leave the list; a new link   lib/session.js (#192; owner, at
+       does not end it                   #192's pickup, 2026-10-01)
+       A coach's photo is checked too    insertPhoto in lib/photos.js stores
+                                         it pending (D10)
+       What is kept for a coach          sender in 0005 says coach, and
+                                         insertPhoto in lib/photos.js writes
+                                         no code generation and no session
+                                         time (owner, at #192's review); the
+                                         cookie holds coachTag in
+                                         lib/session.js, a keyed hash, never
+                                         the address; the list is the
+                                         COACH_EMAILS secret and the Access
+                                         policy, both in Cloudflare's
+                                         dashboard (#192)
+       A coach's photo could still be    sent_at in 0005, beside Cloudflare's
+       matched by time                   sign-in record (owner, at #192's
+                                         review)
+       Cloudflare records each sign-in   Cloudflare's Access authentication
+                                         logs: "each login attempt", with the
+                                         user email, IP address and request
+                                         time (read 2026-10-01, #192)
        Every photo and caption checked   D2, D5, D8; the approval queue (#156)
        against the media release         and README.md, Approving. It states
                                          the check, not a guaranteed outcome
@@ -75,10 +100,10 @@
        No set limit                      owner, at #159's pickup, 2026-09-30
        The address for removals          owner, at #159's pickup, 2026-09-30
 
-     #192 (a coach's Access sign-in) will change this page, and carries it as
-     a criterion: who can send, the lede, and what is kept for a coach.
-     #158 ("Remove this photo") changed it once already, adding the button,
-     what a taken-down photo keeps and its limit's scrambled address.
+     #192 (a coach's Access sign-in) changed it: who can send, the lede, and
+     what is kept for a coach. #158 ("Remove this photo") changed it before
+     that, adding the button, what a taken-down photo keeps and its limit's
+     scrambled address.
 
      The site is never indexed (epic #147, D6): no rel="canonical" and no og:
      tags, as on every photos page. Every URL here is ROOT-RELATIVE. -->
@@ -147,8 +172,9 @@
     <p class="eyebrow">Photos</p>
     <h1>Who sees these photos</h1>
     <p class="lede">Anyone can look at a photo here once it is approved. Only
-      people with the team's invite link can send one, and nothing shows until
-      one of the site's admins has checked it. To take a photo down, press
+      people with the team's invite link, and the team's coaches, who sign
+      in, can send one, and nothing shows until one of the site's admins has
+      checked it. To take a photo down, press
       "Remove this photo" under it, or email
       <a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>.</p>
   </section>
@@ -167,11 +193,16 @@
 
   <section class="wrap policy">
     <h2>Who can send a photo</h2>
-    <p>Only someone holding the team's invite link, which is for the team's
+    <p>Someone holding the team's invite link, which is for the team's
       parents, sailors and coaches. Opening the link on a phone lets that
       phone send photos for 90 days, with no account, and no name or email
       address. When the link is changed, every phone that opened the old one
       stops sending until it opens the new one.</p>
+    <p>The team's coaches can also send without the link. A coach signs in
+      with their email address, and only an address the site's admins have
+      put on the coaches' list gets in. Their phone can then send for 90 days,
+      until the coach is taken off the list. Changing the invite link does
+      not stop it. A coach's photos are checked like everyone else's.</p>
   </section>
 
   <section class="wrap policy">
@@ -209,15 +240,24 @@
       <li>the album it was sent to;</li>
       <li>when it was taken, and when it was sent;</li>
       <li>which invite link it was sent with, and when that phone opened
-        it.</li>
+        it, or for a coach's photo, only that a coach sent it.</li>
     </ul>
-    <p>No names, no accounts and no email addresses are kept for anyone who
-      sends photos. The phone keeps one small cookie, which is what lets it
-      send for 90 days.</p>
+    <p>Nothing kept with a photo names who sent it: no name, no account and
+      no email address, and for a coach's photo, not which coach. Someone
+      sending with the invite link gives none of those at all. The phone
+      keeps one small cookie, which is what lets it send for 90 days. A
+      coach's cookie holds their address only in a scrambled form, made with
+      a secret key.</p>
+    <p>The coaches' list itself holds each coach's email address, and only
+      the site's owner can change it, in Cloudflare's dashboard. Cloudflare,
+      which signs a coach in, records each sign-in in the site's account,
+      with the coach's email address and network address, as it does for the
+      admins. So when a coach's photo was sent could still be matched against
+      who signed in shortly before.</p>
     <p>The site also counts how many photos each phone sends in a day, so no
-      phone can send more than 500. The count is kept under the invite link
-      and the time the phone opened it, and is cleared the next day that
-      phone sends.</p>
+      phone can send more than 500. The count is kept under the invite link,
+      or a coach's scrambled address, and the time the phone opened it, and
+      is cleared the next day that phone sends.</p>
     <p>An invite link carrying an old or wrong code is refused. So that nobody
       can try code after code, the site records failed attempts, up to a set
       number each hour. It keeps the network address each attempt came from

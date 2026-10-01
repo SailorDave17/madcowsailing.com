@@ -260,18 +260,27 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   `madcowsailing.cloudflareaccess.com`. It is the issuer #151 checks. `madcow`
   was wanted and is taken by another account: the rename answered `409`, while
   the confirmation dialog had already shown `madcow.cloudflareaccess.com`.
-- Two Access applications, read back from Zero Trust → Access controls →
-  Applications on 2026-09-28 (#151):
+- Three Access applications, read back from Zero Trust → Access controls →
+  Applications on 2026-09-28 (#151) and, for the coach one, 2026-10-01 (#192):
 
-  | | Admin (#151) | Previews (#149) |
-  |---|---|---|
-  | Name | `madcowphotos admin` | `madcowphotos - Cloudflare Pages` |
-  | Destinations | `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*` | `*.madcowphotos.pages.dev` |
-  | Policy | `Admins - photos admin`: Allow, Include Emails (the admins' addresses, the same list as `ADMIN_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, and since #151 the admins' addresses too) |
-  | Identity providers | One-time PIN only, instant authentication on | as #149 left it |
-  | AUD tag | `78d0a143…` = `env.production.vars.ACCESS_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_AUD` |
+  | | Admin (#151) | Coach (#192) | Previews (#149) |
+  |---|---|---|---|
+  | Name | `madcowphotos admin` | `madcowphotos coach` | `madcowphotos - Cloudflare Pages` |
+  | Destinations | `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*` | `photos.madcowsailing.com/coach` and `…/coach/*` | `*.madcowphotos.pages.dev` |
+  | Policy | `Admins - photos admin`: Allow, Include Emails (the admins' addresses, the same list as `ADMIN_EMAILS`), Require Login Methods: One-time PIN | `Coaches - photos coach`: Allow, Include Emails (the coaches' addresses, the same list as `COACH_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
+  | Identity providers | One-time PIN only, instant authentication on | One-time PIN only, instant authentication on | as #149 left it |
+  | Session | 24 hours | 24 hours | as #149 left it |
+  | AUD tag | `78d0a143…` = `env.production.vars.ACCESS_AUD` | `3be126b6…` = `env.production.vars.ACCESS_COACH_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_AUD` and `ACCESS_COACH_AUD` |
 
-  Both paths are listed because Access's `/admin/*` does not match `/admin`.
+  Both of each pair of paths are listed because Access's `/admin/*` does not
+  match `/admin`, nor `/coach/*` `/coach`. The coach tag was read twice on
+  2026-10-01: in the application's settings, and in the `kid` of the 302 that
+  `https://photos.madcowsailing.com/coach` answers to a visitor with no
+  sign-in, beside `/admin`'s `78d0a143…` as the control.
+  The coach application is its own, not more paths on the admin one, because
+  a policy applies to a whole application: a coach on the admin application
+  would pass Access's sign-in into `/admin` (CLAUDE.md, The photo site,
+  item 20).
   `madcowphotos.pages.dev`, the project's production address, is behind
   neither. The admin application's destination list offered it on 2026-09-28,
   so Access could cover it too. It was left out, so that address answers the
@@ -292,8 +301,9 @@ By name only; a value never goes in this repo.
 
 - **Pages secrets**, one value per environment, set in the dashboard under the
   project's Settings → Variables and Secrets, as type *Secret*:
-  - `SESSION_SIGNING_KEY` (#150) signs the upload session cookie. Changing it
-    ends every session at once, as rotating the code does.
+  - `SESSION_SIGNING_KEY` (#150) signs the upload session cookie, a parent's
+    and a coach's. Changing it ends every session at once, a coach's
+    included; rotating the code ends only the parents' (#192).
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
     stores instead of a network address.
   - `ADMIN_EMAILS` (#151) is the comma-separated list of addresses the admin
@@ -306,11 +316,30 @@ By name only; a value never goes in this repo.
     admin` policy, and the `Allow Members - Cloudflare Pages` policy, which
     decides who can open a preview at all. Leave the last out only for an admin
     meant to have no preview access; they then get Access's refusal there.
+  - `COACH_EMAILS` (#192) is the comma-separated list of coaches the coach
+    sign-in at `/coach` lets in, kept as a secret for the same reason as
+    `ADMIN_EMAILS`, and compared the same way. Unset or empty, `/coach`
+    refuses everyone and every coach's session is refused. It held only the
+    owner's address when #192 set it (owner's choice). **Adding a coach is
+    four changes**: `COACH_EMAILS` in production and in preview, the
+    `Coaches - photos coach` policy, and the `Allow Members - Cloudflare
+    Pages` policy (leave that out for a coach meant to have no preview
+    access). **Each coach takes one of Zero Trust Free's 50 seats** once
+    they sign in, and keeps it until removed (CLAUDE.md, The photo site,
+    item 8). **Taking a coach off is the same four, then a redeploy of each
+    environment**: Cloudflare's bindings page says a secret "needs to be done
+    before a deployment that uses those secrets", so the running deployment
+    keeps the old list until a new one is built (Deployments → the newest
+    production deployment → Retry deployment, and the same for `develop`'s
+    preview). From the first request the new deployment serves, the coach's
+    session is refused. *Read from the docs, not yet measured on a
+    deployment.* Taking them off the policy stops a new sign-in at once, but
+    not a session already open.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
   different values. Without them, `POST /api/join` answers `503` and opens
   nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` answers `503`
-  and takes nothing down. Check that all three exist in both environments on the dashboard, which
+  and takes nothing down. Check that all four exist in both environments on the dashboard, which
   shows a secret's name and never its value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
@@ -364,6 +393,19 @@ Origin on as the site's, as one host does on production, so the admin pages'
 forms get past the site's Origin check (#152); any other Origin goes on
 unchanged, and is refused.
 
+**The coach sign-in runs locally the same way** (#192). Add two more lines:
+
+```sh
+ACCESS_COACH_AUD=local-coach
+COACH_EMAILS=<any address>
+```
+
+Restart both, then open `http://127.0.0.1:8789/coach`. The stand-in signs
+`/coach` and anything under it for the first coach address and
+`ACCESS_COACH_AUD`, and every other path for the admin as before, so the
+browser lands on `/share/` able to send. Without the two lines it forwards
+`/coach` with no token, and the guard answers `403`.
+
 **After restarting the stand-in, the admin pages answer `403` for up to a
 minute.** It makes a new key each time it starts, and the guard fetches a
 team's keys at most once a minute (`REFETCH_GAP_SECONDS` in `lib/access.js`),
@@ -416,8 +458,9 @@ through Access: `https://photos.madcowsailing.com/admin/code` for production and
 `https://develop.madcowphotos.pages.dev/admin/code` for the preview. **This
 replaces the seed command #150 recorded**; `scripts/seed-code.mjs` is gone.
 
-- **Create code.** A database with no code shows only this button, and uploads
-  stay closed until a code exists. It makes the first code, and only while there
+- **Create code.** A database with no code shows only this button, and parents'
+  uploads stay closed until a code exists; a coach who signed in at `/coach`
+  still sends (#192). It makes the first code, and only while there
   is still none, so a second press changes nothing. **Both remote databases
   already hold a code**: #150 seeded the preview's, and #151's close seeded
   production's (2026-09-28), each with the script this page replaced. So on both
@@ -428,11 +471,36 @@ replaces the seed command #150 recorded**; `scripts/seed-code.mjs` is gone.
   `https://photos.madcowsailing.com`. Anywhere else it names the address the
   page was opened on, so a preview's link opens the preview.
 - **Rotate code.** It opens a dialog, and only the dialog's **Rotate now** makes
-  a new code. Every upload session opened with the old one is refused from its
-  next request, and the old link tells whoever opens it that the invite has
-  changed. Send the new link to the team.
+  a new code. Every parent's upload session opened with the old one is refused
+  from its next request, and the old link tells whoever opens it that the
+  invite has changed. Send the new link to the team. A coach's session has no
+  code behind it, so it keeps working (#192, owner's choice); take a coach off
+  the list instead (Secrets, above).
 
 The code is never written to a file or to git; this repo is public.
+
+### Coaches
+
+A coach sends without the invite link (#192; epic #147, D9). They open
+`https://photos.madcowsailing.com/coach`, sign in through Access with a
+one-time PIN, and land on `/share/` able to send for 90 days. `CLAUDE.md`, The
+photo site, item 20 has the decisions.
+
+- **Who can sign in** is whoever is on both the `Coaches - photos coach`
+  policy and `COACH_EMAILS`. Adding and taking off a coach are under Secrets,
+  above, and taking one off needs a redeploy.
+- **A coach's photos wait for approval** like a parent's, and the queue says
+  "sent by a coach" beside each. The row keeps no address and no sign-in
+  time, so it does not say which coach; when it was sent could still be
+  matched against Cloudflare's sign-in log, which `/policy` says.
+- **Opening the invite link keeps a coach's session**: `POST /api/join`
+  answers a listed coach with 204 and leaves their cookie alone. A coach
+  can also send when no invite code exists. The share page links `/coach`
+  for a coach who lands there with no session.
+- **On the preview** a coach opens `https://develop.madcowphotos.pages.dev/coach`,
+  which needs the coach's address on the preview policy as well.
+- `/coach` on `madcowphotos.pages.dev`, which no Access application covers,
+  answers the site's own `403`, as `/admin` does there.
 
 To read the current code without the page:
 `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
@@ -545,11 +613,11 @@ decisions.
   the file or decision behind it, so change the page in the same change as
   any of them. `npm test` fails if its 90 days, its hour, its 2,560 pixels or
   its 500 a day stop matching the code.
-- **#192 will change it** (a coach's Access sign-in), and carries that as a
-  criterion: who can send, the lede, and what is kept for a coach. #158
-  ("Remove this photo") changed it once already: the button, what a
-  taken-down photo keeps (its copies, `hidden_at` and the free-text
-  `hidden_note`) and how long its limit keeps a scrambled address. `npm test`
+- **#192 changed it** (a coach's Access sign-in): who can send, the lede,
+  and what is kept for a coach, the coaches' list and Cloudflare's record of
+  each sign-in included. #158 ("Remove this photo") changed it before that:
+  the button, what a taken-down photo keeps (its copies, `hidden_at` and the
+  free-text `hidden_note`) and how long its limit keeps a scrambled address. `npm test`
   holds its 10 an hour and its 500 characters to the code too.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and

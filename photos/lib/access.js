@@ -1,7 +1,9 @@
 /**
  * The admin guard (#151): every /admin page and admin API answers only to a
  * request carrying a valid Cloudflare Access token for an email on the
- * admins' list, whichever hostname it arrived on.
+ * admins' list, whichever hostname it arrived on. The coach guard (#192) is
+ * the same check run against a second list: /coach answers only to a token
+ * for an email on the coaches' list, signed for the coaches' application.
  *
  * Access sits in front of /admin on photos.madcowsailing.com, and it signs
  * every request it lets through with a token in the Cf-Access-Jwt-Assertion
@@ -18,18 +20,26 @@
  *   - iss is the team domain, and aud holds the application's tag;
  *   - exp is a number and has not passed; nbf is a number and has, allowing
  *     CLOCK_SKEW_SECONDS for drift between Cloudflare's machines;
- *   - email is on ADMIN_EMAILS, compared without regard to letter case.
+ *   - email is on the guard's list, compared without regard to letter case.
  * Anything else answers 403. Keys that cannot be fetched answer 503. Nothing
  * here throws on a bad token: a malformed one is a 403, never a 500.
  *
  * Config, never code (renaming the Zero Trust team changes both the issuer
  * and the key URL):
  *   ACCESS_TEAM_DOMAIN  https://<team>.cloudflareaccess.com, in wrangler.jsonc
- *   ACCESS_AUD          the Access application's AUD tag, in wrangler.jsonc
+ *   ACCESS_AUD          the admin application's AUD tag, in wrangler.jsonc
  *   ADMIN_EMAILS        comma-separated; a Pages secret, so the addresses are
  *                       not in this public repo (owner's choice, 2026-09-28)
- * With any of them unset, every request is refused. There is no flag, header,
- * cookie or hostname that turns the check off (test/access.test.js tries each);
+ *   ACCESS_COACH_AUD    the coach application's AUD tag, in wrangler.jsonc
+ *   COACH_EMAILS        comma-separated; a Pages secret, as ADMIN_EMAILS is
+ * On photos.madcowsailing.com they are two applications, so a token signed
+ * for one never passes the other's check, whoever it names. A preview
+ * deployment signs every path for the Pages preview application, so there
+ * the two tags are the same and the lists alone tell admin from coach.
+ *
+ * With a guard's tag or list unset, every request to it is refused. There is
+ * no flag, header, cookie or hostname that turns the check off
+ * (test/access.test.js and test/coach.test.js try each);
  * local development runs it against generated keys (scripts/access-dev.mjs).
  *
  * Nothing here logs a token, a claim or an address.
@@ -146,17 +156,24 @@ function parse(token) {
   }
 }
 
-const allowList = (value) =>
+/** A comma-separated list of addresses, trimmed and lowercased. */
+export const allowList = (value) =>
   (value ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 
+// Which env names each guard reads: the AUD tag of the application that signs
+// its requests, and its list of addresses.
+export const ADMINS = Object.freeze({ aud: 'ACCESS_AUD', list: 'ADMIN_EMAILS' });
+export const COACHES = Object.freeze({ aud: 'ACCESS_COACH_AUD', list: 'COACH_EMAILS' });
+
 /**
- * The owner a token names, as { email }, or null when the token does not
- * pass. Throws KeysUnavailable only when the team's keys cannot be read.
+ * The person a token names, as { email }, or null when the token does not
+ * pass the check for `names` (ADMINS unless told otherwise). Throws
+ * KeysUnavailable only when the team's keys cannot be read.
  */
-export async function verifyAccessToken(token, env, now = nowSeconds()) {
+export async function verifyAccessToken(token, env, now = nowSeconds(), names = ADMINS) {
   const team = env.ACCESS_TEAM_DOMAIN;
-  const aud = env.ACCESS_AUD;
-  const allowed = allowList(env.ADMIN_EMAILS);
+  const aud = env[names.aud];
+  const allowed = allowList(env[names.list]);
   if (!team || !aud || allowed.length === 0 || !token) return null;
 
   const jwt = parse(token);
@@ -189,24 +206,38 @@ export async function verifyAccessToken(token, env, now = nowSeconds()) {
 const refuse = (status, error) =>
   Response.json({ error }, { status, headers: { 'Cache-Control': 'no-store' } });
 
+// A guard for one list: 403 unless the token passes for `names`, 503 when
+// the keys cannot be read, and on success the person on context.data[key].
+function accessGuard(names, key, label) {
+  return async function guard(context) {
+    const { request, env } = context;
+    let person;
+    try {
+      person = await verifyAccessToken(request.headers.get(TOKEN_HEADER), env, nowSeconds(), names);
+    } catch (err) {
+      if (!(err instanceof KeysUnavailable)) throw err;
+      // Fail closed: a token that cannot be checked opens nothing.
+      console.error(`${label}: the Access signing certs could not be read:`, err.message);
+      return refuse(503, 'unavailable');
+    }
+    if (!person) return refuse(403, 'forbidden');
+    context.data[key] = person;
+    return context.next();
+  };
+}
+
 /**
  * The one admin guard. functions/admin/_middleware.js and
  * functions/api/admin/_middleware.js run it in front of every admin route,
  * and test/guard.test.js fails for any admin route that answers without it.
  * On success the owner is on context.data.owner.
  */
-export async function requireOwner(context) {
-  const { request, env } = context;
-  let owner;
-  try {
-    owner = await verifyAccessToken(request.headers.get(TOKEN_HEADER), env);
-  } catch (err) {
-    if (!(err instanceof KeysUnavailable)) throw err;
-    // Fail closed: a token that cannot be checked opens nothing.
-    console.error('admin guard: the Access signing certs could not be read:', err.message);
-    return refuse(503, 'unavailable');
-  }
-  if (!owner) return refuse(403, 'forbidden');
-  context.data.owner = owner;
-  return context.next();
-}
+export const requireOwner = accessGuard(ADMINS, 'owner', 'admin guard');
+
+/**
+ * The coach guard (#192). functions/coach/_middleware.js runs it in front of
+ * /coach and everything under it, and test/guard.test.js fails for any coach
+ * route that answers without it. On success the coach is on
+ * context.data.coach.
+ */
+export const requireCoach = accessGuard(COACHES, 'coach', 'coach guard');

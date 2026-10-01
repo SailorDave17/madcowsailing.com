@@ -4,9 +4,11 @@
  *
  * It shows the current code, when it last changed, and the invite link a
  * parent opens, with a button to copy each and one to rotate the code. With
- * no code yet, it offers "Create code" instead, and uploads stay closed until
- * one exists, because the upload guard refuses every session while the
- * database holds no code (lib/session.js).
+ * no code yet, it offers "Create code" instead, and parents' uploads stay
+ * closed until one exists, because the upload guard refuses every parent's
+ * session while the database holds no code (lib/session.js). A coach who
+ * signed in at /coach needs no code and still sends (#192, owner's choice at
+ * its review).
  *
  * ?unchanged=rotate or ?unchanged=create is where a press that arrived as a
  * GET lands (functions/api/admin/code/rotate.js says how). The page then says

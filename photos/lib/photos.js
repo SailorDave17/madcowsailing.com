@@ -110,8 +110,15 @@ export async function readCapped(request, max) {
   }
 }
 
-/** The key upload_counts holds a parent's session under. */
-export const sessionKey = ({ generation, issued }) => `${generation}.${issued}`;
+/**
+ * The key upload_counts holds a session under: a parent's by its code's
+ * generation, a coach's (#192) by its coach tag, each with when it was
+ * issued. The two can never meet: a generation is digits, and a coach's key
+ * starts "coach.".
+ */
+export const sessionKey = (session) => (session.sender === 'coach'
+  ? `coach.${session.coach}.${session.issued}`
+  : `${session.generation}.${session.issued}`);
 
 /**
  * Spend one of the session's uploads for this UTC day, and say whether there
@@ -181,23 +188,30 @@ export function sizesAgree({ grid, screen, full }) {
 export const secondsToNextDay = (now) => DAY_SECONDS - (now % DAY_SECONDS);
 
 /**
- * Write a parent's photo, pending, into the album at `address` if it is still
- * open, and return the row's id. Null when it is not: the album check and the
+ * Write a photo, pending, into the album at `address` if it is still open,
+ * and return the row's id. Null when it is not: the album check and the
  * insert are one statement, so an album closed or deleted after the route
- * looked at it takes nothing.
+ * looked at it takes nothing. A coach's photo (#192) waits for approval like
+ * a parent's (epic #147, D10); its row says `coach` and names no code
+ * generation, since no code opened the session. It keeps no session time
+ * either: the second a coach signed in sits beside their address in
+ * Cloudflare's sign-in log, and would name which coach sent the photo
+ * (owner, at #192's review).
  */
 export async function insertPhoto(db, address, photo) {
+  const coach = photo.session.sender === 'coach';
   const row = await db
     .prepare(
       'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, ' +
       'session_issued, caption, captured_at, sent_at, width, height, grid_width, grid_height, ' +
       'screen_width, screen_height, bytes) ' +
-      "SELECT id, 'photo', 'pending', ?, ?, 'parent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
+      "SELECT id, 'photo', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
       'FROM albums WHERE address = ? AND closed_at IS NULL ' +
       'RETURNING id',
     )
     .bind(
-      photo.mediaKey, photo.batch, photo.session.generation, photo.session.issued, photo.caption,
+      photo.mediaKey, photo.batch, coach ? 'coach' : 'parent', coach ? null : photo.session.generation,
+      coach ? null : photo.session.issued, photo.caption,
       photo.captured, photo.sentAt, photo.full.width, photo.full.height, photo.grid.width,
       photo.grid.height, photo.screen.width, photo.screen.height, photo.bytes, address,
     )

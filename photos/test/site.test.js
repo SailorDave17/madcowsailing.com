@@ -161,13 +161,14 @@ test('every database_id is a real one, written out', () => {
   }
 });
 
-test('the config carries no secret: vars hold SITE_ENV and the two Access settings, nothing else', () => {
+test('the config carries no secret: vars hold SITE_ENV and the three Access settings, nothing else', () => {
   // Secrets are Pages secrets, set in the dashboard and named in README.md.
-  // The admin allow-list is one of them (#151, owner's choice 2026-09-28), so
-  // the owner's address is not in this public repo.
+  // The admin and coach allow-lists are two of them (#151, owner's choice
+  // 2026-09-28; #192), so no address is in this public repo.
   for (const env of [config, config.env.preview, config.env.production]) {
-    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD']);
+    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ACCESS_COACH_AUD']);
     assert.ok(!('ADMIN_EMAILS' in env.vars));
+    assert.ok(!('COACH_EMAILS' in env.vars));
   }
 });
 
@@ -182,6 +183,18 @@ test('the admin guard trusts the madcowsailing team, with one Access application
     assert.match(env.vars.ACCESS_AUD, /^[0-9a-f]{64}$/);
   }
   assert.notEqual(preview.vars.ACCESS_AUD, production.vars.ACCESS_AUD);
+});
+
+test('the coach guard has its own application in production, and the preview application on a preview', () => {
+  // #192. In production /coach sits behind the coach application, whose tag
+  // must differ from the admin one's, or a token for either would pass the
+  // other's check. A preview deployment signs every path for the Pages
+  // preview application, so there the coach tag is the same as the admin tag.
+  const { preview, production } = config.env;
+  for (const env of [preview, production]) assert.match(env.vars.ACCESS_COACH_AUD, /^[0-9a-f]{64}$/);
+  assert.notEqual(production.vars.ACCESS_COACH_AUD, production.vars.ACCESS_AUD);
+  assert.equal(preview.vars.ACCESS_COACH_AUD, preview.vars.ACCESS_AUD);
+  assert.equal(config.vars.ACCESS_COACH_AUD, preview.vars.ACCESS_COACH_AUD);
 });
 
 test('migrations are numbered NNNN_name.sql, in order, once each', () => {

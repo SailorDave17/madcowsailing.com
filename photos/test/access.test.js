@@ -14,7 +14,8 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  CLOCK_SKEW_SECONDS, KEYS_MAX_AGE_SECONDS, REFETCH_GAP_SECONDS, TOKEN_HEADER, keyCache, requireOwner,
+  ADMINS, CLOCK_SKEW_SECONDS, COACHES, KEYS_MAX_AGE_SECONDS, REFETCH_GAP_SECONDS, TOKEN_HEADER, keyCache,
+  requireOwner,
 } from '../lib/access.js';
 import { COOKIE_NAME, signSession } from '../lib/session.js';
 import { AUD, OWNER, TEAM, accessEnv, certs, claims, keyPair, mint, publicPem, segment } from './access.js';
@@ -395,9 +396,15 @@ test('criterion 5: no hostname, environment, header or cookie opens the admin wi
   assert.equal(refused, hosts.length * envs.length * headers.length);
 });
 
-test('the config the guard reads is the team domain, the AUD tag and the list', () => {
-  // Also documents the names the README and wrangler.jsonc use.
-  assert.deepEqual(Object.keys(accessEnv()).sort(), ['ACCESS_AUD', 'ACCESS_TEAM_DOMAIN', 'ADMIN_EMAILS']);
+test('the config the guards read is the team domain, and an AUD tag and a list for each', () => {
+  // The names the guards read, from lib/access.js itself, written out here as
+  // README and wrangler.jsonc spell them: the admins' pair (#151) and the
+  // coaches' (#192). Then the fixture has to supply exactly those, so a test
+  // env cannot drift from what the code reads (#192's review).
+  assert.deepEqual({ ...ADMINS }, { aud: 'ACCESS_AUD', list: 'ADMIN_EMAILS' });
+  assert.deepEqual({ ...COACHES }, { aud: 'ACCESS_COACH_AUD', list: 'COACH_EMAILS' });
+  const read = ['ACCESS_TEAM_DOMAIN', ADMINS.aud, ADMINS.list, COACHES.aud, COACHES.list].sort();
+  assert.deepEqual(Object.keys(accessEnv()).sort(), read);
   assert.equal(TEAM, 'https://testteam.cloudflareaccess.com');
   assert.equal(AUD.length, 64);
 });

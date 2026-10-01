@@ -43,8 +43,9 @@ waiting for approval, #155 the share page that makes those JPEGs on the
 phone and sends them, #156 the queue where the owner approves or rejects
 them, #157 the public album list and album pages, which replaced the
 holding page at `/`, #159 the policy at `/policy`, which every page's
-footer links, and #158 "Remove this photo", which hides a photo at once
-and queues it on `/admin/removals`.
+footer links, #158 "Remove this photo", which hides a photo at once
+and queues it on `/admin/removals`, and #192 the coach sign-in at `/coach`,
+which opens an upload session through Access with no invite link.
 Epic #147 builds the rest. Its `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
@@ -369,6 +370,10 @@ same to a Function's response is not documented. If the live header reads longer
 300, add a Cache Rule scoped to the photos hostname, with Browser TTL set to *Respect
 origin*. The Free plan allows 10 Cache Rules
 ([Cache Rules](https://developers.cloudflare.com/cache/how-to/cache-rules/)).
+*Read on production on 2026-10-01 (#161):* an approved photo's grid, screen and full
+sizes each answered `private, max-age=300` on photos.madcowsailing.com, the same header
+`madcowphotos.pages.dev` sent. So the zone does not raise a Function's lifetime, and no
+Cache Rule is needed.
 
 Not chosen: 3,600 seconds, which saves requests on a same-evening revisit and lets a
 removed photo last an hour; or 86,400 seconds, which lets it last a day.
@@ -519,12 +524,12 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | not yet measured per route. The project's Metrics tab reports every Function together, with no unit on the page. At #151's close (2026-09-28), 38 production requests over 24 hours read p50 2,463 and p99 8,874, with 0 over the limit, so the unit is taken as microseconds and the slowest was about 1.1 ms under 10 ms. Per route, the token check and the admin home included: #157. Rendered album pages and clip parts: #157 and the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. Clip parts: the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
 | D1 | 5 million rows read and 100,000 written a day; 5 GB in all, 500 MB per database | about 4% of reads at the request ceiling, if every query uses an index | with Workers Paid: 25 billion reads and 50 million writes a month |
-| Zero Trust | 50 users | the owner, plus anyone who signs in to a preview | $7 per user a month |
+| Zero Trust | 50 users | the owner, plus anyone who signs in to a preview, plus each coach (#192, item 20) | $7 per user a month |
 
 Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
@@ -684,7 +689,8 @@ Earlier codes stay, so an old link can say the invite has changed rather than th
 wrong. The letters I, L and O are read as 1, 1 and 0.
 
 - **A session lasts 90 days.** Not chosen: the 180 the issue proposed, or 365. Rotating
-  the code ends every session whatever its age. The cookie is `__Host-upload`, signed with
+  the code ends every parent session whatever its age; a coach's session has no code
+  behind it and survives (item 20). The cookie is `__Host-upload`, signed with
   `SESSION_SIGNING_KEY`, and it names the code's generation. The server checks the age
   itself rather than trusting `Max-Age`.
 - **10 failed joins per address per hour, then 429.** Not chosen: 5 or 20. Only a wrong
@@ -707,15 +713,16 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   the one guard, `requireUploadSession` in `lib/session.js`, then (since #154)
   `requireSameOrigin`, so every upload write needs the site's own Origin as every admin
   write does. `test/guard.test.js` calls
-  every Function route outside its `PUBLIC` list with four bad cookies and requires 401,
-  and holds every upload write to 403 without the site's Origin.
+  every Function route outside its `PUBLIC` list with seven bad cookies, a parent's
+  and a coach's (#192), and requires 401, and holds every upload write to 403
+  without the site's Origin.
   An admin route (#151) answers to the admin guard instead (item 12). The test knows
   admin routes by directory and holds them to 403, rather than listing them as public.
 - **The admin page makes and changes the code** (#152, `/admin/code`). "Create code"
   makes generation 1 only while the database holds none, so a second press, or a page
   left open, never ends a session. "Rotate code" opens a native `<dialog>`, and only
   its confirm button posts; the new code is the next generation, which ends every
-  session at its next request. Each is one `INSERT … SELECT`, so two presses at once
+  parent session at its next request. The dialog says coaches keep sending (#192). Each is one `INSERT … SELECT`, so two presses at once
   cannot make two codes of one generation. Both are plain form posts answered `303`
   back to the page, so a reload cannot post again. The invite link names
   `https://photos.madcowsailing.com` in production and the page's own origin
@@ -729,7 +736,8 @@ Secrets, and where the code is created and rotated, are in README.md, The photo 
 ### 12. The admin guard
 
 **Built in #151, 2026-09-28.** Every `/admin` page and admin API passes
-`requireOwner` in `lib/access.js`. It is run by `functions/admin/_middleware.js`, and by
+`requireOwner` in `lib/access.js`. Since #192 the same check also guards
+`/coach`, run against the coaches' list and application (item 20). It is run by `functions/admin/_middleware.js`, and by
 `functions/api/admin/_middleware.js` for the admin APIs. Access sits in front of `/admin`
 on `photos.madcowsailing.com`, but the project's `*.pages.dev` address is not behind it
 (item 1). So the lock is this check of the `Cf-Access-Jwt-Assertion` token, and the
@@ -953,7 +961,8 @@ every answer are in the route's header comment.
   bucket's lifecycle rule and the part-CPU measurement item 10 asks for first.
 - **A coach's upload has its own marker** (owner, 2026-09-29, for #192). `sender` is
   `parent` or `coach`, and a coach's row names no code generation, since no code
-  opened the session. Not chosen: leaving #192 to add the column.
+  opened the session. Not chosen: leaving #192 to add the column. #192 writes it,
+  from the session's `sender` (item 20).
 - **The Origin check is the upload directory's** (see item 11), so the clip routes
   get it without anyone remembering it.
 - **CPU.** *Measured in Node 24 on this machine, not on the edge:* rebuilding
@@ -1117,6 +1126,10 @@ here; an approved one leaves the public page through #158.
 - **Clips are not in the queue yet.** Every statement names `kind = 'photo'`,
   so a clip's id posted to a press changes nothing; the clip story, #198, adds
   them.
+- **A coach's photo says "sent by a coach"** beside when it was taken (owner,
+  at #192's pickup), per photo rather than per batch, so it stays true
+  whatever a batch holds. It does not say which coach: the row keeps no
+  address and no sign-in time (item 20).
 
 ### 17. The public pages
 
@@ -1261,9 +1274,11 @@ page's footer link it, and the share page links it beside the join step.
   `hidden_note`, which 0005 already had, so 0005's row in the trace table did
   not change), and how long its rate limit keeps a scrambled address. Since
   #158 the page names the button first and the email second (item 19).
-- **#192 will make the page wrong**, because a coach sends through Access with
-  no invite link. #192 carries a comment saying so: who can send, the lede,
-  and what is kept for a coach.
+- **#192 changed the page**, because a coach sends through Access with no
+  invite link: the lede, who can send, and what is kept for a coach,
+  including the coaches' list and Cloudflare's record of each sign-in. The
+  owner made it a criterion at #192's pickup. Its rows are in the head
+  comment's trace and `test/policy.test.js`.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1373,6 +1388,86 @@ down, and `functions/remove.js` asks first for a browser without JavaScript.
   one photo at a time. D7 accepts that anyone can hide a photo; this is that
   cost at its largest, and nothing past the per-address limit is built.
 
+### 20. The coach sign-in
+
+**Built in #192, 2026-10-01, with four owner decisions taken at its pickup
+and four at its review.**
+A Hoover JRT coach opens `/coach`, signs in through Cloudflare Access, and
+lands on the share page able to send, having typed and followed no code
+(epic #147, D9). `functions/coach/` holds the route, `requireCoach` in
+`lib/access.js` the guard, and `lib/session.js` the coach's session.
+
+- **The admin guard's check, run against a second list.** `requireCoach` is
+  `requireOwner`'s token check (item 12) with the coaches' AUD tag,
+  `ACCESS_COACH_AUD`, and their list, `COACH_EMAILS`, so it refuses every
+  token #151's list refuses, on every hostname, `*.pages.dev` included.
+  `test/coach.test.js` runs that list at `/coach`, and `test/guard.test.js`
+  holds every route under `functions/coach/` to the guard.
+- **A separate Access application**, `madcowphotos coach`, covering
+  `photos.madcowsailing.com/coach` and `/coach/*`, because Access's `/coach/*`
+  does not match `/coach`. Not chosen: adding those paths to the admin
+  application. Access applies a policy to a whole application, so a coach
+  would then pass Access's sign-in into `/admin`, with the code's 403 the
+  only thing stopping them. Its tag differs from the admin one's, so a token
+  signed for either never passes the other's check. On a preview, the Pages
+  preview application signs every path, so there the two tags are equal and
+  the lists alone tell admin from coach. README, The photo site, has the
+  application, its policy and the four places a new coach goes.
+- **The session names the coach by a keyed hash, never the address.** The
+  cookie is `__Host-upload=c1.<coach>.<issued>.<signature>`, where `<coach>`
+  is an HMAC of the address keyed with `SESSION_SIGNING_KEY`. Every upload
+  request hashes each address on `COACH_EMAILS` again and refuses a session
+  whose hash is not among them, so taking a coach off the list ends their
+  session at its next request (criterion 5), with no table and no D1 write.
+  The list is short: each coach is a Zero Trust seat. Not chosen: the
+  address in the cookie, which `/policy` would then have to own as kept; a
+  coaches table, which is a migration for what a secret already holds.
+- **A rotation leaves a coach's session alone** (owner, at pickup). It
+  exists for a leaked parent link, and a coach is removed by the list. So
+  rotating ends every *parent* session, and the rotate dialog, item 11 and
+  README say so.
+- **A coach sends when no invite code exists** (owner, at #192's review,
+  under D9). This reverses #152's "uploads stay closed until a code exists"
+  for coaches only, so the `/admin/code` no-code panel, README, the code
+  page's header and the albums guard's comment now say no *parent* can send.
+  Not chosen: closing coach uploads too, one more D1 read per request.
+- **Opening the invite link keeps a coach's session** (owner, at #192's
+  review). The two share one cookie name, so `POST /api/join` answers a
+  request already carrying a listed coach's session with 204 and no
+  Set-Cookie, whatever code it presents, before reading the database.
+  Without that, a coach who opened the link became a parent: their photos
+  lost the marker, and the next rotation ended their sending. A coach off
+  the list joins like anyone else. Not chosen: a second cookie name, a wider
+  change to the guard and its tests.
+- **A coach's session lasts 90 days**, as a parent's does, and is capped at
+  500 uploads a UTC day, counted in `upload_counts` under
+  `coach.<coach>.<issued>`, a key no parent's can take.
+- **What a coach's upload records.** `sender` is `coach`, and
+  `code_generation` and `session_issued` are both empty (item 14's column,
+  written here). The sign-in time is left out on purpose (owner, at #192's
+  review): it sits beside the coach's address in Cloudflare's Access log,
+  and `upload_counts`' key carries it too, so keeping it would name which
+  coach sent each photo. `sent_at` still allows a match by time against that
+  log, and `/policy` says so. It waits for approval like any other upload
+  (D10), and the queue says "sent by a coach" (item 16).
+- **The share page links `/coach`** beside the invite-link wording (#192's
+  review), since every message there is about a link a coach does not hold.
+- **`/coach` is a GET that sets a cookie**, because it is where Access sends
+  the browser back after the sign-in. Another site making a coach's browser
+  load it only gives that coach a fresh session of their own. It answers 303
+  to `/share/`, which asks `GET /api/upload/session` as it does for a
+  returning parent, and 503 with no cookie when `SESSION_SIGNING_KEY` is
+  missing.
+- **`/policy` says it** (owner, at pickup; item 18): who can send, what is
+  kept for a coach, that only the owner can change the coaches' list (a
+  Pages secret and an Access policy, so in Cloudflare's dashboard), and that
+  Cloudflare records each sign-in with the email address and network
+  address, which its Access authentication logs do ("each login attempt",
+  read 2026-10-01), so a photo's send time could be matched to a sign-in.
+- **The coach list started with the owner's address only** (owner, at
+  pickup), so `/coach` can be read end to end. Real coaches are added by
+  README's steps.
+
 ## The two-presentation rule
 
 A sailing app appears in three places, and the text must be different in each.
@@ -1456,7 +1551,11 @@ shells before submitting anything or review will block.
 
 **Logs index and trip pages.** See `docs/sailing-site.md`.
 
-**Nav:** `apps · logs · about`
+**Nav:** `apps · logs · photos · about` — photos is
+https://photos.madcowsailing.com/ (D6 on epic #147: linked from this nav, never
+indexed). It is an absolute link, so linkcheck never reads it; `grep -c
+'href="https://photos.madcowsailing.com/"'` over every sailing page and both
+`tools/templates/` files is the check (#160).
 
 ## Writing rules
 

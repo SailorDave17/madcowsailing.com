@@ -23,7 +23,7 @@ title *"DF-95 & DF-65 Parts, DragonFlite RC boats – HeadwayRC"*.
 
 ## Decisions
 
-- **Not in the main nav.** The sailing nav stays `apps · logs · about`. A shop link
+- **Not in the main nav.** The sailing nav stays `apps · logs · photos · about`. A shop link
   at the top level reframes the site as a storefront for someone else's business.
   *(This bullet said `work · apps · about` — the hq nav — until 2026-09-04, left
   over from when this document lived on madcowhq.com.)*
@@ -45,7 +45,7 @@ up. Contextual and occasional. Do not template this into every trip page.
 If RC sailing gets enough content to justify it (more than two or three logs), it
 earns its own `sailing/rc/` subsection, and the link moves there. Not before.
 
-Do not put it in the sailing nav. The nav is `apps · logs · about`, and a shop link
+Do not put it in the sailing nav. The nav is `apps · logs · photos · about`, and a shop link
 beside them makes the site look like a storefront for someone else's business.
 
 ## Required disclosure
