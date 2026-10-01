@@ -15,7 +15,11 @@
  *     guard fetches a team's keys;
  *   - it forwards every other request to localhost:8788, adding a
  *     Cf-Access-Jwt-Assertion token signed RS256 with that key, for the first
- *     address in ADMIN_EMAILS, issued by this server, for ACCESS_AUD.
+ *     address in ADMIN_EMAILS, issued by this server, for ACCESS_AUD;
+ *   - a request for /coach or under it (#192) gets a token for the first
+ *     address in COACH_EMAILS, for ACCESS_COACH_AUD, as the coach
+ *     application on photos.madcowsailing.com would send. Without those two
+ *     lines it is forwarded with no token, and the coach guard answers 403.
  * So the guard in lib/access.js runs unchanged: it fetches these keys, checks
  * the signature, iss, aud, exp, nbf and the list, and refuses as it would on
  * production. There is no flag that turns the check off, here or anywhere.
@@ -29,6 +33,11 @@
  *   ACCESS_TEAM_DOMAIN=http://127.0.0.1:8789
  *   ACCESS_AUD=local
  *   ADMIN_EMAILS=<your address>
+ *
+ * and two more for /coach, which are optional:
+ *
+ *   ACCESS_COACH_AUD=local-coach
+ *   COACH_EMAILS=<a coach's address>
  *
  * Requests straight to :8788 carry no token and get the guard's 403, which
  * is the other half worth seeing. The key lives only in this process, and
@@ -57,6 +66,8 @@ function devVars() {
 
 const vars = devVars();
 const email = (vars.ADMIN_EMAILS ?? '').split(',')[0].trim();
+const coachEmail = (vars.COACH_EMAILS ?? '').split(',')[0].trim();
+const coaching = Boolean(vars.ACCESS_COACH_AUD && coachEmail);
 if (vars.ACCESS_TEAM_DOMAIN !== ISSUER || !vars.ACCESS_AUD || !email) {
   console.error(`photos/.dev.vars needs these three lines, then restart wrangler pages dev:
 
@@ -76,13 +87,17 @@ const certs = JSON.stringify({ keys: [{ kid, kty: 'RSA', alg: 'RS256', use: 'sig
 const part = (value) => base64url(encoder.encode(JSON.stringify(value)));
 
 // A token like the ones Access sends, good for ten minutes.
-async function token() {
+async function token(aud, address) {
   const now = Math.floor(Date.now() / 1000);
   const input = `${part({ alg: 'RS256', kid, typ: 'JWT' })}.${part({
-    aud: [vars.ACCESS_AUD], email, exp: now + 600, iat: now, nbf: now, iss: ISSUER, type: 'app',
+    aud: [aud], email: address, exp: now + 600, iat: now, nbf: now, iss: ISSUER, type: 'app',
   })}`;
   return `${input}.${base64url(await crypto.subtle.sign(RSA, privateKey, encoder.encode(input)))}`;
 }
+
+// /coach and under it sit behind the coach application (#192); every other
+// path gets the admin application's token, as before.
+const isCoachPath = (url) => url === '/coach' || url.startsWith('/coach/') || url.startsWith('/coach?');
 
 const DROP = new Set(['connection', 'content-length', 'content-encoding', 'transfer-encoding', 'keep-alive']);
 
@@ -95,7 +110,8 @@ createServer(async (req, res) => {
   for (const [name, value] of Object.entries(req.headers)) {
     if (!DROP.has(name) && name !== 'host') headers.set(name, Array.isArray(value) ? value.join(', ') : value);
   }
-  headers.set('Cf-Access-Jwt-Assertion', await token());
+  if (!isCoachPath(req.url)) headers.set('Cf-Access-Jwt-Assertion', await token(vars.ACCESS_AUD, email));
+  else if (coaching) headers.set('Cf-Access-Jwt-Assertion', await token(vars.ACCESS_COACH_AUD, coachEmail));
   // The browser is on this stand-in's origin, and the site sees each request
   // arrive on its own. On production, Access sits on the site's own host, so
   // those are one origin. Say the same here, so a form the admin pages post
@@ -117,5 +133,8 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, '127.0.0.1', () => {
   console.log(`Access stand-in on ${ISSUER}: signing in ${email}, forwarding to ${SITE}.`);
+  console.log(coaching
+    ? `Signing in ${coachEmail} at /coach.`
+    : '/coach is forwarded with no token: add ACCESS_COACH_AUD and COACH_EMAILS to .dev.vars to sign a coach in.');
   console.log(`Open ${ISSUER}/admin/ . Stop with Ctrl-C.`);
 });

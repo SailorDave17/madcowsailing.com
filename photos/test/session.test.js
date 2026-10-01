@@ -38,7 +38,7 @@ test('the cookie names the generation it was opened with, and reads back', async
   const issued = nowSeconds();
   const value = await signSession(KEY, 7, issued);
   assert.equal(parts(value).generation, '7');
-  assert.deepEqual(await readSession(withCookie(value), KEY), { generation: 7, issued });
+  assert.deepEqual(await readSession(withCookie(value), KEY), { sender: 'parent', generation: 7, issued });
 });
 
 test('a cookie with its signature altered is refused', async () => {
@@ -72,7 +72,7 @@ test('a cookie is refused at 90 days old, and accepted a second before', async (
   const old = await signSession(KEY, 1, now - SESSION_SECONDS);
   const young = await signSession(KEY, 1, now - SESSION_SECONDS + 1);
   assert.equal(await readSession(withCookie(old), KEY, now), null);
-  assert.deepEqual(await readSession(withCookie(young), KEY, now), { generation: 1, issued: now - SESSION_SECONDS + 1 });
+  assert.deepEqual(await readSession(withCookie(young), KEY, now), { sender: 'parent', generation: 1, issued: now - SESSION_SECONDS + 1 });
 });
 
 test('a cookie issued in the future is refused, past a minute of clock skew', async () => {
@@ -115,7 +115,7 @@ test('the guard passes the current generation through, with the session on conte
   const issued = nowSeconds();
   const { response, context } = await guard(withCookie(await signSession(KEY, 2, issued)), db);
   assert.equal(response.status, 200);
-  assert.deepEqual(context.data.session, { generation: 2, issued });
+  assert.deepEqual(context.data.session, { sender: 'parent', generation: 2, issued });
 });
 
 test('the guard answers 401 for an earlier generation, a tampered cookie, or none', async () => {
@@ -134,7 +134,7 @@ test('the guard answers 401 for an earlier generation, a tampered cookie, or non
   }
 });
 
-test('with no code in the database, uploads stay closed: 401', async () => {
+test('with no code in the database, a parent\'s session is refused: 401', async () => {
   const { response } = await guard(withCookie(await signSession(KEY, 1, nowSeconds())), d1());
   assert.equal(response.status, 401);
 });

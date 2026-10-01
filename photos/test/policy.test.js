@@ -16,11 +16,11 @@ import { adminHome } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
 import { HTML_CACHE, albumListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
-import { DAILY_UPLOADS, SIZES } from '../lib/photos.js';
+import { DAILY_UPLOADS, SIZES, insertPhoto } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
 } from '../lib/removals.js';
-import { SESSION_DAYS } from '../lib/session.js';
+import { SESSION_DAYS, coachListed, coachSessionCookie, readSession } from '../lib/session.js';
 import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
 import { d1 } from './d1.js';
 import { r2 } from './r2.js';
@@ -144,7 +144,20 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     'A check can miss one.',
     'no location, no camera make or model', // stripped on the phone (#155)
     'only in a scrambled form, made with a secret key', // lib/address.js
-    'No names, no accounts and no email addresses are kept', // A4
+    'Nothing kept with a photo names who sent it: no name, no account and no email address', // A4
+    'Someone sending with the invite link gives none of those at all.', // A4
+    // #192: coaches sign in, and the page says what that keeps.
+    'the team\'s coaches, who sign in, can send one',
+    'only an address the site\'s admins have put on the coaches\' list gets in',
+    'until the coach is taken off the list. Changing the invite link does not stop it.',
+    'A coach\'s photos are checked like everyone else\'s.',
+    'for a coach\'s photo, not which coach',
+    'A coach\'s cookie holds their address only in a scrambled form, made with a secret key.',
+    'The coaches\' list itself holds each coach\'s email address, and only the site\'s owner can change it, in Cloudflare\'s dashboard.',
+    'records each sign-in in the site\'s account, with the coach\'s email address and network address',
+    // Owner, at #192's review: the row keeps no sign-in time, and the page
+    // says the time a photo was sent can still be matched.
+    'So when a coach\'s photo was sent could still be matched against who signed in shortly before.',
     'There is no set limit.', // owner, at pickup
     'with the photo attached, or its link', // the review: a download's number moves
   ]) {
@@ -158,7 +171,7 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     'its caption, if it has one;',
     'the album it was sent to;',
     'when it was taken, and when it was sent;',
-    'which invite link it was sent with, and when that phone opened it.',
+    'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it.',
   ]);
   // The address is in the lede, on the first screen, and again in its own
   // section at the foot (owner, at #159's design review).
@@ -168,7 +181,8 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
 });
 
 test('the policy\'s figures are the code\'s: a session\'s days, the join limit\'s hour, the full size\'s long edge and the daily cap', () => {
-  assert.equal(MAIN.match(new RegExp(`\\b${SESSION_DAYS} days\\b`, 'g'))?.length, 2, `the page names ${SESSION_DAYS} days twice`);
+  // A parent's phone, a coach's (#192) and the cookie: three times.
+  assert.equal(MAIN.match(new RegExp(`\\b${SESSION_DAYS} days\\b`, 'g'))?.length, 3, `the page names ${SESSION_DAYS} days three times`);
   assert.equal(FAILURE_WINDOW_SECONDS, 60 * 60, 'the join limit\'s window moved; the page says "an hour"');
   assert.match(MAIN, /An attempt counts for an hour/);
   assert.match(MAIN, new RegExp(`the largest at most ${SIZES.full.longEdge.toLocaleString('en-US')} pixels on its long side`));
@@ -278,6 +292,63 @@ test('the head comment traces every takedown claim to a file that exists', () =>
   for (const file of files) assert.ok(existsSync(join(ROOT, file)), `the trace table names ${file}, which does not exist`);
   // The control: a name the pattern reads that is not there is caught.
   assert.equal(existsSync(join(ROOT, 'lib/no-such-file.js')), false);
+});
+
+// ---- #192: a coach's sign-in on the page ------------------------------------
+
+test('the head comment traces every coach claim to the code behind it, and the code still has it', async () => {
+  const comment = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0];
+  // Each identifier the trace names, and the module that must still export
+  // it, so a rename cannot leave the trace pointing at nothing (#192's review).
+  const exported = {
+    requireCoach: '../lib/access.js',
+    coachListed: '../lib/session.js',
+    coachTag: '../lib/session.js',
+    readSession: '../lib/session.js',
+    insertPhoto: '../lib/photos.js',
+  };
+  for (const [name, module] of Object.entries(exported)) {
+    assert.ok(comment.includes(name), `the trace table does not name ${name}`);
+    assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
+  }
+  for (const source of ['lib/access.js', 'functions/coach/_middleware.js', 'COACH_EMAILS', 'Access authentication']) {
+    assert.ok(comment.includes(source), `the trace table does not name ${source}`);
+  }
+  // COACH_EMAILS is the name the guard reads, not only a word in the comment.
+  assert.equal((await import('../lib/access.js')).COACHES.list, 'COACH_EMAILS');
+  // The control: a name the code does not export reads as missing.
+  assert.equal((await import('../lib/session.js')).isListedCoach, undefined);
+  assert.doesNotMatch(comment, /will change this page/, 'the comment still says #192 is to come');
+});
+
+test('the page\'s coach claims are what the code does: no address in the cookie, no invite link on the row, and the list decides', async () => {
+  const KEY = 'test-session-signing-key-0123456789abcdef';
+  const COACH = 'coach@example.com';
+  // "A coach's cookie holds their address only in a scrambled form."
+  const cookie = await coachSessionCookie(KEY, COACH, 1_790_000_000);
+  assert.ok(!cookie.toLowerCase().includes('coach@'), 'the coach\'s cookie carries the address');
+  const request = new Request('https://photos.madcowsailing.com/', { headers: { Cookie: cookie.split(';')[0] } });
+  const session = await readSession(request, KEY, 1_790_000_100);
+  assert.equal(session.sender, 'coach');
+  // "... until the coach is taken off the list."
+  assert.equal(await coachListed(KEY, session.coach, COACH), true);
+  assert.equal(await coachListed(KEY, session.coach, 'someone@example.com'), false);
+  // "For a coach's photo, only that a coach sent it": the row says coach and
+  // names no invite link, and nothing on it names the coach.
+  const db = d1();
+  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const id = await insertPhoto(db, address, {
+    mediaKey: 'd'.repeat(32), batch: '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b', session, caption: null,
+    captured: 1, sentAt: 2, full: { width: 4, height: 3 }, grid: { width: 4, height: 3 }, screen: { width: 4, height: 3 }, bytes: 10,
+  });
+  const row = { ...db.sqlite.prepare('SELECT * FROM photos WHERE id = ?').get(id) };
+  assert.equal(row.sender, 'coach');
+  assert.equal(row.code_generation, null);
+  // "Only that a coach sent it": no session time, which Cloudflare's sign-in
+  // log would turn into a name (owner, at #192's review).
+  assert.equal(row.session_issued, null);
+  assert.equal(row.state, 'pending', 'a coach\'s photo is checked like everyone else\'s');
+  for (const value of Object.values(row)) assert.ok(!String(value).includes(session.coach.slice(0, 12)), 'the row names the coach');
 });
 
 test('README gives the button as the route for an email request, and the hand takedown for when it is refused', () => {

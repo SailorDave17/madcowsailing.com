@@ -187,7 +187,10 @@ test('"Rotate code" is a plain button outside every form, and the page carries t
   assert.ok(dialog, 'no <dialog>');
   assert.match(dialog, /^<dialog id="rotate-dialog" class="confirm" aria-labelledby="rotate-title">/);
   assert.match(dialog, /<h2 id="rotate-title">/);
-  assert.match(dialog, /Everyone signed in to upload will need the new link\./);
+  assert.match(dialog, /Every parent signed in to upload will need the new link\./);
+  // A coach's session survives a rotation (#192, owner at pickup), and the
+  // dialog says so rather than promising to end every session.
+  assert.match(dialog, /Coaches\s+who signed in at \/coach keep sending\./);
 });
 
 test('only the dialog\'s confirm button rotates: one form posts there, and its other button closes the dialog', () => {
@@ -329,13 +332,15 @@ test('with no code, the page offers "Create code" and nothing to copy or rotate'
   t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const html = await page(site({ codes: [] }));
   assert.match(html, /<form method="post" action="\/api\/admin\/code\/create">\s*<p><button type="submit" class="button">Create code<\/button><\/p>\s*<\/form>/);
-  assert.match(html, /There is no invite code, so nobody can send photos\./);
+  // A coach needs no code (#192, owner at its review), so the page says no
+  // parent can send, not that nobody can.
+  assert.match(html, /There is no invite code, so no parent can send photos\. Coaches\s+who\s+signed in at \/coach still can\./);
   for (const absent of ['<dialog', 'data-copy', 'invite-code"', '/api/admin/code/rotate', 'rotate-open']) {
     assert.ok(!html.includes(absent), `the no-code page carries ${absent}`);
   }
 });
 
-test('with no code, uploads stay closed: no code joins and no session passes the upload guard', async (t) => {
+test('with no code, parents\' uploads stay closed: no code joins and no session passes the upload guard', async (t) => {
   t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site({ codes: [] });
   for (const code of [CURRENT, OLD, '0000-0000-0000']) {
