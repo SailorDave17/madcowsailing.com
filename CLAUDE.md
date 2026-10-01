@@ -1460,7 +1460,11 @@ shells before submitting anything or review will block.
 
 **Logs index and trip pages.** See `docs/sailing-site.md`.
 
-**Nav:** `apps · logs · about`
+**Nav:** `apps · logs · photos · about` — photos is
+https://photos.madcowsailing.com/ (D6 on epic #147: linked from this nav, never
+indexed). It is an absolute link, so linkcheck never reads it; `grep -c
+'href="https://photos.madcowsailing.com/"'` over every sailing page and both
+`tools/templates/` files is the check (#160).
 
 ## Writing rules
 
