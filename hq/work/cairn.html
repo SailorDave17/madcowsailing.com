@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Taskr — case study — Mad Cow HQ</title>
-<meta name="description" content="How Taskr splits a household's chores by each person's minutes, and why its split says so plainly when a fair split cannot be reached.">
-<link rel="canonical" href="https://madcowhq.com/work/taskr">
-<meta property="og:title" content="Taskr — case study — Mad Cow HQ">
-<meta property="og:description" content="How Taskr splits a household's chores by each person's minutes, and why its split says so plainly when a fair split cannot be reached.">
+<title>Cairn — case study — Mad Cow HQ</title>
+<meta name="description" content="How Cairn keeps AI coding agents inside a written ceiling: hooks that refuse merges and deletions before they run, reviewers tested against known answers, and no guard trusted until it has refused on purpose.">
+<link rel="canonical" href="https://madcowhq.com/work/cairn">
+<meta property="og:title" content="Cairn — case study — Mad Cow HQ">
+<meta property="og:description" content="How Cairn keeps AI coding agents inside a written ceiling: hooks that refuse merges and deletions before they run, reviewers tested against known answers, and no guard trusted until it has refused on purpose.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/work/taskr">
+<meta property="og:url" content="https://madcowhq.com/work/cairn">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -73,243 +73,189 @@
   <!-- The case-study shape from CLAUDE.md, in its fixed order: header (name,
        summary, role, stack, timeframe, links), the problem, what I built, a
        decision I'd defend, outcome. Same five <h2>s in the same order as
-       race-timer.html and tender.html, so a skimmer learns the shape once.
+       race-timer.html, taskr.html and tender.html. Added by #230.
 
-       SOURCES. Every number here traces to the Taskr repo at origin/release
-       (74aed25), read 2026-09-14, and #65's PR lists them claim by claim:
-       docs/allocation-corpus.md (the 10-point tolerance, its two bounds, the
-       thirteen shapes, both corpus figures and the date they were recorded),
-       src/lib/allocation.corpus.js (the granularity-floor household),
-       docs/refresh-charter.md (the prototype's findings, the 2020 bar, the
-       no-button ruling), docs/rebalance-churn.md (every churn figure),
-       docs/capacity-model.md (an override of zero), docs/access-model.md
-       (the day the live app could not hold a household), README.md (the 60
-       and 300 minutes, 150 of 300 and 30 of 60, the database clock, the
-       race run forty times) and src/components/Split.jsx (the verdict's
-       wording, and what the split does not count).
+       SOURCES. Every claim traces to the cairn repo at cairn--live 9cf30af,
+       read 2026-10-01 and re-checked at source that day:
+       memory/global/enforce-rules-with-hooks-not-prose-2026-08-04.md (the
+       seven violations and the two after the rewording, "a delivery problem,
+       not a wording problem", the guard that half-fires, cosmetic false
+       positives, the push gate that stops a habit and not an adversary, the
+       newline the first push gate failed open on, the nine dead patterns);
+       memory/reference/claude-code-memory-and-instruction-config-2026-08-01.md
+       (the vendor's "no guarantee of strict compliance");
+       memory/global/documented-is-not-installed-2026-08-02.md (2026-08-09: a
+       settings file with no hooks section while every guard passed its
+       self-test; a guard that cannot launch fails open; only a refused
+       command proves an install); policies/agent-pipeline-safety.md (the
+       ladder, the draft-PR ceiling and its reason, the died-agent rule found
+       in four of six pipelines on 2026-08-07); ci/check_mcp_surface.py and
+       hooks/write_authority.py docstrings (2026-08-28, the same merge denied
+       from the shell and allowed through a tool server); runs/LEDGER.md (92
+       rows 2026-08-03 to 2026-10-01, 1,533 agents and 204.3M subagent
+       tokens, summed by hand; one stopped run has no token reading);
+       runs/2026-08-07-refuter-known-answer-review-fanout.md and
+       runs/2026-08-08-confirmer-known-answer-drift-sweep.md (12/12 each, and
+       the stated limits); CLAUDE.md (8 hooks, 13 checks, 10 with a
+       self-test, 510 notes as of 2026-10-01); learning/REGISTER.md (98
+       fault rows). First commit 2026-07-21.
 
-       Auto-assignment is cited to Taskr #49 and #284 and to Split.jsx, not
-       to the README, whose engine paragraph still says the allocator has no
-       writer. That sentence is stale; Taskr #453 corrects it. The owner chose
-       on 2026-09-14, at #65's pickup, to ship this page without waiting.
+       PRIVATE REPO. Nothing here links it, names a path on the machine, a
+       credential, a person, or any override that switches a guard off. The
+       limits stated are limits of the approach, not a list of the gaps. -->
 
-       SCREENSHOTS. Both come from one throwaway demo household on
-       production with placeholder names, walked in a fresh browser context
-       on 2026-09-14 and deleted from the app afterwards. It reproduces the
-       corpus's granularity-floor shape: level first, then one person's week
-       drops to 25 minutes and the allocator re-assigns on its own. Taskr
-       #452 is the command that will produce them instead of a hand walk.
-
-       The header shot is fetchpriority="low" on purpose. The page's largest
-       paint is text, and at default priority the image competed with it:
-       measured on a local serve, three Lighthouse runs each, 94 at default,
-       95 at low, 96 with no image at all (#65).
-
-       The two-presentation rule: this page shares no sentence with the
-       tester page at /apps/taskr/, the /work/ row or the /apps/ row. The
-       lede is Taskr's one-liner (#75, D9), which repeats on purpose. -->
-
-  <section class="wrap page-head cs-head">
-    <div>
-      <p class="eyebrow">Case study</p>
-      <h1>Taskr</h1>
-      <p class="lede">Splits a household's chores by the time each person has.</p>
-      <dl class="facts">
-        <dt>Role</dt>
-        <dd>Sole developer of the rebuild: the charter, the design, the code,
-          and the migrations applied to the live project.</dd>
-        <dt>Stack</dt>
-        <dd>React as an installable web app, Supabase Postgres with row-level
-          security and column grants, Vercel, and an allocation module in
-          plain JavaScript with no React in it.</dd>
-        <dt>Timeframe</dt>
-        <dd>A five-person classroom project in 2020, rebuilt from a charter
-          since August 2026. Still in progress.</dd>
-        <dt>Links</dt>
-        <dd><a href="https://taskr.madcowhq.com/">The app</a> &middot;
-          <a href="/apps/taskr/">How to start testing it</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></dd>
-      </dl>
-    </div>
-    <div class="shot shot-phone">
-      <img src="/assets/img/taskr/case-split-level.png" width="320" height="359"
-           loading="eager" fetchpriority="low" decoding="async"
-           alt="Taskr's split for a demo household of three under the verdict 'The split is level.': Alex at 80 of 150 minutes, Robin and Sam at 55 of 100 each, and their three bars at the same height.">
-    </div>
+  <section class="wrap page-head">
+    <p class="eyebrow">Case study</p>
+    <h1>Cairn</h1>
+    <p class="lede">The guardrails under every project on this site: what AI
+      coding agents may do without a review, hooks that refuse the rest before
+      it runs, and reviewers that were tested before they were trusted.</p>
+    <dl class="facts">
+      <dt>Role</dt>
+      <dd>Sole author: the policies, the hooks and checks, the multi-agent
+        pipelines, and the record they all write to.</dd>
+      <dt>Stack</dt>
+      <dd>Python hooks on Claude Code's tool-call and turn events, JavaScript
+        workflow scripts for the pipelines, a POSIX shell push gate, GitHub
+        Actions, and MCP servers for GitHub and the databases.</dd>
+      <dt>Timeframe</dt>
+      <dd>July 2026 to now. Still in progress.</dd>
+      <dt>Links</dt>
+      <dd>The repository is private. I can walk through it on request:
+        <a href="mailto:dave@madcowhq.com">dave@madcowhq.com</a>.</dd>
+    </dl>
   </section>
 
   <section class="wrap">
     <h2>The problem</h2>
-    <p>Households divide chores by habit, by nagging, or by an even split that
-      is not even. Give a parent with 300 free minutes a week and a child with
-      60 the same number of chores, and the child&rsquo;s week is gone while
-      the parent&rsquo;s has barely started. A count is the wrong unit. So is
-      a total of minutes: what has to match is how much of <em>each
-      person&rsquo;s own week</em> the work takes.</p>
-    <p>Taskr began in 2020 as a five-person classroom project with that idea
-      at its centre and a view with one progress bar per person. It ran as
-      desktop pages against <code>localhost</code>, over a database a startup
-      script regenerated, so it had no deployment, no persistence and no
-      phone. The rebuild&rsquo;s charter kept the idea and set the bar at
-      phone-usable for a real household, which the old architecture failed by
-      its structure rather than by degree. So it was rebuilt, not
-      refactored.</p>
-    <p>Fairness by time has a sharp edge, too. When somebody&rsquo;s week is
-      close to the size of one chore, no arrangement of the work is fair, and
-      an app that divides it anyway has to decide what to tell the
-      household.</p>
+    <p>The projects on this site were built with AI coding agents doing much
+      of the typing. An agent works from an instructions file, and that file
+      is context, not configuration: the tool&rsquo;s own documentation says
+      there is no guarantee of strict compliance. Every rule I had for the
+      agents lived in one, and the record shows the rules losing.</p>
+    <p>One rule shows the shape. When an agent needed a decision from me, it
+      was to offer clickable choices rather than ask in prose. It was broken
+      seven times in two days, twice after I had reworded it to close the gap
+      it slipped through. A turn that hands over a decision in prose looks
+      exactly like a finished turn, so nothing noticed until I did.</p>
+    <p>The second failure looked like success. On 9 August the guards I had
+      already written were registered nowhere. The settings file that should
+      have switched them on had no hooks section at all, while every guard
+      passed its own self-test. A guard that cannot launch does not refuse
+      anything. It lets the call through, and the layer reads as installed.</p>
+    <p>The agents&rsquo; reviews needed the same suspicion. An early review
+      pipeline handed five findings to an agent told to refute them, and it
+      refuted none. That is either five good findings or a refuter that agrees
+      with whatever it is handed, and from outside the two look the same.</p>
   </section>
 
   <section class="wrap">
     <h2>What I built</h2>
-    <p>An installable web app for a household&rsquo;s phones. Each person is a
-      budget of minutes for the week and each chore a number of expected
-      minutes with a due date, and the app opens on the split: every
-      person&rsquo;s load drawn as a share of their own capacity. A parent at
-      150 of 300 minutes and a child at 30 of 60 are level, and the bars show
-      it without a number being read. Members stay in roster order and are
-      never sorted by load, because ranking people by output is the exact
-      inversion of what the app is for.</p>
-    <p>The allocator is a pure module with no React and no database in it.
-      It is handed each person&rsquo;s minutes for the week rather than
-      reading them, so capacity is a fact about a week and not about a
-      person, and an override of zero minutes wins over the baseline instead
-      of being mistaken for a missing value. It is judged against a corpus of
-      thirteen household shapes whose expected outcomes were worked out by
-      hand before the module ran against any of them, because expectations
-      generated by the code under test only prove the code still does what
-      it did.</p>
-    <p>Its answer is written, not only drawn. When somebody&rsquo;s week
-      changes, the household&rsquo;s open chores re-assign with nobody
-      pressing anything, and a chore a person placed by hand stays where they
-      put it. At setup, when nobody holds anything yet, one control,
-      <em>Deal these out</em>, hands out the unheld work. There is no
-      re-balance button: the charter ruled one out, because a button someone
-      has to press is the negotiation moved rather than removed.</p>
-    <p>Re-running an allocator from scratch moves most of the list, which is
-      fair and infuriating. Over the corpus with each household&rsquo;s
-      largest capacity halved, a re-balance with no stability rule moved 25
-      of 43 held jobs and 1,240 minutes. Preferring whoever already holds a
-      job when two placements tie, plus a budget of 120 minutes of movement,
-      brings that to 11 jobs and 355 minutes.</p>
-    <p>The rest is where trust has to live. Row-level security scopes every
-      row to its household, and column grants decide which columns a client
-      may read or write, since a row policy says nothing about columns. The
-      moment a chore is done is stamped by the database&rsquo;s clock, so a
-      phone set to the wrong date cannot move work between weeks. The build
-      refuses a key shaped like a secret in any variable that gets inlined
-      into the client, a check added after one reached a preview bundle in
-      August. Every migration is replayed in CI against an in-process
-      Postgres. The live suite that tested the policies over the wire, as a
-      client would, ran until September, when retiring the
-      organizer&rsquo;s password mint broke its fixture; rebuilding it is
-      Taskr #436.</p>
-    <p>Shipping is two acts in an order somebody chooses. Production builds
-      from a release branch that only a pull request I merge can enter, and a
-      migration is applied to the live database before the client that needs
-      it is promoted. The order exists because it once ran the other way: in
-      August a merge was a deploy, client code went live ahead of two
-      migrations nobody had applied, and for a day the live app could not
-      hold a household at all.</p>
-    <p>Where two phones can race, the race is run rather than reasoned about.
-      Two clients finishing the same shopping run at the same instant, ten
-      repetitions a run against the live project, produced one winner and
-      one refusal forty times out of forty.</p>
+    <p>First, a written ceiling on what automation may do without me. An
+      agent may read, branch, commit, push its own branch, open a draft pull
+      request and comment. It may not merge, mark a pull request ready,
+      force-push, close or rewrite an issue, or delete anything. The ceiling
+      is a draft because a wrong draft costs one review to discover, where a
+      wrong merge or a closed issue costs a recovery.</p>
+    <p>Then the hooks: eight scripts that run on the agent&rsquo;s tool calls
+      and turns, before anything happens. Between them they refuse merges,
+      force pushes and every spelling of branch deletion, work in a repository
+      outside the session&rsquo;s scope, a story filed without its epic and
+      estimate, a pull request that would close an issue with unticked
+      acceptance criteria, and a turn that ends on a question asked in prose.
+      A git push gate refuses integration branches outright, and thirteen
+      consistency checks keep the record honest. One of them fails the build
+      when a number written in prose stops matching the value something else
+      computes, which turned out to be the most common defect in the
+      repository.</p>
+    <p>Seven multi-agent pipelines do the larger reads: a review of a working
+      diff through six independent lenses, a sweep of every repository for
+      work that shipped but was never recorded, backlog grooming, and others.
+      In each, every finding goes to a separate agent instructed to refute it
+      and to call it refuted when unsure. Only survivors reach me, usually
+      with a correction attached. An agent that dies mid-run is reported as
+      dead and never as a clean result. Four of the six pipelines that existed
+      on 7 August had been counting a dead refuter&rsquo;s finding as
+      refuted, which is the most confident wrong answer a review can give.</p>
+    <p>Under it all is the record: 510 notes, each a decision with its
+      reasoning or a mistake with its correction; a ledger row for every
+      pipeline run, written by the session that dispatched it rather than by
+      the pipeline; and a register of 98 faults that counts which ones came
+      back after they were fixed.</p>
   </section>
 
   <section class="wrap">
     <h2>A decision I&rsquo;d defend</h2>
-    <p><strong>When a fair split is out of reach, the split says so and says
-      why. It never rounds until the bars look level.</strong></p>
-    <p>Level has a number. The split counts as level when the highest and
-      lowest shares of their own capacity are at most 10 percentage points
-      apart. Outside that, the verdict above the bars says how many minutes
-      off level the household is and who is carrying the extra. When no
-      arrangement can reach level, it says that instead, and names the
-      person and the two figures that make it arithmetic: their fair share
-      and the smallest job on the list.</p>
-    <p>The case that forced it is small. A household with 25, 100 and 150
-      minutes this week and jobs of 40, 35, 30, 30, 25, 20 and 10 minutes
-      sits near 69% of its capacity, so the person with 25 minutes should
-      carry about 17. The smallest job is 10. They land on 40% or 80%, and
-      no arrangement puts them near 69%. The prototype hit exactly this
-      before the rebuild began: a greedy allocator was ragged in 3 of 5
-      scenarios, and a local-search pass fixed two of them and could not fix
-      this one.</p>
-    <div class="cs-figure shot-phone">
-      <img src="/assets/img/taskr/case-split-unreachable.png" width="320" height="544"
-           loading="lazy" decoding="async"
-           alt="The same demo household after Sam's week drops to 25 minutes. The verdict reads 3 min off level, and that level cannot be reached this week because Sam's fair share is 17 min and the smallest job is 10 min. A line below says the re-balance moved 120 min and the change budget held the rest. Alex carries 105 of 150 minutes, Robin 65 of 100, Sam 20 of 25.">
-    </div>
-    <p>So the honest answer had to be the product&rsquo;s answer. An allocator
-      that reports level over a visibly ragged set spends the one number the
-      whole app rests on, and the households it would mislead are the ones it
-      was built for: a child&rsquo;s week, or somebody&rsquo;s short one, is
-      where a budget comes close to the size of a single job. Naming the
-      reason is what makes the verdict read as the fairness claim holding up
-      rather than as the app failing.</p>
+    <p><strong>A rule an agent must not break is enforced outside the agent,
+      and nothing counts as enforcement until it has refused something on
+      purpose.</strong></p>
+    <p>The first half came from the clickable-choices rule. A rule that comes
+      back after its wording has been corrected has a delivery problem, not a
+      wording problem, so the fix was a hook that reads the end of every turn
+      and hands the turn back when it closes on a prose question. The same
+      reasoning put merges, force pushes and deletions behind a hook rather
+      than behind a sentence.</p>
+    <p>The second half came from 9 August. Every guard then had a passing
+      self-test, and none of them was running. So now each guard is made to
+      refuse on purpose before it is trusted: its test is mutated until it
+      goes red, a check confirms the guards are registered on the machine
+      where they run, and the proof of an install is a refused command rather
+      than a green test. That discipline found a push gate that waved a
+      protected branch through whenever git&rsquo;s list of refs ended without
+      a newline, and nine patterns in the question hook that could never have
+      matched.</p>
+    <p>It also found the case I would least have predicted. A merge from the
+      shell was refused while the same merge through a GitHub tool server was
+      allowed, because the guard read the shell command and a tool
+      server&rsquo;s call carries none. A guard keyed on how an act is spelled
+      misses the next spelling of it. Matching the tool by name closed that,
+      and narrowing the token behind the server closed it a second time, so
+      two independent ceilings now hold.</p>
     <p>What it rejected, and why:</p>
     <ul class="rejected">
-      <li><strong>A tolerance of 15 points or more.</strong> The prototype
-        measured a split with a 15% spread and called it ragged. A tolerance
-        at or above that calls a measured-ragged split level, which is the one
-        failure the verdict exists to prevent.</li>
-      <li><strong>A tighter tolerance.</strong> Ordinary indivisibility would
-        trip it on healthy households, and a notice that fires on a healthy
-        household is an absent notice: it teaches everyone to ignore the real
-        one.</li>
-      <li><strong>Reporting level whenever the allocator has done its
-        best.</strong> The bars would contradict the sentence above them,
-        and the first household to notice would stop believing either.</li>
-      <li><strong>Moving a chore somebody placed by hand to reach
-        level.</strong> A person overrode the model on purpose. The allocator
-        leaves the chore where it is and says the week cannot be level,
-        rather than undoing them to make its own number look better.</li>
-      <li><strong>Counting chores instead of minutes.</strong> Equal counts
-        are not equal shares. The corpus&rsquo;s first shape is a child and a
-        parent at exactly level with one chore against five, and the
-        prototype&rsquo;s first narration, which counted ten chores moved
-        while each person&rsquo;s count changed by one, was true and read as
-        broken.</li>
+      <li><strong>Rewording the rule again.</strong> It had been reworded
+        already, and two of the seven violations came after that.</li>
+      <li><strong>A guard on every hazard.</strong> Some failures have no
+        clean signature in a command line. A guard that fires on half of them
+        reads as coverage and stops anyone looking, so those stay written
+        rules on purpose, with the reason recorded beside them.</li>
+      <li><strong>A passing self-test as proof of a guard.</strong> That was
+        the state on 9 August, exactly.</li>
+      <li><strong>Letting a pipeline write its own run record.</strong> A
+        pipeline&rsquo;s account of itself is the self-assessment the rest of
+        this exists to avoid.</li>
     </ul>
-    <p>The cost is stated rather than hidden. Level is a band, so two people
-      up to 10 points apart both read as level. The allocator is greedy, so
-      when it places a job it cannot see the final spread. In the stability
-      corpus that cost one shape its levelness once ties went to the
-      incumbent, and it makes the movement budget non-monotone. A budget of 0
-      minutes reaches level in 2 of the 10 contested shapes, 30 and 60
-      minutes in 1, and 120 in 2 again. And the split counts only time spent
-      doing the work. Noticing, planning and remembering it are work the app
-      does not count, and the split screen says so.</p>
+    <p>The cost is real. A hook refuses some legitimate work, once including
+      its own commit, and when a guard&rsquo;s only false positives are
+      cosmetic I pay them rather than soften it. A push gate on one machine
+      stops a habit, not an adversary. And a hook catches a failure without
+      curing it: sessions still reach for the prose question now and then,
+      and the hook still hands those turns back.</p>
   </section>
 
   <section class="wrap">
     <h2>Outcome</h2>
-    <p>Open for testing at
-      <a href="https://taskr.madcowhq.com/">taskr.madcowhq.com</a>, where
-      anybody can start a household. As recorded in the repo on 2026-08-08
-      and read from it on 2026-09-14, the allocator reaches level in 10 of its
-      13 corpus shapes (76.9%), and in 7 of the 10 (70.0%) where level is a
-      real question. Both figures are given because three shapes have fewer
-      than two people with any minutes, and a set that small is level by
-      arithmetic rather than by anything the allocator did.</p>
-    <p>The 2020 code is kept at a tag, and none of it is on the branch that
-      ships. The charter&rsquo;s test for every proposal in the rebuild was
-      whether a screenshot of the old one-bar-per-person view could satisfy
-      it; if one could, the proposal had failed.</p>
-    <p>What is not proven yet is the part only a real household can settle:
-      whether people accept a split nobody negotiated, week after week. That
-      has its own epic in the tracker, and until it is read this page makes
-      no claim about it. Still in progress.</p>
+    <p>From 3 August to 1 October 2026 the pipelines ran 92 recorded
+      dispatches with 1,533 agents and about 204 million tokens of agent work.
+      Each has a ledger row saying what was found, what survived the refuter,
+      and what was corrected.</p>
+    <p>The refuting stage was tested before I relied on it. Six claims with
+      answers written down before the run, each dispatched twice, came back 12
+      of 12. The sweep&rsquo;s confirming stage was tested the same way with
+      the polarity reversed, and also matched 12 of 12. The test corpus was 45
+      lines and synthetic, which is easier than a real diff, and the record
+      says so.</p>
+    <p>All eight hooks carry a self-test, as do ten of the thirteen checks;
+      the other three were proven by mutation in the commits that added
+      them.</p>
+    <p>What this page cannot give is a defect-escape rate. There is no
+      before-and-after measure of delivery here, and none is implied. Still in
+      progress.</p>
   </section>
 
-  <!-- The quiet link to the page for the person who will use the app. It
-       sits at the end of <main>, as race-timer.html's does, because the
-       footer is copied verbatim and story #5 owns it. -->
   <section class="wrap page-foot">
-    <p>Households wanting to try Taskr rather than read about it are better
-      served by the <a href="/apps/taskr/">tester page</a>, which walks
-      through the first steps.</p>
+    <p>The projects it guards are on the <a href="/work/">work index</a>,
+      each with what was decided and why.</p>
   </section>
 </main>
 
