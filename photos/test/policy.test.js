@@ -72,15 +72,17 @@ test('every page\'s footer links /policy: the static pages, the public template,
   }
 });
 
-test('every page\'s header has the nav: All albums and Who sees these photos, with no page marked current', () => {
-  // Owner, at #159's review. No aria-current, so the five header copies stay
-  // byte for byte the same, which site, admin-page and public tests hold.
+test('every page\'s header has the nav: All albums only, with no page marked current', () => {
+  // Owner, at #159's review, gave the nav two links. The owner took
+  // /policy back out of it on 2026-10-01: the footer's copy is enough. No
+  // aria-current, so the five header copies stay byte for byte the same,
+  // which site, admin-page and public tests hold.
   for (const [name, html] of Object.entries(everyPage())) {
     const nav = block(block(html, 'header') ?? '', 'nav');
     assert.ok(nav, `${name}'s header has no nav`);
     assert.match(nav, /^<nav class="site-nav" aria-label="Primary">/, name);
     const links = [...nav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[1]} ${m[2]}`);
-    assert.deepEqual(links, ['/ All albums', '/policy Who sees these photos'], name);
+    assert.deepEqual(links, ['/ All albums'], name);
     assert.doesNotMatch(nav, /aria-current/, name);
   }
 });

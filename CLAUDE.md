@@ -1219,8 +1219,8 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
 one at its design review and five at its `review-fanout`.** `/policy`
 (`public/policy.html`, a static page, so it costs no Function request) says
 who sees a photo, who can send one, how each is checked, what the site keeps,
-for how long, and how to have a photo taken down. The header's nav and every
-page's footer link it, and the share page links it beside the join step.
+for how long, and how to have a photo taken down. Every page's footer links
+it, and the share page links it beside the join step.
 
 - **Every claim is traced to its source**, in a table in the page's head
   comment: the code or the decision that makes it true. A change to either is
@@ -1235,7 +1235,10 @@ page's footer link it, and the share page links it beside the join step.
   names a real `<nav>`. It marks no `aria-current`, so all five header copies
   stay byte for byte the same, which three tests hold. Not chosen: marking
   the current page, which would need those tests to strip the attribute as
-  the sailing site's hash check does.
+  the sailing site's hash check does. **Since 2026-10-01 the nav is All
+  albums alone** (owner): the policy link sat in the header and the footer,
+  and "it only needs to be in the footer". The nav stays, with its one link,
+  because the Quality floor names a real `<nav>`.
 - **The check is described, not promised as an outcome** (owner, at the
   review). The page says an admin turns down any photo they recognize as a
   sailor whose family opted out, and that a check can miss one, with the
@@ -1300,7 +1303,7 @@ page's footer link it, and the share page links it beside the join step.
   `public/policy.html`, `public/share/index.html`, `templates/page.html` and
   `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
   `test/public.test.js` fail until they agree, and `test/policy.test.js` until
-  each nav and footer links `/policy`.
+  each footer links `/policy` and each nav holds All albums alone.
 
 ### 19. Remove this photo
 
