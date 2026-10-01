@@ -13,9 +13,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-// The last group is the admin guard's (#151): the Access token, what it
-// claims, and the owner's address, which is kept out of the public repo too.
-const FORBIDDEN = /\b(code|codes|presented|stored|cookie|cookies|value|signature|secret|secrets|key|keys|[A-Z_]*_KEY|body|text|headers|request|session|token|tokens|jwt|claims|payload|email|emails|owner|ADMIN_EMAILS)\b/i;
+// The admin guard's group (#151): the Access token, what it claims, and the
+// owner's address, which is kept out of the public repo too. The last is an
+// email's (#217): who it is to, its subject and its contents.
+const FORBIDDEN = /\b(code|codes|presented|stored|cookie|cookies|value|signature|secret|secrets|key|keys|[A-Z_]*_KEY|body|text|headers|request|session|token|tokens|jwt|claims|payload|email|emails|owner|ADMIN_EMAILS|to|recipient|recipients|subject|html|reply_to)\b/i;
 
 function sources(dir) {
   const out = [];
@@ -78,6 +79,9 @@ test('the scanner finds a secret handed to a logging call, and passes a clean on
     "console.error('refused', token);",
     'console.warn(`not listed: ${claims.email}`);',
     "console.log('allowed', env.ADMIN_EMAILS);",
+    "console.error('mail refused for', to);",
+    'console.error(`mail: ${subject} failed`);',
+    "console.warn('resend said', message.reply_to);",
   ];
   for (const source of planted) {
     const calls = consoleCalls(source);

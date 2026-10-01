@@ -45,8 +45,12 @@ them, #157 the public album list and album pages, which replaced the
 holding page at `/`, #159 the policy at `/policy`, which every page's
 footer links, #158 "Remove this photo", which hides a photo at once
 and queues it on `/admin/removals`, and #192 the coach sign-in at `/coach`,
-which opens an upload session through Access with no invite link.
-Epic #147 builds the rest. Its `develop` preview sits behind
+which opens an upload session through Access with no invite link. Those are
+epic #147's. **Epic #216 (accounts) replaces the invite link and the
+coaches' Access sign-in** with email-and-password accounts the owner
+approves, and retires both at its cutover, #226. Its first story, #217, is
+the email the site sends through Resend, with a test send at `/admin/mail`.
+Epics #147 and #216 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -115,7 +119,8 @@ story, this is the paragraph to check.*
 │   │                         admin/queue.js the approval queue, #156, with
 │   │                         api/admin/queue/ and api/admin/photos/;
 │   │                         admin/removals.js the removal requests, #158,
-│   │                         with api/admin/removals/)
+│   │                         with api/admin/removals/; admin/mail.js the
+│   │                         test email, #217, with api/admin/mail/)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -530,6 +535,7 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
 | D1 | 5 million rows read and 100,000 written a day; 5 GB in all, 500 MB per database | about 4% of reads at the request ceiling, if every query uses an index | with Workers Paid: 25 billion reads and 50 million writes a month |
 | Zero Trust | 50 users | the owner, plus anyone who signs in to a preview, plus each coach (#192, item 20) | $7 per user a month |
+| Email (Resend Free, its own account; #217, item 21) | **100 emails a day** and 3,000 a month, sent and received together, each recipient counting as one; the day is 00:00–24:00 UTC. 10 requests a second, per team | every email the later stories send, and each test from `/admin/mail`. **Past the daily limit Resend refuses each send with `429 daily_quota_exceeded` until midnight UTC**, and past the monthly one with `monthly_quota_exceeded`. Pay-as-you-go is a paid feature, so nothing is billed and nothing is queued: the site sends nothing more until the reset | Pro, $20 a month: 50,000 a month, no daily limit, then $0.90 per 1,000 |
 
 Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
@@ -537,6 +543,16 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/),
 [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) and the
 [Zero Trust plans](https://www.cloudflare.com/plans/zero-trust-services/).
+The email row, read 2026-10-01: [Resend pricing](https://resend.com/pricing),
+Resend's [account quotas and limits](https://resend.com/docs/knowledge-base/account-quotas-and-limits)
+(*"daily email quota of 100 emails/day and 3,000 emails/month. This quota
+includes both sent and received emails … The daily quota is a UTC calendar day
+(00:00–24:00 UTC) and resets at midnight UTC"*), and its
+[errors](https://resend.com/docs/api-reference/errors) page (`daily_quota_exceeded`,
+status 429, *"wait for the quota to reset at midnight UTC"*). The account's
+own Usage page read the same that day: Free, 0 / 100 a day, 0 / 3,000 a
+month, 0 / 3 domains, 10 req/s, pay-as-you-go off. The refusal is read from
+the docs, not measured: measuring it costs a day's sends.
 
 Storage runs out first, and video is what fills it. R2 has no daily cut-off: past the
 free allowance it bills monthly, rounded up to whole units, and using R2 at all needs its
@@ -1470,6 +1486,76 @@ lands on the share page able to send, having typed and followed no code
 - **The coach list started with the owner's address only** (owner, at
   pickup), so `/coach` can be read end to end. Real coaches are added by
   README's steps.
+
+### 21. Email: Resend, from photos.madcowsailing.com
+
+**Built in #217, 2026-10-01, the first story of epic #216.** Every later
+story of that epic sends mail: approval, the sign-in code, a reset, new
+requests. `lib/mail.js` is the one way the site sends, and README, The photo
+site, Email, is the operating record: the account, the domain, the records
+and how to replace the key.
+
+- **Resend, on an account of its own** (owner, 2026-10-01, before pickup).
+  It is not the login holding Taskr's and Tender's domains, so the free
+  quota is this site's alone; Resend documents its rate limit as per team
+  but does not say whether the daily quota is, which is why this is a
+  separate account and not a second team. Signed in with email and password
+  and MFA, since Google or GitHub would have landed on the existing account.
+  Not chosen: comparing Cloudflare Email Sending first, a Workers Paid beta
+  whose effect on the Zoho MX was untested, and which would have made this
+  story wait on #218.
+- **From `no-reply@photos.madcowsailing.com`, Reply-To
+  `dave@madcowsailing.com`** (owner, 2026-10-01). The per-app subdomain
+  matches Taskr's and Tender's, and keeps the site's sending reputation away
+  from the owner's Zoho mail at the apex. Not chosen: the apex; a shared
+  `mail.madcowsailing.com`.
+- **One `fetch` and no library**, the Stack rule. A POST to
+  `https://api.resend.com/emails` with the key as a bearer token, JSON, and a
+  `User-Agent`. Resend refuses a request without one, 403 (its API
+  introduction, read 2026-10-01). Node's `fetch` adds one and workerd's adds
+  none: under `wrangler pages dev`, a send with the line removed reached a
+  local echo server with no `User-Agent` header, and with it, with the site's
+  (measured on #217). So a test under Node would pass while every real send
+  was refused; `test/mail.test.js` requires the header. Against Resend itself
+  with a deliberately invalid key, both forms answered 401
+  `validation_error`, so Resend checks the key first and the 403 itself was
+  not seen. A send waits 10 seconds at most.
+- **`sendMail()` never throws**: it answers sent, or one reason
+  (`not-configured`, `address`, `message`, `quota`, `rate`, `refused`,
+  `unreachable`), and the caller says what the person sees. It takes one
+  plain address and nothing else, so a typed list, a display name or a line
+  break never reaches Resend.
+- **The log holds the reason, Resend's status and its error name.** Never
+  the address, the subject, the text, or Resend's own message, which for an
+  unverified sender quotes an address. `test/mail.test.js` plants each and
+  reads every console line for them, with a control showing the reading
+  works; `test/logging.test.js` refuses a logging call handed `to`,
+  `subject`, `html` or `reply_to` (criterion 6).
+- **No DMARC record of its own** (owner, at pickup). The org record,
+  `_dmarc.madcowsailing.com`, covers the subdomain by fallback with its
+  reports. Not chosen: `_dmarc.photos` with the reports copied, which needs a
+  second authorisation record in madcowhq.com for no change of policy; or
+  without them, which would drop this mail's reports, since a subdomain
+  record replaces the org one rather than adding to it.
+- **Receiving off, so no MX.** Resend's add-domain page now offers an MX for
+  receiving, and received mail counts toward the same 100 a day, so an MX
+  would let anyone spend the site's sends. **Tracking off**: click tracking
+  would send every sign-in and reset link through Resend's redirect.
+- **The test send is a page, `/admin/mail`** (owner, at pickup): a form,
+  starting with the admin's own address, that sends a fixed message naming
+  the environment. It stays as the check after any change to the key, the
+  domain or the DNS. Not chosen: a button that sends to the admin only,
+  which could not reach a Gmail inbox from an admin whose address is not
+  one; and no route, which would have left the key and domain unproven until
+  #220. The address never travels in the redirect's query.
+- **One key, both environments**, scoped to Sending access for
+  `photos.madcowsailing.com`. Criterion 3 names one key; a second per
+  environment would separate their logs in Resend at the cost of a second
+  paste. The key went from Resend's copy button into each environment's
+  secret by the owner's paste and is in no file, chat or issue.
+- **Resend keeps each email 30 days** (Free plan data retention,
+  resend.com/pricing, read 2026-10-01), recipient and content included.
+  That is a record `/policy` does not yet name; #219 is where it goes.
 
 ## The two-presentation rule
 
