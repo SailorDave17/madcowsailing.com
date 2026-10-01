@@ -335,11 +335,18 @@ By name only; a value never goes in this repo.
     session is refused. *Read from the docs, not yet measured on a
     deployment.* Taking them off the policy stops a new sign-in at once, but
     not a session already open.
+  - `RESEND_API_KEY` (#217) is the Resend API key the site sends email
+    with: `madcowphotos Pages`, Sending access, for
+    `photos.madcowsailing.com` only. One key, the same value in both
+    environments. It went from Resend's copy button to each environment's
+    secret by the owner's paste, so it is in no file, chat or issue; keep it
+    that way. Unset, nothing is sent and `/admin/mail` says so. Email, below,
+    says how to replace it.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
   different values. Without them, `POST /api/join` answers `503` and opens
   nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` answers `503`
-  and takes nothing down. Check that all four exist in both environments on the dashboard, which
+  and takes nothing down. Check that all five exist in both environments on the dashboard, which
   shows a secret's name and never its value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
@@ -688,6 +695,66 @@ it was hidden and the note. The admin home says how many wait.
   its three files for good. It needs JavaScript.
 - A hidden photo keeps its row and its three files until one of those, so
   nothing is lost while it waits.
+
+### Email
+
+The site sends plain-text email through Resend's HTTP API (#217;
+`photos/lib/mail.js`, and `CLAUDE.md`, The photo site, item 21, for why).
+Mail comes from `no-reply@photos.madcowsailing.com` as "Mad Cow Sailing
+photos", and replies go to `dave@madcowsailing.com`. Set up on 2026-10-01 and
+read back from Resend's dashboard and public DNS that day:
+
+- **The Resend account is its own**, under `dave@madcowsailing.com`, signed in
+  with email and password and an authenticator code (MFA on). It is not the
+  login that holds Taskr's and Tender's domains, so its quota is the site's
+  alone. Team `madcowsailing`, on the Free plan: 100 emails a day, 3,000 a
+  month, 3 domains, 10 requests a second, and pay-as-you-go off, so nothing
+  is sent past the limit and nothing is billed.
+- **The domain** is `photos.madcowsailing.com`, region North Virginia
+  (`us-east-1`), verified at 17:04 UTC. Sending is on and **receiving is
+  off**, so there is no MX record: Resend counts mail it receives toward the
+  same daily limit, and an MX would let anyone spend it. Click and open
+  tracking are off (no tracking subdomain), so every link arrives as written.
+  TLS is Opportunistic, the default.
+- **The records**, written by Cloudflare's Auto configure (Domain Connect,
+  groups `dkim`, `outbound` and `mta`), all DNS only:
+
+  | Name | Type | Content |
+  |---|---|---|
+  | `resend._domainkey.photos` | TXT | the DKIM public key, `p=MIGfMA0…`, 218 characters |
+  | `send.photos` | CNAME | `send.forge.rmta.net` |
+  | `rsend.photos` | CNAME | `rsend.forge.rmta.net` |
+
+  Read back from `dell.ns.cloudflare.com`, `1.1.1.1` and `8.8.8.8`, the DKIM
+  value byte for byte equal to the key Resend sent Cloudflare. The apex's
+  Zoho records (MX, SPF, `zmail._domainkey`, `_dmarc`) read the same after as
+  before, and a message the owner sent from `dave@madcowsailing.com` through
+  Zoho at 17:55 UTC read `spf=pass`, `dkim=pass` (selector `zmail`) and
+  `dmarc=pass` at Gmail.
+- **No DMARC record of its own** (owner, 2026-10-01). `_dmarc.madcowsailing.com`
+  covers the subdomain by fallback, reports included. Resend's DMARC row
+  therefore reads "not started" for good, which is expected. If one is ever
+  added, it is `_dmarc.photos`: Resend suggests the bare `_dmarc`, which would
+  replace the policy for all of madcowsailing.com.
+- **Sending a test**: `/admin/mail` sends a fixed message to any address an
+  admin types, naming the environment that sent it. It counts toward the
+  daily limit like any other email.
+- **Past the daily limit** Resend refuses each send with `429
+  daily_quota_exceeded` until midnight UTC. Nothing is queued or retried: the
+  site says so and logs the status and error name.
+- **What the log holds**: the outcome, Resend's status and its error name.
+  Never an address, a subject, a body, or Resend's own message, which can
+  quote an address. `photos/test/mail.test.js` plants each one.
+- **Locally**, `photos/.dev.vars` has no `RESEND_API_KEY`, and must not get
+  the real one, so `/admin/mail` answers that it is not configured. The
+  tests stand in for Resend.
+
+**Replacing the key**: in Resend, API keys → Create, with the same name,
+Sending access and the domain `photos.madcowsailing.com` (the picker offers
+only verified domains). Copy it and paste it straight into `RESEND_API_KEY`
+in production and in preview (Settings → Variables and Secrets, type
+Secret). A secret applies from the next deployment, so redeploy both. Then
+delete the old key in Resend.
 
 ## The push guard
 
