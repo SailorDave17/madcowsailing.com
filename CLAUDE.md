@@ -22,9 +22,12 @@ They share tokens, logo assets, and base CSS. They do not share content.
 ## Current status
 
 **Both sites are live on their domains.** On `develop`, hq has the home, about,
-the work index at `/work/`, case studies for Race Timer, Taskr and Tender, and
-Taskr's tester, support and privacy pages; the apps index folded into `/work/` in
-#81, and `/apps/` now 301s there. Sailing has the home, about, apps index, the
+the work index at `/work/`, case studies for Race Timer, Taskr, Tender, Cairn and
+the photo site (the last two from #230), and Taskr's tester, support and privacy
+pages; the apps index folded into `/work/` in #81, and `/apps/` now 301s there.
+Since #230 (2026-10-01) hq says Dave is open to full-time roles and contract work,
+and puts JPMorgan Chase in the past tense.
+Sailing has the home, about, apps index, the
 Race Timer product / support / privacy trio, Tender's product page (#37; its
 support and privacy pages are Tender's own to publish, not this repo's), the
 logs index and two trip logs. Each site also has a `404.html`, which Pages

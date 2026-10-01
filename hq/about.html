@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>About Dave Alvarado — Mad Cow HQ</title>
-<meta name="description" content="Software engineer in Westerville, Ohio. Five years at JPMorgan Chase, now software for the wrist, the phone, the dock and the kitchen table. Email and a résumé.">
+<meta name="description" content="Software engineer in Westerville, Ohio, open to full-time roles and contract work. Five years at JPMorgan Chase, then software for a sailing club, a household and the AI agents that help build it. Email, LinkedIn and a résumé.">
 <link rel="canonical" href="https://madcowhq.com/about">
 <meta property="og:title" content="About Dave Alvarado — Mad Cow HQ">
-<meta property="og:description" content="Software engineer in Westerville, Ohio. Five years at JPMorgan Chase, now software for the wrist, the phone, the dock and the kitchen table. Email and a résumé.">
+<meta property="og:description" content="Software engineer in Westerville, Ohio, open to full-time roles and contract work. Five years at JPMorgan Chase, then software for a sailing club, a household and the AI agents that help build it. Email, LinkedIn and a résumé.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://madcowhq.com/about">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
@@ -75,7 +75,16 @@
        build next" since #64: its one entry, Taskr, became usable, and the
        owner chose on 2026-09-11 to retitle the section rather than name a
        new "next" on their behalf. When there is a next project again, the
-       heading goes back. -->
+       heading goes back.
+
+       #230 (2026-10-01) moved JPMorgan Chase into the past tense, added the
+       availability the owner chose that day (full-time and contract work,
+       equally), and named the two club projects the page had not caught up
+       with: the photo site and Coaches' Dockbox. The Race Timer figures are the
+       case study's worst case over 150 cues. The page said "+/-13 ms" until
+       then, which is the worst gap between consecutive cues in one eleven-cue
+       test, a different quantity from distance to the mark (cairn
+       race-timer-cue-audio-timing-2026-08-01.md). -->
 
   <section class="wrap page-head">
     <p class="eyebrow">Westerville, Ohio</p>
@@ -87,26 +96,49 @@
 
   <section class="wrap">
     <h2>Where I am</h2>
-    <p>I live in Westerville, Ohio and work at JPMorgan Chase. Five years there,
-      mostly on account opening: I built a platform from nothing with five other
-      engineers, and I owned the reconciliation and cutover for a legacy
-      migration where losing one row was not an acceptable outcome.</p>
+    <p>I live in Westerville, Ohio. From 2021 to September 2026 I was a
+      software engineer at JPMorgan Chase, mostly on account opening: I built
+      a platform from nothing with five other engineers, and I owned the
+      reconciliation and cutover for a legacy migration where losing one row
+      was not an acceptable outcome. For four of those years I also led the
+      Columbus site's early-careers program, a workstream of more than forty
+      people.</p>
     <p>That is where the habit comes from. I would rather prove a thing works
       than describe it working, which is why the projects below tend to arrive
       with a measurement attached.</p>
     <p>I teach and coach at Hoover Sailing Club &mdash; US Sailing Level 3,
-      the national-championship coaching credential. The boat is an Interlake,
-      sail number 1340, and it is the test rig for nearly everything here.</p>
+      the national-championship coaching credential. I direct the club's
+      Junior Race Team and coach its high-school sailors, and two of the
+      projects below exist because of them. The boat is an Interlake, sail
+      number 1340, and it is the test rig for nearly everything else here.</p>
+    <p>I'm open to a full-time role and to contract work. What fits is the kind
+      of work on this page: an app built end to end, from the database's
+      access rules to the store listing, or a team's AI coding agents given
+      the review steps and hard refusals that make their output safe to
+      merge.</p>
   </section>
 
   <section class="wrap">
     <h2>What I'm building</h2>
-    <p>All of it is aimed at the same afternoon on the water.</p>
+    <p>Most of it is for a sailing club: the race course, the dock, and the
+      parents on shore.</p>
+    <p><strong>The club's photo site</strong>, at
+      <a href="https://photos.madcowsailing.com/">photos.madcowsailing.com</a>,
+      is where parents and coaches send regatta and practice photos of the
+      sailors. Nothing is public until it is approved, and no photo keeps the
+      record of where it was taken.</p>
+    <p><strong>Coaches' Dockbox</strong> replaces a paper attendance sheet and
+      TeamSnap for the club's coaches. A coach marks each sailor with one thumb
+      as they reach the dock, and anyone still missing at the start is one tap
+      from a guardian's phone. Medical notes are readable only through a single
+      server function that checks who is asking and logs every view. It pilots
+      with the Junior Race Team in spring 2027.</p>
     <p><strong>Race Timer</strong> runs the ISAF and US Sailing start sequences
-      on a watch, offline. The interesting part was accuracy: the cues began
-      &plusmn;200&nbsp;ms out and are now &plusmn;13&nbsp;ms on hardware,
-      because they are scheduled against a monotonic anchor rather than polled.
-      A horn on the gun and a horn near it are different products.</p>
+      on a watch, offline. The interesting part was accuracy. The worst signal
+      in a race used to land 212&nbsp;ms off its mark; across 150 cues on a
+      real watch it now lands within 61&nbsp;ms, because every cue is rendered
+      ahead of time and scheduled against a monotonic anchor rather than
+      polled. A horn on the gun and a horn near it are different products.</p>
     <p><strong>Buoyant</strong> is BLE control for robotic race marks, so a
       race officer can move a course from the committee boat instead of
       dragging anchors.</p>
@@ -121,6 +153,11 @@
     <p>The sailing apps live on
       <a href="https://madcowsailing.com/">madcowsailing.com</a>, which is a
       separate site for a separate reader.</p>
+    <p>Under all of it is <strong>Cairn</strong>, the record and the guardrails
+      I build with. AI coding agents do a share of the work here, and Cairn
+      decides what they may do without a review, refuses the rest at the tool
+      call, and hands every finding they report to a second agent whose job is
+      to prove it wrong. <a href="/work/cairn">How that works</a>.</p>
   </section>
 
   <section class="wrap">
@@ -137,9 +174,11 @@
 
   <section class="wrap">
     <h2 id="getting-in-touch">Getting in touch</h2>
-    <p>Email is the fastest route, and I answer it.</p>
+    <p>I'm open to a full-time role and to contract work. Email is the fastest
+      route, and I answer it.</p>
     <ul class="contact">
       <li><a href="mailto:dave@madcowhq.com">dave@madcowhq.com</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">linkedin.com/in/david-r-alvarado17</a></li>
       <li><a href="https://github.com/SailorDave17">github.com/SailorDave17</a></li>
       <li><a href="assets/david-alvarado-resume.pdf">R&eacute;sum&eacute; (PDF)</a></li>
     </ul>
@@ -154,6 +193,7 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
       <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
