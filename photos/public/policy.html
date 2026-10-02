@@ -71,6 +71,13 @@
                                          anew on a canvas (#155), and
                                          lib/jpeg.js strips every metadata
                                          segment on arrival (#154)
+       Photos shared to the app wait     public/share/sw.js keeps each shared
+       on the phone, as shared, until    file in the site's storage on the
+       each is sent or removed; a day,   phone; public/js/share.js deletes it
+       deleted when the app next opens   once stored or removed, and drops one
+                                         over a day old (KEEP_MS in both) on
+                                         its next read (#193; owner, at
+                                         #193's review)
        What is kept for a photo          migrations/0005_photos.sql
        A daily count per phone           upload_counts in 0005; DAILY_UPLOADS
                                          in lib/photos.js (#154)
@@ -247,6 +254,12 @@
       keeps one small cookie, which is what lets it send for 90 days. A
       coach's cookie holds their address only in a scrambled form, made with
       a secret key.</p>
+    <p>Photos shared to the installed app from a phone's gallery wait in this
+      site's storage on that phone, exactly as they were shared, location
+      included, until each is sent or removed. Only the copies made for
+      sending ever leave the phone. One not sent within a day is no longer
+      offered, and is deleted the next time the app opens or is shared
+      to.</p>
     <p>The coaches' list itself holds each coach's email address, and only
       the site's owner can change it, in Cloudflare's dashboard. Cloudflare,
       which signs a coach in, records each sign-in in the site's account,

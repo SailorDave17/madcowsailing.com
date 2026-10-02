@@ -19,7 +19,16 @@
  * (the route's header comment is the contract). "Send" then sends them, no
  * more than three at once, each showing where it stands, and a running
  * summary goes to a live region. The re-encode is also what leaves the
- * photo's GPS and camera data behind on the phone; the server strips again. */
+ * photo's GPS and camera data behind on the phone; the server strips again.
+ *
+ * Shared photos (#193). The installed site is in an Android phone's Share
+ * menu. share/sw.js keeps the photos a gallery shares to it in this phone's
+ * browser storage and opens this page with ?shared. With a session they go
+ * straight into the list, ready to send, with nothing chosen again. Without
+ * one they wait, and the page says so, until the sender signs in or opens the
+ * invite link (owner, #193's pickup). Each stays in storage until it is sent
+ * or removed, so a reload or a second share offers it again (owner, #193's
+ * review). */
 (() => {
   'use strict';
 
@@ -50,6 +59,7 @@
     again = retryWith;
     retry.hidden = retryWith === null;
     if (message === 'ready') openSender();
+    else if (message !== 'joining') waitShared();
   }
 
   function takeCode() {
@@ -213,6 +223,7 @@
   function openSender() {
     sender.hidden = false;
     loadAlbums();
+    takeShared();
   }
 
   // The phone's own date, YYYY-MM-DD. Albums are dated by the day they are
@@ -567,10 +578,13 @@
 
   // ---- The list
 
-  function add(files) {
-    for (const file of files) {
+  // `stored` gives, for a photo shared from another app (#193), the id of its
+  // record in this phone's storage, deleted once the photo is stored or
+  // removed; a photo chosen with Add photos has none.
+  function add(files, stored = []) {
+    for (const [i, file] of files.entries()) {
       serial += 1;
-      const photo = { id: `photo-${serial}`, file, state: 'preparing', ready: null, album: null, batch: null, reason: null, removed: false };
+      const photo = { id: `photo-${serial}`, file, state: 'preparing', ready: null, album: null, batch: null, reason: null, removed: false, stored: stored[i] ?? null };
       photo.view = render(photo);
       photos.push(photo);
       list.append(photo.view.item);
@@ -666,6 +680,7 @@
     if (at === -1 || !REMOVABLE.has(photo.state)) return;
     photos.splice(at, 1);
     photo.removed = true;
+    forget(photo.stored);
     if (photo.view.preview.src) URL.revokeObjectURL(photo.view.preview.src);
     photo.view.item.remove();
     renumber();
@@ -759,8 +774,10 @@
       return;
     }
     if (response.status === 201) {
-      // The two larger JPEGs are let go; the preview keeps the grid's.
+      // The two larger JPEGs are let go; the preview keeps the grid's. A
+      // shared photo's record goes too, now the server has it.
       photo.ready.blobs = null;
+      forget(photo.stored);
       set(photo, 'sent');
       return;
     }
@@ -838,7 +855,154 @@
     }
   });
 
+  // ---- Shared photos (#193) ------------------------------------------
+
+  // The store share/sw.js keeps shared photos in, one record per file: the
+  // same three names as there, and the same day.
+  const INBOX = 'madcow-shared';
+  const INBOX_VERSION = 1;
+  const FILES = 'files';
+  const KEEP_MS = 24 * 60 * 60 * 1000;
+
+  const sharedNote = document.getElementById('shared-note');
+  // What a share that went wrong says. 'empty' is a share that carried no
+  // photo the worker could read: Chrome's own shares arrive that way
+  // (measured on Android at #193's review), and sharing again from Chrome
+  // would do the same, so it names another way.
+  const SHARED_NOTES = {
+    failed: "The photos you shared couldn't be kept on this phone. Share them again.",
+    empty: "No photos arrived with that share. Share them from your phone's gallery or Files app instead.",
+  };
+
+  // How the share that opened this page went, from share/sw.js's ?shared:
+  // 'kept', 'failed', 'empty', or null when no share opened it. Taken out of
+  // the address bar at once, so a reload or a bookmark does not say it again.
+  function takeSharedFlag() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('shared')) return null;
+    const value = params.get('shared');
+    const flag = value === 'failed' || value === 'empty' ? value : 'kept';
+    params.delete('shared');
+    const search = params.toString();
+    history.replaceState(history.state, '', location.pathname + (search ? `?${search}` : '') + location.hash);
+    return flag;
+  }
+
+  const sharedFlag = takeSharedFlag();
+
+  // Runs `work` on the store in one transaction, as share/sw.js does, and
+  // settles with whatever `work` put in `out` once the transaction commits.
+  function inbox(work) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open(INBOX, INBOX_VERSION);
+      open.onupgradeneeded = () => open.result.createObjectStore(FILES, { keyPath: 'id' });
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const out = {};
+        const done = (err) => {
+          db.close();
+          if (err) reject(err);
+          else resolve(out);
+        };
+        let tx;
+        try {
+          tx = db.transaction(FILES, 'readwrite');
+        } catch (err) {
+          done(err);
+          return;
+        }
+        tx.oncomplete = () => done(null);
+        tx.onabort = () => done(tx.error ?? new Error('aborted'));
+        try {
+          work(tx.objectStore(FILES), out);
+        } catch {
+          tx.abort();
+        }
+      };
+    });
+  }
+
+  // The shared files waiting on this phone, as { id, file }, in the order
+  // they were shared. A record over a day old is deleted as it is read and
+  // never offered. The rest stay until forget() deletes them, once each photo
+  // is stored or removed (owner, at #193's review), so a reload or a second
+  // share before Send offers them again. A browser with no storage has
+  // nothing waiting; storage that fails is null.
+  async function shared() {
+    if (typeof indexedDB === 'undefined') return [];
+    try {
+      const out = await inbox((store, found) => {
+        const now = Date.now();
+        const all = store.getAll();
+        all.onsuccess = () => {
+          found.files = [];
+          // Oldest share first, and each share's files in the order shared.
+          // Two shares never carry one timestamp: each is its own navigation.
+          for (const record of [...all.result].sort((a, b) => a.at - b.at || a.index - b.index)) {
+            if (now - record.at > KEEP_MS) store.delete(record.id);
+            else found.files.push({ id: record.id, file: record.file });
+          }
+        };
+      });
+      return out.files ?? [];
+    } catch {
+      return null;
+    }
+  }
+
+  // Deletes a shared file's record: its photo is stored on the server, or the
+  // sender removed it. A record that cannot be deleted is offered again until
+  // it is a day old.
+  function forget(id) {
+    if (id === null || typeof indexedDB === 'undefined') return;
+    inbox((store) => store.delete(id)).catch(() => {});
+  }
+
+  // The note a share's outcome calls for, or null. Storage that cannot be
+  // read after a share is a share not kept.
+  const trouble = (waiting) => (sharedFlag === 'failed' || sharedFlag === 'empty' ? sharedFlag : waiting === null && sharedFlag ? 'failed' : null);
+
+  // With a session: every waiting photo not already in the list joins it,
+  // ready to send. Two calls close together (a rejoin) cannot both add one
+  // photo: each read is a readwrite transaction on one store, which IndexedDB
+  // runs strictly in order, so the second read answers only after the first
+  // has committed and listed its photos. (#193's mutation round found a
+  // promise chain doing the same job here could be deleted with nothing
+  // going red; the platform was the guard.)
+  async function takeShared() {
+    const waiting = await shared();
+    const fresh = (waiting ?? []).filter(({ id }) => !photos.some((photo) => photo.stored === id));
+    if (fresh.length) add(fresh.map(({ file }) => file), fresh.map(({ id }) => id));
+    showShared(trouble(waiting));
+  }
+
+  // Without one: they stay, and the page says how many are waiting.
+  async function waitShared() {
+    const waiting = await shared();
+    const problem = trouble(waiting);
+    if (problem) showShared(problem);
+    else showShared(waiting?.length ? 'waiting' : null, waiting?.length ?? 0);
+  }
+
+  function showShared(state, n = 0) {
+    sharedNote.hidden = state === null;
+    if (state === 'waiting') {
+      sharedNote.textContent = `${plural(n)} you shared ${n === 1 ? 'is' : 'are'} waiting on this phone. ` +
+        `Open your invite link, or sign in as a coach, and ${n === 1 ? 'it' : 'they'} will be ready to send. ` +
+        'Shared photos are kept here for a day.';
+    } else sharedNote.textContent = SHARED_NOTES[state] ?? '';
+  }
+
   // ---- Start
+
+  // share/sw.js takes photos shared from another app. It controls /share/
+  // only and keeps no copy of anything, so it changes nothing about how this
+  // page or any other loads. A browser with no workers, or one that refuses
+  // this one, still sends: Add photos needs none.
+  if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+    navigator.serviceWorker.register('/share/sw.js', { scope: '/share/', updateViaCache: 'none' }).catch(() => {});
+  }
 
   const code = takeCode();
   if (code !== null) join(code);

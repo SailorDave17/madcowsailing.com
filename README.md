@@ -558,6 +558,49 @@ photo site, item 14.
   item 15 has the decisions. To try it locally, open the invite link from
   `/admin/code`, add an album on `/admin/albums`, and choose photos.
 
+### The installed app
+
+The share page installs to a phone as **Mad Cow photos** (#193). `CLAUDE.md`,
+The photo site, item 22 has the decisions.
+
+- **On Android**, in Chrome on `/share/`: menu → *Install and create shortcut*
+  → *Install*. The gallery's Share menu then lists Mad Cow photos for photos
+  (not clips, until #198). Shared photos open the app on the share page,
+  ready to send. With no session they wait on the phone for a day, and the
+  page says to open the invite link or sign in at `/coach`.
+- **On an iPhone**, Safari → Share → *Add to Home Screen* should open it on
+  the share page, where the photos are chosen with **Add photos**: an
+  iPhone's Share menu never lists a web app. **Not read on an iPhone yet**
+  (#210 carries it). A Home Screen app on iOS keeps its cookies apart from
+  Safari, and an invite link opens in Safari, so a parent's installed app may
+  not hold a session; until #210 reads it, send from Safari on an iPhone.
+- **How a share travels.** The phone posts the photos to `/share/receive`.
+  `public/share/sw.js`, the app's worker, takes that one request, keeps each
+  photo in the phone's IndexedDB, and sends the browser to `/share/?shared`.
+  Nothing reaches the server until Send, and a photo stays on the phone until
+  it is sent or removed, so a reload or a second share offers it again. If the
+  phone has no worker (its site data was cleared), `functions/share/receive.js`
+  answers instead and the page says to share again. A share another site
+  started (its `Origin` is that site's) is refused unread; Android's own
+  share sends `Origin: null`.
+- **The worker never caches.** Every other request goes to the network, so a
+  takedown and a deploy both reach an installed app the next time it asks.
+  Its scope is `/share/`, so the public pages never meet it.
+- **A share from Chrome itself arrives empty** (measured on a Samsung,
+  Chrome 154): Web Share hands the app a form with no files, and the page
+  says to share from the gallery or Files app instead. A one-photo share from
+  Samsung Gallery and a six-photo share from My Files arrived whole. Google
+  Photos was not read.
+- **The icons** are `photos/public/icons/`, written by `tools/app_icons.py`
+  from `shared/img/madcow-mark.svg`. Run it after changing the mark or the
+  `--blue` and `--chalk` tokens, and commit what it writes.
+- **To try it locally**, open `http://127.0.0.1:8788/share/` in Chrome after
+  **Running it locally**, above. DevTools → Application → Manifest shows no
+  installability error, and Service workers lists `/share/sw.js` for scope
+  `/share/`. On a phone, `adb reverse tcp:8788 tcp:8788` and open the same
+  address: Chrome 154 installed it from there as a real app, Share-menu
+  entry included. Uninstall it, and clear the site's data, when you finish.
+
 ### Approving
 
 Nothing is public until an admin approves it on `/admin/queue` (#156), behind
@@ -827,5 +870,6 @@ without an error, so the gate refuses it instead.
 | `photos.py` | Builds a trip log's AVIF/WebP derivatives and its `trip.json`. Strips EXIF always. Needs Pillow ≥ 11.3. |
 | `assetver.py` | Writes `?v=<hash>` onto every page's URL for a file in `shared/css/` or `shared/js/`, on all three sites (`photos/public/` since #149), and, since #176, for a file in the page's own site's `css/` or `js/`. Since #157 it stamps `photos/templates/` too. Run it after editing one; `linkcheck.py` refuses a page whose version does not match the file (#95, #176). |
 | `trace_logo.py` | Re-traces `shared/img/` from `docs/source/madcow-lockup.pdf`. Needs Pillow. |
+| `app_icons.py` | Renders the photo site's four app icons into `photos/public/icons/` from `shared/img/madcow-mark.svg`, with `trace_logo.py`'s fill and the colours from `tokens.css` (#193). Needs Pillow. `photos/test/app.test.js` holds what it writes. |
 | `quality_floor.mjs` | Measures the `CLAUDE.md` quality floor on both **production** domains — Lighthouse at a pinned version, 360px scroll, keyboard reach, contrast pairs — and rewrites the generated block of `docs/quality-floor.md`. Needs Node and Chrome. Not in CI, by decision recorded in that doc. |
 | `h2proxy.mjs` | Serves the photo site from `wrangler pages dev` over HTTP/2, so Lighthouse reads it locally the way production serves it. The photo site's floor is read through it (`CLAUDE.md`, Quality floor; #155). Needs a throwaway self-signed certificate; the header has the recipe. |

@@ -98,8 +98,13 @@ test('its header and footer are every static page\'s and the public pages\' temp
 
 test('its stylesheets, fonts and icon are the share page\'s, stamps included', () => {
   // tools/assetver.py restamps HTML files only. After it runs, this fails
-  // until lib/admin-page.js carries the new ?v= values too.
-  const links = (html) => [...block(html, 'head').matchAll(/<link\b[^>]*>/g)].map((m) => m[0].replace(/\s+/g, ' '));
+  // until lib/admin-page.js carries the new ?v= values too. Only those kinds
+  // of link: the share page also names the installed app's manifest and an
+  // iPhone's home-screen icon (#193), which belong to the app's start page
+  // alone (test/app.test.js holds them there).
+  const links = (html) => [...block(html, 'head').matchAll(/<link\b[^>]*>/g)]
+    .map((m) => m[0].replace(/\s+/g, ' '))
+    .filter((l) => /\brel="(preload|stylesheet|icon)"/.test(l));
   const share = links(read('public', 'share', 'index.html'));
   assert.ok(share.some((l) => /site\.css\?v=[0-9a-f]{10}/.test(l)));
   assert.deepEqual(links(page), share);
