@@ -47,9 +47,10 @@ phone and sends them, #156 the queue where the owner approves or rejects
 them, #157 the public album list and album pages, which replaced the
 holding page at `/`, #159 the policy at `/policy`, which every page's
 footer links, #158 "Remove this photo", which hides a photo at once
-and queues it on `/admin/removals`, and #192 the coach sign-in at `/coach`,
-which opens an upload session through Access with no invite link. Those are
-epic #147's. **Epic #216 (accounts) replaces the invite link and the
+and queues it on `/admin/removals`, #192 the coach sign-in at `/coach`,
+which opens an upload session through Access with no invite link, and #193
+the installed app: the share page installs to a phone's home screen, and on
+Android it takes photos from the Share menu. Those are epic #147's. **Epic #216 (accounts) replaces the invite link and the
 coaches' Access sign-in** with email-and-password accounts the owner
 approves, and retires both at its cutover, #226. Its first story, #217, is
 the email the site sends through Resend, with a test send at `/admin/mail`.
@@ -123,7 +124,9 @@ story, this is the paragraph to check.*
 │   │                         api/admin/queue/ and api/admin/photos/;
 │   │                         admin/removals.js the removal requests, #158,
 │   │                         with api/admin/removals/; admin/mail.js the
-│   │                         test email, #217, with api/admin/mail/)
+│   │                         test email, #217, with api/admin/mail/;
+│   │                         share/receive.js answers a share that found no
+│   │                         worker on the phone, #193)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -131,13 +134,19 @@ story, this is the paragraph to check.*
 │   ├── test/                 node --test; `npm test` from the root, which loads
 │   │                         test/text-modules.js first so a .html imports (#157)
 │   └── public/               The served files and nothing else (the output dir)
-│       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
+│       ├── share/index.html  Where an invite link lands; joins, then (#155) sends.
+│       │                     The installed app's start page (#193)
+│       ├── share/sw.js       The installed app's worker: takes a share, caches
+│       │                     nothing, controls /share/ only (#193)
+│       ├── manifest.webmanifest  The installed app and its Android share target (#193)
+│       ├── icons/            Its icons, written by tools/app_icons.py (#193)
 │       ├── policy.html       /policy: who sees a photo, what is kept, how to have
 │       │                     one taken down (#159). Every page's footer links it
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /remove, /api/*, /admin, /admin/*
+│       │                     /remove, /api/*, /admin, /admin/*, /coach, /coach/*,
+│       │                     /share/receive
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -157,6 +166,7 @@ story, this is the paragraph to check.*
 │   │                         included. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   ├── h2proxy.mjs           HTTP/2 in front of wrangler, to read the photo site's floor locally (#155). Not in the gate.
+│   ├── app_icons.py          Renders the photo site's app icons from shared/img/madcow-mark.svg (#193). Not a build step.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
 ├── docs/
@@ -1559,6 +1569,116 @@ and how to replace the key.
 - **Resend keeps each email 30 days** (Free plan data retention,
   resend.com/pricing, read 2026-10-01), recipient and content included.
   That is a record `/policy` does not yet name; #219 is where it goes.
+
+### 22. The installed app
+
+**Built in #193, 2026-10-01, with four owner decisions taken at its
+pickup and four at its review.** The share page installs to a phone's home
+screen as "Mad Cow photos", and on Android the installed app is listed in
+the Share menu for photos (epic #147, D9). `public/manifest.webmanifest`
+names it, `public/share/sw.js` takes a share, and `js/share.js` offers the
+shared photos in its list. On an iPhone it should install and do nothing
+more: Safari has no Share-menu entry for a web app (WebKit bug 194593), so
+there the photos are chosen in the page, which says so. *No iPhone reading
+was taken*; #210 carries it (owner, at #193's review), with one question it
+must answer: a Home Screen app on iOS keeps its cookies apart from Safari,
+and an invite link opens in Safari, so a parent's installed app may never
+hold a session (reasoned, from cairn's
+`pwa-install-offer-android-prompt-ios-copy` note).
+
+- **The share page is the app.** `start_url` and `id` are `/share/`, `scope`
+  is `/`, `display` is `standalone`, and only the share page links the
+  manifest, so no other page offers to install it. Its colours are `--hull`.
+- **The icon is the `--blue` mark on `--chalk`** (owner, at pickup), labelled
+  "Mad Cow photos". Not chosen: the white mark on `--blue`, or on `--deep`.
+  `tools/app_icons.py` renders all four PNGs from
+  `shared/img/madcow-mark.svg` with `trace_logo.py`'s own fill, reading the
+  colours from `tokens.css`. The maskable one keeps the mark's farthest point
+  at 92% of the safe zone's radius (40% of the width), and an iPhone's icon is
+  the same opaque composition, since an iPhone fills a transparent icon with
+  black. `test/app.test.js` decodes each PNG and holds the sizes, colours and
+  safe zone, and the 512 px icon to the shared mark itself.
+- **The worker answers one request: the share target's POST to
+  `/share/receive`.** It puts the shared files in this phone's IndexedDB
+  (`madcow-shared`), one record per file, and answers 303 to `/share/?shared`,
+  or `?shared=empty` when the share carried no photo it could read, or
+  `?shared=failed` when it could not keep them. Every other request
+  goes to the network as if no worker were installed: it calls `respondWith`
+  for nothing else and holds no Cache Storage. That keeps a takedown's next
+  request (item 3) and a deploy's next open (below). `test/sw.test.js` runs its
+  handler over every kind of request, and re-runs #158's takedown with it
+  installed. Not chosen: precaching the page for offline use, which would keep
+  a removed photo or old code (cairn's
+  `vite-plugin-pwa-autoupdate-ships-no-reload` records the second); receiving
+  the share on the server, which would send the phone's originals, location
+  and all, before the page strips them.
+- **Its scope is `/share/`**, the folder it is served from, so it can never
+  control `/`, an album page, a photo, `/policy` or `/admin`. Measured in
+  Chrome 154: an album page reads no controller, and every response on the
+  share page reads `fromServiceWorker: false`.
+- **Who may start a share** (#193's security audit and review). Android's
+  Share menu sends `Origin: null` (*measured* on the owner's Samsung, Chrome
+  154), and a form on the site sends the site's own origin; the worker reads
+  `Origin` but never `Sec-Fetch-Site`, which is added after it runs. So it
+  refuses a share whose `Origin` is another site's, unread, and answers 303 to
+  `/share/`: otherwise any page could put photos on the share page as if the
+  sender had shared them. A sandboxed frame can also send `null`, so that
+  route stays open, with the sender's own Send and an admin's approval in
+  front of it. Not chosen: refusing `null`, which would refuse every real
+  share; labelling shared photos in the list.
+- **Shared photos wait on the phone for a session** (owner, at pickup, for
+  criterion 3). With no session the page says how many are waiting and to
+  open the invite link or sign in as a coach; once a session exists they go
+  into the list, ready to send. Not chosen: going straight to `/coach`, which
+  sends a parent whose invite has ended to an Access sign-in that refuses
+  them; not keeping them, so the coach shares again after every ended session.
+- **Each stays in storage until it is sent or removed** (owner, at #193's
+  review). The page deletes a file's record when its upload answers 201 or
+  the sender presses Remove, so a reload, an ended session or a second share
+  before Send offers it again. Not chosen: deleting a record when the page
+  lists it, which the first build did and which lost the first batch when a
+  second share arrived (*measured* on the phone); a leave-page prompt for
+  unsent photos. **A record over a day old is never offered, and is deleted
+  the next time the store is opened**, by the page or by a new share. Nothing
+  deletes it sooner, since Pages runs no scheduled job, so a share to an app
+  never opened again stays on the phone until it is. `/policy` says so (owner,
+  at #193's review), in "What the site keeps".
+- **Photos only until #198** (owner, at pickup). The share target accepts
+  `image/*`, so the Share menu lists the app only when photos are chosen.
+  #198 carries the criterion to add `video/*` once a clip can be sent.
+- **`/share/receive` is also a Function**, for a share that reaches the
+  server because no worker is there to take it (site data cleared while the
+  app stayed on the home screen). Pages answers a POST to a static path with
+  an empty `405` (measured on `madcowphotos.pages.dev`, 2026-10-01), which a
+  phone shows as a blank page. The Function reads no body and answers 303 to
+  `/share/?shared=failed`, which says to share again; loading the page
+  registers the worker again.
+- **A deploy reaches an installed app the next time it opens.** The page is
+  never answered from a copy, a new worker takes over at once (`skipWaiting`,
+  `clients.claim`), and the page registers it with `updateViaCache: 'none'`,
+  which is what fetches the worker past the browser's cache. `_headers` gives
+  the manifest and the worker `max-age=0` as well, but on
+  photos.madcowsailing.com the zone raises a file type it caches to
+  `max-age=14400` whatever `_headers` says (*measured* on `/js/share.js`,
+  2026-10-01), so those rules are belt and braces, not the lock; step 9 of
+  #193 reads both on the domain. *Measured on the owner's Samsung (Chrome
+  154), with the app installed from a local server:* after a deploy and a
+  fresh open, the page and the worker both ran the new build. An app left
+  open keeps its page until it navigates, as any open page does.
+- **What a share delivers depends on the app sharing.** *Measured on the same
+  phone:* Samsung Gallery's own Share (one photo), the system share list (one
+  photo) and My Files (six photos, `SEND_MULTIPLE`) each arrived with every
+  file, named and sized. A share from Chrome itself (Web Share, one photo or
+  six) arrived as a form with no files, so the worker answers `?shared=empty`
+  and the page says to share from the gallery or Files app instead. Google
+  Photos was not read.
+- **The floor holds with the worker installed.** Through `tools/h2proxy.mjs`,
+  with the worker registered before and after each run and only the HTTP
+  cache cleared, the share page read 99, 98 and 99, accessibility 100, and
+  after the review's changes 96, 95 and 99, then 98, 98 and 98. With
+  Lighthouse's storage reset, which removes the worker, it read 98, 98 and 99,
+  then 97, 98 and 98. The one 95 came in the first batch after the proxy was
+  restarted, and the batches either side of it read 98.
 
 ## The two-presentation rule
 

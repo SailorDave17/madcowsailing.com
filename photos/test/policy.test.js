@@ -280,6 +280,21 @@ test('the page\'s promises about a takedown are what the code does', async () =>
   assert.equal(row(), undefined, 'a deleted photo keeps its time and note');
 });
 
+test('"What the site keeps" says shared photos wait on the phone until sent or removed, and the day is the scripts\' own (#193)', () => {
+  assert.match(MAIN, /Photos shared to the installed app from a phone's gallery wait in this site's storage on that phone, exactly as they were shared, location included, until each is sent or removed\./);
+  assert.match(MAIN, /One not sent within a day is no longer offered, and is deleted the next time the app opens or is shared to\./);
+  // The day on the page is KEEP_MS in the worker that keeps the files and
+  // the page that offers them; either moving fails here.
+  const day = (text) => text.match(/const KEEP_MS = ([^;]+);/)?.[1];
+  for (const script of [['public', 'share', 'sw.js'], ['public', 'js', 'share.js']]) {
+    assert.equal(day(read(...script)), '24 * 60 * 60 * 1000', script.join('/'));
+  }
+  const comment = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0];
+  for (const source of ['public/share/sw.js', 'public/js/share.js', 'KEEP_MS']) {
+    assert.ok(comment.includes(source), `the trace table does not name ${source}`);
+  }
+});
+
 test('the head comment traces every takedown claim to a file that exists', () => {
   const comment = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0];
   for (const source of ['lib/removals.js', 'functions/api/remove.js', 'migrations/0006_removal_requests.sql',
