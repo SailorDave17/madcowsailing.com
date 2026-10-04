@@ -799,6 +799,36 @@ in production and in preview (Settings → Variables and Secrets, type
 Secret). A secret applies from the next deployment, so redeploy both. Then
 delete the old key in Resend.
 
+### Password hashing
+
+Every password the accounts epic (#216) stores is hashed by
+`photos/lib/password.js`: scrypt from `node:crypto`, N=2^14, r=8, p=5
+(#218; `CLAUDE.md`, The photo site, item 23, for why). Nothing is stored yet;
+#222 is the first story that does.
+
+- **Measuring its CPU** on the develop preview: sign in to
+  `https://develop.madcowphotos.pages.dev/admin/` through Access, then drive
+  `GET /api/admin/password-probe` 20 times from inside that page, alone in one
+  UTC minute, and `?run=none` the same way in another minute as the control.
+  Read both minutes from the GraphQL Analytics API's
+  `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` and `status`,
+  with a token holding Account → Account Analytics → Read only. Keep a minute
+  only if its request total is the 20 sent **and it has 0 errors**, and write
+  its `avg { sampleInterval }` beside the quantiles. The request total is
+  scaled up from a sample, so a sampled minute still reads 20 while its
+  quantiles come from fewer requests. On the free plan a request past 10 ms of
+  CPU fails with Error 1102, and its status reads `exceededCpu`, so a minute
+  with errors is not the hash's cost: it is the reading that the hash does not
+  fit, and item 8 records it as that.
+  `CLAUDE.md` item 8 holds the readings.
+- **`?run=hash` answers the hash it made**, so the deployed runtime's output
+  can be checked in Node: it verifies against the probe's fixed password.
+- **`?run=over-cap`** shows what the deployed runtime answers one step past
+  its PBKDF2 and scrypt limits. Local wrangler's answer differs for PBKDF2, so
+  read it on the preview.
+- **The probe answers 404 on production**, so nothing there can be made to
+  spend CPU through it.
+
 ## The push guard
 
 `githooks/pre-push` refuses a local push to `develop`, `main`, `master` or
