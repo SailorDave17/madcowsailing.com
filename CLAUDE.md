@@ -53,7 +53,9 @@ the installed app: the share page installs to a phone's home screen, and on
 Android it takes photos from the Share menu. Those are epic #147's. **Epic #216 (accounts) replaces the invite link and the
 coaches' Access sign-in** with email-and-password accounts the owner
 approves, and retires both at its cutover, #226. Its first story, #217, is
-the email the site sends through Resend, with a test send at `/admin/mail`.
+the email the site sends through Resend, with a test send at `/admin/mail`,
+and #218 chose the password hash every account will use: scrypt, in
+`photos/lib/password.js`.
 Epics #147 and #216 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
@@ -1679,6 +1681,115 @@ hold a session (reasoned, from cairn's
   Lighthouse's storage reset, which removes the worker, it read 98, 98 and 99,
   then 97, 98 and 98. The one 95 came in the first batch after the proxy was
   restarted, and the batches either side of it read 98.
+
+### 23. Password hashing: scrypt, from the runtime's node:crypto
+
+**Chosen in #218, 2026-10-02, before any story stores a password** (epic
+#216, D14). `lib/password.js` is the one place a password is hashed or
+checked. Nothing calls it yet: #222's sign-in and reset and #224's admin
+sign-in will.
+
+**What a Pages Function can run without a library**, read 2026-10-02:
+
+| Function | Where | The limit the runtime puts on it |
+|---|---|---|
+| PBKDF2 (SHA-1, -256, -384, -512) | Web Crypto, `deriveBits` / `deriveKey` | **refuses more than 100,000 iterations** |
+| HKDF | Web Crypto | none read; it has no work factor, so it is not a password hash |
+| `pbkdf2` | `node:crypto` | the same 100,000 |
+| `scrypt` | `node:crypto` | **refuses N·r·p above 2^20**; memory 128·r·(N + p + 2) bytes (its table plus one block per lane), inside the isolate's 128 MB |
+| `argon2` | `node:crypto` | "not supported" |
+
+Cloudflare's [Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
+page lists PBKDF2 and HKDF as fully supported and names no limit. Its
+[`node:crypto`](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)
+page (updated 2026-08-12) says every API is supported except a short list
+that includes *"`argon2` and `argon2Sync` are not supported"*, and that a
+`compatibility_date` of 2026-08-04 or later turns `nodejs_compat` on by
+default. This project's date is 2026-09-25, and `wrangler.jsonc` names the
+flag anyway, for the reason its comment gives. **Neither page names the two
+limits.** They are in workerd's source, `src/workerd/io/limit-enforcer.h`
+(`DEFAULT_MAX_PBKDF2_ITERATIONS = 100'000`, `DEFAULT_MAX_SCRYPT_COST = 1u <<
+20`, the second added 2026-05-15 as "Cap scrypt work parameters to prevent CPU
+limit bypass"), which both the Web Crypto and the `node:crypto` paths call.
+The [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+page gives the memory: 128 MB per isolate, shared by its concurrent requests.
+
+**Local wrangler lifts the PBKDF2 limit and keeps scrypt's.** workerd's own
+server overrides the iteration check (*"No limit on the number of iterations
+in workerd"*). *Measured* in workerd from wrangler 4.141.0 on 2026-10-02: one
+step past each limit, 100,001 iterations read `accepted` from both PBKDF2s,
+and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).` So a
+local run passes a PBKDF2 count that Cloudflare, by its source, refuses. The
+deployed reading is the probe's `?run=over-cap` (below), recorded here once
+taken.
+
+- **scrypt, at N=2^14, r=8, p=5.** The [OWASP Password Storage Cheat
+  Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+  (read 2026-10-02; its numbers last changed 2026-06-24): *"Use Argon2id
+  with a minimum configuration of 19 MiB of memory, an iteration count of 2,
+  and 1 degree of parallelism. If Argon2id is not available, use scrypt with
+  a minimum CPU/memory cost parameter of (2^17), a minimum block size of 8
+  (1024 bytes), and a parallelization parameter of 1."* It lists five scrypt
+  rows that *"provide a similar minimal level of defense"*, from N=2^17, p=1
+  to N=2^13, p=10, all with r=8. Argon2id is not in the runtime, so scrypt is
+  the strongest function it carries.
+- **Not PBKDF2.** OWASP asks *"PBKDF2-HMAC-SHA256: 600,000 iterations"* and
+  *"PBKDF2-HMAC-SHA512: 220,000 iterations"*, and the runtime stops at
+  100,000, so PBKDF2 here is a weaker setting, which D14 rules out. Not
+  chosen either: Argon2id or bcrypt in WebAssembly or in JS (a library, or
+  hand-written crypto under the no-library rule, and slower than the native
+  code); chaining PBKDF2 calls past the limit (not PBKDF2, so no published
+  vector can check it).
+- **Why the N=2^14 row.** N=2^17 needs 128 MiB, the whole isolate. N=2^16
+  needs 64 MiB, so two sign-ins at once would fill it. Of the three left,
+  N=2^15, p=3 costs the most CPU, and N=2^13, p=10 costs the same CPU as
+  N=2^14, p=5 with half the memory, which is the part of scrypt a cracking
+  rig pays for. *Measured* in Node 24.19 on this machine, median of 7:
+  N=2^13 p=10 168.5 ms, N=2^14 p=5 170.7 ms, N=2^15 p=3 200.6 ms, N=2^16 p=2
+  273.2 ms; PBKDF2-SHA256 at 100,000 42.3 ms and at 600,000 257.2 ms. One
+  hash took 218 ms of wall time in local workerd.
+- **A stored hash is a PHC string**, `$scrypt$ln=14,r=8,p=5$<salt>$<hash>`,
+  16 random bytes of salt and 32 of hash, in unpadded base64. It names its own
+  parameters, so raising them later leaves older hashes verifiable.
+  `verifyPassword()` reads them from the string and refuses, unread, a string
+  naming an N·r·p past 2^20, more than 32 MiB counted as 128·r·(N + p + 2),
+  or an N of 2^(16r) or more. The last is RFC 7914's own rule, and the first
+  draft missed it and the lane term; `review-fanout` found both. scrypt
+  refuses either itself, and *measured* in local workerd on 2026-10-03 it does
+  so with a plain `Error: Scrypt failed`, no code, so a check after the fact
+  could not tell it from an outage. With the rules in front, `ln=16,r=1`,
+  `ln=1,r=999,p=524` and `ln=1,r=512,p=999` each answered false there. It
+  compares with `timingSafeEqual`, and answers false, never an error, for a
+  string it could not have written. Nothing in it logs.
+- **The password goes in as the UTF-8 it arrives as.** Normalising it, its
+  minimum and maximum length, and a breached-password check are #222's, under
+  NIST SP 800-63B (its first criterion).
+- **Tests**: `test/password.test.js` runs RFC 7914's scrypt vectors 1–3
+  (section 12, read 2026-10-02) through `derive()`; the fourth needs N·r·p of
+  2^23 and 1 GiB, past the runtime's limit. OWASP's row is written out in the
+  test, not read from `SCRYPT`, and each stored hash is recomputed from its own
+  salt with `node:crypto` directly, so a changed cost or salt fails it. A
+  non-ASCII password is recomputed from its UTF-8, and its decomposed form
+  must not verify. Each bound is held by real hashes either side of it:
+  r=255 and N=2^10 at p=2, 512 bytes under 32 MiB, verifies, and at p=3,
+  32,128 over, is refused. At r=1, N=2^15 verifies. A hash cut short at its
+  end is refused.
+- **The CPU is read on the develop preview with `/api/admin/password-probe`**,
+  behind the admin guard, and 404 on production. `?run=hash` makes one hash at
+  `SCRYPT`, which is what a sign-in or a new password costs, and answers the
+  string it made. That string verifies in Node against the probe's fixed
+  password, so the deployed scrypt can be checked against Node's in full.
+  *Measured* against local workerd on 2026-10-03: a hash it made verified in
+  Node, all 32 bytes, and a wrong password did not. `?run=none` is the
+  control, and `?run=over-cap` reports each function's answer one step
+  past its limit. #161's method reads it (item 8), and a minute counts only
+  with 0 errors and its `sampleInterval` written beside it (README). The
+  preview builds from `develop` only, so the reading follows this item's
+  merge, and item 8 holds it.
+- **Workers Paid if it does not fit** (D14, pre-approved): the free plan
+  allows 10 ms of CPU a request. The local figures above put one hash near
+  170 ms, which predicts it will not fit. Predicted, not yet measured on
+  Cloudflare.
 
 ## The two-presentation rule
 
