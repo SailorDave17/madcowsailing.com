@@ -669,6 +669,17 @@ decisions.
   the button, what a taken-down photo keeps (its copies, `hidden_at` and the
   free-text `hidden_note`) and how long its limit keeps a scrambled address. `npm test`
   holds its 10 an hour and its 500 characters to the code too.
+- **#219 added accounts** (epic #216): what an account keeps and who sees it,
+  the admins' log, the two services that handle a request (Turnstile and
+  Resend) and what each sees, and how to have an account deleted: by email,
+  confirmed by a reply to the account's address, with the person's photos
+  staying and no longer recording the account, and the database's 30 days of
+  restore points named. It describes accounts before the request form (#220)
+  exists, worded as conditions so that it is true on any release. Most of it
+  is built by later stories, and the head comment names which. #220 to #224
+  each carry a criterion to add their own records to the page, and #223 the
+  lede and "Who can send a photo". The sentence about matching a coach's send
+  time to Cloudflare's sign-in record stays until the cutover (#226).
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
   `photos/lib/admin-page.js`. The header's nav links the album list and
