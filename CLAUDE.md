@@ -55,7 +55,8 @@ coaches' Access sign-in** with email-and-password accounts the owner
 approves, and retires both at its cutover, #226. Its first story, #217, is
 the email the site sends through Resend, with a test send at `/admin/mail`,
 and #218 chose the password hash every account will use: scrypt, in
-`photos/lib/password.js`. **Epic #191 makes COHSSA a section of the same
+`photos/lib/password.js`. One hash takes far more than the free plan's 10 ms
+of CPU, so the account is on Workers Paid since 2026-10-05. **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24).
 Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
@@ -543,10 +544,17 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 
 ### 8. Free-tier headroom
 
+**The account is on Workers Paid since 2026-10-05** (#218; the owner's
+purchase, pre-approved by D14). One password hash takes about 137 ms of CPU
+on Cloudflare, and the free plan allows 10 ms a request (the CPU row). The
+plan is the account's, so the paid step below is now in force for requests,
+CPU and D1. R2, Zero Trust and Resend are billed on their own, and their rows
+are unchanged.
+
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. Clip parts: the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. **The password hash does not fit** (#218, read on the develop preview on 2026-10-05 by the same method, `?run=hash` and `?run=none` each alone in its own minute). On the free plan 2 of the 20 hashes were cut, answering 503 with status `exceededResources` at 10.0 and 22.7 ms of CPU, and the 18 that ran read 114.6 / 118.7 / 124.3 ms (`sampleInterval` 1.38). On Workers Paid, from a deployment made after the upgrade: 136.5 / 149.5 / 155.0 ms, 0 errors (`sampleInterval` 1.11), against the control's 1.6 / 1.9 / 2.3 ms (2.5). **A deployment live at the upgrade kept a 50 ms cut**: the preview's cut 4 of 20 hashes at 50.0 to 104.2 ms until it was redeployed. Production's deployment then, release `d02da44`, was made before the upgrade too, so by the same reading it keeps that cut until the next release deploys (not measured on production; its routes read under 10 ms above, and nothing there hashes yet). Clip parts: the video stories | Workers Paid, **in force since 2026-10-05**: 30 million CPU ms a month, then $0.02 per million. The project's own CPU time limit (Settings → General) is blank, so the plan's default applies |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
@@ -1780,9 +1788,11 @@ server overrides the iteration check (*"No limit on the number of iterations
 in workerd"*). *Measured* in workerd from wrangler 4.141.0 on 2026-10-02: one
 step past each limit, 100,001 iterations read `accepted` from both PBKDF2s,
 and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).` So a
-local run passes a PBKDF2 count that Cloudflare, by its source, refuses. The
-deployed reading is the probe's `?run=over-cap` (below), recorded here once
-taken.
+local run passes a PBKDF2 count that Cloudflare, by its source, refuses.
+**Cloudflare refuses it.** *Measured* on the develop preview on 2026-10-05
+with the probe's `?run=over-cap` (below): both PBKDF2s read `refused: Pbkdf2
+failed: iteration counts above 100000 are not supported (requested 100001).`,
+and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).`
 
 - **scrypt, at N=2^14, r=8, p=5.** The [OWASP Password Storage Cheat
   Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
@@ -1841,16 +1851,22 @@ taken.
   string it made. That string verifies in Node against the probe's fixed
   password, so the deployed scrypt can be checked against Node's in full.
   *Measured* against local workerd on 2026-10-03: a hash it made verified in
-  Node, all 32 bytes, and a wrong password did not. `?run=none` is the
+  Node, all 32 bytes, and a wrong password did not. *Measured* against
+  Cloudflare on 2026-10-05: a hash the develop preview made equalled Node's
+  `scryptSync` over its own salt, all 32 bytes, and verified, and a wrong
+  password did not. `?run=none` is the
   control, and `?run=over-cap` reports each function's answer one step
   past its limit. #161's method reads it (item 8), and a minute counts only
   with 0 errors and its `sampleInterval` written beside it (README). The
   preview builds from `develop` only, so the reading follows this item's
   merge, and item 8 holds it.
-- **Workers Paid if it does not fit** (D14, pre-approved): the free plan
-  allows 10 ms of CPU a request. The local figures above put one hash near
-  170 ms, which predicts it will not fit. Predicted, not yet measured on
-  Cloudflare.
+- **It did not fit, so the account is on Workers Paid since 2026-10-05**
+  (D14, pre-approved; the owner chose on 2026-10-02 to decide after the
+  free-plan reading). The free plan allows 10 ms of CPU a request. *Measured*
+  on the develop preview, the free plan cut 2 of 20 hashes, and on Workers
+  Paid one hash read 136.5 / 149.5 / 155.0 ms at p50 / p90 / p99, 0 errors.
+  Item 8 has both minutes, their controls, and the 50 ms cut that a
+  deployment made before the upgrade kept.
 
 ### 24. Accounts and the COHSSA section: the 2026-10-01 decisions
 

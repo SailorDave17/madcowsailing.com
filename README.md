@@ -78,10 +78,16 @@ dashboard shows them read-only.
 | Preview branches | `develop` only | `develop` only | `develop` only (Custom branches, include `develop`) |
 | Preview access policy | not enabled | not enabled | **enabled**: Access app `madcowphotos - Cloudflare Pages` on `*.madcowphotos.pages.dev`, policy `Allow Members - Cloudflare Pages` |
 | Fail open/closed | — (no Functions) | — (no Functions) | **Fail closed** |
+| Workers plan (one per account) | **Workers Paid since 2026-10-05** (#218) | same | same |
+| CPU time limit (Settings → General → Pages Functions billing) | — (no Functions) | — (no Functions) | blank (`—`), so the plan's default applies |
 | Framework preset | None | None | None |
 
 *The photos column was read back from the dashboard on 2026-09-27 (UTC), after
-the project was created for #149.* Two of its values are not what the create
+the project was created for #149.* The plan row was read on Workers plans at
+23:02 UTC on 2026-10-05, right after the owner moved the account to Workers
+Paid for #218, and the CPU time limit row the same evening. One password
+hash took 136.5 ms of CPU at the median on Workers Paid, against the free
+plan's 10 ms a request (`CLAUDE.md`, The photo site, item 8). Two of its values are not what the create
 form leaves behind, and both look set when they are not. **Custom branches
 pre-fills Include Preview branches with `*`**, which previews every branch, and
 **Build watch paths pre-fills `*`**, which builds on every commit. Adding
@@ -827,10 +833,17 @@ Every password the accounts epic (#216) stores is hashed by
   only if its request total is the 20 sent **and it has 0 errors**, and write
   its `avg { sampleInterval }` beside the quantiles. The request total is
   scaled up from a sample, so a sampled minute still reads 20 while its
-  quantiles come from fewer requests. On the free plan a request past 10 ms of
-  CPU fails with Error 1102, and its status reads `exceededCpu`, so a minute
-  with errors is not the hash's cost: it is the reading that the hash does not
-  fit, and item 8 records it as that.
+  quantiles come from fewer requests. A request cut for CPU answers `503`
+  with the page *Worker exceeded resource limits* (Error 1102), and **this
+  dataset's status reads `exceededResources`**, not the `exceededCpu` the
+  Workers limits page names (*measured* 2026-10-05). So a minute with errors
+  is not the hash's cost: it is the reading that the hash does not fit, and
+  item 8 records it as that. The cut is not applied to every request: on the
+  free plan 18 of 20 hashes ran at about 115 ms of CPU and 2 were cut.
+  **Measure only on a deployment made after the last plan change.** The
+  deployment that was live when the account moved to Workers Paid kept cutting
+  at 50 ms, the old Bundled model's limit, until it was redeployed (Deployments
+  → the row's *More actions* → *Retry deployment*).
   `CLAUDE.md` item 8 holds the readings.
 - **`?run=hash` answers the hash it made**, so the deployed runtime's output
   can be checked in Node: it verifies against the probe's fixed password.
