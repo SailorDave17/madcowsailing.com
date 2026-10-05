@@ -55,8 +55,10 @@ coaches' Access sign-in** with email-and-password accounts the owner
 approves, and retires both at its cutover, #226. Its first story, #217, is
 the email the site sends through Resend, with a test send at `/admin/mail`,
 and #218 chose the password hash every account will use: scrypt, in
-`photos/lib/password.js`.
-Epics #147 and #216 build the rest. The `develop` preview sits behind
+`photos/lib/password.js`. **Epic #191 makes COHSSA a section of the same
+site**, on those accounts; #194 recorded the decisions behind both epics
+(The photo site, item 24).
+Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -1790,6 +1792,91 @@ taken.
   allows 10 ms of CPU a request. The local figures above put one hash near
   170 ms, which predicts it will not fit. Predicted, not yet measured on
   Cloudflare.
+
+### 24. Accounts and the COHSSA section: the 2026-10-01 decisions
+
+**Taken by the owner on 2026-10-01 through the question tool, before any
+story under them was drafted, and recorded here in #194 (2026-10-05).** Epic
+#216 (accounts) carries D13–D18, and epic #191 (the COHSSA section) the
+rest. Each names the option recommended that day and the options not taken;
+the questions and the reasoning shown with them are in cairn's
+`memory/projects/madcowsailing-photo-space-2026-09-26.md`. Three went
+against the recommendation: the password (D14), public COHSSA viewing, and
+COHSSA's consent basis. They supersede four earlier decisions on #147: A4
+(no parent accounts), D3 (Access on `/admin`, item 12), D9's Access sign-in
+for coaches (item 20) and D12's COHSSA copy. Items 11, 12 and 20 still
+describe production until the cutover, #226.
+
+- **D13. Accounts replace every way in, on both teams** (the
+  recommendation). A parent, coach or other person asks for an account, and
+  the owner approves it. The invite link (#150, #152; item 11) and the
+  coaches' Access sign-in (#192; item 20) retire at #226, once accounts work
+  on production, and today's admins and coaches get set-password emails
+  then. Not chosen: accounts for COHSSA only; accounts with the link kept
+  for one-off events.
+- **D14. Email and password, against the recommendation** of an emailed
+  sign-in link with no password. Not chosen either: Google sign-in plus an
+  emailed link. The case made for the link: a password still needs a reset
+  by email, so the inbox is the key either way; a password hash spends CPU
+  against the free plan's 10 ms a request; and it is hand-written security
+  code under the vanilla-JS rule, the reason a password was turned down for
+  `/admin` on 2026-09-26. A forgotten password resets by emailed link (a
+  default, shown and not asked). The hash is measured on Cloudflare before
+  any password is stored, and the account moves to Workers Paid ($5 a month)
+  if it does not fit, which the owner approved in advance. Not chosen: a
+  weaker hash to stay free; measuring and then stopping to ask. Item 23 has
+  the hash.
+- **D15. Admin is a role on the same sign-in** (the recommendation), with a
+  6-digit code emailed at each sign-in and sessions of 12 hours at most. The
+  owner adds and removes admins from `/admin` (#224). Not chosen: Access kept
+  in front of `/admin`, with adding an admin left a dashboard edit; the site
+  rewriting the Access policy through an API token, which would put a token
+  that can open the admin door on the site; a password alone; an
+  authenticator app, which is hand-written TOTP plus a lost-phone recovery
+  path.
+- **D16. An account is approved per team** (the recommendation), and sends
+  only to that team's events. Not chosen: one approval that sends anywhere.
+  The role is the one the requester picks, editable at approval, and a coach
+  keeps D11's 15-minute clips while everyone else keeps 3 (defaults, shown
+  and not asked).
+- **D17. Each photo records the account that sent it, seen by admins only**
+  (the recommendation). This ends the anonymity #192 built (item 20), so
+  `/policy` says so (#219). Revoking a person keeps their approved photos,
+  and one action hides everything they sent (#225). Not chosen: anonymous
+  uploads, which leave a revoked sender's photos unfindable as a group;
+  revoking that hides everything, which takes a departing coach's good
+  photos down too.
+- **D18. No sailor data on the site** (the recommendation). The request form
+  asks no sailor's name, and a later link from coaches-dockbox carries links
+  and opt-out flags only. Not chosen: carrying the attendance app's rule on
+  name, school and graduation year over; deciding at integration time.
+- **COHSSA is a section of this site** (the recommendation), superseding
+  the copy D12 chose on 2026-09-28. With one sign-in and one admin area, the
+  copy's reason, separate queues and codes, is gone. Each album belongs to a
+  team, and each team's section lists its own (#227). Not chosen: the copy as
+  filed under #191; a separate address served by this site with shared
+  accounts. #195 and #196 closed with it.
+- **COHSSA photos are public once approved, from the start, against the
+  recommendation** of members-only viewing until a COHSSA release was
+  recorded. Not chosen: members only, always.
+- **COHSSA's consent rests on a COHSSA-wide release, against the
+  recommendation** of each school's release plus each coach's opt-out list.
+  Not chosen: the owner's judgement plus takedown. Nothing on 2026-10-01
+  confirmed that such a release existed, so no COHSSA photo is approved until
+  its wording is recorded here and on `/policy` (#191's end state).
+  **Confirmed by the owner on 2026-10-05 (#194):** the release is part of
+  COHSSA's season registration, COHSSA issues it, and it covers photos
+  published online. It has no opt-out, so unlike Hoover's (item 18) there is
+  no per-family list for an admin to check a COHSSA photo against. **Its
+  exact wording is not recorded yet.** #238 records it here word for word
+  and puts it on `/policy`, and no COHSSA photo is approved until then.
+- **The section shows COHSSA's name as text, with no COHSSA logo** unless
+  COHSSA's permission is recorded here (a default, confirmed on 2026-10-05).
+  None was recorded that day.
+- **The COHSSA section's admins are the site's admins** (a default,
+  confirmed on 2026-10-05). D15's admin role has no team, so every admin
+  approves for both teams. Not chosen: a COHSSA person approving COHSSA's
+  photos, which needs a team-scoped admin role that nothing has built.
 
 ## The two-presentation rule
 
