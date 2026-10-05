@@ -16,6 +16,7 @@ import { adminHome } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
 import { HTML_CACHE, albumListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
+import { hashPassword, verifyPassword } from '../lib/password.js';
 import { DAILY_UPLOADS, SIZES, insertPhoto } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
@@ -123,7 +124,7 @@ test('the share page links the policy in its join step, and asks senders to leav
 
 // ---- Criteria 1 and 2: what the page says ---------------------------------
 
-test('the policy covers, in order, who sees a photo, who sends, the check, the metadata, what is kept, for how long, and removal', () => {
+test('the policy covers, in order, who sees a photo, who sends, the check, the metadata, what is kept, an account, for how long, and removal', () => {
   const headings = [...POLICY.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => m[1]);
   assert.deepEqual(headings, [
     'Who can see a photo',
@@ -131,8 +132,10 @@ test('the policy covers, in order, who sees a photo, who sends, the check, the m
     'Every photo is checked first',
     'Location and camera details stay on the phone',
     'What the site keeps',
+    'What an account keeps', // #219
     'How long photos stay',
     'Having a photo taken down',
+    'Having an account deleted', // #219
   ]);
   assert.equal(POLICY.match(/<h1[\s>]/g).length, 1);
 });
@@ -146,8 +149,10 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     'A check can miss one.',
     'no location, no camera make or model', // stripped on the phone (#155)
     'only in a scrambled form, made with a secret key', // lib/address.js
-    'Nothing kept with a photo names who sent it: no name, no account and no email address', // A4
-    'Someone sending with the invite link gives none of those at all.', // A4
+    // A4, for the two ways in that predate accounts. #219 narrowed it to
+    // them: a photo sent from an account names the account (D17).
+    'A photo sent with the invite link, or by a coach, keeps nothing that names who sent it: no name, no account and no email address',
+    'Someone sending with the invite link gives none of those at all.',
     // #192: coaches sign in, and the page says what that keeps.
     'the team\'s coaches, who sign in, can send one',
     'only an address the site\'s admins have put on the coaches\' list gets in',
@@ -173,12 +178,14 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     'its caption, if it has one;',
     'the album it was sent to;',
     'when it was taken, and when it was sent;',
-    'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it.',
+    'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it;',
+    'for a photo sent from an account, which account sent it.', // D17; #219
   ]);
   // The address is in the lede, on the first screen, and again in its own
-  // section at the foot (owner, at #159's design review).
+  // section at the foot (owner, at #159's design review), and in the
+  // account-deletion section (#219).
   const mailto = '<a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>';
-  assert.equal(POLICY.split(mailto).length - 1, 2);
+  assert.equal(POLICY.split(mailto).length - 1, 3);
   assert.ok(POLICY.match(/<p class="lede">[\s\S]*?<\/p>/)[0].includes(mailto), 'the lede does not give the address');
 });
 
@@ -413,4 +420,158 @@ test('README\'s hand takedown, the fallback when the button is refused, hides th
   // Only an approved photo is taken down: a waiting one is untouched.
   assert.equal(run(waiting), 0);
   assert.equal(db.sqlite.prepare('SELECT state FROM photos WHERE id = ?').get(waiting).state, 'pending');
+});
+
+// ---- #219: accounts on the page ---------------------------------------------
+//
+// The page says what an account keeps before the request form (#220) takes
+// its first request, so most of what it describes is built by later stories
+// of epic #216. Each claim's source is in the head comment's trace table, and
+// the stories that build them carry it in their criteria.
+
+const has = (text, claims, where) => {
+  for (const claim of claims) assert.ok(text.includes(claim), `${where} no longer says "${claim}"`);
+};
+
+test('"What an account keeps" lists what an account keeps, who sees it, and for how long (#219, criterion 1)', () => {
+  const html = section('What an account keeps');
+  // A list, as for a photo, so a phrase elsewhere cannot stand in for an item.
+  const items = [...block(html, 'ul').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => words(m[1]));
+  assert.deepEqual(items, [
+    'your name and email address;',
+    'your role, the teams you asked for, and which of them an admin approved;', // D16
+    'the note you left with your request, if any;',
+    'your password, only as a hash, which can check a password typed in but cannot be turned back into it;', // D14
+    'which photos you sent from it.', // D17
+  ]);
+  has(words(html), [
+    // D13, D16. A condition, not "anyone can ask", so the page is true on a
+    // release before #220 builds the form (owner, at #219's review).
+    'If you ask for an account, as a parent, a coach or anyone else, for Hoover JRT, COHSSA or both, it keeps:',
+    // D17. "On the site": Resend, named below, sees what it sends.
+    'On the site, only its admins see any of it.',
+    'Every admin sees every account, for both teams.', // D15's admin role has no team
+    'No public page, photo or download shows who sent a photo.', // #223's criterion 3
+    // #221's log and #225's delete entry (owner, at #219's review).
+    'The admins also keep a log of what they do with each account: who approved it, changed it, revoked it or deleted it, and when. Each entry names the person whose account it was.',
+    'The request asks for no sailor\'s name, so leave sailors\' names out of the note too.', // D18
+    'An account, and a request for one, is kept until it is deleted. There is no set limit.', // owner, at #219's pickup
+  ], '"What an account keeps"');
+  assert.doesNotMatch(MAIN, /Anyone can ask for an account/);
+});
+
+test('the page names Turnstile and Resend as handling a request, and says what each sees (#219, criterion 2)', () => {
+  has(words(section('What an account keeps')), [
+    'Two other services handle a request.',
+    // The Turnstile Privacy Addendum's section 3 lists "client IP address,
+    // TLS Fingerprint, User-Agent Header and Sitekey and associated origin",
+    // and Turnstile's docs say it "does not access, store, or transmit ...
+    // form entries" (both read 2026-10-05).
+    'Cloudflare Turnstile checks that the request form was filled in by a person, not a program.',
+    'it sees your network address, what your browser reports about itself, details of how it connects, and which site the form is on, but not what you type into the form.',
+    'not to identify, profile or target anyone, and also uses them to improve Turnstile.',
+    // #217's sender, and #220's email to the admins naming each requester.
+    'Resend sends the site\'s email.',
+    'the site emails its admins through Resend with your name, role and teams',
+    // Resend's Free plan, "30-day data retention" (resend.com/pricing).
+    'Resend sees each email\'s address and everything in it, and keeps each one for 30 days.',
+  ], '"What an account keeps"');
+  // Resend's 30 days is said twice, and the two must agree. (The database's
+  // restore points are a different 30 days, and are not matched here.)
+  assert.deepEqual([...MAIN.matchAll(/Resend[^.]*?(\d+) days/g)].map((m) => m[1]), ['30', '30']);
+});
+
+test('"Having an account deleted" gives the email and the check, says the photos stay but no longer record the account, and what is not deleted (#219, criterion 3)', () => {
+  const html = section('Having an account deleted');
+  assert.ok(html.includes('<a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>'), 'the section does not link the address');
+  has(words(html), [
+    // By email (owner, at #219's pickup), confirmed by a reply to the
+    // account's own address (owner, at #219's review): a delete cannot be
+    // undone, and a request can come from anyone.
+    'Email dave@madcowsailing.com and ask. An admin writes to the address on the account to check the request came from you, and deletes the account once you confirm: your name, email address, role, teams, note and password hash all go.',
+    // Owner, at #219's pickup: D17's rule for revoking, applied to a delete.
+    'The photos you sent stay, approved or still waiting, and are checked as usual, but they no longer record which account sent them.',
+    'To have them taken down as well, press "Remove this photo" under each, or say so in the same email.',
+    // Owner, at #219's review: the log keeps its entries, and a revoked
+    // address stays scrambled so a revoke survives a delete.
+    'Some things stay. The admins\' log keeps its entries about your account, and they still name you.',
+    'If an admin had revoked the account, the site keeps its email address in a scrambled form, made with a secret key, so that a new request from it is still held back.',
+    'Emails already sent are not deleted with it: Resend keeps each for its 30 days, and the email telling the admins about your request stays in their mailboxes.',
+    // D1 Time Travel: 7 days on Free, 30 on Workers Paid, always on.
+    'The site\'s database can be put back as it was at any moment in the last 30 days, so a deleted account stays in those restore points, which only the site\'s owner can use, for up to 30 days.',
+  ], '"Having an account deleted"');
+  // The promise a log that names the person would break.
+  assert.doesNotMatch(MAIN, /nothing links them to you/);
+});
+
+test('the page no longer promises that every photo is anonymous, and keeps #192\'s matching sentence until the cutover (#219, criterion 4)', () => {
+  // The promise #192 left, which an account's photo would break (D17).
+  assert.doesNotMatch(MAIN, /Nothing kept with a photo names who sent it/);
+  has(MAIN, [
+    'A photo sent from an account is different: the site records which account sent it, and only the site\'s admins see it.',
+    // Removed at the cutover, #226, with the coaches' sign-in. Not before.
+    'So when a coach\'s photo was sent could still be matched against who signed in shortly before.',
+  ], 'the policy');
+});
+
+// The trace table's account rows, in order, each with the sources its own
+// cell must name. A row's cell runs from its first line to the next row's,
+// read from column 41, so a source in one row cannot stand in for another's.
+// #219's review found a whole-comment search let 6 of 13 rows go at 0 red.
+const ACCOUNT_ROWS = [
+  ['A photo sent with the invite', ['insertPhoto', 'D17', '#223']],
+  ['If you ask for an account, for', ['D13', 'D16', '#220', '#219\'s review', '#158\'s precedent']],
+  ['What an account keeps: name,', ['#220\'s criteria 1 and 6', '#221']],
+  ['The password, only as a hash', ['hashPassword', 'verifyPassword', 'lib/password.js', '#222']],
+  ['Which photos it sent', ['D17', '#223']],
+  ['On the site, only the admins', ['D17', 'D15']],
+  ['The admins\' log names the person,', ['#221\'s criterion 5', '#225', '#219\'s review']],
+  ['No sailor\'s name', ['D18']],
+  ['Kept until it is deleted', ['#219\'s pickup']],
+  ['Turnstile, and what it sees', ['Turnstile Privacy Addendum', 'https://www.cloudflare.com/turnstile-privacy-policy/', '2025-06-18', 'form entries']],
+  ['Resend sends the site\'s email,', ['sendMail', 'lib/mail.js', '#220\'s criterion 5']],
+  ['Resend keeps each 30 days', ['https://resend.com/pricing', '"30-day data retention"']],
+  ['Deleted on request, by email,', ['#219\'s pickup', '#219\'s review', 'confirmed by reply', '#220', '#225']],
+  ['A revoked address stays, as a', ['#219\'s review', '#225']],
+  ['The photos stay, and no longer', ['#219\'s pickup', 'D17']],
+  ['Restore points, up to 30 days', ['"30 days (Workers Paid) / 7 days (Free)"', 'https://developers.cloudflare.com/d1/platform/limits/']],
+];
+
+test('the head comment traces every account claim in its own row, and the code it names still has it (#219)', async () => {
+  const lines = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0].split('\n');
+  const starts = ACCOUNT_ROWS.map(([head]) => lines.findIndex((line) => line.startsWith(`       ${head}`)));
+  ACCOUNT_ROWS.forEach(([head], i) => {
+    assert.ok(starts[i] > 0, `the trace table has no "${head}" row`);
+    if (i > 0) assert.ok(starts[i] > starts[i - 1], `the "${head}" row is out of order`);
+  });
+  // The last row's cell ends at the blank line closing the table.
+  const end = lines.findIndex((line, j) => j > starts.at(-1) && line.trim() === '');
+  ACCOUNT_ROWS.forEach(([head, sources], i) => {
+    const cell = lines.slice(starts[i], starts[i + 1] ?? end).map((line) => line.slice(41).trim()).join(' ');
+    for (const source of sources) assert.ok(cell.includes(source), `the "${head}" row does not name ${source}`);
+  });
+  const exported = { hashPassword: '../lib/password.js', verifyPassword: '../lib/password.js', sendMail: '../lib/mail.js' };
+  for (const [name, module] of Object.entries(exported)) {
+    assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
+  }
+});
+
+test('"only as a hash" is what lib/password.js stores: a PHC string and nothing more, with no run of the password in its salt or hash, that still checks it', async () => {
+  const password = 'Fall regatta, 2026';
+  const stored = await hashPassword(password);
+  // Exactly the PHC shape, so nothing rides along after the hash.
+  assert.match(stored, /^\$scrypt\$ln=\d+,r=\d+,p=\d+\$[A-Za-z0-9+/]{22}\$[A-Za-z0-9+/]{43}$/);
+  assert.ok(!stored.includes(password), 'the stored hash holds the password');
+  // The salt and hash, decoded, hold no 4-byte run of the password, so it
+  // cannot hide inside the salt either (#219's review). Random bytes match a
+  // run by chance about once in six million runs.
+  const bytes = Buffer.from(password, 'utf8');
+  const [, , , salt, hash] = stored.split('$');
+  const decoded = Buffer.concat([Buffer.from(salt, 'base64'), Buffer.from(hash, 'base64')]);
+  assert.equal(decoded.length, 16 + 32);
+  for (let i = 0; i + 4 <= bytes.length; i += 1) {
+    assert.equal(decoded.indexOf(bytes.subarray(i, i + 4)), -1, `the stored hash holds bytes ${i} to ${i + 3} of the password`);
+  }
+  assert.equal(await verifyPassword(password, stored), true);
+  assert.equal(await verifyPassword('Fall regatta, 2025', stored), false);
 });

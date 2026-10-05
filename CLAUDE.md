@@ -1315,6 +1315,65 @@ it, and the share page links it beside the join step.
   including the coaches' list and Cloudflare's record of each sign-in. The
   owner made it a criterion at #192's pickup. Its rows are in the head
   comment's trace and `test/policy.test.js`.
+- **#219 put accounts on the page** (2026-10-05), before the request form
+  (#220) takes its first request. So most of what the new sections describe
+  is built by later stories of #216, and each claim's row in the trace names
+  the story that builds it. Three owner decisions at pickup, all the
+  recommendation:
+  - **A deleted account's photos stay, and stop naming it**, approved or
+    waiting: D17's rule for revoking, applied to a delete. To have them
+    down too, the person presses "Remove this photo" or says so in the
+    email. Not chosen: deleting every photo with the account, which takes
+    good team photos down (D17's reason, for revoking); letting the person
+    choose, which is two promises to build and hold.
+  - **Deletion is asked for by email**, to dave@madcowsailing.com. No story
+    deleted an account (#225 revokes), so #220 gained a criterion for a
+    by-hand delete in README, run by a test against the real schema, and
+    #225 one for the admin's delete. Not chosen: one new story; a by-hand
+    delete with no button ever.
+  - **An account, and a request for one, is kept until it is deleted**, with
+    no set limit, as a photo is. That stays true whatever #221 does with a
+    turned-down request and #225 with a revoked address. Not chosen:
+    deleting a turned-down request at once; leaving the duration off.
+
+  Six more at the story's `review-fanout` (2026-10-05), all the
+  recommendation:
+  - **The section opens as a condition**, "If you ask for an account … it
+    keeps", so that it is true on a release before #220 builds the form,
+    as #158 kept the page true on any release. Not chosen: holding every
+    promotion until #220 (develop is promoted whole); accepting a release
+    that describes a form not yet there.
+  - **The admins' log names the person, and keeps its entries after a
+    delete**, and the page says so. #221 logs who, what, whom and when, and
+    #225 logs the delete. Not chosen: a delete that scrubs the log, which
+    loses who was approved or revoked; deciding at #221.
+  - **A delete is confirmed by a reply to the account's own address**,
+    since a delete cannot be undone and a request can come from anyone. Not
+    chosen: trusting the From address; the admin's judgement.
+  - **A revoked account's address stays as a keyed hash after a delete**,
+    so a revoke survives it (#225's criterion 4), as the join and takedown
+    limits keep theirs. Not chosen: a delete that lifts the revoke; refusing
+    to delete a revoked account.
+  - **The page names the database's restore points**: D1 Time Travel is
+    always on, 7 days on Free and 30 on Workers Paid (D1's limits page, read
+    that day), so a deleted account stays restorable for up to 30 days. Not
+    chosen: "7 days", which goes false with Workers Paid; leaving it to a
+    later story. "A photo that is turned down is deleted for good" has the
+    same gap for its row, and was left as it is.
+  - **#220 to #224 each carry a `/policy` criterion for the records they
+    add** (the request's time, the session cookie, token and code hashes,
+    failed sign-in counts, the per-account daily count, the request limit),
+    and #223's also covers the lede and "Who can send a photo". Not chosen:
+    naming them all now, ahead of their code; leaving them to #226.
+
+  The page names Turnstile and Resend and what each sees, from Cloudflare's
+  Turnstile Privacy Addendum (last updated 2025-06-18), Turnstile's docs
+  ("does not access ... form entries") and Resend's pricing (Free keeps 30
+  days), all read that day. **"Nothing kept with a photo names who sent it"
+  now covers the invite link and the coaches only**, and the page says a
+  photo sent from an account names the account (D17). **The sentence about
+  matching a coach's send time to Cloudflare's sign-in record stays until
+  the cutover, #226**, which removes it with the coaches' sign-in.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1572,7 +1631,7 @@ and how to replace the key.
   secret by the owner's paste and is in no file, chat or issue.
 - **Resend keeps each email 30 days** (Free plan data retention,
   resend.com/pricing, read 2026-10-01), recipient and content included.
-  That is a record `/policy` does not yet name; #219 is where it goes.
+  `/policy` names it since #219 (item 18), read again on 2026-10-05.
 
 ### 22. The installed app
 
