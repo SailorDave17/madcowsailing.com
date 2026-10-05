@@ -36,9 +36,13 @@ import { onRequestGet as sessionRoute } from '../functions/api/upload/session.js
 import { createAlbum } from '../lib/albums.js';
 import { readJpeg } from '../lib/jpeg.js';
 import { CAPTION_MAX, DAILY_UPLOADS, SIZES, sizesAgree } from '../lib/photos.js';
+import { COOKIE_NAME, coachTag, nowSeconds, signCoachSession } from '../lib/session.js';
+import { COACH } from './access.js';
 import { d1, seedCodes } from './d1.js';
+import { idb } from './idb.js';
 import { exif, exifWith, jpeg, metadataMarkers, withSegments, xmp } from './jpeg.js';
 import { r2 } from './r2.js';
+import { share, worker } from './worker.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
@@ -246,9 +250,20 @@ function canvasMaker(encoder, canvases) {
  * the address carries, `turns` whether the decoder turns photos upright by
  * their EXIF as it decodes them (Chrome 154 does), `intercept` answers an
  * upload instead of the route.
+ *
+ * For the installed app (#193): `search` is the address's query (share/sw.js
+ * sends ?shared), `db` the browser's IndexedDB (none by default, as in a
+ * browser without it), `session` a session this browser already holds when
+ * the page opens ('parent', from an earlier invite link, or 'coach', from
+ * /coach), `register` how the browser answers the worker's registration
+ * ('ok', 'refused', or 'absent' for a browser with no service workers at
+ * all), and `holdJoin` holds POST /api/join until page.releaseJoin().
  */
-async function load({ hash = `#code=${CODE}`, albums = null, turns = true, encoder = {}, hold = false, slow = false } = {}) {
-  const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', ...KEYS };
+async function load({
+  hash = `#code=${CODE}`, albums = null, turns = true, encoder = {}, hold = false, slow = false,
+  search = '', db = null, session = null, register = 'ok', holdJoin = false,
+} = {}) {
+  const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', COACH_EMAILS: COACH, ...KEYS };
   seedCodes(env.DB, OLD, CODE);
   const now = Math.floor(Date.now() / 1000);
   const made = {};
@@ -274,8 +289,16 @@ async function load({ hash = `#code=${CODE}`, albums = null, turns = true, encod
   document.createElement = (tag) => (tag === 'canvas' ? makeCanvas(document) : new Element(document, tag));
 
   const windowListeners = {};
-  const location = { pathname: '/share/', search: '', hash };
-  const history = { state: null, replaceState(state, title, url) { location.hash = new URL(url, SITE).hash; } };
+  const location = { pathname: '/share/', search, hash };
+  const history = {
+    state: null,
+    replaceState(state, title, url) {
+      const next = new URL(url, `${SITE}${location.pathname}${location.search}${location.hash}`);
+      location.pathname = next.pathname;
+      location.search = next.search;
+      location.hash = next.hash;
+    },
+  };
 
   // The decoder: a photo the test described decodes, turned upright or as
   // stored; anything else is refused, as Chrome refuses a HEIC.
@@ -341,7 +364,10 @@ async function load({ hash = `#code=${CODE}`, albums = null, turns = true, encod
       } finally {
         net.inFlight -= 1;
       }
-    } else if (path === '/api/join') response = await run([root, joinRoute], request);
+    } else if (path === '/api/join') {
+      if (holdJoin) await new Promise((resolve) => { net.joinHeld = resolve; });
+      response = await run([root, joinRoute], request);
+    }
     else if (path === '/api/upload/session') response = await run([root, ...uploadGuard, sessionRoute], request);
     else if (path === '/api/albums/open') {
       const canned = net.albumsAnswer?.();
@@ -357,6 +383,33 @@ async function load({ hash = `#code=${CODE}`, albums = null, turns = true, encod
     }
     return response;
   }
+
+  // A session this browser already holds: a parent's from an earlier invite
+  // link, through the real join route, or a coach's, as /coach sets it.
+  if (session === 'parent') {
+    const answer = await run([root, joinRoute], new Request(`${SITE}/api/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: SITE, 'CF-Connecting-IP': '203.0.113.7' },
+      body: JSON.stringify({ code: CODE }),
+    }));
+    assert.equal(answer.status, 204);
+    const [pair] = answer.headers.get('Set-Cookie').split(';');
+    jar.set(pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1));
+  } else if (session === 'coach') {
+    jar.set(COOKIE_NAME, await signCoachSession(KEYS.SESSION_SIGNING_KEY, await coachTag(KEYS.SESSION_SIGNING_KEY, COACH), nowSeconds()));
+  }
+
+  // The browser's service workers: each registration the page asks for,
+  // answered as `register` says.
+  const registrations = [];
+  const navigator = register === 'absent' ? {} : {
+    serviceWorker: {
+      register(url, options) {
+        registrations.push({ url, options });
+        return register === 'ok' ? Promise.resolve({ scope: `${SITE}/share/` }) : Promise.reject(new DOMException('Refused', 'SecurityError'));
+      },
+    },
+  };
 
   const objectUrls = new Map();
   let urls = 0;
@@ -377,12 +430,14 @@ async function load({ hash = `#code=${CODE}`, albums = null, turns = true, encod
     },
     URLSearchParams, Blob, File, FormData, crypto, atob, console, setTimeout,
     Date: PageDate,
+    navigator,
+    ...(db ? { indexedDB: db.indexedDB } : {}),
   };
   vm.runInNewContext(SCRIPT, context);
 
   const $ = (id) => document.byId.get(id);
   const page = {
-    env, made, net, jar, decoder, bitmaps, canvases, objectUrls, location, document, $,
+    env, made, net, jar, decoder, bitmaps, canvases, objectUrls, location, document, $, registrations, db,
     // Each photo's list item, read back into what a visitor sees.
     items: () => $('photo-list').children.map((li) => {
       const [frame, state, label, caption, counter, actions] = li.children;
@@ -409,6 +464,7 @@ async function load({ hash = `#code=${CODE}`, albums = null, turns = true, encod
       for (let i = 0; i < n && net.waiting.length; i++) net.waiting.shift()();
     },
     decode: () => decoder.waiting.shift()(),
+    releaseJoin: () => net.joinHeld(),
     rows: () => env.DB.sqlite.prepare('SELECT p.*, a.address FROM photos p JOIN albums a ON a.id = p.album_id ORDER BY p.id').all().map((r) => ({ ...r })),
     summary: () => $('send-status').textContent,
   };
@@ -1286,4 +1342,313 @@ test('Remove is offered until a photo starts sending, and a queued one removed n
   assert.equal(page.net.posted.length, 4, 'the removed photo was posted');
   assert.equal(page.rows().length, 4);
   assert.ok(page.items().every((i) => i.remove.hidden), 'Remove offered on a sent photo');
+});
+
+// ---- #193: photos shared to the installed app from another app ----------
+//
+// share/sw.js keeps a share in IndexedDB, one record per file, and opens the
+// page with ?shared. Each test hands the worker (test/worker.js) and the page
+// one IndexedDB (test/idb.js), on the page's clock, so what the worker keeps
+// is what the page reads. A record stays until its photo is stored or
+// removed (owner, at #193's review).
+
+const INBOX = 'madcow-shared';
+const FILES = 'files';
+const DAY = 24 * 60 * 60 * 1000;
+const SHARED_FAILED = "The photos you shared couldn't be kept on this phone. Share them again.";
+const SHARED_EMPTY = "No photos arrived with that share. Share them from your phone's gallery or Files app instead.";
+const waiting = (n, noun = n === 1 ? 'it' : 'they') =>
+  `${n} photo${n === 1 ? '' : 's'} you shared ${n === 1 ? 'is' : 'are'} waiting on this phone. ` +
+  `Open your invite link, or sign in as a coach, and ${noun} will be ready to send. Shared photos are kept here for a day.`;
+
+/** A gallery's share, kept by the worker on the page's clock: its answer. */
+async function shareFrom(db, files, now = CLOCK) {
+  return (await worker({ db, now }).fetch(share(files)));
+}
+
+const inboxFiles = (db) => db.rows(INBOX, FILES).map((r) => r.file);
+const note = (page) => (page.$('shared-note').hidden ? null : page.$('shared-note').textContent);
+// Three shapes whose stored full sizes differ (2560 x 1920, 1920 x 2560, 2560
+// x 1280), so each row can be told apart from the others.
+const SHAPES = [[4000, 3000], [3000, 4000], [4000, 2000]];
+const shaped = (shapes) => shapes.map(([width, height]) => photoFile({ width, height }));
+// The order the page made its photos ready in, which is the list's order:
+// it makes one at a time, top to bottom. The orientation probe is left out.
+const madeOrder = (page) => page.bitmaps.filter((b) => b.known.width > 2).map((b) => [b.known.width, b.known.height]);
+const stored = (page) => page.rows().map((r) => [r.width, r.height]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+
+test('#193 criterion 2: photos shared from the gallery arrive ready to send, with nothing chosen again, and Send stores them', async () => {
+  const db = idb();
+  const answer = await shareFrom(db, shaped(SHAPES));
+  assert.equal(answer.headers.get('Location'), 'https://photos.madcowsailing.com/share/?shared');
+
+  // The browser follows the 303 to the share page, holding a session.
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await joined(page);
+  assert.equal(page.location.search, '', '?shared was left in the address bar');
+  await until(() => page.items().length === 3 && page.items().every((i) => i.state === 'ready'), 'three ready');
+  assert.equal(page.summary(), '3 photos ready to send.');
+  assert.deepEqual(madeOrder(page), SHAPES, 'in the order they were shared');
+  assert.equal(page.$('photo-input').files.length, 0, 'nothing was chosen in the picker');
+  assert.equal(inboxFiles(db).length, 3, 'listed, and still in storage until each is stored');
+  assert.equal(note(page), null);
+
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(stored(page), [[1920, 2560], [2560, 1280], [2560, 1920]], 'each shared photo stored as its own');
+  await until(() => inboxFiles(db).length === 0, 'each record deleted once its photo was stored');
+  const rows = page.rows();
+  assert.ok(rows.every((r) => r.address === page.made.today && r.state === 'pending' && r.sender === 'parent'));
+  assert.equal(new Set(rows.map((r) => r.batch)).size, 1, 'one press of Send, one batch');
+});
+
+test('#193 criterion 3: with no session the shared photos wait and the page says how to sign in; after the coach signs in they are there, ready to send', async () => {
+  const db = idb();
+  await shareFrom(db, shaped(SHAPES.slice(0, 2)));
+
+  // No session: /api/upload/session answers 401.
+  const before = await load({ hash: '', search: '?shared', db });
+  await until(() => note(before) !== null, 'the note');
+  assert.equal(before.$('join-status').textContent, 'Open the invite link you were sent to start sending photos to the team.');
+  assert.equal(note(before), waiting(2));
+  assert.equal(before.$('sender').hidden, true);
+  assert.equal(before.items().length, 0);
+  assert.equal(inboxFiles(db).length, 2, 'the photos stayed in storage');
+  assert.match(HTML, /<a href="\/coach">Sign in at \/coach<\/a>/, 'the page carries the way to sign in');
+  assert.match(HTML, /<p id="shared-note" role="status" hidden><\/p>/, 'the note is a live region, hidden until written');
+
+  // /coach signs the coach in and sends the browser back to /share/, with no ?shared.
+  const after = await load({ hash: '', db, session: 'coach' });
+  await joined(after);
+  await until(() => after.items().length === 2 && after.items().every((i) => i.state === 'ready'), 'two ready');
+  assert.equal(note(after), null);
+  assert.equal(inboxFiles(db).length, 2, 'still in storage until sent');
+  after.click(after.$('send'));
+  await settled(after);
+  assert.deepEqual(stored(after), [[1920, 2560], [2560, 1920]]);
+  assert.ok(after.rows().every((r) => r.sender === 'coach'), 'sent as the coach');
+  await until(() => inboxFiles(db).length === 0, 'records deleted once stored');
+});
+
+test('#193 criterion 3, a parent: opening the invite link in the same tab takes the waiting photos in', async () => {
+  const db = idb();
+  await shareFrom(db, shaped([SHAPES[0]]));
+  const page = await load({ hash: '', search: '?shared', db });
+  await until(() => note(page) !== null, 'the note');
+  assert.equal(note(page), waiting(1));
+  page.location.hash = `#code=${CODE}`;
+  page.fireWindow('hashchange');
+  await joined(page);
+  await until(() => page.items().length === 1 && page.items()[0].state === 'ready', 'one ready');
+  assert.equal(note(page), null);
+  assert.equal(inboxFiles(db).length, 1, 'listed, and kept until sent');
+});
+
+test('#193: two shares are taken in the order they were shared, oldest first, and each share\'s files in order', async () => {
+  // Storage answers in key order, and the worker's keys are random, so the
+  // records are seeded in its shape with keys that sort the newer share
+  // first, and within the older share the second file first: a page that
+  // trusted key order would offer them in the wrong order every run, not
+  // every other run.
+  const db = idb();
+  const [first, second, third] = shaped(SHAPES);
+  db.seed(INBOX, FILES, 'id', [
+    { id: '00000000-0000-4000-8000-000000000001', share: 'b', index: 0, at: CLOCK - 60_000, file: third },
+    { id: 'eeeeeeee-eeee-4eee-beee-eeeeeeeeeeee', share: 'a', index: 1, at: CLOCK - 120_000, file: second },
+    { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', share: 'a', index: 0, at: CLOCK - 120_000, file: first },
+  ]);
+  const page = await load({ hash: '', db, session: 'parent' });
+  await until(() => page.items().length === 3 && page.items().every((i) => i.state === 'ready'), 'three ready');
+  assert.deepEqual(madeOrder(page), SHAPES);
+});
+
+test('#193: a share over a day old is forgotten, not offered, with or without a session', async () => {
+  for (const session of [null, 'parent']) {
+    const db = idb();
+    await shareFrom(db, shaped([SHAPES[0]]), CLOCK - DAY - 1);
+    await shareFrom(db, shaped([SHAPES[1]]), CLOCK - DAY);
+    const page = await load({ hash: '', db, session });
+    if (session) {
+      await joined(page);
+      await until(() => page.items().length === 1 && page.items()[0].state === 'ready', 'one ready');
+      assert.deepEqual(madeOrder(page), [SHAPES[1]], 'the day-old share is offered, the older one not');
+      assert.equal(inboxFiles(db).length, 1, 'the share over a day old was deleted; the offered one waits until sent');
+    } else {
+      await until(() => note(page) !== null, 'the note');
+      assert.equal(note(page), waiting(1), 'the day-old share is counted, the older one not');
+      assert.equal(inboxFiles(db).length, 1, 'the share over a day old was deleted');
+    }
+  }
+});
+
+test('#193: ?shared=failed says to share again, with or without a session, and nothing else is claimed', async () => {
+  const lone = await load({ hash: '', search: '?shared=failed', db: idb() });
+  await until(() => note(lone) !== null, 'the note');
+  assert.equal(note(lone), SHARED_FAILED);
+  assert.equal(lone.location.search, '');
+
+  const signed = await load({ hash: '', search: '?shared=failed', db: idb(), session: 'coach' });
+  await joined(signed);
+  await until(() => note(signed) !== null, 'the note');
+  assert.equal(note(signed), SHARED_FAILED);
+  assert.equal(signed.items().length, 0);
+});
+
+test('#193: storage that cannot be read after a share says to share again; without a share it says nothing', async () => {
+  const broken = () => idb({ fail: { open: new DOMException('Blocked', 'UnknownError') } });
+  const shared = await load({ hash: '', search: '?shared', db: broken(), session: 'parent' });
+  await joined(shared);
+  await until(() => note(shared) !== null, 'the note');
+  assert.equal(note(shared), SHARED_FAILED);
+
+  // "Says nothing" is read only once the failed read has answered and the
+  // page has had its turns to act on it: twenty turns alone could finish
+  // inside the stand-in's timer, before the read failed (#193's mutation
+  // round: a page saying "failed" here read 0 red against 1 predicted).
+  const settledRead = async (page) => {
+    await until(() => page.db.state.answered >= 1, 'the storage read answered');
+    for (let i = 0; i < 20; i++) await tick();
+  };
+  const plain = await load({ hash: '', db: broken(), session: 'parent' });
+  await joined(plain);
+  await settledRead(plain);
+  assert.equal(note(plain), null);
+  assert.equal(plain.$('sender').hidden, false, 'the page still sends');
+
+  // The same two, with no session: the note is written while the page waits.
+  const waitingShared = await load({ hash: '', search: '?shared', db: broken() });
+  await until(() => note(waitingShared) !== null, 'the note');
+  assert.equal(note(waitingShared), SHARED_FAILED);
+  const waitingPlain = await load({ hash: '', db: broken() });
+  await until(() => waitingPlain.$('join-status').textContent.startsWith('Open the invite link'), 'no session');
+  await settledRead(waitingPlain);
+  assert.equal(note(waitingPlain), null);
+});
+
+test('#193: the page registers the worker for /share/ only, checked for updates past the browser\'s cache', async () => {
+  const page = await load();
+  await joined(page);
+  // As plain data: the options object was made inside the page's context.
+  assert.deepEqual(JSON.parse(JSON.stringify(page.registrations)), [{ url: '/share/sw.js', options: { scope: '/share/', updateViaCache: 'none' } }]);
+});
+
+test('#193: a browser that refuses the worker, has no service workers at all, or has no IndexedDB, still joins and sends', async () => {
+  for (const options of [{ register: 'refused' }, { register: 'absent' }, {}]) {
+    const page = await load(options);
+    await joined(page);
+    page.choose(photoFile());
+    await until(() => page.items()[0]?.state === 'ready', 'ready');
+    page.click(page.$('send'));
+    await settled(page);
+    assert.equal(page.rows().length, 1);
+    assert.equal(note(page), null);
+  }
+});
+
+test('#193: a share that carried no photos (Chrome\'s own) says to share from the gallery, with or without a session', async () => {
+  const db = idb();
+  const answer = await worker({ db, now: CLOCK }).fetch(share([]));
+  assert.equal(answer.headers.get('Location'), 'https://photos.madcowsailing.com/share/?shared=empty');
+  for (const session of [null, 'coach']) {
+    const page = await load({ hash: '', search: '?shared=empty', db, session });
+    if (session) await joined(page);
+    await until(() => note(page) !== null, 'the note');
+    assert.equal(note(page), SHARED_EMPTY, String(session));
+    assert.equal(page.location.search, '');
+    assert.equal(page.items().length, 0);
+  }
+});
+
+test('#193 (review): a second share before Send keeps the first: the new page offers both, oldest first, and Send stores them all', async () => {
+  const db = idb();
+  await shareFrom(db, shaped([SHAPES[0]]), CLOCK - 60_000);
+  const first = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await until(() => first.items().length === 1 && first.items()[0].state === 'ready', 'the first share ready');
+  // A second share navigates the app: a new page on the same storage.
+  await shareFrom(db, shaped(SHAPES.slice(1)), CLOCK - 30_000);
+  const second = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await until(() => second.items().length === 3 && second.items().every((i) => i.state === 'ready'), 'both shares ready');
+  assert.deepEqual(madeOrder(second), SHAPES);
+  second.click(second.$('send'));
+  await settled(second);
+  assert.deepEqual(stored(second), [[1920, 2560], [2560, 1280], [2560, 1920]]);
+  await until(() => inboxFiles(db).length === 0, 'records deleted once stored');
+});
+
+test('#193 (review): Remove deletes a shared photo\'s record, so the next load does not offer it; the other stays', async () => {
+  const db = idb();
+  await shareFrom(db, shaped(SHAPES.slice(0, 2)));
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await until(() => page.items().length === 2 && page.items().every((i) => i.state === 'ready'), 'two ready');
+  page.click(page.items()[0].remove);
+  await until(() => inboxFiles(db).length === 1, 'the removed photo\'s record deleted');
+  const again = await load({ hash: '', db, session: 'parent' });
+  await until(() => again.items().length === 1 && again.items()[0].state === 'ready', 'one offered again');
+  assert.deepEqual(madeOrder(again), [SHAPES[1]]);
+});
+
+test('#193 (review): a shared photo whose upload fails stays in storage, and the next load offers it again', async () => {
+  const db = idb();
+  await shareFrom(db, shaped([SHAPES[0]]));
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.net.intercept = () => new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.items()[0].state, 'failed');
+  // The next load's read is queued behind anything the failure started on
+  // the store, so it sees the store as the failure left it.
+  const again = await load({ hash: '', db, session: 'parent' });
+  await until(() => again.items()[0]?.state === 'ready', 'offered again');
+  assert.equal(inboxFiles(db).length, 1);
+});
+
+test('#193 (review): joining again on an open page does not list a shared photo twice', async () => {
+  const db = idb();
+  await shareFrom(db, shaped(SHAPES.slice(0, 2)));
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await until(() => page.items().length === 2 && page.items().every((i) => i.state === 'ready'), 'two ready');
+  // Waited for by the store closing, after the read's transaction commits:
+  // the read opening is too early, since a duplicate would be added only
+  // once it answers (#193's round-2 mutation: dropping the dedupe read 0 red
+  // here when this waited on the open).
+  const closes = page.db.state.closes;
+  page.location.hash = `#code=${CODE}`;
+  page.fireWindow('hashchange');
+  await until(() => page.db.state.closes > closes, 'the rejoin read finished');
+  for (let i = 0; i < 20; i++) await tick();
+  assert.equal(page.items().length, 2);
+});
+
+test('#193 (review): two sessions answering at once (the stored one, and an invite opened in the same moment) list a shared photo once', async () => {
+  const db = idb();
+  await shareFrom(db, shaped(SHAPES.slice(0, 2)));
+  const closes = db.state.closes;
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  // The invite link is opened before the page's own session check answers,
+  // so two "ready"s arrive close together and each asks for the shared
+  // photos. IndexedDB runs the two reads in order (test/idb.js keeps that),
+  // and the dedupe is what stops the second listing them again.
+  page.location.hash = `#code=${CODE}`;
+  page.fireWindow('hashchange');
+  await until(() => page.items().length >= 2 && page.items().every((i) => i.state === 'ready'), 'ready');
+  await until(() => db.state.closes >= closes + 2, 'both reads finished');
+  for (let i = 0; i < 20; i++) await tick();
+  assert.equal(page.items().length, 2);
+});
+
+test('#193: while an invite is opening, the page does not read the store or describe a share as waiting', async () => {
+  const db = idb();
+  await shareFrom(db, shaped([SHAPES[0]]));
+  const opensBefore = db.state.opens;
+  const page = await load({ hash: `#code=${CODE}`, db, holdJoin: true });
+  await until(() => page.$('join-status').textContent === 'Opening your invite…', 'joining');
+  // A read would open the store synchronously, and a note would follow it
+  // within a few of the stand-in's timer turns; 100 ms outlasts both.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(db.state.opens, opensBefore, 'the page read the store while joining');
+  assert.equal(note(page), null);
+  page.releaseJoin();
+  await joined(page);
+  await until(() => page.items()[0]?.state === 'ready', 'taken in once joined');
 });

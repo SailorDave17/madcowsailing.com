@@ -47,13 +47,18 @@ phone and sends them, #156 the queue where the owner approves or rejects
 them, #157 the public album list and album pages, which replaced the
 holding page at `/`, #159 the policy at `/policy`, which every page's
 footer links, #158 "Remove this photo", which hides a photo at once
-and queues it on `/admin/removals`, and #192 the coach sign-in at `/coach`,
-which opens an upload session through Access with no invite link. Those are
-epic #147's. **Epic #216 (accounts) replaces the invite link and the
+and queues it on `/admin/removals`, #192 the coach sign-in at `/coach`,
+which opens an upload session through Access with no invite link, and #193
+the installed app: the share page installs to a phone's home screen, and on
+Android it takes photos from the Share menu. Those are epic #147's. **Epic #216 (accounts) replaces the invite link and the
 coaches' Access sign-in** with email-and-password accounts the owner
 approves, and retires both at its cutover, #226. Its first story, #217, is
-the email the site sends through Resend, with a test send at `/admin/mail`.
-Epics #147 and #216 build the rest. The `develop` preview sits behind
+the email the site sends through Resend, with a test send at `/admin/mail`,
+and #218 chose the password hash every account will use: scrypt, in
+`photos/lib/password.js`. **Epic #191 makes COHSSA a section of the same
+site**, on those accounts; #194 recorded the decisions behind both epics
+(The photo site, item 24).
+Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -123,7 +128,9 @@ story, this is the paragraph to check.*
 │   │                         api/admin/queue/ and api/admin/photos/;
 │   │                         admin/removals.js the removal requests, #158,
 │   │                         with api/admin/removals/; admin/mail.js the
-│   │                         test email, #217, with api/admin/mail/)
+│   │                         test email, #217, with api/admin/mail/;
+│   │                         share/receive.js answers a share that found no
+│   │                         worker on the phone, #193)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -131,13 +138,19 @@ story, this is the paragraph to check.*
 │   ├── test/                 node --test; `npm test` from the root, which loads
 │   │                         test/text-modules.js first so a .html imports (#157)
 │   └── public/               The served files and nothing else (the output dir)
-│       ├── share/index.html  Where an invite link lands; joins, then (#155) sends
+│       ├── share/index.html  Where an invite link lands; joins, then (#155) sends.
+│       │                     The installed app's start page (#193)
+│       ├── share/sw.js       The installed app's worker: takes a share, caches
+│       │                     nothing, controls /share/ only (#193)
+│       ├── manifest.webmanifest  The installed app and its Android share target (#193)
+│       ├── icons/            Its icons, written by tools/app_icons.py (#193)
 │       ├── policy.html       /policy: who sees a photo, what is kept, how to have
 │       │                     one taken down (#159). Every page's footer links it
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /remove, /api/*, /admin, /admin/*
+│       │                     /remove, /api/*, /admin, /admin/*, /coach, /coach/*,
+│       │                     /share/receive
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -157,6 +170,7 @@ story, this is the paragraph to check.*
 │   │                         included. linkcheck checks it.
 │   ├── quality_floor.mjs     Measures the floor on the PRODUCTION domains. Not in the gate.
 │   ├── h2proxy.mjs           HTTP/2 in front of wrangler, to read the photo site's floor locally (#155). Not in the gate.
+│   ├── app_icons.py          Renders the photo site's app icons from shared/img/madcow-mark.svg (#193). Not a build step.
 │   └── trace_logo.py         Re-traces shared/img/ from docs/source/. Not a build step.
 ├── githooks/                 pre-push + `checks`, the list CI mirrors line for line
 ├── docs/
@@ -1301,6 +1315,65 @@ it, and the share page links it beside the join step.
   including the coaches' list and Cloudflare's record of each sign-in. The
   owner made it a criterion at #192's pickup. Its rows are in the head
   comment's trace and `test/policy.test.js`.
+- **#219 put accounts on the page** (2026-10-05), before the request form
+  (#220) takes its first request. So most of what the new sections describe
+  is built by later stories of #216, and each claim's row in the trace names
+  the story that builds it. Three owner decisions at pickup, all the
+  recommendation:
+  - **A deleted account's photos stay, and stop naming it**, approved or
+    waiting: D17's rule for revoking, applied to a delete. To have them
+    down too, the person presses "Remove this photo" or says so in the
+    email. Not chosen: deleting every photo with the account, which takes
+    good team photos down (D17's reason, for revoking); letting the person
+    choose, which is two promises to build and hold.
+  - **Deletion is asked for by email**, to dave@madcowsailing.com. No story
+    deleted an account (#225 revokes), so #220 gained a criterion for a
+    by-hand delete in README, run by a test against the real schema, and
+    #225 one for the admin's delete. Not chosen: one new story; a by-hand
+    delete with no button ever.
+  - **An account, and a request for one, is kept until it is deleted**, with
+    no set limit, as a photo is. That stays true whatever #221 does with a
+    turned-down request and #225 with a revoked address. Not chosen:
+    deleting a turned-down request at once; leaving the duration off.
+
+  Six more at the story's `review-fanout` (2026-10-05), all the
+  recommendation:
+  - **The section opens as a condition**, "If you ask for an account … it
+    keeps", so that it is true on a release before #220 builds the form,
+    as #158 kept the page true on any release. Not chosen: holding every
+    promotion until #220 (develop is promoted whole); accepting a release
+    that describes a form not yet there.
+  - **The admins' log names the person, and keeps its entries after a
+    delete**, and the page says so. #221 logs who, what, whom and when, and
+    #225 logs the delete. Not chosen: a delete that scrubs the log, which
+    loses who was approved or revoked; deciding at #221.
+  - **A delete is confirmed by a reply to the account's own address**,
+    since a delete cannot be undone and a request can come from anyone. Not
+    chosen: trusting the From address; the admin's judgement.
+  - **A revoked account's address stays as a keyed hash after a delete**,
+    so a revoke survives it (#225's criterion 4), as the join and takedown
+    limits keep theirs. Not chosen: a delete that lifts the revoke; refusing
+    to delete a revoked account.
+  - **The page names the database's restore points**: D1 Time Travel is
+    always on, 7 days on Free and 30 on Workers Paid (D1's limits page, read
+    that day), so a deleted account stays restorable for up to 30 days. Not
+    chosen: "7 days", which goes false with Workers Paid; leaving it to a
+    later story. "A photo that is turned down is deleted for good" has the
+    same gap for its row, and was left as it is.
+  - **#220 to #224 each carry a `/policy` criterion for the records they
+    add** (the request's time, the session cookie, token and code hashes,
+    failed sign-in counts, the per-account daily count, the request limit),
+    and #223's also covers the lede and "Who can send a photo". Not chosen:
+    naming them all now, ahead of their code; leaving them to #226.
+
+  The page names Turnstile and Resend and what each sees, from Cloudflare's
+  Turnstile Privacy Addendum (last updated 2025-06-18), Turnstile's docs
+  ("does not access ... form entries") and Resend's pricing (Free keeps 30
+  days), all read that day. **"Nothing kept with a photo names who sent it"
+  now covers the invite link and the coaches only**, and the page says a
+  photo sent from an account names the account (D17). **The sentence about
+  matching a coach's send time to Cloudflare's sign-in record stays until
+  the cutover, #226**, which removes it with the coaches' sign-in.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1558,7 +1631,311 @@ and how to replace the key.
   secret by the owner's paste and is in no file, chat or issue.
 - **Resend keeps each email 30 days** (Free plan data retention,
   resend.com/pricing, read 2026-10-01), recipient and content included.
-  That is a record `/policy` does not yet name; #219 is where it goes.
+  `/policy` names it since #219 (item 18), read again on 2026-10-05.
+
+### 22. The installed app
+
+**Built in #193, 2026-10-01, with four owner decisions taken at its
+pickup and four at its review.** The share page installs to a phone's home
+screen as "Mad Cow photos", and on Android the installed app is listed in
+the Share menu for photos (epic #147, D9). `public/manifest.webmanifest`
+names it, `public/share/sw.js` takes a share, and `js/share.js` offers the
+shared photos in its list. On an iPhone it should install and do nothing
+more: Safari has no Share-menu entry for a web app (WebKit bug 194593), so
+there the photos are chosen in the page, which says so. *No iPhone reading
+was taken*; #210 carries it (owner, at #193's review), with one question it
+must answer: a Home Screen app on iOS keeps its cookies apart from Safari,
+and an invite link opens in Safari, so a parent's installed app may never
+hold a session (reasoned, from cairn's
+`pwa-install-offer-android-prompt-ios-copy` note).
+
+- **The share page is the app.** `start_url` and `id` are `/share/`, `scope`
+  is `/`, `display` is `standalone`, and only the share page links the
+  manifest, so no other page offers to install it. Its colours are `--hull`.
+- **The icon is the `--blue` mark on `--chalk`** (owner, at pickup), labelled
+  "Mad Cow photos". Not chosen: the white mark on `--blue`, or on `--deep`.
+  `tools/app_icons.py` renders all four PNGs from
+  `shared/img/madcow-mark.svg` with `trace_logo.py`'s own fill, reading the
+  colours from `tokens.css`. The maskable one keeps the mark's farthest point
+  at 92% of the safe zone's radius (40% of the width), and an iPhone's icon is
+  the same opaque composition, since an iPhone fills a transparent icon with
+  black. `test/app.test.js` decodes each PNG and holds the sizes, colours and
+  safe zone, and the 512 px icon to the shared mark itself.
+- **The worker answers one request: the share target's POST to
+  `/share/receive`.** It puts the shared files in this phone's IndexedDB
+  (`madcow-shared`), one record per file, and answers 303 to `/share/?shared`,
+  or `?shared=empty` when the share carried no photo it could read, or
+  `?shared=failed` when it could not keep them. Every other request
+  goes to the network as if no worker were installed: it calls `respondWith`
+  for nothing else and holds no Cache Storage. That keeps a takedown's next
+  request (item 3) and a deploy's next open (below). `test/sw.test.js` runs its
+  handler over every kind of request, and re-runs #158's takedown with it
+  installed. Not chosen: precaching the page for offline use, which would keep
+  a removed photo or old code (cairn's
+  `vite-plugin-pwa-autoupdate-ships-no-reload` records the second); receiving
+  the share on the server, which would send the phone's originals, location
+  and all, before the page strips them.
+- **Its scope is `/share/`**, the folder it is served from, so it can never
+  control `/`, an album page, a photo, `/policy` or `/admin`. Measured in
+  Chrome 154: an album page reads no controller, and every response on the
+  share page reads `fromServiceWorker: false`.
+- **Who may start a share** (#193's security audit and review). Android's
+  Share menu sends `Origin: null` (*measured* on the owner's Samsung, Chrome
+  154), and a form on the site sends the site's own origin; the worker reads
+  `Origin` but never `Sec-Fetch-Site`, which is added after it runs. So it
+  refuses a share whose `Origin` is another site's, unread, and answers 303 to
+  `/share/`: otherwise any page could put photos on the share page as if the
+  sender had shared them. A sandboxed frame can also send `null`, so that
+  route stays open, with the sender's own Send and an admin's approval in
+  front of it. Not chosen: refusing `null`, which would refuse every real
+  share; labelling shared photos in the list.
+- **Shared photos wait on the phone for a session** (owner, at pickup, for
+  criterion 3). With no session the page says how many are waiting and to
+  open the invite link or sign in as a coach; once a session exists they go
+  into the list, ready to send. Not chosen: going straight to `/coach`, which
+  sends a parent whose invite has ended to an Access sign-in that refuses
+  them; not keeping them, so the coach shares again after every ended session.
+- **Each stays in storage until it is sent or removed** (owner, at #193's
+  review). The page deletes a file's record when its upload answers 201 or
+  the sender presses Remove, so a reload, an ended session or a second share
+  before Send offers it again. Not chosen: deleting a record when the page
+  lists it, which the first build did and which lost the first batch when a
+  second share arrived (*measured* on the phone); a leave-page prompt for
+  unsent photos. **A record over a day old is never offered, and is deleted
+  the next time the store is opened**, by the page or by a new share. Nothing
+  deletes it sooner, since Pages runs no scheduled job, so a share to an app
+  never opened again stays on the phone until it is. `/policy` says so (owner,
+  at #193's review), in "What the site keeps".
+- **Photos only until #198** (owner, at pickup). The share target accepts
+  `image/*`, so the Share menu lists the app only when photos are chosen.
+  #198 carries the criterion to add `video/*` once a clip can be sent.
+- **`/share/receive` is also a Function**, for a share that reaches the
+  server because no worker is there to take it (site data cleared while the
+  app stayed on the home screen). Pages answers a POST to a static path with
+  an empty `405` (measured on `madcowphotos.pages.dev`, 2026-10-01), which a
+  phone shows as a blank page. The Function reads no body and answers 303 to
+  `/share/?shared=failed`, which says to share again; loading the page
+  registers the worker again.
+- **A deploy reaches an installed app the next time it opens.** The page is
+  never answered from a copy, a new worker takes over at once (`skipWaiting`,
+  `clients.claim`), and the page registers it with `updateViaCache: 'none'`,
+  which is what fetches the worker past the browser's cache. `_headers` gives
+  the manifest and the worker `max-age=0` as well, but on
+  photos.madcowsailing.com the zone raises a file type it caches to
+  `max-age=14400` whatever `_headers` says (*measured* on `/js/share.js`,
+  2026-10-01), so those rules are belt and braces, not the lock; step 9 of
+  #193 reads both on the domain. *Measured on the owner's Samsung (Chrome
+  154), with the app installed from a local server:* after a deploy and a
+  fresh open, the page and the worker both ran the new build. An app left
+  open keeps its page until it navigates, as any open page does.
+- **What a share delivers depends on the app sharing.** *Measured on the same
+  phone:* Samsung Gallery's own Share (one photo), the system share list (one
+  photo) and My Files (six photos, `SEND_MULTIPLE`) each arrived with every
+  file, named and sized. A share from Chrome itself (Web Share, one photo or
+  six) arrived as a form with no files, so the worker answers `?shared=empty`
+  and the page says to share from the gallery or Files app instead. Google
+  Photos was not read.
+- **The floor holds with the worker installed.** Through `tools/h2proxy.mjs`,
+  with the worker registered before and after each run and only the HTTP
+  cache cleared, the share page read 99, 98 and 99, accessibility 100, and
+  after the review's changes 96, 95 and 99, then 98, 98 and 98. With
+  Lighthouse's storage reset, which removes the worker, it read 98, 98 and 99,
+  then 97, 98 and 98. The one 95 came in the first batch after the proxy was
+  restarted, and the batches either side of it read 98.
+
+### 23. Password hashing: scrypt, from the runtime's node:crypto
+
+**Chosen in #218, 2026-10-02, before any story stores a password** (epic
+#216, D14). `lib/password.js` is the one place a password is hashed or
+checked. Nothing calls it yet: #222's sign-in and reset and #224's admin
+sign-in will.
+
+**What a Pages Function can run without a library**, read 2026-10-02:
+
+| Function | Where | The limit the runtime puts on it |
+|---|---|---|
+| PBKDF2 (SHA-1, -256, -384, -512) | Web Crypto, `deriveBits` / `deriveKey` | **refuses more than 100,000 iterations** |
+| HKDF | Web Crypto | none read; it has no work factor, so it is not a password hash |
+| `pbkdf2` | `node:crypto` | the same 100,000 |
+| `scrypt` | `node:crypto` | **refuses N·r·p above 2^20**; memory 128·r·(N + p + 2) bytes (its table plus one block per lane), inside the isolate's 128 MB |
+| `argon2` | `node:crypto` | "not supported" |
+
+Cloudflare's [Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
+page lists PBKDF2 and HKDF as fully supported and names no limit. Its
+[`node:crypto`](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)
+page (updated 2026-08-12) says every API is supported except a short list
+that includes *"`argon2` and `argon2Sync` are not supported"*, and that a
+`compatibility_date` of 2026-08-04 or later turns `nodejs_compat` on by
+default. This project's date is 2026-09-25, and `wrangler.jsonc` names the
+flag anyway, for the reason its comment gives. **Neither page names the two
+limits.** They are in workerd's source, `src/workerd/io/limit-enforcer.h`
+(`DEFAULT_MAX_PBKDF2_ITERATIONS = 100'000`, `DEFAULT_MAX_SCRYPT_COST = 1u <<
+20`, the second added 2026-05-15 as "Cap scrypt work parameters to prevent CPU
+limit bypass"), which both the Web Crypto and the `node:crypto` paths call.
+The [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+page gives the memory: 128 MB per isolate, shared by its concurrent requests.
+
+**Local wrangler lifts the PBKDF2 limit and keeps scrypt's.** workerd's own
+server overrides the iteration check (*"No limit on the number of iterations
+in workerd"*). *Measured* in workerd from wrangler 4.141.0 on 2026-10-02: one
+step past each limit, 100,001 iterations read `accepted` from both PBKDF2s,
+and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).` So a
+local run passes a PBKDF2 count that Cloudflare, by its source, refuses. The
+deployed reading is the probe's `?run=over-cap` (below), recorded here once
+taken.
+
+- **scrypt, at N=2^14, r=8, p=5.** The [OWASP Password Storage Cheat
+  Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+  (read 2026-10-02; its numbers last changed 2026-06-24): *"Use Argon2id
+  with a minimum configuration of 19 MiB of memory, an iteration count of 2,
+  and 1 degree of parallelism. If Argon2id is not available, use scrypt with
+  a minimum CPU/memory cost parameter of (2^17), a minimum block size of 8
+  (1024 bytes), and a parallelization parameter of 1."* It lists five scrypt
+  rows that *"provide a similar minimal level of defense"*, from N=2^17, p=1
+  to N=2^13, p=10, all with r=8. Argon2id is not in the runtime, so scrypt is
+  the strongest function it carries.
+- **Not PBKDF2.** OWASP asks *"PBKDF2-HMAC-SHA256: 600,000 iterations"* and
+  *"PBKDF2-HMAC-SHA512: 220,000 iterations"*, and the runtime stops at
+  100,000, so PBKDF2 here is a weaker setting, which D14 rules out. Not
+  chosen either: Argon2id or bcrypt in WebAssembly or in JS (a library, or
+  hand-written crypto under the no-library rule, and slower than the native
+  code); chaining PBKDF2 calls past the limit (not PBKDF2, so no published
+  vector can check it).
+- **Why the N=2^14 row.** N=2^17 needs 128 MiB, the whole isolate. N=2^16
+  needs 64 MiB, so two sign-ins at once would fill it. Of the three left,
+  N=2^15, p=3 costs the most CPU, and N=2^13, p=10 costs the same CPU as
+  N=2^14, p=5 with half the memory, which is the part of scrypt a cracking
+  rig pays for. *Measured* in Node 24.19 on this machine, median of 7:
+  N=2^13 p=10 168.5 ms, N=2^14 p=5 170.7 ms, N=2^15 p=3 200.6 ms, N=2^16 p=2
+  273.2 ms; PBKDF2-SHA256 at 100,000 42.3 ms and at 600,000 257.2 ms. One
+  hash took 218 ms of wall time in local workerd.
+- **A stored hash is a PHC string**, `$scrypt$ln=14,r=8,p=5$<salt>$<hash>`,
+  16 random bytes of salt and 32 of hash, in unpadded base64. It names its own
+  parameters, so raising them later leaves older hashes verifiable.
+  `verifyPassword()` reads them from the string and refuses, unread, a string
+  naming an N·r·p past 2^20, more than 32 MiB counted as 128·r·(N + p + 2),
+  or an N of 2^(16r) or more. The last is RFC 7914's own rule, and the first
+  draft missed it and the lane term; `review-fanout` found both. scrypt
+  refuses either itself, and *measured* in local workerd on 2026-10-03 it does
+  so with a plain `Error: Scrypt failed`, no code, so a check after the fact
+  could not tell it from an outage. With the rules in front, `ln=16,r=1`,
+  `ln=1,r=999,p=524` and `ln=1,r=512,p=999` each answered false there. It
+  compares with `timingSafeEqual`, and answers false, never an error, for a
+  string it could not have written. Nothing in it logs.
+- **The password goes in as the UTF-8 it arrives as.** Normalising it, its
+  minimum and maximum length, and a breached-password check are #222's, under
+  NIST SP 800-63B (its first criterion).
+- **Tests**: `test/password.test.js` runs RFC 7914's scrypt vectors 1–3
+  (section 12, read 2026-10-02) through `derive()`; the fourth needs N·r·p of
+  2^23 and 1 GiB, past the runtime's limit. OWASP's row is written out in the
+  test, not read from `SCRYPT`, and each stored hash is recomputed from its own
+  salt with `node:crypto` directly, so a changed cost or salt fails it. A
+  non-ASCII password is recomputed from its UTF-8, and its decomposed form
+  must not verify. Each bound is held by real hashes either side of it:
+  r=255 and N=2^10 at p=2, 512 bytes under 32 MiB, verifies, and at p=3,
+  32,128 over, is refused. At r=1, N=2^15 verifies. A hash cut short at its
+  end is refused.
+- **The CPU is read on the develop preview with `/api/admin/password-probe`**,
+  behind the admin guard, and 404 on production. `?run=hash` makes one hash at
+  `SCRYPT`, which is what a sign-in or a new password costs, and answers the
+  string it made. That string verifies in Node against the probe's fixed
+  password, so the deployed scrypt can be checked against Node's in full.
+  *Measured* against local workerd on 2026-10-03: a hash it made verified in
+  Node, all 32 bytes, and a wrong password did not. `?run=none` is the
+  control, and `?run=over-cap` reports each function's answer one step
+  past its limit. #161's method reads it (item 8), and a minute counts only
+  with 0 errors and its `sampleInterval` written beside it (README). The
+  preview builds from `develop` only, so the reading follows this item's
+  merge, and item 8 holds it.
+- **Workers Paid if it does not fit** (D14, pre-approved): the free plan
+  allows 10 ms of CPU a request. The local figures above put one hash near
+  170 ms, which predicts it will not fit. Predicted, not yet measured on
+  Cloudflare.
+
+### 24. Accounts and the COHSSA section: the 2026-10-01 decisions
+
+**Taken by the owner on 2026-10-01 through the question tool, before any
+story under them was drafted, and recorded here in #194 (2026-10-05).** Epic
+#216 (accounts) carries D13–D18, and epic #191 (the COHSSA section) the
+rest. Each names the option recommended that day and the options not taken;
+the questions and the reasoning shown with them are in cairn's
+`memory/projects/madcowsailing-photo-space-2026-09-26.md`. Three went
+against the recommendation: the password (D14), public COHSSA viewing, and
+COHSSA's consent basis. They supersede four earlier decisions on #147: A4
+(no parent accounts), D3 (Access on `/admin`, item 12), D9's Access sign-in
+for coaches (item 20) and D12's COHSSA copy. Items 11, 12 and 20 still
+describe production until the cutover, #226.
+
+- **D13. Accounts replace every way in, on both teams** (the
+  recommendation). A parent, coach or other person asks for an account, and
+  the owner approves it. The invite link (#150, #152; item 11) and the
+  coaches' Access sign-in (#192; item 20) retire at #226, once accounts work
+  on production, and today's admins and coaches get set-password emails
+  then. Not chosen: accounts for COHSSA only; accounts with the link kept
+  for one-off events.
+- **D14. Email and password, against the recommendation** of an emailed
+  sign-in link with no password. Not chosen either: Google sign-in plus an
+  emailed link. The case made for the link: a password still needs a reset
+  by email, so the inbox is the key either way; a password hash spends CPU
+  against the free plan's 10 ms a request; and it is hand-written security
+  code under the vanilla-JS rule, the reason a password was turned down for
+  `/admin` on 2026-09-26. A forgotten password resets by emailed link (a
+  default, shown and not asked). The hash is measured on Cloudflare before
+  any password is stored, and the account moves to Workers Paid ($5 a month)
+  if it does not fit, which the owner approved in advance. Not chosen: a
+  weaker hash to stay free; measuring and then stopping to ask. Item 23 has
+  the hash.
+- **D15. Admin is a role on the same sign-in** (the recommendation), with a
+  6-digit code emailed at each sign-in and sessions of 12 hours at most. The
+  owner adds and removes admins from `/admin` (#224). Not chosen: Access kept
+  in front of `/admin`, with adding an admin left a dashboard edit; the site
+  rewriting the Access policy through an API token, which would put a token
+  that can open the admin door on the site; a password alone; an
+  authenticator app, which is hand-written TOTP plus a lost-phone recovery
+  path.
+- **D16. An account is approved per team** (the recommendation), and sends
+  only to that team's events. Not chosen: one approval that sends anywhere.
+  The role is the one the requester picks, editable at approval, and a coach
+  keeps D11's 15-minute clips while everyone else keeps 3 (defaults, shown
+  and not asked).
+- **D17. Each photo records the account that sent it, seen by admins only**
+  (the recommendation). This ends the anonymity #192 built (item 20), so
+  `/policy` says so (#219). Revoking a person keeps their approved photos,
+  and one action hides everything they sent (#225). Not chosen: anonymous
+  uploads, which leave a revoked sender's photos unfindable as a group;
+  revoking that hides everything, which takes a departing coach's good
+  photos down too.
+- **D18. No sailor data on the site** (the recommendation). The request form
+  asks no sailor's name, and a later link from coaches-dockbox carries links
+  and opt-out flags only. Not chosen: carrying the attendance app's rule on
+  name, school and graduation year over; deciding at integration time.
+- **COHSSA is a section of this site** (the recommendation), superseding
+  the copy D12 chose on 2026-09-28. With one sign-in and one admin area, the
+  copy's reason, separate queues and codes, is gone. Each album belongs to a
+  team, and each team's section lists its own (#227). Not chosen: the copy as
+  filed under #191; a separate address served by this site with shared
+  accounts. #195 and #196 closed with it.
+- **COHSSA photos are public once approved, from the start, against the
+  recommendation** of members-only viewing until a COHSSA release was
+  recorded. Not chosen: members only, always.
+- **COHSSA's consent rests on a COHSSA-wide release, against the
+  recommendation** of each school's release plus each coach's opt-out list.
+  Not chosen: the owner's judgement plus takedown. Nothing on 2026-10-01
+  confirmed that such a release existed, so no COHSSA photo is approved until
+  its wording is recorded here and on `/policy` (#191's end state).
+  **Confirmed by the owner on 2026-10-05 (#194):** the release is part of
+  COHSSA's season registration, COHSSA issues it, and it covers photos
+  published online. It has no opt-out, so unlike Hoover's (item 18) there is
+  no per-family list for an admin to check a COHSSA photo against. **Its
+  exact wording is not recorded yet.** #238 records it here word for word
+  and puts it on `/policy`, and no COHSSA photo is approved until then.
+- **The section shows COHSSA's name as text, with no COHSSA logo** unless
+  COHSSA's permission is recorded here (a default, confirmed on 2026-10-05).
+  None was recorded that day.
+- **The COHSSA section's admins are the site's admins** (a default,
+  confirmed on 2026-10-05). D15's admin role has no team, so every admin
+  approves for both teams. Not chosen: a COHSSA person approving COHSSA's
+  photos, which needs a team-scoped admin role that nothing has built.
 
 ## The two-presentation rule
 

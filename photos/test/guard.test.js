@@ -56,6 +56,11 @@ const PUBLIC = {
   // itself and is rate-limited per address; test/removals.test.js holds both.
   'remove.js': 'shows the no-JavaScript confirmation for an approved photo, and changes nothing (#158)',
   'api/remove.js': 'takes an approved photo down, from the site\'s own Origin, 10 an hour per address (#158)',
+  // The share target's address (#193). The installed app's worker answers it
+  // on the phone; this route answers only when no worker is there, sending
+  // the browser to the share page. It reads no body and changes nothing,
+  // which test/app.test.js holds.
+  'share/receive.js': 'sends a share that arrived with no worker to the share page, reading and changing nothing (#193)',
 };
 
 // Admin routes answer to the admin guard, not the upload guard (#151), and

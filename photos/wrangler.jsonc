@@ -36,10 +36,20 @@
 //
 // photos/test/config.test.mjs holds these rules, and it fails if preview and
 // production ever share a database or a bucket.
+//
+// nodejs_compat (#218): lib/password.js imports scrypt from node:crypto, the
+// runtime's own, since Workers has no Argon2id and caps PBKDF2 below OWASP's
+// count (CLAUDE.md, The photo site, item 23). A compatibility_date of
+// 2026-08-04 or later turns the flag on by default, and Cloudflare's crypto
+// page says a project need not remove it. It is named anyway: photos/package.json
+// installs nothing, so Pages builds the Functions with the wrangler in its own
+// build image, not the one pinned in the repo root, and a build that did not
+// know the dated default would fail to resolve the import.
 {
   "name": "madcowphotos",
   "pages_build_output_dir": "./public",
   "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
 
   "vars": {
     "SITE_ENV": "preview",

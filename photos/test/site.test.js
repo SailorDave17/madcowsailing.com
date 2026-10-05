@@ -132,6 +132,13 @@ test('wrangler.jsonc is a Pages config publishing public/ only', () => {
   assert.deepEqual(Object.keys(config.env).sort(), ['preview', 'production']);
 });
 
+test('wrangler.jsonc names nodejs_compat, which lib/password.js\'s node:crypto import needs (#218)', () => {
+  // The dated default would cover the runtime; the flag covers a Pages build
+  // whose wrangler does not know that default.
+  assert.ok(read('lib/password.js').includes("from 'node:crypto'"));
+  assert.deepEqual(config.compatibility_flags, ['nodejs_compat']);
+});
+
 test('preview and production name different databases and buckets', () => {
   const { preview, production } = config.env;
   for (const env of [preview, production]) {

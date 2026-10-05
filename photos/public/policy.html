@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Who sees these photos — Mad Cow Sailing photos</title>
-<meta name="description" content="Who can see and send the team's photos, what the site keeps, and how to have a photo taken down.">
+<meta name="description" content="Who can see and send the team's photos, what the site and an account keep, and how to have a photo taken down or an account deleted.">
 
 <!-- Story #159: the site's policy, served at /policy. It is a static file, so
      it costs no Function request (CLAUDE.md, The photo site, item 2), and
@@ -71,6 +71,13 @@
                                          anew on a canvas (#155), and
                                          lib/jpeg.js strips every metadata
                                          segment on arrival (#154)
+       Photos shared to the app wait     public/share/sw.js keeps each shared
+       on the phone, as shared, until    file in the site's storage on the
+       each is sent or removed; a day,   phone; public/js/share.js deletes it
+       deleted when the app next opens   once stored or removed, and drops one
+                                         over a day old (KEEP_MS in both) on
+                                         its next read (#193; owner, at
+                                         #193's review)
        What is kept for a photo          migrations/0005_photos.sql
        A daily count per phone           upload_counts in 0005; DAILY_UPLOADS
                                          in lib/photos.js (#154)
@@ -99,10 +106,76 @@
                                          review)
        No set limit                      owner, at #159's pickup, 2026-09-30
        The address for removals          owner, at #159's pickup, 2026-09-30
+       A photo sent with the invite      0005 and insertPhoto, as above. Since
+       link, or by a coach, names        #219 the page promises this for those
+       nobody; one sent from an          two ways only (D17, CLAUDE.md, The
+       account records the account       photo site, item 24); #223 stores the
+                                         account
+       If you ask for an account, for    D13 and D16, item 24; the request form
+       one team or both, it keeps        is #220. Worded as a condition so it
+                                         is true on every release (owner, at
+                                         #219's review, 2026-10-05; #158's
+                                         precedent, item 18)
+       What an account keeps: name,      #220's criteria 1 and 6; the teams an
+       email, role, teams, the note      admin approved are #221's (D16)
+       The password, only as a hash      hashPassword and verifyPassword in
+                                         lib/password.js (#218; D14), stored
+                                         by #222
+       Which photos it sent              D17; stored by #223, whose criterion
+                                         3 keeps the account off every public
+                                         page, response and image
+       On the site, only the admins      D17; D15's admin role has no team
+       see it; every admin, both teams   (item 24, confirmed 2026-10-05).
+                                         Resend sees what it sends (below)
+       The admins' log names the person, #221's criterion 5 (who, what, whom,
+       and keeps it after a delete       when) and #225's delete entry (owner,
+                                         at #219's review, 2026-10-05)
+       No sailor's name                  D18; #220's criterion 1
+       Kept until it is deleted          owner, at #219's pickup, 2026-10-05
+       Turnstile, and what it sees       the Turnstile Privacy Addendum,
+                                         section 3 (last updated 2025-06-18),
+                                         at https://www.cloudflare.com/turnstile-privacy-policy/
+                                         and Turnstile's docs: it "does not
+                                         access, store, or transmit user
+                                         communications, form entries, or
+                                         other page inputs" (both read
+                                         2026-10-05); #220 adds the widget
+       Resend sends the site's email,    sendMail in lib/mail.js (#217); the
+       and the admins' email names       admins' email names each requester,
+       each requester                    their role and teams (#220's
+                                         criterion 5)
+       Resend keeps each 30 days         https://resend.com/pricing, Free:
+                                         "30-day data retention" (read
+                                         2026-10-01 for item 21, again
+                                         2026-10-05)
+       Deleted on request, by email,     owner, at #219's pickup (by email) and
+       once the account's address        at #219's review (confirmed by reply),
+       confirms                          2026-10-05; README's by-hand delete
+                                         (#220) and the admin's delete (#225)
+       A revoked address stays, as a     owner, at #219's review, 2026-10-05;
+       keyed hash                        #225 keeps it, so that its criterion
+                                         4 holds after a delete
+       The photos stay, and no longer    owner, at #219's pickup, 2026-10-05:
+       record the account                D17's rule for revoking, applied to
+                                         a delete
+       Restore points, up to 30 days     D1 Time Travel, always on: "30 days
+                                         (Workers Paid) / 7 days (Free)" at
+                                         https://developers.cloudflare.com/d1/platform/limits/
+                                         (read 2026-10-05; owner, at #219's
+                                         review)
 
-     #192 (a coach's Access sign-in) changed it: who can send, the lede, and
-     what is kept for a coach. #158 ("Remove this photo") changed it before
-     that, adding the button, what a taken-down photo keeps and its limit's
+     #219 (accounts) changed it: what an account keeps, the two services that
+     handle a request, how to have an account deleted, and the sentence that
+     said nothing kept with a photo names who sent it, which now covers the
+     invite link and the coaches only. The records #220 to #224 add, and the
+     lede and "Who can send a photo" once #223 lets accounts send, are each
+     that story's own /policy criterion (owner, at #219's review). The
+     sentence about matching a coach's send time to Cloudflare's sign-in
+     record stays until the cutover, #226, which removes it with the
+     coaches' sign-in. #192 (a coach's Access
+     sign-in) changed it before that: who can send, the lede, and what is
+     kept for a coach. #158 ("Remove this photo") changed it before #192,
+     adding the button, what a taken-down photo keeps and its limit's
      scrambled address.
 
      The site is never indexed (epic #147, D6): no rel="canonical" and no og:
@@ -239,14 +312,23 @@
       <li>the album it was sent to;</li>
       <li>when it was taken, and when it was sent;</li>
       <li>which invite link it was sent with, and when that phone opened
-        it, or for a coach's photo, only that a coach sent it.</li>
+        it, or for a coach's photo, only that a coach sent it;</li>
+      <li>for a photo sent from an account, which account sent it.</li>
     </ul>
-    <p>Nothing kept with a photo names who sent it: no name, no account and
-      no email address, and for a coach's photo, not which coach. Someone
-      sending with the invite link gives none of those at all. The phone
-      keeps one small cookie, which is what lets it send for 90 days. A
-      coach's cookie holds their address only in a scrambled form, made with
-      a secret key.</p>
+    <p>A photo sent with the invite link, or by a coach, keeps nothing that
+      names who sent it: no name, no account and no email address, and for a
+      coach's photo, not which coach. Someone sending with the invite link
+      gives none of those at all. The phone keeps one small cookie, which is
+      what lets it send for 90 days. A coach's cookie holds their address
+      only in a scrambled form, made with a secret key.</p>
+    <p>A photo sent from an account is different: the site records which
+      account sent it, and only the site's admins see it.</p>
+    <p>Photos shared to the installed app from a phone's gallery wait in this
+      site's storage on that phone, exactly as they were shared, location
+      included, until each is sent or removed. Only the copies made for
+      sending ever leave the phone. One not sent within a day is no longer
+      offered, and is deleted the next time the app opens or is shared
+      to.</p>
     <p>The coaches' list itself holds each coach's email address, and only
       the site's owner can change it, in Cloudflare's dashboard. Cloudflare,
       which signs a coach in, records each sign-in in the site's account,
@@ -281,6 +363,43 @@
   </section>
 
   <section class="wrap policy">
+    <h2>What an account keeps</h2>
+    <p>If you ask for an account, as a parent, a coach or anyone else, for
+      Hoover JRT, COHSSA or both, it keeps:</p>
+    <ul>
+      <li>your name and email address;</li>
+      <li>your role, the teams you asked for, and which of them an admin
+        approved;</li>
+      <li>the note you left with your request, if any;</li>
+      <li>your password, only as a hash, which can check a password typed in
+        but cannot be turned back into it;</li>
+      <li>which photos you sent from it.</li>
+    </ul>
+    <p>On the site, only its admins see any of it. Every admin sees every
+      account, for both teams. No public page, photo or download shows who
+      sent a photo.</p>
+    <p>The admins also keep a log of what they do with each account: who
+      approved it, changed it, revoked it or deleted it, and when. Each entry
+      names the person whose account it was.</p>
+    <p>The request asks for no sailor's name, so leave sailors' names out of
+      the note too.</p>
+    <p>An account, and a request for one, is kept until it is deleted. There
+      is no set limit.</p>
+    <p>Two other services handle a request. Cloudflare Turnstile checks that
+      the request form was filled in by a person, not a program. To do that,
+      it sees your network address, what your browser reports about itself,
+      details of how it connects, and which site the form is on, but not what
+      you type into the form. Cloudflare says it collects these to tell
+      people from programs, not to identify, profile or target anyone, and
+      also uses them to improve Turnstile.</p>
+    <p>Resend sends the site's email. When you ask for an account, the site
+      emails its admins through Resend with your name, role and teams, and
+      the emails sent to you, such as the link to set your password, go
+      through Resend too. Resend sees each email's address and everything in
+      it, and keeps each one for 30 days.</p>
+  </section>
+
+  <section class="wrap policy">
     <h2>How long photos stay</h2>
     <p>There is no set limit. An approved photo stays up until someone takes
       it down. A photo taken down stays hidden until an admin puts it back or
@@ -297,6 +416,28 @@
       with the photo attached, or its link copied from the album page. A
       photo's number in its album can change as other photos are added, so a
       number alone may point at the wrong one.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>Having an account deleted</h2>
+    <p>Email <a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>
+      and ask. An admin writes to the address on the account to check the
+      request came from you, and deletes the account once you confirm: your
+      name, email address, role, teams, note and password hash all go.</p>
+    <p>The photos you sent stay, approved or still waiting, and are checked
+      as usual, but they no longer record which account sent them. To have
+      them taken down as well, press "Remove this photo" under each, or say
+      so in the same email.</p>
+    <p>Some things stay. The admins' log keeps its entries about your
+      account, and they still name you. If an admin had revoked the account,
+      the site keeps its email address in a scrambled form, made with a
+      secret key, so that a new request from it is still held back. Emails
+      already sent are not deleted with it: Resend keeps each for its 30
+      days, and the email telling the admins about your request stays in
+      their mailboxes.</p>
+    <p>The site's database can be put back as it was at any moment in the
+      last 30 days, so a deleted account stays in those restore points, which
+      only the site's owner can use, for up to 30 days.</p>
   </section>
 </main>
 <!-- ============================================================= FOOTER

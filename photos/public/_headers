@@ -45,3 +45,20 @@
 # must reach a returning reader at once.
 /policy
   Cache-Control: public, max-age=0, must-revalidate
+
+# The installed app (#193): the manifest, and the worker that takes photos
+# shared from another app. These two rules are belt and braces, not the lock.
+# Pages already sends max-age=0 on its *.pages.dev host, and on
+# photos.madcowsailing.com the zone's 4-hour Browser Cache TTL raises a file
+# type it caches to max-age=14400 whatever this file says (measured
+# 2026-10-01: /js/share.js, which no rule here names, read 0 on pages.dev and
+# 14400 on the domain). What reaches a phone with a new worker is the
+# browser's own update check, which fetches the worker past the browser's
+# cache (share.js registers it with updateViaCache 'none'). What the domain
+# sends for the manifest is not yet read; step 9 of #193 reads both headers
+# there.
+/manifest.webmanifest
+  Cache-Control: public, max-age=0, must-revalidate
+
+/share/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
