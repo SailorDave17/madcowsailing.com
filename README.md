@@ -300,6 +300,15 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   the policy alone gets a PIN and then a `403`. A tag changes only if its application is
   deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
   refuses everyone.
+- **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC),
+  in Managed mode with pre-clearance off, for the hostnames
+  `photos.madcowsailing.com` and `madcowphotos.pages.dev`. A hostname covers
+  its subdomains, so the second serves the `develop` preview too. Its site key
+  is `TURNSTILE_SITE_KEY` in `photos/wrangler.jsonc`, the same in every
+  environment. Its secret is the `TURNSTILE_SECRET_KEY` secret (below), which
+  the owner pasted from the widget's page into both environments, so it is in
+  no file, chat or issue. A widget's hostnames are edited under Turnstile →
+  the widget → Settings.
 
 ### Secrets
 
@@ -348,12 +357,21 @@ By name only; a value never goes in this repo.
     secret by the owner's paste, so it is in no file, chat or issue; keep it
     that way. Unset, nothing is sent and `/admin/mail` says so. Email, below,
     says how to replace it.
+  - `TURNSTILE_SECRET_KEY` (#220) is the secret of the Turnstile widget on
+    `/ask`, which `photos/lib/turnstile.js` sends to Cloudflare's siteverify
+    with each request's token. One widget, so the same value in both
+    environments; its site key is public, and is `TURNSTILE_SITE_KEY` in
+    `photos/wrangler.jsonc`. Unset, `/ask` answers `503`, that requests are
+    closed, and keeps nothing. Never set one of Cloudflare's test keys here:
+    the always-pass one passes every token, which production refuses to
+    trust, so requests there would close, and a preview would pass them all.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
   different values. Without them, `POST /api/join` answers `503` and opens
-  nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` answers `503`
-  and takes nothing down. Check that all five exist in both environments on the dashboard, which
-  shows a secret's name and never its value.
+  nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` and `POST /ask`
+  answer `503` and change nothing. Check that all six exist in both
+  environments on the dashboard, which shows a secret's name and never its
+  value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
   `node -e "const k=()=>require('crypto').randomBytes(32).toString('base64url');require('fs').writeFileSync('.dev.vars','SESSION_SIGNING_KEY='+k()+'\nADDRESS_HASH_KEY='+k()+'\n')"`
@@ -419,6 +437,20 @@ Restart both, then open `http://127.0.0.1:8789/coach`. The stand-in signs
 browser lands on `/share/` able to send. Without the two lines it forwards
 `/coach` with no token, and the guard answers `403`.
 
+**The request form runs locally on Cloudflare's test keys** (#220). Add two
+lines to `photos/.dev.vars`, the always-pass pair from Turnstile's Testing
+page:
+
+```sh
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+```
+
+Then open `http://127.0.0.1:8788/ask`. The widget passes with no challenge, on
+any host, and siteverify passes the dummy token it makes. Without the two
+lines, `/ask` answers `503`. The admins' email needs `RESEND_API_KEY`, which
+`.dev.vars` must not hold, so locally it is logged as not configured.
+
 **After restarting the stand-in, the admin pages answer `403` for up to a
 minute.** It makes a new key each time it starts, and the guard fetches a
 team's keys at most once a minute (`REFETCH_GAP_SECONDS` in `lib/access.js`),
@@ -462,6 +494,7 @@ a new file is listed here.
 | `0004_albums.sql` | #153 | `albums`, one per regatta or practice day |
 | `0005_photos.sql` | #154 | `photos`, every photo and clip in every state, and `upload_counts`, each session's uploads per UTC day |
 | `0006_removal_requests.sql` | #158 | `removal_requests`, the hour's takedowns per address that rate-limit "Remove this photo" |
+| `0007_accounts.sql` | #220 | `teams`, `accounts` and `account_teams`, each request for an account and its teams; `account_request_log`, `account_request_budget` and `account_request_mail`, the request limits and the admins' email hour |
 
 ### The invite code
 
@@ -680,12 +713,18 @@ decisions.
   Resend) and what each sees, and how to have an account deleted: by email,
   confirmed by a reply to the account's address, with the person's photos
   staying and no longer recording the account, and the database's 30 days of
-  restore points named. It describes accounts before the request form (#220)
-  exists, worded as conditions so that it is true on any release. Most of it
-  is built by later stories, and the head comment names which. #220 to #224
-  each carry a criterion to add their own records to the page, and #223 the
-  lede and "Who can send a photo". The sentence about matching a coach's send
-  time to Cloudflare's sign-in record stays until the cutover (#226).
+  restore points named. It described accounts before the request form
+  existed, worded as conditions so that it was true on any release. Most of
+  it is built by later stories, and the head comment names which. #220 to
+  #224 each carry a criterion to add their own records to the page, and #223
+  the lede and "Who can send a photo". The sentence about matching a coach's
+  send time to Cloudflare's sign-in record stays until the cutover (#226).
+- **#220 added the request form's records**: when a request was made, which
+  teams still wait, whether the admins have been emailed, and the request
+  limit, with how long it keeps a scrambled address and that the address's
+  time matches the account's, to the second, for that hour (owner, at
+  #220's review). `npm test` holds its 10 and 100 an hour to the code, and
+  that the two times are equal.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
   `photos/lib/admin-page.js`. The header's nav links the album list and
@@ -852,6 +891,72 @@ Every password the accounts epic (#216) stores is hashed by
   read it on the preview.
 - **The probe answers 404 on production**, so nothing there can be made to
   spend CPU through it.
+
+### Account requests
+
+Anyone can ask for an account at `/ask` (#220, the first story of epic #216
+to keep anything about a person; `CLAUDE.md`, The photo site, item 25, has the
+decisions). Nothing links to it yet (owner, at #220's pickup): #226 points the
+old invite link there.
+
+- **The form** takes a name, an email address, parent, coach or other, Hoover
+  JRT, COHSSA or both, and an optional note of up to 500 characters. It asks
+  no sailor's name, and the note's hint says to leave one out (D18).
+- **Turnstile is checked on the server first.** A token siteverify does not
+  pass is answered `403`, and nothing is kept. Only `/ask`'s CSP admits
+  `https://challenges.cloudflare.com`; every other page keeps the site's.
+  `photos/public/js/ask.js` adds Turnstile's script the first time someone
+  focuses or touches the form, not with the page, which kept `/ask` over the
+  performance floor (owner, at #220's review). A page sent back with a reason
+  adds it at once.
+- **10 requests an hour from one network address, and 100 an hour from
+  everyone together**, then `429` with Retry-After. Only a request past
+  Turnstile counts, and once the site's hour is spent a request writes
+  nothing at all. `account_request_log` keeps each address as a keyed hash,
+  as the join and takedown limits do, and a row is deleted once it is over an
+  hour old, by the next request the site takes or the next load of `/admin`.
+- **One account per email address**, matched without regard to letter case.
+  A request from an address the site already has writes nothing, and is
+  answered with the same `303` to `/ask?sent` as a new one.
+- **The admins hear at most once an hour.** The first new request emails
+  every address on `ADMIN_EMAILS` at once and opens the hour; requests inside
+  it send nothing; the first after it sends one email naming everyone since,
+  by name, role and teams only, with a link to `/admin/people`, which #221
+  builds. The admin home says how many requests wait, which is how a request
+  that no later one follows is seen. If no admin's email goes through, the
+  requests stay unnamed and the next request tries again.
+
+### Deleting an account by hand
+
+How an account is deleted until #225 builds the admin's button, and the
+fallback after it (#219; owner, 2026-10-05). **Only once a reply from the
+account's own address confirms the request**, since a delete cannot be undone
+and a request can come from anyone. From `photos/`, with the D1 token in
+`photos/.env` (above):
+
+1. Find the account, and check it is the one the email is about (write any `'`
+   in the address twice):
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "SELECT id, name, email FROM accounts WHERE email = '<address>'"
+   ```
+
+2. Write to that address asking for a reply to confirm, and wait for it.
+3. Delete it:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "DELETE FROM accounts WHERE id = <id>"
+   ```
+
+4. Read it back: step 1's statement must return no row.
+
+Its teams go with it (`ON DELETE CASCADE`). `photos/test/policy.test.js` runs
+the step-3 statement against the real schema, with a row in every table, and
+fails if any row afterwards names the account's id or address. Only two may:
+the admins' log entries (#221) and, for a revoked account, its address kept
+as a keyed hash (#225). #221, #223 and #225 keep that test passing as they add
+tables. The database's restore points keep the account for up to 30 days, as
+`/policy` says.
 
 ## The push guard
 

@@ -56,6 +56,11 @@ const PUBLIC = {
   // itself and is rate-limited per address; test/removals.test.js holds both.
   'remove.js': 'shows the no-JavaScript confirmation for an approved photo, and changes nothing (#158)',
   'api/remove.js': 'takes an approved photo down, from the site\'s own Origin, 10 an hour per address (#158)',
+  // Anyone can ask for an account (#220, epic #216): it is the door to one,
+  // so nothing can be required in front of it but the checks it makes
+  // itself, the Origin, Turnstile and the limits, which test/ask.test.js
+  // holds.
+  'ask.js': 'takes a request for an account, from the site\'s own Origin, past Turnstile, 10 an hour per address (#220)',
   // The share target's address (#193). The installed app's worker answers it
   // on the phone; this route answers only when no worker is there, sending
   // the browser to the share page. It reads no body and changes nothing,

@@ -4,9 +4,16 @@
 // *.test.js.
 //
 // It implements the part of D1's API the site uses: prepare(), bind(),
-// first(), all() and run(). `sqlite` is the database underneath, for a test
-// to seed rows or read them back directly. `statements` lists every SQL text
-// the code prepared, in order, for a test asserting what the code asked D1.
+// first(), all(), run() and batch(). `sqlite` is the database underneath, for
+// a test to seed rows or read them back directly. `statements` lists every SQL
+// text the code prepared, in order, for a test asserting what the code asked
+// D1.
+//
+// batch() is D1's: the statements run in order inside one transaction, and a
+// statement that fails rolls back every one before it ("Batched statements
+// are SQL transactions", Cloudflare's D1Database page, read 2026-10-05). Each
+// result carries the rows a RETURNING or SELECT gave, as all() does, and a
+// write's changes, as run() does (#220).
 import { readdirSync, readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -18,6 +25,8 @@ export function d1() {
     sqlite.exec(readFileSync(new URL(file, MIGRATIONS), 'utf8'));
   }
   const statement = (sql, values = []) => ({
+    sql,
+    values,
     bind: (...bound) => statement(sql, bound),
     async first(column) {
       const row = sqlite.prepare(sql).get(...values);
@@ -39,6 +48,24 @@ export function d1() {
     prepare: (sql) => {
       statements.push(sql);
       return statement(sql);
+    },
+    async batch(list) {
+      sqlite.exec('BEGIN');
+      try {
+        const results = list.map(({ sql, values }) => {
+          const prepared = sqlite.prepare(sql);
+          if (/\bRETURNING\b|^\s*SELECT\b/i.test(sql)) {
+            return { success: true, results: prepared.all(...values).map((row) => ({ ...row })), meta: {} };
+          }
+          const { changes } = prepared.run(...values);
+          return { success: true, results: [], meta: { changes } };
+        });
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (err) {
+        sqlite.exec('ROLLBACK');
+        throw err;
+      }
     },
   };
 }

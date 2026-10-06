@@ -60,18 +60,20 @@ const NOTE_CONTROL = new RegExp(`(?!\\n)[\\p{Cc}${String.fromCharCode(0x2028, 0x
  * CR LF, counted here as one), every other control character a space, the
  * ends trimmed, and null when nothing is left.
  *
- * A note past NOTE_MAX characters is cut to its first NOTE_MAX rather than
- * refused: the takedown matters more than the note, and a parent in a hurry
- * should not lose the one for the other. The field's maxlength counts UTF-16
- * units in every current browser, which is never looser than characters, so
- * only an older Safari or no browser at all can send one. WebKit counted a
- * whole emoji as one until 260838@main (bug 252900, fixed 2023-02-25), when it
- * matched Chrome and Firefox.
+ * A note past `max` characters (NOTE_MAX unless told otherwise) is cut to its
+ * first `max` rather than refused: the takedown matters more than the note,
+ * and a parent in a hurry should not lose the one for the other. The field's
+ * maxlength counts UTF-16 units in every current browser, which is never
+ * looser than characters, so only an older Safari or no browser at all can
+ * send one. WebKit counted a whole emoji as one until 260838@main (bug 252900,
+ * fixed 2023-02-25), when it matched Chrome and Firefox. The note with a
+ * request for an account (#220, lib/accounts.js) is read the same way, with
+ * its own cap.
  */
-export function readNote(value) {
+export function readNote(value, max = NOTE_MAX) {
   if (typeof value !== 'string') return null;
   const text = value.replace(/\r\n?/g, '\n').replace(NOTE_CONTROL, ' ').trim();
-  const note = [...text].slice(0, NOTE_MAX).join('').trimEnd();
+  const note = [...text].slice(0, max).join('').trimEnd();
   return note || null;
 }
 
