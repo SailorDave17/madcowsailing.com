@@ -33,6 +33,7 @@ import { onRequestPost as joinRoute } from '../functions/api/join.js';
 import { onRequest as uploadGuard } from '../functions/api/upload/_middleware.js';
 import { onRequestPost as uploadRoute } from '../functions/api/upload/index.js';
 import { onRequestGet as sessionRoute } from '../functions/api/upload/session.js';
+import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
 import { createAlbum } from '../lib/albums.js';
 import { readJpeg } from '../lib/jpeg.js';
 import { CAPTION_MAX, DAILY_UPLOADS, SIZES, sizesAgree } from '../lib/photos.js';
@@ -262,14 +263,15 @@ function canvasMaker(encoder, canvases) {
  * For the installed app (#193): `search` is the address's query (share/sw.js
  * sends ?shared), `db` the browser's IndexedDB (none by default, as in a
  * browser without it), `session` a session this browser already holds when
- * the page opens ('parent', from an earlier invite link, or 'coach', from
- * /coach), `register` how the browser answers the worker's registration
+ * the page opens ('parent', from an earlier invite link, 'coach', from
+ * /coach, or 'account', signed in at /sign-in to an account approved for
+ * `accountTeams`, #223), `register` how the browser answers the worker's registration
  * ('ok', 'refused', or 'absent' for a browser with no service workers at
  * all), and `holdJoin` holds POST /api/join until page.releaseJoin().
  */
 async function load({
   hash = `#code=${CODE}`, albums = null, turns = true, encoder = {}, hold = false, slow = false,
-  search = '', db = null, session = null, register = 'ok', holdJoin = false,
+  search = '', db = null, session = null, register = 'ok', holdJoin = false, accountTeams = ['hoover-jrt'],
 } = {}) {
   const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', COACH_EMAILS: COACH, ...KEYS };
   seedCodes(env.DB, OLD, CODE);
@@ -406,6 +408,14 @@ async function load({
     jar.set(pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1));
   } else if (session === 'coach') {
     jar.set(COOKIE_NAME, await signCoachSession(KEYS.SESSION_SIGNING_KEY, await coachTag(KEYS.SESSION_SIGNING_KEY, COACH), nowSeconds()));
+  } else if (session === 'account') {
+    // Account 1, a parent, approved for `accountTeams` (#223), as /sign-in
+    // leaves the cookie.
+    env.DB.sqlite.prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES ('pat@example.org', 'Pat Parent', 'parent', 1)").run();
+    for (const team of accountTeams) {
+      env.DB.sqlite.prepare("INSERT INTO account_teams (account_id, team, state) VALUES (1, ?, 'approved')").run(team);
+    }
+    jar.set(ACCOUNT_COOKIE, await signAccountSession(KEYS.SESSION_SIGNING_KEY, { accountId: 1, version: 1 }, nowSeconds()));
   }
 
   // The browser's service workers: each registration the page asks for,
@@ -693,7 +703,7 @@ test('with no album open, the page says so and offers to check again, which list
 test('an album list that cannot be read says so, and the list stops saying it is loading', async () => {
   for (const [answer, status] of [
     [() => 'network', 'You\'re set to send photos from this phone.'],
-    [() => Response.json({ error: 'session' }, { status: 401 }), 'This invite has ended. Open the newest invite link you were sent, then send again.'],
+    [() => Response.json({ error: 'session' }, { status: 401 }), 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then send again.'],
   ]) {
     const page = await load();
     page.net.albumsAnswer = answer;
@@ -707,7 +717,7 @@ test('an album list that cannot be read says so, and the list stops saying it is
 
 test('with no code and no session, nothing to send is shown', async () => {
   const page = await load({ hash: '' });
-  await until(() => page.$('join-status').textContent.startsWith('Open the invite'), 'no session');
+  await until(() => page.$('join-status').textContent.startsWith('Sign in, or open the invite'), 'no session');
   assert.equal(page.$('sender').hidden, true);
   assert.deepEqual(page.net.calls, ['GET /api/upload/session']);
 });
@@ -1123,6 +1133,54 @@ test('after an album closes mid-send, nothing is preselected: Try again asks for
   assert.equal(page.rows()[0].address, page.made.past);
 });
 
+// #223: a phone signed in to an account. The page has no code of its own for
+// it: the session route answers 204 and the album list is the account's.
+const BOTH_TEAMS = [
+  { key: 'hoover', title: 'Tuesday practice', kind: 'practice', date: dayOffset(0), team: 'hoover-jrt' },
+  { key: 'cohssa', title: 'COHSSA scrimmage', kind: 'regatta', date: dayOffset(0), team: 'cohssa' },
+];
+const TEAM_REFUSED = "Failed. Your account can't send to that team's albums. Choose another album above, then try again.";
+const signedIn = (page) => until(() => !page.$('sender').hidden && page.$('album').options.some((o) => o.value), 'signed in, albums listed');
+
+test('signed in to an account, the page lists only its approved teams\' albums, and a photo sent records the account (#223, criteria 2 and 3)', async () => {
+  const page = await load({ hash: '', session: 'account', albums: BOTH_TEAMS });
+  await signedIn(page);
+  assert.equal(page.$('join-status').textContent, "You're set to send photos from this phone.");
+  assert.deepEqual(page.$('album').options.map((o) => o.value), [page.made.hoover], 'COHSSA is not this account\'s');
+  page.choose(photoFile());
+  await until(() => page.items()[0]?.state === 'ready', 'made ready');
+  page.click(page.$('send'));
+  await settled(page);
+  const [row] = page.rows();
+  assert.equal(page.rows().length, 1);
+  assert.deepEqual({ address: row.address, account_id: row.account_id, sender: row.sender, code_generation: row.code_generation },
+    { address: page.made.hoover, account_id: 1, sender: 'parent', code_generation: 0 });
+  // The control: an account approved for both teams is offered both.
+  const both = await load({ hash: '', session: 'account', albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'] });
+  await signedIn(both);
+  assert.deepEqual(both.$('album').options.map((o) => o.value).filter(Boolean).sort(), [both.made.cohssa, both.made.hoover].sort());
+});
+
+test('a team taken off the account while sending: every photo queued for its album stops with the team\'s words, and the list reloads without it (#223)', async () => {
+  const page = await load({ hash: '', session: 'account', albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'], hold: true });
+  await signedIn(page);
+  page.$('album').value = page.made.cohssa;
+  page.choose(...Array.from({ length: 4 }, (_, i) => photoFile({ width: 3000 + i, height: 2000 })));
+  page.click(page.$('send'));
+  await until(() => page.net.waiting.length === 3, 'three held');
+  page.env.DB.sqlite.prepare("UPDATE account_teams SET state = 'revoked' WHERE account_id = 1 AND team = 'cohssa'").run();
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+  assert.deepEqual(page.items().map((i) => i.text), new Array(4).fill(TEAM_REFUSED));
+  // The three held were refused; the one queued behind them was never sent.
+  assert.equal(page.net.posted.length, 3);
+  assert.equal(page.rows().length, 0);
+  await until(() => !page.$('album').options.some((o) => o.value === page.made.cohssa), 'the list reloaded without COHSSA');
+  assert.equal(page.$('album').value, '', 'nothing preselected, as after a 409');
+  assert.equal(page.items()[0].tryAgain.hidden, false);
+});
+
 test('an invite rotated mid-send: every queued photo stops at once, the status says why, and the new link carries on', async () => {
   const page = await load({ hold: true });
   await joined(page);
@@ -1134,8 +1192,8 @@ test('an invite rotated mid-send: every queued photo stops at once, the status s
   page.release();
   await settled(page);
   assert.equal(page.net.posted.length, 3, 'the three queued behind a 401 were sent anyway');
-  assert.ok(page.items().every((i) => i.text === 'Failed. This invite has ended. Open the newest invite link you were sent, then try again.'));
-  assert.equal(page.$('join-status').textContent, 'This invite has ended. Open the newest invite link you were sent, then send again.');
+  assert.ok(page.items().every((i) => i.text === 'Failed. Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.'));
+  assert.equal(page.$('join-status').textContent, 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then send again.');
 
   // The new link, opened in this tab, joins without a reload; the photos wait.
   page.location.hash = `#code=${NEXT}`;
@@ -1167,7 +1225,7 @@ test('a photo failed while it was still being made ready keeps its failure and i
   await tick();
   const after = page.items()[1];
   assert.equal(after.state, 'failed');
-  assert.equal(after.text, 'Failed. This invite has ended. Open the newest invite link you were sent, then try again.');
+  assert.equal(after.text, 'Failed. Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.');
   assert.equal(after.tryAgain.hidden, false);
 
   page.location.hash = `#code=${NEXT}`;
@@ -1190,7 +1248,7 @@ test('a phone at the day\'s cap: the photo and every queued one fail, and nothin
   await settled(page);
   assert.equal(page.net.posted.length, 3);
   // The number is the server's own cap, so the message cannot drift from it.
-  assert.ok(page.items().every((i) => i.text === `Failed. This phone has sent today's limit of ${DAILY_UPLOADS} photos. Try again tomorrow.`));
+  assert.ok(page.items().every((i) => i.text === `Failed. This phone, or your account, has sent today's limit of ${DAILY_UPLOADS} photos. Try again tomorrow.`));
 });
 
 test('the summary is a live region written once per change: choosing is one write, Send one, then each photo done', async () => {
@@ -1471,7 +1529,7 @@ test('#193 criterion 3: with no session the shared photos wait and the page says
   // No session: /api/upload/session answers 401.
   const before = await load({ hash: '', search: '?shared', db });
   await until(() => note(before) !== null, 'the note');
-  assert.equal(before.$('join-status').textContent, 'Open the invite link you were sent to start sending photos to the team.');
+  assert.equal(before.$('join-status').textContent, 'Sign in, or open the invite link you were sent, to start sending photos to the team.');
   assert.equal(note(before), waiting(2));
   assert.equal(before.$('sender').hidden, true);
   assert.equal(before.items().length, 0);
@@ -1582,7 +1640,7 @@ test('#193: storage that cannot be read after a share says to share again; witho
   await until(() => note(waitingShared) !== null, 'the note');
   assert.equal(note(waitingShared), SHARED_FAILED);
   const waitingPlain = await load({ hash: '', db: broken() });
-  await until(() => waitingPlain.$('join-status').textContent.startsWith('Open the invite link'), 'no session');
+  await until(() => waitingPlain.$('join-status').textContent.startsWith('Sign in, or open the invite link'), 'no session');
   await settledRead(waitingPlain);
   assert.equal(note(waitingPlain), null);
 });

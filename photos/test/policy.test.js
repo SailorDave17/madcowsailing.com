@@ -23,11 +23,13 @@ import { hashPassword, verifyPassword } from '../lib/password.js';
 import { LINK_SECONDS, clearExpiredLinks, tokenHash } from '../lib/password-link.js';
 import { approveTeams, rejectTeams, sendLink } from '../lib/people.js';
 import { RESEND_URL } from '../lib/mail.js';
-import { DAILY_UPLOADS, SIZES, insertPhoto } from '../lib/photos.js';
+import { DAILY_UPLOADS, SIZES, insertPhoto, senderColumns, sessionKey, spendDailyUpload } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
 } from '../lib/removals.js';
-import { SESSION_DAYS, coachListed, coachSessionCookie, nowSeconds, readSession } from '../lib/session.js';
+import {
+  COOKIE_NAME, SESSION_DAYS, coachListed, coachSessionCookie, nowSeconds, readSession, requireUploadSession, signSession,
+} from '../lib/session.js';
 import { TEAMS } from '../lib/teams.js';
 import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
 import { onRequestGet as adminHomeRoute } from '../functions/admin/index.js';
@@ -199,7 +201,9 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     'the album it was sent to;',
     'when it was taken, and when it was sent;',
     'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it;',
-    'for a photo sent from an account, which account sent it.', // D17; #219
+    // D17; #219. #223: the row's sender is the account's role, which stays
+    // once the account is deleted (senderColumns in lib/photos.js).
+    'for a photo sent from an account, which account sent it, and whether the account is a coach\'s.',
   ]);
   // The address is in the lede, on the first screen, and again in its own
   // section at the foot (owner, at #159's design review), and in the
@@ -218,7 +222,9 @@ test('the policy\'s figures are the code\'s: a session\'s days, the join limit\'
   assert.equal(FAILURE_WINDOW_SECONDS, 60 * 60, 'the join limit\'s window moved; the page says "an hour"');
   assert.match(MAIN, /An attempt counts for an hour/);
   assert.match(MAIN, new RegExp(`the largest at most ${SIZES.full.longEdge.toLocaleString('en-US')} pixels on its long side`));
-  assert.match(MAIN, new RegExp(`no phone can send more than ${DAILY_UPLOADS}\\.`));
+  // #223, criterion 5: the cap is an account's, and a phone's for the two
+  // ways in that predate accounts.
+  assert.match(MAIN, new RegExp(`so no more than ${DAILY_UPLOADS} come from one account, or from one phone sending with the invite link or a coach's sign-in\\.`));
 });
 
 // ---- Criterion 5: the words -------------------------------------------------
@@ -528,12 +534,16 @@ test('"Having an account deleted" gives the email and the check, says the photos
     // undone, and a request can come from anyone.
     'Email dave@madcowsailing.com and ask. An admin writes to the address on the account to check the request came from you, and deletes the account once you confirm: your name, email address, role, teams, note and password hash all go.',
     // Owner, at #219's pickup: D17's rule for revoking, applied to a delete.
-    'The photos you sent stay, approved or still waiting, and are checked as usual, but they no longer record which account sent them.',
+    // #223: the sender column keeps the account's role (senderColumns).
+    'The photos you sent stay, approved or still waiting, and are checked as usual, but they no longer record which account sent them, only whether it was a coach\'s.',
     'To have them taken down as well, press "Remove this photo" under each, or say so in the same email.',
     // Owner, at #219's review: the log keeps its entries, and a revoked
     // address stays scrambled so a revoke survives a delete.
     'Some things stay. The admins\' log keeps its entries about your account, and they still name you.',
     'If an admin had revoked the account, the site keeps its email address in a scrambled form, made with a secret key, so that a new request from it is still held back.',
+    // #223: the account's daily count, keyed by its id (sessionKey), which the
+    // by-hand delete below leaves until anyone's first upload of a later day.
+    'The count of photos the account sent that day stays, under the account\'s number, until the next day anyone sends a photo.',
     'Emails already sent are not deleted with it: Resend keeps each for its 30 days, and the email telling the admins about your request stays in their mailboxes.',
     // D1 Time Travel: 7 days on Free, 30 on Workers Paid, always on.
     'The site\'s database can be put back as it was at any moment in the last 30 days, so a deleted account stays in those restore points, which only the site\'s owner can use, for up to 30 days.',
@@ -557,6 +567,11 @@ test('the page no longer promises that every photo is anonymous, and keeps #192\
 // read from column 41, so a source in one row cannot stand in for another's.
 // #219's review found a whole-comment search let 6 of 13 rows go at 0 red.
 const ACCOUNT_ROWS = [
+  // #223, criterion 6: sending from an account, each claim in its own row.
+  ['An approved account sends to its', ['requireUploadSession', 'lib/session.js', 'readAccountSession', 'sessionAccount', 'lib/account-session.js', 'functions/api/albums/open.js', 'functions/api/upload/index.js', 'insertPhoto', '#223\'s criteria 1 and 2', 'D16']],
+  ['Signed in, a phone sends from the', ['#223\'s pickup', 'requireUploadSession', 'before the upload cookie']],
+  ['A daily count per account, for', ['sessionKey', 'DAILY_UPLOADS', 'lib/photos.js', 'upload_counts', '#223\'s criterion 5', 'spendDailyUpload', 'first upload of a day']],
+  ['Whether an account\'s photo was', ['senderColumns', 'lib/photos.js', 'ON DELETE SET NULL', '#223\'s pickup']],
   ['A photo sent with the invite', ['insertPhoto', 'D17', '#223']],
   ['If you ask for an account, for', ['D13', 'D16', '#220', '#219\'s review', '#158\'s precedent']],
   ['What an account keeps: name,', ['#220\'s criteria 1 and 6', '#221']],
@@ -577,7 +592,7 @@ const ACCOUNT_ROWS = [
   ['One every 15 minutes for an', ['RESET_GAP_SECONDS', 'RESET_EMAILS_PER_DAY', 'reset_mail_budget', 'migrations/0009_sign_in.sql']],
   ['10 reset requests an hour from', ['RESET_REQUEST_LIMIT', 'claimResetRequest', 'reset_request_log', 'migrations/0009_sign_in.sql', 'clearExpiredResetRequests', 'functions/admin/index.js']],
   ['Pwned Passwords sees 5', ['pwned', 'PWNED_RANGE_URL', 'lib/password-rules.js', 'https://api.pwnedpasswords.com/range/', 'https://haveibeenpwned.com/API/v3', '2026-10-06', '#222\'s pickup']],
-  ['Which photos it sent', ['D17', '#223']],
+  ['Which photos it sent', ['D17', 'account_id', 'migrations/0012_photos_account.sql', 'insertPhoto', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
   ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', '#225', '#219\'s review']],
   ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
@@ -593,7 +608,7 @@ const ACCOUNT_ROWS = [
   ['Resend keeps each 30 days', ['https://resend.com/pricing', '"30-day data retention"']],
   ['Deleted on request, by email,', ['#219\'s pickup', '#219\'s review', 'confirmed by reply', '#220', '#225']],
   ['A revoked address stays, as a', ['#219\'s review', '#225']],
-  ['The photos stay, and no longer', ['#219\'s pickup', 'D17']],
+  ['The photos stay, and no longer', ['#219\'s pickup', 'D17', 'ON DELETE SET NULL', 'migrations/0012_photos_account.sql', '#223']],
   ['Restore points, up to 30 days', ['"30 days (Workers Paid) / 7 days (Free)"', 'https://developers.cloudflare.com/d1/platform/limits/']],
 ];
 
@@ -641,6 +656,13 @@ test('the head comment traces every account claim in its own row, and the code i
     rejectTeams: '../lib/people.js',
     sendLink: '../lib/people.js',
     peopleLists: '../lib/people.js',
+    // #223
+    requireUploadSession: '../lib/session.js',
+    readAccountSession: '../lib/account-session.js',
+    sessionAccount: '../lib/account-session.js',
+    insertPhoto: '../lib/photos.js',
+    sessionKey: '../lib/photos.js',
+    senderColumns: '../lib/photos.js',
   };
   for (const [name, module] of Object.entries(exported)) {
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
@@ -875,8 +897,8 @@ const TABLES = {
   account_request_budget: 'a count per hour',
   account_request_mail: 'when the admins were last emailed',
   albums: 'albums, which name no account',
-  photos: 'photos; none names an account until #223',
-  upload_counts: 'a count per upload session',
+  photos: 'photos, each naming the account that sent it until the account is deleted (ON DELETE SET NULL, #223)',
+  upload_counts: 'a count per upload session, or per account under its id (#223), for the day',
   invite_codes: 'the invite codes',
   join_failures: 'keyed network addresses',
   join_budget: 'a count per hour',
@@ -894,9 +916,11 @@ const TABLES = {
 };
 
 // What may keep naming an account after README's delete, each by the story
-// that makes it: the admins' log entries (#221) and, for a revoked account,
-// its address as a keyed hash (#225), which does not exist yet.
-const SURVIVORS = new Set(['admin_log']);
+// that makes it: the admins' log entries (#221), the day's upload count under
+// the account's id until anyone's first upload of a later day (#223), and,
+// for a revoked account, its address as a keyed hash (#225), which does not
+// exist yet. /policy names each.
+const SURVIVORS = new Set(['admin_log', 'upload_counts']);
 
 test('README\'s by-hand account delete, run only once the account\'s own address confirms, leaves no row naming the account (#220, criterion 8)', async (t) => {
   const readme = read('..', 'README.md');
@@ -919,6 +943,9 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   db.sqlite.prepare('INSERT INTO join_budget (hour, recorded) VALUES (?, 1)').run(Math.floor(now / 3600));
   db.sqlite.prepare('INSERT INTO removal_requests (address_hash, requested_at) VALUES (?, ?)').run('h', now);
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, 1)').run('1.1', Math.floor(now / 86400));
+  // #223: the account to delete sent a photo today, so its count is keyed
+  // by its id (lib/photos.js, sessionKey).
+  db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, 1)').run('account.1', Math.floor(now / 86400));
   db.sqlite.prepare('INSERT INTO account_request_mail (id, sent_at) VALUES (1, ?)').run(now);
   // #222's: a failed sign-in for the address to delete, the hour's and the
   // day's counts, and a reset request.
@@ -933,6 +960,14 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at) ' +
     "VALUES (?, 'photo', 'approved', ?, 'b', 'parent', 1, 1, 1, 2, 4, 3, 4, 3, 4, 3, 10, 3)",
   ).run(album, 'a'.repeat(32));
+  // #223: a photo the account to delete sent, as insertPhoto writes one for
+  // the coach the admin approves it as below, so the delete has a photo to
+  // stop naming it on (0012's ON DELETE SET NULL).
+  db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes) ' +
+    "VALUES (?, 'photo', 'pending', ?, 'b', 'coach', 0, 0, 1, 1, 2, 4, 3, 4, 3, 4, 3, 10)",
+  ).run(album, 'b'.repeat(32));
   // #221: both accounts approved through the admins' own functions, so the
   // log and the links hold real rows about each: a role change, an approval,
   // a turn-down and a link sent for the one to delete (the seeding cairn's
@@ -979,12 +1014,23 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     }
     return [...new Set(found)].sort();
   };
-  // The control: before the delete, the check finds the account, its teams
-  // and its link (#221).
-  assert.deepEqual(naming(), ['account_teams.account_id', 'accounts.email', 'accounts.id', 'password_links.account_id']);
+  // The control: before the delete, the check finds the account, its teams,
+  // its link (#221) and the photo it sent (#223).
+  assert.deepEqual(naming(), ['account_teams.account_id', 'accounts.email', 'accounts.id', 'password_links.account_id', 'photos.account_id']);
 
   assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(target.id).changes, 1);
   assert.deepEqual(naming(), []);
+  // The photo stays, waiting as it was, and says only that a coach's account
+  // sent it: "no longer record which account sent them, only whether it was
+  // a coach's" (#223).
+  assert.deepEqual({ ...db.sqlite.prepare("SELECT state, sender, code_generation, account_id FROM photos WHERE media_key = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'").get() },
+    { state: 'pending', sender: 'coach', code_generation: 0, account_id: null });
+  // The day's count stays under the account's id, as /policy says, until
+  // anyone's first upload of a later day clears it (#223).
+  const countOf = () => db.sqlite.prepare("SELECT session FROM upload_counts WHERE session = 'account.1'").all().length;
+  assert.equal(countOf(), 1);
+  assert.equal(await spendDailyUpload(db, { sender: 'parent', generation: 1, issued: now }, now + 86400), true);
+  assert.equal(countOf(), 0, 'the next day\'s first upload left the deleted account\'s count');
   // The other account is as it was, teams, link and all.
   assert.deepEqual(db.sqlite.prepare('SELECT email FROM accounts').all().map((r) => r.email), ['stays@example.org']);
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM account_teams').get().n, 2);
@@ -1064,5 +1110,110 @@ test('the head comment traces which release covers which team, each in its own r
     const cell = lines.slice(starts[i], starts[i + 1]).map((line) => line.slice(41).trim()).join(' ');
     for (const source of sources) assert.ok(cell.includes(source), `the "${head}" row does not name ${source}`);
   });
+});
+
+// ---- #223: accounts send ------------------------------------------------------
+//
+// Criterion 6: the lede, "Who can send a photo" and the daily count name an
+// approved account beside the invite link and the coaches, each claim with a
+// row in the trace table (ACCOUNT_ROWS, above) and a line here.
+
+test('the lede and "Who can send a photo" name an approved account beside the invite link and the coaches (#223, criterion 6)', () => {
+  const lede = words(POLICY.match(/<p class="lede">[\s\S]*?<\/p>/)[0]);
+  assert.ok(lede.includes('Only people with an account the site\'s admins approved for the team, people with the team\'s invite link, and the team\'s coaches, who sign in, can send one, and nothing shows until one of the site\'s admins has checked it.'), lede);
+  const paragraphs = [...section('Who can send a photo').matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => words(m[1]));
+  // The account first, then the two ways in that #226 retires.
+  assert.equal(paragraphs.length, 3);
+  assert.equal(paragraphs[0], 'Someone with an account one of the site\'s admins approved for a team. '
+    + 'They sign in with their email address and password, and can then send photos to that team\'s albums only, '
+    + 'from any phone or computer signed in to the account, for as long as an admin leaves the team on the account. '
+    + 'A phone signed in to an account sends from the account, even if it has also opened the invite link.');
+  assert.match(paragraphs[1], /^Someone holding the team's invite link/);
+  assert.match(paragraphs[2], /^The team's coaches can also send without the link\./);
+  has(MAIN, [
+    // The daily count, per account (criterion 5's figure is held above).
+    'An account\'s count is kept under the account, for every phone and computer signed in to it together.',
+    'A phone\'s is kept under the invite link, or a coach\'s scrambled address, and the time the phone opened it.',
+    'Each count is cleared the next day anyone sends a photo.',
+  ], 'the policy');
+});
+
+test('the page\'s account claims are what the code does: the account wins over the link, its teams only, one count for every phone, and the role kept (#223)', async () => {
+  const KEY = 'test-session-signing-key-0123456789abcdef';
+  const db = d1();
+  seedCodes(db, 'K7QM-3XRD-9FWB');
+  db.sqlite.exec(
+    "INSERT INTO accounts (email, name, role, requested_at) VALUES ('coach@example.org', 'Casey', 'coach', 1);" +
+    "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved'), (1, 'hoover-jrt', 'requested');",
+  );
+  const now = nowSeconds();
+  const sessionFor = async (cookies) => {
+    const data = {};
+    const request = new Request('https://photos.madcowsailing.com/api/upload/session', { headers: { Cookie: cookies.join('; ') } });
+    const res = await requireUploadSession({ request, env: { DB: db, SESSION_SIGNING_KEY: KEY }, data, next: () => new Response(null, { status: 204 }) });
+    return res.status === 204 ? data.session : res.status;
+  };
+  const invite = `${COOKIE_NAME}=${await signSession(KEY, 1, now)}`;
+  const signedIn = (issued) => accountCookie(KEY, { accountId: 1, version: 1 }, issued).then((c) => c.split(';')[0]);
+  // "A phone signed in to an account sends from the account, even if it has
+  // also opened the invite link."
+  const one = await sessionFor([invite, await signedIn(now)]);
+  assert.equal(one.sender, 'account');
+  // "to that team's albums only": the teams an admin approved, and no other.
+  assert.deepEqual(one.teams, ['cohssa']);
+  // "for every phone and computer signed in to it together": another phone,
+  // signed in at another time, counts under the same key.
+  const two = await sessionFor([await signedIn(now - 3600)]);
+  assert.equal(sessionKey(one), sessionKey(two));
+  assert.equal(sessionKey(one), 'account.1', '"under the account"');
+  // "whether the account is a coach's": the row's sender is the role.
+  assert.equal(senderColumns(one).sender, 'coach');
+  // The control: without the account's cookie the link answers as a parent.
+  assert.equal((await sessionFor([invite])).sender, 'parent');
+});
+
+test('README\'s by-hand "hide every photo an account sent" hides exactly its approved photos, and nothing waiting or anyone else\'s (#223, criterion 6)', async () => {
+  const steps = read('..', 'README.md').split('### Hiding every photo an account sent, by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
+  assert.match(steps, /Do it\s+\*\*before\*\* the delete below/);
+  const sql = steps.match(/--command "(UPDATE photos [^"]+)"/)?.[1];
+  assert.ok(sql && sql.includes('<id>'), 'README has no hide statement naming <id>');
+  // The delete's own steps point here, so the hide comes first.
+  assert.match(read('..', 'README.md').split('### Deleting an account by hand\n')[1] ?? '', /hide them first \(above\)/);
+
+  const db = d1();
+  db.sqlite.exec(
+    "INSERT INTO accounts (email, name, role, requested_at) VALUES ('one@example.org', 'One', 'parent', 1), ('two@example.org', 'Two', 'parent', 1);",
+  );
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  let key = 0;
+  const photo = (state, account) => Number(db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at, hidden_at) ' +
+    "VALUES (?, 'photo', ?, ?, 'b', 'parent', ?, ?, ?, 1, 2, 4, 3, 4, 3, 4, 3, 10, ?, ?)",
+  ).run(album, state, String(++key).padStart(32, '0'), account ? 0 : 1, account ? 0 : 1, account,
+    state === 'pending' ? null : 3, state === 'hidden' ? 4 : null).lastInsertRowid);
+  const mine = [photo('approved', 1), photo('approved', 1)];
+  const waiting = photo('pending', 1);
+  const already = photo('hidden', 1);
+  const others = [photo('approved', 2), photo('approved', null)];
+  for (const id of mine) assert.notEqual(await approvedPhoto(db, id), null, 'the fixture photo is public before');
+
+  assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(1).changes, 2);
+  for (const id of mine) assert.equal(await approvedPhoto(db, id), null, `photo ${id} is still public`);
+  const state = (id) => db.sqlite.prepare('SELECT state, hidden_at, hidden_note FROM photos WHERE id = ?').get(id);
+  for (const id of mine) {
+    assert.equal(state(id).state, 'hidden');
+    assert.ok(state(id).hidden_at > 1_790_000_000, 'hidden now');
+    assert.equal(state(id).hidden_note, null);
+  }
+  assert.equal(state(waiting).state, 'pending', 'a waiting photo is the queue\'s to turn down');
+  assert.equal(state(already).hidden_at, 4, 'a photo hidden already keeps its time');
+  for (const id of others) assert.notEqual(await approvedPhoto(db, id), null, 'another sender\'s photo came down');
+  // Step 3's read-back: no approved row is left for the account.
+  const readBack = steps.match(/`--command "(SELECT state, COUNT\(\*\) FROM photos WHERE account_id\s+= <id> GROUP BY state)"`/)?.[1];
+  assert.ok(readBack, 'README has no read-back statement');
+  const rows = db.sqlite.prepare(readBack.replace(/\s+/g, ' ').replace('<id>', '?')).all(1).map((r) => r.state);
+  assert.deepEqual(rows.sort(), ['hidden', 'pending']);
 });
 

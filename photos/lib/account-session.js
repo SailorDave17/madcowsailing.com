@@ -15,9 +15,10 @@
  *            upload cookie's payload can ever be one of these.
  *
  * It is a cookie of its own, not a third shape of __Host-upload, so a phone
- * can hold both while #223 makes uploads take an account, and #226 retires
- * the upload cookie without touching this one. It holds no password, no
- * email address and no name.
+ * can hold both, and #226 retires the upload cookie without touching this
+ * one. Since #223 the upload guard (lib/session.js, requireUploadSession)
+ * reads it first: a phone holding both sends as the account (owner, at
+ * #223's pickup). It holds no password, no email address and no name.
  *
  * The guard refuses it unless the signature holds, it is younger than
  * SESSION_SECONDS, and the account still exists, is approved for a team, and
@@ -36,14 +37,18 @@
  */
 import { TEAMS } from './accounts.js';
 import { base64url, fromBase64url, hmac, hmacVerify } from './crypto.js';
-import { SESSION_DAYS, nowSeconds } from './session.js';
+
+// Nothing here imports lib/session.js: since #223 its upload guard reads this
+// module, and an import back would make a cycle in which whichever module
+// loads second meets the first's constants before they are set.
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 export const ACCOUNT_COOKIE = '__Host-account';
 
-// 90 days, as the upload session's (criterion 4, epic #216): a parent signs
-// in about twice a season. The server checks the age itself rather than
-// trusting Max-Age.
-export const ACCOUNT_SESSION_DAYS = SESSION_DAYS;
+// 90 days, as the upload session's SESSION_DAYS (criterion 4, epic #216): a
+// parent signs in about twice a season. test/policy.test.js holds the two
+// equal. The server checks the age itself rather than trusting Max-Age.
+export const ACCOUNT_SESSION_DAYS = 90;
 export const ACCOUNT_SESSION_SECONDS = ACCOUNT_SESSION_DAYS * 24 * 60 * 60;
 
 // A cookie issued this far ahead of the server's clock is still accepted, for
@@ -99,21 +104,23 @@ export async function readAccountSession(request, secret, now = nowSeconds()) {
 }
 
 /**
- * The account a session belongs to, as { id, name, email, teams }, teams the
- * ones it is approved for in TEAMS order, or null when the account is gone,
- * approved for no team, or holds another version than the session names.
+ * The account a session belongs to, as { id, name, email, role, teams },
+ * teams the ones it is approved for in TEAMS order, or null when the account
+ * is gone, approved for no team, or holds another version than the session
+ * names. The role is the one an admin approved (#221): since #223 it decides
+ * whether an upload is a coach's (lib/photos.js, sendsAsCoach).
  */
 export async function sessionAccount(db, session) {
   const { results } = await db
     .prepare(
-      'SELECT a.id, a.name, a.email, t.team FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ' +
+      'SELECT a.id, a.name, a.email, a.role, t.team FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ' +
       "WHERE a.id = ? AND a.session_version = ? AND t.state = 'approved'",
     )
     .bind(session.accountId, session.version)
     .all();
   if (results.length === 0) return null;
-  const { id, name, email } = results[0];
-  return { id, name, email, teams: TEAMS.map(({ team }) => team).filter((team) => results.some((row) => row.team === team)) };
+  const { id, name, email, role } = results[0];
+  return { id, name, email, role, teams: TEAMS.map(({ team }) => team).filter((team) => results.some((row) => row.team === team)) };
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD']);

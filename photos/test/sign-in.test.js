@@ -754,14 +754,17 @@ test('sign out when the database does not answer keeps the cookie and says so, s
   assert.match(html, /<h1>Not signed out<\/h1>/);
 });
 
-test('/account holds Sign out as a post to /sign-out, and says sending from an account is not open yet', async () => {
+test('/account holds Sign out as a post to /sign-out, and links the share page to send from the account (#223)', async () => {
   const env = site();
   const id = await account(env.DB, { teams: ['hoover-jrt', 'cohssa'] });
   const cookie = await signAccountSession(KEYS.SESSION_SIGNING_KEY, { accountId: id, version: 1 }, nowSeconds());
   const { html } = await call(env, '/account?password-set', { cookie });
   assert.match(html, /<form method="post" action="\/sign-out" class="ask-form">/);
   assert.match(html, /approved for Hoover JRT and COHSSA\./);
-  assert.match(html, /Sending photos from your account isn't open yet\./);
+  // #223 (owner, at pickup): /account links /share/, where an account sends.
+  assert.match(html, /<a class="button button-accent" href="\/share\/">Send photos<\/a>/);
+  assert.match(html, /You can send photos to the albums of Hoover JRT and COHSSA\. Each waits for one of the site's admins to check it before anyone sees it, and the admins see that it came from your account\./);
+  assert.doesNotMatch(html, /isn't open yet/);
   assert.match(html, /<p role="status">Your password is set, and you are signed in\./);
 });
 
