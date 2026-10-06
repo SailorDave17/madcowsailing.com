@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/albums/update: change an album's title, kind or date
  * (#153), from the Edit form under it on /admin/albums. The guards in
- * ../_middleware.js have already required the owner's Access token and the
+ * ../_middleware.js have already required an admin's session and the
  * site's own Origin.
  *
  * The address never changes, so every link to the album keeps working.

@@ -1,6 +1,6 @@
 /**
  * GET /admin/queue: the photos waiting for approval (#156). The guards in
- * _middleware.js have already checked the Access token.
+ * _middleware.js have already checked the admin session.
  *
  * Each batch, one press of Send in one album, is a form: every photo in it at
  * all three sizes, its caption to edit, and buttons to approve or reject it,

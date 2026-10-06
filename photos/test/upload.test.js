@@ -16,7 +16,6 @@ import { onRequest as adminApi } from '../functions/api/admin/_middleware.js';
 import { onRequest as adminPages } from '../functions/admin/_middleware.js';
 import { onRequestPost as deleteAlbum } from '../functions/api/admin/albums/delete.js';
 import { onRequestGet as albumsPage } from '../functions/admin/albums.js';
-import { TOKEN_HEADER, keyCache } from '../lib/access.js';
 import { createAlbum } from '../lib/albums.js';
 import { readJpeg } from '../lib/jpeg.js';
 import {
@@ -24,7 +23,7 @@ import {
   sizesAgree, spendDailyUpload,
 } from '../lib/photos.js';
 import { COOKIE_NAME, nowSeconds, signSession } from '../lib/session.js';
-import { accessEnv, certs, keyPair, mint } from './access.js';
+import { adminCookieHeader, seedAdmin } from './admin.js';
 import { d1, seedCodes } from './d1.js';
 import {
   PNG_SIGNATURE, exif, find, jpeg, metadataMarkers, otherMetadata, segment, withSegments, withTrailer, xmp,
@@ -46,16 +45,11 @@ const SENT = {
   full: jpeg({ width: 2560, height: 1920 }),
 };
 
-const team = await keyPair();
-beforeEach(() => {
-  keyCache.clear();
-  mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-});
 afterEach(() => mock.restoreAll());
 
 /** A site with generation 2 current, one open album, and a parent's live session. */
 async function site() {
-  const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY, ...accessEnv() };
+  const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY };
   seedCodes(env.DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB');
   const now = nowSeconds();
   const address = await createAlbum(env.DB, FALL, now);
@@ -911,11 +905,13 @@ test('the table holds every state the epic needs, and refuses a row no story sho
 test('an album holding a photo sent through this route is not deleted, and the admin page says how many', async () => {
   const { env, address, cookie } = await site();
   assert.equal((await send(env, { cookie, body: form(address) })).status, 201);
+  // The admin who presses Delete (#224: an account, where an Access token was).
+  const adminSession = await adminCookieHeader(seedAdmin(env.DB), { key: KEY });
 
   const press = async () => {
     const request = new Request(`${SITE}/api/admin/albums/delete`, {
       method: 'POST',
-      headers: { Origin: SITE, [TOKEN_HEADER]: await mint(team), 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { Origin: SITE, Cookie: adminSession, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ address }).toString(),
     });
     const res = await chain([root, ...adminApi, deleteAlbum], request, env);
@@ -933,7 +929,7 @@ test('an album holding a photo sent through this route is not deleted, and the a
   assert.deepEqual(await press(), { error: 'not-empty', album: address, photos: '3' });
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM albums').get().n, 1);
 
-  const request = new Request(`${SITE}/admin/albums?error=not-empty&album=${address}&photos=3`, { headers: { [TOKEN_HEADER]: await mint(team) } });
+  const request = new Request(`${SITE}/admin/albums?error=not-empty&album=${address}&photos=3`, { headers: { Cookie: adminSession } });
   const html = await (await chain([root, ...adminPages, albumsPage], request, env)).text();
   assert.match(html, /Fall Regatta was not deleted: it holds 3 photos\./);
 });

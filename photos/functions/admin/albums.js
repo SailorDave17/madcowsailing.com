@@ -1,6 +1,6 @@
 /**
  * GET /admin/albums: the albums (#153). The guards in _middleware.js have
- * already checked the Access token.
+ * already checked the admin session.
  *
  * It lists every album, open ones first, each with its kind, date and
  * address, and forms to add one, edit one, close or reopen it, and delete it

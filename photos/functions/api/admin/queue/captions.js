@@ -5,7 +5,7 @@
  * It is the batch form's own action and its first button, "Save captions",
  * so Enter in a caption field lands here rather than on the first photo's
  * Approve. The guards in ../_middleware.js have already required an admin's
- * Access token and the site's own Origin. 303 back to the queue, at the
+ * session and the site's own Origin. 303 back to the queue, at the
  * batch, saying how many captions changed.
  */
 import { readForm, seeOther } from '../../../../lib/form.js';

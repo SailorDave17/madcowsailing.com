@@ -1,6 +1,6 @@
 /**
  * GET /admin/code: the invite code (#152). The guards in _middleware.js have
- * already checked the Access token.
+ * already checked the admin session.
  *
  * It shows the current code, when it last changed, and the invite link a
  * parent opens, with a button to copy each and one to rotate the code. With

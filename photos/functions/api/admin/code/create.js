@@ -6,7 +6,7 @@
  * database holds no code. It makes generation 1 only if there is still none,
  * so a second press, or a page left open after a code was made, changes
  * nothing and never ends a session. The guards in ../_middleware.js have
- * already required the owner's Access token and the site's own Origin.
+ * already required an admin's session and the site's own Origin.
  */
 import { createFirstCode } from '../../../../lib/invite.js';
 import { nowSeconds } from '../../../../lib/session.js';

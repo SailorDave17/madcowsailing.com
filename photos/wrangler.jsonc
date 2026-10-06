@@ -16,8 +16,12 @@
 //   - Every database_id is written out, and no secret goes in this file or
 //     anywhere in the tree. Secrets are Pages secrets, named in README.md.
 //
-// The admin guard (#151, lib/access.js) reads two vars here. Neither is
-// secret: every Access token carries both.
+// The admin guard (#151, lib/access.js) read two vars here. Neither is
+// secret: every Access token carries both. Since #224 the admin guard is the
+// site's own admin session (lib/admin-session.js), and only the coach guard
+// below reads ACCESS_TEAM_DOMAIN. ACCESS_AUD is read by nothing: it stays as
+// the record of the admin application's tag until #226 removes the
+// application, and with it this var.
 //   - ACCESS_TEAM_DOMAIN is the Zero Trust team's domain: the tokens' issuer,
 //     and where the signing keys are fetched from.
 //   - ACCESS_AUD is the AUD tag of the Access application that signs this
@@ -25,7 +29,8 @@
 //     Pages preview application, production behind the admin application on
 //     photos.madcowsailing.com, so the two differ. A tag changes only if its
 //     application is deleted and recreated.
-// The admins' addresses, the third thing it reads, are the ADMIN_EMAILS secret.
+// The admins' addresses were the third thing it read, the ADMIN_EMAILS
+// secret, which nothing reads since #224 either.
 //
 // The coach guard (#192) reads the same team domain and one more var:
 //   - ACCESS_COACH_AUD is the AUD tag of the application that signs /coach:

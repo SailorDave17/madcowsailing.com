@@ -135,7 +135,12 @@ async function giveBack(steps) {
  * normalizePassword), from the network whose keyed hash is `address`, at
  * `now`. `emailKey` is emailHash(ADDRESS_HASH_KEY, email). Returns one of:
  *
- *   { outcome: 'signed-in', accountId, version }  the session to open
+ *   { outcome: 'signed-in', accountId, version, email, adminRole }
+ *                                                  the session to open;
+ *                                                  adminRole is 'admin' or
+ *                                                  'owner' for an account the
+ *                                                  emailed code is asked of
+ *                                                  next (#224), else null
  *   { outcome: 'refused' }                         any failure, one answer
  *   { outcome: 'limited', scope, retryAfter }      EMAIL_FAILURE_LIMIT for
  *                                                  this address ('email'), or
@@ -223,7 +228,7 @@ export async function signIn(db, { email, password, emailKey, address, now }) {
       .first('failed_sign_ins');
     account = await db
       .prepare(
-        'SELECT a.id, a.password_hash, a.session_version, ' +
+        'SELECT a.id, a.email, a.password_hash, a.session_version, a.admin_role, ' +
         "EXISTS (SELECT 1 FROM account_teams AS t WHERE t.account_id = a.id AND t.state = 'approved') AS approved " +
         'FROM accounts AS a WHERE a.email = ?',
       )
@@ -254,7 +259,11 @@ export async function signIn(db, { email, password, emailKey, address, now }) {
     } catch (err) {
       console.error('sign-in: could not give back the units after a sign-in:', message(err));
     }
-    return { outcome: 'signed-in', accountId: account.id, version: account.session_version };
+    // An admin's sign-in goes on to the emailed code (#224, lib/admin-code.js),
+    // sent to the address the account holds, not to the letter case typed.
+    return {
+      outcome: 'signed-in', accountId: account.id, version: account.session_version, email: account.email, adminRole: account.admin_role,
+    };
   }
 
   // The tries more than an hour old count for nothing now.
@@ -308,8 +317,13 @@ export async function linkedAccount(db, accountId) {
  *      row go back to 0, which turns a stopped password back on (NIST's
  *      "rebind");
  *   2. its email address's failed sign-ins are forgotten (`emailKey`);
- *   3. every link the account holds is deleted, this one with it, so a link
- *      works once and setting a password ends the rest (criterion 5).
+ *   3. every admin code the account holds is deleted (#224's review), so the
+ *      day's limit on codes lifts with the reset the code's email and the
+ *      limit's page advise: someone who spent the codes with the old
+ *      password does not keep the admin out for the rest of the day;
+ *   4. every link the account holds is deleted, this one with it, so a link
+ *      works once and setting a password ends the rest (criterion 5). Last,
+ *      since every statement holds only while the link is there.
  *
  * Answers the new session version, or null when the link was not the
  * account's to use any more: used, replaced, expired, or the account no
@@ -332,6 +346,7 @@ export async function setPassword(db, { accountId, token, passwordHash, emailKey
       `WHERE id = ? AND ${held} RETURNING session_version`,
     ).bind(passwordHash, accountId, ...holds),
     db.prepare(`DELETE FROM sign_in_failures WHERE email_hash = ? AND ${held}`).bind(emailKey, ...holds),
+    db.prepare(`DELETE FROM admin_codes WHERE account_id = ? AND ${held}`).bind(accountId, ...holds),
     db.prepare(`DELETE FROM password_links WHERE account_id = ? AND ${held}`).bind(accountId, ...holds),
   ]);
   return stored.results[0]?.session_version ?? null;
@@ -340,14 +355,17 @@ export async function setPassword(db, { accountId, token, passwordHash, emailKey
 /**
  * Sign out: end every session the account holds, on every device (the
  * owner's choice at #222's pickup, 2026-10-06), by adding 1 to its session
- * version, only while it still holds the version the cookie names. Answers
- * whether it did; false when the session had already ended, which leaves
- * nothing to end. Throws when D1 fails.
+ * version, only while it still holds a version a cookie names: `version`, or
+ * `versions` for the two an admin's browser holds (#224). One statement
+ * whatever their number, so nothing runs after the change that could fail
+ * and report a session that ended as one that did not (#224's review).
+ * Answers whether it did; false when the session had already ended, which
+ * leaves nothing to end. Throws when D1 fails.
  */
-export async function signOut(db, { accountId, version }) {
+export async function signOut(db, { accountId, version, versions = [version] }) {
   const { meta } = await db
-    .prepare('UPDATE accounts SET session_version = session_version + 1 WHERE id = ? AND session_version = ?')
-    .bind(accountId, version)
+    .prepare(`UPDATE accounts SET session_version = session_version + 1 WHERE id = ? AND session_version IN (${versions.map(() => '?').join(', ')})`)
+    .bind(accountId, ...versions)
     .run();
   return meta.changes === 1;
 }

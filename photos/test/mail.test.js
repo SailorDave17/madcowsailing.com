@@ -4,9 +4,11 @@
 // admin test send, /admin/mail and /api/admin/mail/test, through the whole
 // request chain.
 //
-// fetch is stood in for: the Access certs URL answers the test team's key,
-// Resend's URL answers whatever `resend` returns, and any other URL throws, so
-// a send to the wrong address fails loudly.
+// fetch is stood in for: Resend's URL answers whatever `resend` returns, and
+// any other URL throws, so a send to the wrong address fails loudly. The
+// admin routes are reached with an admin's session minted by test/admin.js
+// (#224; an Access token, whose certs URL the stand-in also answered, until
+// then).
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -18,12 +20,12 @@ import { onRequest as adminPages } from '../functions/admin/_middleware.js';
 import { onRequestGet as mailPage } from '../functions/admin/mail.js';
 import { onRequest as adminApi } from '../functions/api/admin/_middleware.js';
 import * as testSend from '../functions/api/admin/mail/test.js';
-import { TOKEN_HEADER, keyCache } from '../lib/access.js';
 import { adminMailPage, mailNotice } from '../lib/admin-page.js';
 import {
   MAIL_FROM, MAIL_REPLY_TO, RESEND_URL, SUBJECT_MAX, TEXT_MAX, TIMEOUT_MS, USER_AGENT, isEmailAddress, sendMail,
 } from '../lib/mail.js';
-import { OWNER, TEAM, accessEnv, keyPair, mint } from './access.js';
+import { ADMIN_EMAIL as OWNER, ADMIN_KEY, adminCookieHeader, seedAdmin } from './admin.js';
+import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE = 'https://photos.madcowsailing.com';
@@ -31,17 +33,14 @@ const SITE = 'https://photos.madcowsailing.com';
 // leaked key to gitleaks and could stop the push at GitHub's push protection.
 const API_KEY = 'test-key-not-real';
 
-const team = await keyPair();
 let resend; // (init) => the Response Resend answers, or a throw
 let calls; // every request that reached Resend's URL
 
 beforeEach(() => {
-  keyCache.clear();
   calls = [];
   resend = () => Response.json({ id: 'msg-217' });
   mock.method(globalThis, 'fetch', async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url === `${TEAM}/cdn-cgi/access/certs`) return Response.json({ keys: [team.jwk], public_cert: {}, public_certs: [] });
     if (url !== RESEND_URL) throw new Error(`fetched ${url}, not Resend's`);
     calls.push({ init, headers: new Headers(init.headers), body: JSON.parse(init.body) });
     return resend(init);
@@ -49,7 +48,12 @@ beforeEach(() => {
 });
 afterEach(() => mock.restoreAll());
 
-const site = (extra = {}) => ({ RESEND_API_KEY: API_KEY, SITE_ENV: 'preview', ...accessEnv(), ...extra });
+// The owner is account 1, whose admin session press() and page() send (#224).
+const site = (extra = {}) => {
+  const DB = d1();
+  seedAdmin(DB);
+  return { DB, RESEND_API_KEY: API_KEY, SITE_ENV: 'preview', SESSION_SIGNING_KEY: ADMIN_KEY, ...extra };
+};
 
 const MESSAGE = { to: 'someone@example.org', subject: 'A subject', text: 'A body.\nSecond line.' };
 
@@ -297,7 +301,7 @@ const FORM = 'application/x-www-form-urlencoded';
 async function press(env, fields, { method = 'POST', type = FORM } = {}) {
   const request = new Request(`${SITE}/api/admin/mail/test`, {
     method,
-    headers: { Origin: SITE, [TOKEN_HEADER]: await mint(team), 'Content-Type': type },
+    headers: { Origin: SITE, Cookie: await adminCookieHeader(1), 'Content-Type': type },
     body: method === 'POST' ? new URLSearchParams(fields).toString() : undefined,
   });
   const handler = method === 'POST' ? testSend.onRequestPost : testSend.onRequestGet;
@@ -392,7 +396,7 @@ test('a press logs no recipient, subject or body, whatever Resend answers', asyn
 // ---- The page: GET /admin/mail ---------------------------------------------
 
 async function page(env, query = '') {
-  const request = new Request(`${SITE}/admin/mail${query}`, { headers: { [TOKEN_HEADER]: await mint(team) } });
+  const request = new Request(`${SITE}/admin/mail${query}`, { headers: { Cookie: await adminCookieHeader(1) } });
   const res = await chain([root, ...adminPages, mailPage], request, env);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Type'), 'text/html; charset=utf-8');

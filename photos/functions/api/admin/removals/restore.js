@@ -2,7 +2,7 @@
  * POST /api/admin/removals/restore: "Put it back" on /admin/removals (#158).
  * Makes one hidden photo approved again, so it is public from the next
  * request. The guards in ../_middleware.js have already required an admin's
- * Access token and the site's own Origin.
+ * session and the site's own Origin.
  *
  * The press carries photo=<id>. When the takedown was made and its note stay
  * on the row, as a record (owner, at #158's pickup; lib/removals.js). 303

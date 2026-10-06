@@ -6,10 +6,14 @@
 // handler through the chain of _middleware.js files Pages would run in front
 // of it, and requires a refusal from the guard that route belongs to:
 //   - an admin route, anything under functions/admin/ or functions/api/admin/,
-//     answers 403 with no Access token, with only an upload session, and with
-//     a valid token for another email or another Access application, a
-//     coach's included; and a write (any method but GET and HEAD) answers 403
-//     to the owner's valid token without the site's own Origin (#152);
+//     sends the request to /sign-in?admin, 303, without running, for every
+//     way an admin session can fail to hold: none, tampered, expired, signed
+//     with another key, on a version the account no longer holds, for an
+//     account that is gone, is no admin, holds no approved team, or had its
+//     role taken away, an account's own cookie, an upload session, and the
+//     owner's valid Access token, which opened the admin pages until #224
+//     (criterion 5); and a write (any method but GET and HEAD) answers 403
+//     to the owner's admin session without the site's own Origin (#152);
 //   - a coach route, anything under functions/coach/, answers 403 with no
 //     Access token, with only an upload session, with the owner's admin
 //     token, and with a token for an address not on the coach list or for
@@ -36,9 +40,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   COOKIE_NAME, SESSION_SECONDS, coachTag, nowSeconds, requireUploadSession, signCoachSession, signSession,
 } from '../lib/session.js';
-import { TOKEN_HEADER, keyCache, requireCoach, requireOwner } from '../lib/access.js';
+import { TOKEN_HEADER, keyCache, requireCoach } from '../lib/access.js';
 import { requireSameOrigin } from '../lib/origin.js';
 import { ACCOUNT_COOKIE, ACCOUNT_SESSION_SECONDS, requireAccount, signAccountSession } from '../lib/account-session.js';
+import {
+  ADMIN_COOKIE, ADMIN_SESSION_SECONDS, ADMIN_SIGN_IN, requireAdmin, signAdminSession,
+} from '../lib/admin-session.js';
 import { COACH, COACH_AUD, accessEnv, certs, claims, coachClaims, keyPair, mint } from './access.js';
 import { d1, seedCodes } from './d1.js';
 
@@ -76,6 +83,10 @@ const PUBLIC = {
   // of them but what each checks itself, the Origin, Turnstile on the reset
   // form, and the limits, which test/sign-in.test.js holds.
   'sign-in.js': 'signs in, from the site\'s own Origin, 10 failures an hour per address and 20 per network (#222)',
+  // The second half of an admin's sign-in (#224): the code emailed once the
+  // password passed, checked against the sign-in this browser's cookie names,
+  // 5 tries, from the site's own Origin (test/admin-sign-in.test.js).
+  'sign-in/code.js': 'checks an admin\'s emailed code for the sign-in its cookie names, 5 tries, from the site\'s own Origin (#224)',
   'sign-out.js': 'ends a session from the site\'s own Origin, and deletes a dead cookie (#222)',
   'forgot-password.js': 'takes a reset request, from the site\'s own Origin, past Turnstile, 10 an hour per network (#222)',
   // The share target's address (#193). The installed app's worker answers it
@@ -139,20 +150,26 @@ async function methodsOf(file) {
   return METHODS.filter((m) => route[handlerName(m)]);
 }
 
-async function call(file, method, cookie, token, origin = SITE, account = undefined) {
-  const env = { DB: d1(), SESSION_SIGNING_KEY: KEY, ...accessEnv() };
+async function call(file, method, cookie, token, origin = SITE, account = undefined, admin = undefined, extra = {}) {
+  const env = { DB: d1(), SESSION_SIGNING_KEY: KEY, ...accessEnv(), ...extra };
   seedCodes(env.DB, 'AAAA-AAAA-AAAA', 'BBBB-BBBB-BBBB'); // generation 2 is current
   // #222: account 1 approved for a team at session version 1, and account 2
-  // still waiting, approved for none.
+  // still waiting, approved for none. #224: the owner (10) and an admin (11),
+  // each approved for a team; an admin approved for no team (12); and one
+  // whose admin role was taken away (13). Account 3 is never made.
   env.DB.sqlite.exec(
     "INSERT INTO accounts (email, name, role, requested_at) VALUES ('approved@example.org', 'Approved', 'parent', 1), ('waiting@example.org', 'Waiting', 'parent', 1);" +
-    "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved'), (2, 'cohssa', 'requested');",
+    "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved'), (2, 'cohssa', 'requested');" +
+    "INSERT INTO accounts (id, email, name, role, requested_at, admin_role) VALUES (10, 'owner@example.org', 'Owner', 'coach', 1, 'owner'), (11, 'admin@example.org', 'Admin', 'parent', 1, 'admin'), (12, 'unteamed@example.org', 'Unteamed', 'parent', 1, 'admin'), (13, 'former@example.org', 'Former', 'parent', 1, 'admin');" +
+    "INSERT INTO account_teams (account_id, team, state) VALUES (10, 'hoover-jrt', 'approved'), (11, 'cohssa', 'approved'), (12, 'cohssa', 'requested'), (13, 'cohssa', 'approved');" +
+    'UPDATE accounts SET admin_role = NULL WHERE id = 13;',
   );
   const headers = {};
   if (origin !== null) headers.Origin = origin;
   const cookies = [
     ...(cookie ? [`${COOKIE_NAME}=${cookie}`] : []),
     ...(account ? [`${ACCOUNT_COOKIE}=${account}`] : []),
+    ...(admin ? [`${ADMIN_COOKIE}=${admin}`] : []),
   ];
   if (cookies.length) headers.Cookie = cookies.join('; ');
   if (token) headers[TOKEN_HEADER] = token;
@@ -198,6 +215,11 @@ const UPLOAD_ACCOUNT_CASES = {
   'an account\'s cookie for an account that does not exist': await signAccountSession(KEY, { accountId: 3, version: 1 }, now),
 };
 
+// #224: the owner's (10) and an admin's (11) current admin sessions, which
+// call() seeds. An admin session opens the admin pages and nothing else.
+const ownerSession = await signAdminSession(KEY, { accountId: 10, version: 1 }, now);
+const adminSession = await signAdminSession(KEY, { accountId: 11, version: 1 }, now);
+
 test('every PUBLIC entry is a route that exists', () => {
   for (const file of Object.keys(PUBLIC)) assert.ok(routes.includes(file), `PUBLIC names ${file}, which is not a route`);
 });
@@ -212,10 +234,10 @@ test('the albums directory runs the same guard (#153)', async () => {
   assert.equal(mod.onRequest, requireUploadSession);
 });
 
-test('both admin directories run the admin guard, then the Origin guard', async () => {
+test('both admin directories run the admin session guard, then the Origin guard (#224)', async () => {
   for (const dir of [['admin'], ['api', 'admin']]) {
     const mod = await import(pathToFileURL(join(FUNCTIONS, ...dir, '_middleware.js')));
-    assert.deepEqual(mod.onRequest, [requireOwner, requireSameOrigin], dir.join('/'));
+    assert.deepEqual(mod.onRequest, [requireAdmin, requireSameOrigin], dir.join('/'));
   }
 });
 
@@ -285,6 +307,13 @@ for (const file of guarded) {
       const res = await call(file, method, undefined, await mint(team, coachClaims()));
       assert.equal(res.status, 401, `functions/${file} answered ${res.status}`);
     });
+    test(`${method} ${routePath(file)} with only the owner's admin session: 401 (#224)`, async (t) => {
+      // An admin session opens the admin pages and does not send: the
+      // account cookie the same sign-in sets is what sends.
+      t.mock.method(console, 'error', () => {});
+      const res = await call(file, method, undefined, undefined, SITE, undefined, ownerSession);
+      assert.equal(res.status, 401, `functions/${file} answered ${res.status}: an admin session opened it`);
+    });
     test(`${method} ${routePath(file)} with a current session: past the guard`, async () => {
       // The control: the route is reachable in this harness, so the 401s
       // above come from the guard and not from a route that refuses anyone.
@@ -338,59 +367,74 @@ test('at least one upload route takes a write, so the Origin checks above check 
   assert.ok(writes.length > 0);
 });
 
+// The admin routes (#224, criterion 5): every way an admin session can fail
+// to hold, each sent to the sign-in by the guard before the route runs. call()
+// seeds the owner (10) and an admin (11) approved for a team; an admin
+// approved for none (12); a former admin (13); and account 1, approved and no
+// admin. Account 3 does not exist. ownerSession and adminSession are above.
+// An account cookie's value is a1.<payload>.<signature>; the same payload
+// under m1. with the account cookie's signature is what a stolen account
+// cookie would try as an admin one. Its signature is over "a1.…", so it fails.
+const asAdminPayload = (value) => value.replace(/^a1\./, 'm1.');
+const ownerAccount = await signAccountSession(KEY, { accountId: 10, version: 1 }, now);
 const ADMIN_CASES = {
-  'no Access token': async () => undefined,
-  'a token for another email': () => mint(team, claims({ email: 'someone@example.com' })),
-  'a token for another Access application': () => mint(team, claims({ aud: ['b'.repeat(64)] })),
-  // #192: a coach signs in through Access too, for the coaches' application.
-  'a coach\'s token': () => mint(team, coachClaims()),
-  // The owner's own address in a token signed for the coaches' application:
-  // only the aud check refuses it, since the address is on the admin list
-  // (#192's review: the case above is refused by the list as well).
-  'the owner\'s address in a token for the coaches\' application': () => mint(team, claims({ aud: [COACH_AUD] })),
+  'no cookie at all': {},
+  'a tampered admin session': { admin: tamper(ownerSession) },
+  'an admin session past its 12 hours': { admin: await signAdminSession(KEY, { accountId: 10, version: 1 }, now - ADMIN_SESSION_SECONDS) },
+  'an admin session signed with another key': { admin: await signAdminSession(`${KEY}-other`, { accountId: 10, version: 1 }, now) },
+  // Signing out, a new password or a revoke has moved the account on.
+  'an admin session on a version the account no longer holds': { admin: await signAdminSession(KEY, { accountId: 10, version: 2 }, now) },
+  'an admin session for an account that is no admin': { admin: await signAdminSession(KEY, { accountId: 1, version: 1 }, now) },
+  'an admin session for an admin approved for no team': { admin: await signAdminSession(KEY, { accountId: 12, version: 1 }, now) },
+  'an admin session for an account whose admin role was taken away': { admin: await signAdminSession(KEY, { accountId: 13, version: 1 }, now) },
+  'an admin session for an account that does not exist': { admin: await signAdminSession(KEY, { accountId: 3, version: 1 }, now) },
+  'the owner\'s own account session, with no admin session': { account: ownerAccount },
+  'the owner\'s account session carried over as an admin one': { admin: asAdminPayload(ownerAccount) },
+  'a current upload session': { cookie: current },
+  'a coach\'s upload session': { cookie: coachCurrent },
+  // What opened the admin pages until #224: the owner's valid Access token,
+  // for an address on ADMIN_EMAILS and the admin application's tag.
+  'the owner\'s valid Access token': { token: true },
 };
 
 for (const file of admin) {
   for (const method of await methodsOf(file)) {
-    for (const [name, token] of Object.entries(ADMIN_CASES)) {
-      test(`${method} ${routePath(file)} with ${name}: 403`, async (t) => {
+    for (const [name, { cookie, account: held, admin: session, token }] of Object.entries(ADMIN_CASES)) {
+      test(`${method} ${routePath(file)} with ${name}: sent to the sign-in, not run`, async (t) => {
+        t.mock.method(console, 'error', () => {});
         t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-        const res = await call(file, method, undefined, await token());
-        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the admin guard?`);
+        // The admin application's tag and the owner's address, as production's
+        // config still holds them until #226, so a token that is valid in
+        // every respect #151 checked is offered.
+        const old = { ACCESS_AUD: claims().aud[0], ADMIN_EMAILS: claims().email };
+        const res = await call(file, method, cookie, token ? await mint(team, claims()) : undefined, SITE, held, session, old);
+        assert.equal(res.status, 303, `functions/${file} answered ${res.status}: does it skip the admin guard?`);
+        assert.equal(res.headers.get('Location'), ADMIN_SIGN_IN, `functions/${file} sent ${res.headers.get('Location')}`);
+        assert.equal(res.headers.get('Cache-Control'), 'no-store');
+        // A dead admin cookie is deleted, so the browser stops sending it;
+        // with none, nothing is set.
+        const set = res.headers.get('Set-Cookie');
+        if (session) assert.match(set, new RegExp(`^${ADMIN_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax$`));
+        else assert.equal(set, null);
       });
     }
-    test(`${method} ${routePath(file)} with a current upload session and no Access token: 403`, async (t) => {
-      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-      const res = await call(file, method, current);
-      assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an upload session opened it`);
-    });
-    test(`${method} ${routePath(file)} with a coach's upload session and no Access token: 403`, async (t) => {
-      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-      const res = await call(file, method, coachCurrent);
-      assert.equal(res.status, 403, `functions/${file} answered ${res.status}: a coach's session opened it`);
-    });
-    test(`${method} ${routePath(file)} with an account's session and no Access token: 403 (#223)`, async (t) => {
-      // An account sends photos; it is not an admin until #224 says so.
-      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-      const res = await call(file, method, undefined, undefined, SITE, accountLive);
-      assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an account's session opened it`);
-    });
-    test(`${method} ${routePath(file)} with the owner's Access token: past the guard`, async (t) => {
-      // The control, as above: the 403s come from the guard. A route with a
-      // [param] in its path names a thing this harness never made (#156's
-      // photo sizes), so its own 404 is the route answering, past the guard.
-      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-      const res = await call(file, method, undefined, await ownerToken());
-      const reached = res.status < 400 || (file.includes('[') && res.status === 404);
-      assert.ok(reached, `functions/${file} answered ${res.status} to the owner`);
-    });
+    for (const [who, session] of [['the owner\'s', ownerSession], ['an admin\'s', adminSession]]) {
+      test(`${method} ${routePath(file)} with ${who} admin session: past the guard`, async () => {
+        // The control: the refusals above come from the guard. A route with a
+        // [param] in its path names a thing this harness never made (#156's
+        // photo sizes), so its own 404 is the route answering, past the guard.
+        const res = await call(file, method, undefined, undefined, SITE, undefined, session);
+        const reached = res.status < 400 || (file.includes('[') && res.status === 404);
+        assert.ok(reached, `functions/${file} answered ${res.status} to ${who} session`);
+        assert.notEqual(res.headers.get('Location'), ADMIN_SIGN_IN);
+      });
+    }
     if (SAFE.includes(method)) continue;
-    // A write needs the site's own Origin as well as the owner (#152), so a
+    // A write needs the site's own Origin as well as an admin (#152), so a
     // page elsewhere cannot post a form into the admin area.
     for (const [name, origin] of Object.entries(FOREIGN_ORIGINS)) {
-      test(`${method} ${routePath(file)} with the owner's Access token and ${name}: 403`, async (t) => {
-        t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-        const res = await call(file, method, undefined, await ownerToken(), origin);
+      test(`${method} ${routePath(file)} with the owner's admin session and ${name}: 403`, async () => {
+        const res = await call(file, method, undefined, undefined, origin, undefined, ownerSession);
         assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the Origin guard?`);
         assert.deepEqual(await res.json(), { error: 'origin' });
       });
@@ -499,14 +543,18 @@ const ACCOUNT_CASES = {
   'an account that does not exist': { account: await signAccountSession(KEY, { accountId: 3, version: 1 }, now) },
   'only a parent\'s upload session': { cookie: current },
   'only a coach\'s upload session': { cookie: coachCurrent },
+  // #224: an admin session is not an account session, and an admin
+  // session's value under the account cookie's name fails its signature.
+  'only the owner\'s admin session': { admin: ownerSession },
+  'the owner\'s admin session carried over as an account one': { account: ownerSession.replace(/^m1\./, 'a1.') },
 };
 
 for (const file of account) {
   for (const method of await methodsOf(file)) {
-    for (const [name, { cookie, account: held }] of Object.entries(ACCOUNT_CASES)) {
+    for (const [name, { cookie, account: held, admin: session }] of Object.entries(ACCOUNT_CASES)) {
       test(`${method} ${routePath(file)} with ${name}: refused by the account guard`, async (t) => {
         t.mock.method(console, 'error', () => {});
-        const res = await call(file, method, cookie, undefined, SITE, held);
+        const res = await call(file, method, cookie, undefined, SITE, held, session);
         if (SAFE.includes(method)) {
           assert.equal(res.status, 303, `functions/${file} answered ${res.status}: does it skip the account guard?`);
           assert.equal(res.headers.get('Location'), '/sign-in');

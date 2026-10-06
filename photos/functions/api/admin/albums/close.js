@@ -1,6 +1,6 @@
 /**
  * POST /api/admin/albums/close: close an album (#153). The guards in
- * ../_middleware.js have already required the owner's Access token and the
+ * ../_middleware.js have already required an admin's session and the
  * site's own Origin.
  *
  * A closed album leaves GET /api/albums/open, so the share page stops

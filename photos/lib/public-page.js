@@ -95,7 +95,8 @@ export const TAKEDOWN_EMAIL = 'dave@madcowsailing.com';
 
 // What a takedown does, in the words the dialog and the confirmation page
 // both use. "One of the site's admins", not "the site's owner", since any
-// address in ADMIN_EMAILS can act (CLAUDE.md, The photo site, item 18).
+// admin can act (CLAUDE.md, The photo site, item 18): any address in
+// ADMIN_EMAILS until #224, any account holding the admin role since.
 const REMOVE_WORDS = 'It will be hidden from everyone right away. One of the site\'s admins then reviews it, and either puts it back or deletes it for good.';
 
 // What the album page, or the list when the album has nothing left to show,

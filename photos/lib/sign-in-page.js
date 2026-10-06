@@ -22,7 +22,9 @@
  * on an email address is counted for addresses with no account too, so its
  * message reveals nothing either.
  */
+import { CODES_PER_DAY, CODE_DIGITS, CODE_SECONDS, CODE_TRIES } from './admin-code.js';
 import { escapeHtml } from './admin-page.js';
+import { ADMIN_SESSION_HOURS } from './admin-session.js';
 import { ASK_SCRIPT } from './ask-page.js';
 import { renderPage } from './public-page.js';
 import { RESET_GAP_SECONDS, RESET_REQUEST_LIMIT, RESET_SECONDS } from './reset.js';
@@ -33,6 +35,14 @@ const minutesText = (seconds) => {
   const minutes = Math.max(1, Math.ceil(seconds / 60));
   return minutes === 1 ? 'a minute' : `${minutes} minutes`;
 };
+
+// "in 3 hours", "in 40 minutes": the wait for the day's codes (#224).
+const waitText = (seconds) => (seconds < 60 * 60 ? minutesText(seconds) : (() => {
+  const hours = Math.ceil(seconds / (60 * 60));
+  return hours === 1 ? 'an hour' : `${hours} hours`;
+})());
+
+const CODE_MINUTES = CODE_SECONDS / 60;
 
 const RESET_MINUTES = RESET_SECONDS / 60;
 const GAP_MINUTES = RESET_GAP_SECONDS / 60;
@@ -87,10 +97,17 @@ export const SIGN_IN_PROBLEMS = {
   network: (retryAfter) => `This network has had ${NETWORK_FAILURE_LIMIT} failed sign-ins in the last hour, the most the site takes from one network. Try again in ${minutesText(retryAfter)}.`,
   busy: (retryAfter) => `The site has had too many failed sign-ins this hour, so it is not taking any until the hour is up. Try again in ${minutesText(retryAfter)}. A phone or computer that is already signed in keeps working.`,
   closed: () => 'Signing in isn\'t possible right now. Try again in a few minutes.',
+  // The admin's code (#224). Each is reached only with the right password,
+  // so saying the account is an admin's tells nobody anything new.
+  codes: (retryAfter) => `Your account has been sent ${CODES_PER_DAY} sign-in codes in the last 24 hours, the most the site sends one admin. Try again in ${waitText(retryAfter)}. If you did not ask for them, someone else knows your password: ${FORGOT}. A new password lets you sign in again at once.`,
+  'code-unsent': () => 'The email with your sign-in code could not be sent just now. Try again in a few minutes.',
+  'code-quota': () => 'The site has sent all the email it can for today, so your sign-in code could not be sent. Try again after midnight UTC, when the limit resets.',
 };
 
 const SIGN_IN_NOTICES = {
   'signed-out': 'You are signed out, on every phone and computer that was signed in to your account.',
+  // Where the admin guard sends a request it refuses (lib/admin-session.js).
+  admin: `Sign in to open the admin pages. An admin's sign-in lasts ${ADMIN_SESSION_HOURS} hours. If you pressed a button there, nothing was changed: press it again once you are signed in.`,
 };
 
 const SIGN_IN_TARGETS = { email: 'sign-in-email', password: 'sign-in-password' };
@@ -124,6 +141,69 @@ export function signInPage({ email = '', errors = [], problem = null, retryAfter
       <p class="actions"><button type="submit" class="button button-accent">Sign in</button></p>
     </form>
     <p class="ask-policy"><a href="/forgot-password">Forgot your password?</a></p>
+  </section>`,
+  });
+}
+
+// ---- /sign-in/code (#224) ---------------------------------------------------
+
+const CODE_LEDE = `Your account opens the admin pages, so signing in takes one more step. The site has emailed a ${CODE_DIGITS}-digit code to your account's address. It works once, for ${CODE_MINUTES} minutes, and only in this browser.`;
+
+export const CODE_PROBLEMS = {
+  wrong: (triesLeft) => `That is not the code. ${triesLeft === 1 ? '1 more try is' : `${triesLeft} more tries are`} allowed before it stops working. If you were sent more than one code, use the newest.`,
+  closed: () => 'The code can\'t be checked right now. Try again in a few minutes.',
+};
+
+const CODE_NOTICES = {
+  unconfirmed: 'The email service did not confirm that it sent your code. If it has not arrived in a few minutes, sign in again for a new one.',
+};
+
+/**
+ * The form for the code, with its reason from `errors`, `problem` (a key of
+ * CODE_PROBLEMS) with `triesLeft` where it applies, and `notice` (a key of
+ * CODE_NOTICES), shown when nothing went wrong. The field asks for the
+ * one-time code by its autocomplete name, so a phone can offer it from the
+ * email; it is a text field, never a number, so a leading 0 stays.
+ */
+export function codePage({ errors = [], problem = null, triesLeft = CODE_TRIES, notice = null } = {}) {
+  const { invalid, described, message } = fieldParts(errors);
+  const problemText = problem ? CODE_PROBLEMS[problem](triesLeft) : null;
+  const flagged = Boolean(problemText) || errors.length > 0;
+  const noticeText = !flagged && notice && CODE_NOTICES[notice]
+    ? `\n    <p role="status">${CODE_NOTICES[notice]}</p>` : '';
+  return renderPage({
+    title: flagged ? 'Error: Enter your code' : 'Enter your code',
+    main: `${head('Enter your code', CODE_LEDE)}
+
+  <section class="wrap ask" aria-label="Enter your code">${noticeText}${summary({ id: 'code-problems', problem: problemText, errors, targets: { code: 'sign-in-code' } })}
+    <form method="post" action="/sign-in/code" class="ask-form">
+      <p class="field">
+        <label for="sign-in-code">Code</label>
+        <span class="hint" id="sign-in-code-hint">The ${CODE_DIGITS} digits from the email.</span>${message('sign-in-code', 'code')}
+        <input id="sign-in-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="64" spellcheck="false" required${invalid('code')}${described('sign-in-code', 'code', true)}>
+      </p>
+      <p class="actions"><button type="submit" class="button button-accent">Sign in</button></p>
+    </form>
+    <p class="ask-policy">No code? <a href="/sign-in">Sign in again</a> for a new one.</p>
+  </section>`,
+  });
+}
+
+/**
+ * The page for a code that can no longer be used, whatever ended it: used,
+ * its time up, out of tries, or a browser holding no sign-in to check one
+ * against. A new code needs the password again.
+ */
+export function codeEndedPage({ outOfTries = false } = {}) {
+  const why = outOfTries
+    ? `That is not the code, and it was the last of its ${CODE_TRIES} tries, so the code no longer works.`
+    : `That code can no longer be used: it has been used, its ${CODE_MINUTES} minutes are up, or it was tried ${CODE_TRIES} times.`;
+  return renderPage({
+    title: 'Sign in again',
+    main: `${head('Sign in again', `${why} Sign in again, and a new code is emailed.`)}
+
+  <section class="wrap ask" aria-label="Sign in again">
+    <p class="actions"><a class="button button-accent" href="/sign-in">Sign in</a></p>
   </section>`,
   });
 }
@@ -201,16 +281,24 @@ const ACCOUNT_NOTICES = {
  * account sends from /share/, to its approved teams' albums only (owner, at
  * #223's pickup: /account links the share page, which links /sign-in back).
  * `notice` is a key of ACCOUNT_NOTICES.
+ *
+ * Since #224 an admin lands here too, after the code, and the page links the
+ * admin pages: a link gets through the Access sign-in that stands in front
+ * of /admin until #226, where a form's redirect is stopped (the owner's
+ * choice at #224's review; functions/sign-in/code.js says why). The link is
+ * drawn for any account holding the role, whatever cookie the browser holds:
+ * the admin pages ask for the code again once their 12 hours are up.
  */
-export function accountPage({ name, email, teams }, { notice = null } = {}) {
+export function accountPage({ name, email, teams, adminRole = null }, { notice = null } = {}) {
   const noticeText = notice && ACCOUNT_NOTICES[notice]
     ? `\n    <p role="status">${ACCOUNT_NOTICES[notice]}</p>` : '';
+  const adminLink = adminRole ? '\n      <a class="button" href="/admin/">Open the admin pages</a>' : '';
   return renderPage({
     title: 'Your account',
     main: `${head('You are signed in', `As ${escapeHtml(name)}, ${escapeHtml(email)}, approved for ${escapeHtml(teamsText(teams))}.`)}
 
   <section class="wrap ask" aria-label="Your account">${noticeText}
-    <p class="actions"><a class="button button-accent" href="/share/">Send photos</a></p>
+    <p class="actions"><a class="button button-accent" href="/share/">Send photos</a>${adminLink}</p>
     <p>You can send photos to the albums of ${escapeHtml(teamsText(teams))}. Each waits for one of the site's admins to check it before anyone sees it, and the admins see that it came from your account.</p>
     <p>To change your password, <a href="/forgot-password">reset it</a>: the site emails you a link.</p>
     <form method="post" action="/sign-out" class="ask-form">

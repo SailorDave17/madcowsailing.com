@@ -21,7 +21,13 @@ import { HTML_CACHE, sectionPage, teamListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { LINK_SECONDS, clearExpiredLinks, tokenHash } from '../lib/password-link.js';
-import { approveTeams, rejectTeams, sendLink } from '../lib/people.js';
+import { approveTeams, promoteAdmin, rejectTeams, sendLink } from '../lib/people.js';
+import {
+  CODES_PER_DAY, CODE_COOKIE, CODE_DIGITS, CODE_SECONDS, CODE_TRIES, clearExpiredCodes, codeCookie, startCode,
+} from '../lib/admin-code.js';
+import {
+  ADMIN_COOKIE, ADMIN_SESSION_HOURS, adminCookie, readAdminSession, signAdminSession,
+} from '../lib/admin-session.js';
 import { RESEND_URL } from '../lib/mail.js';
 import { DAILY_UPLOADS, SIZES, insertPhoto, senderColumns, sessionKey, spendDailyUpload } from '../lib/photos.js';
 import {
@@ -42,6 +48,7 @@ import {
   EMAIL_FAILURE_LIMIT, FAILED_IN_A_ROW, FAILURE_BUDGET_PER_HOUR, FAILURE_WINDOW_SECONDS as SIGN_IN_WINDOW_SECONDS,
   NETWORK_FAILURE_LIMIT, signOut,
 } from '../lib/sign-in.js';
+import { adminData } from './admin.js';
 import { d1, seedCodes } from './d1.js';
 import { r2 } from './r2.js';
 
@@ -67,7 +74,7 @@ const everyPage = () => ({
   'templates/page.html': read('templates', 'page.html'),
   'the team list at /, rendered': teamListPage([]),
   'a team\'s section, rendered': sectionPage('cohssa', []),
-  'the admin home, rendered': adminHome('owner@example.com', { waiting: 0, removals: 0, bytes: 0 }),
+  'the admin home, rendered': adminHome(adminData().admin, { waiting: 0, removals: 0, bytes: 0 }),
 });
 
 // What a reader sees: comments and tags out, whitespace folded.
@@ -469,6 +476,8 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
   assert.deepEqual(items, [
     'your name and email address;',
     'your role, the teams you asked for, and which of them an admin approved;', // D16
+    // #224: admin_role (0013), D15's role on the same sign-in.
+    'whether you are one of the site\'s admins, and whether you are its owner;',
     // #220, criterion 9: the request's time and state (0007).
     'when you asked, which teams still wait for an admin\'s answer, and whether the admins have been emailed about your request;',
     'the note you left with your request, if any;',
@@ -477,6 +486,9 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     'how many times in a row signing in to it has failed, until a sign-in succeeds;',
     // #221, criteria 2 and 7: the link's token, kept as its SHA-256.
     'a link to set your password, while it waits to be used, only as a hash, which can check the link but cannot be turned back into it;',
+    // #224, criterion 1: admin_codes (0013), an HMAC keyed with
+    // SESSION_SIGNING_KEY, and made_at, kept a day.
+    'if you are an admin, each code emailed to you to sign in, only as a hash made with a secret key, and when it was sent;',
     'which photos you sent from it.', // D17
   ]);
   has(words(html), [
@@ -493,10 +505,11 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     // or a reset's. #222: setting a password ends every link the account
     // holds (setPassword).
     'When an admin approves your account for a team, the site emails you a link to set your password. It can be used once, for 7 days, and a newer link replaces it once the newer one\'s email is sent. Once its 7 days are up, it is deleted the next time an admin opens the list of accounts or any link is sent. Setting a password with a link uses up every link the account holds.',
-    // #221's log (criterion 5: who, what, whom, when), and #225's revoke and
-    // delete entries (owner, at #219's review). The name and address are
-    // copied into each entry (migration 0008).
-    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, revoked it or deleted it, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
+    // #221's log (criterion 5: who, what, whom, when), #224's promote and
+    // demote (criterion 6), and #225's revoke and delete entries (owner, at
+    // #219's review). The name and address are copied into each entry
+    // (migration 0008).
+    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, made it an admin or removed it as one, revoked it or deleted it, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
     'The request asks for no sailor\'s name, so leave sailors\' names out of the note too.', // D18
     'An account, and a request for one, is kept until it is deleted. There is no set limit.', // owner, at #219's pickup
   ], '"What an account keeps"');
@@ -584,7 +597,13 @@ const ACCOUNT_ROWS = [
   ['Approval emails it; once, 7', ['sendLink', 'lib/people.js', 'functions/api/admin/people/', 'LINK_SECONDS', 'setPassword', 'lib/sign-in.js', '#222', 'replaceOthers', 'dropLink', '#221\'s pickup', '#221\'s review']],
   ['Deleted once its 7 days are up,', ['clearExpiredLinks', 'lib/password-link.js', 'functions/admin/people.js', 'newLink', '#221', 'sendReset', 'lib/reset.js', '#222']],
   ['Signing in: one cookie, 90', ['ACCOUNT_COOKIE', 'ACCOUNT_SESSION_DAYS', 'signAccountSession', 'lib/account-session.js', '#222\'s criterion 4']],
-  ['Signing out, a new password or', ['signOut', 'setPassword', 'lib/sign-in.js', 'session_version', 'migrations/0009_sign_in.sql', 'requireAccount', '#222\'s pickup', 'sessionAccount', '#225\'s criterion']],
+  ['Signing out, a new password or', ['signOut', 'setPassword', 'lib/sign-in.js', 'session_version', 'migrations/0009_sign_in.sql', 'requireAccount', '#222\'s pickup', 'sessionAccount', '#225\'s criterion', 'promoteAdmin', 'lib/people.js', '#224\'s review']],
+  // #224's records, its criterion 8 (#219's review asked each story to add
+  // its own).
+  ['An admin, or the owner: the', ['admin_role', 'migrations/0013_admins.sql', 'D15', 'Making the owner', '#224\'s pickup']],
+  ['An admin\'s code: emailed, once,', ['startCode', 'checkCode', 'useCode', 'CODE_SECONDS', 'CODE_TRIES', 'CODE_COOKIE', 'lib/admin-code.js', 'functions/sign-in.js', 'functions/sign-in/code.js', '#224\'s criterion 1']],
+  ['The code only as a keyed hash;', ['code_hash', 'admin_codes', 'migrations/0013_admins.sql', 'SESSION_SIGNING_KEY', 'CODES_PER_DAY', 'clearExpiredCodes', 'lib/admin-code.js', 'functions/admin/index.js', 'setPassword', 'lib/sign-in.js', '#224\'s review']],
+  ['The admin pages\' cookie: 12', ['ADMIN_COOKIE', 'ADMIN_SESSION_HOURS', 'signAdminSession', 'lib/admin-session.js', 'requireAdmin', '#224\'s criterion 2']],
   ['Failed sign-ins: 10 an hour', ['EMAIL_FAILURE_LIMIT', 'NETWORK_FAILURE_LIMIT', 'FAILURE_BUDGET_PER_HOUR', 'lib/sign-in.js', '#222\'s pickup']],
   ['Each failed try, scrambled, an', ['sign_in_failures', 'migrations/0009_sign_in.sql', 'emailHash', 'addressHash', 'clearExpiredSignIns', 'functions/admin/index.js', '#222\'s criterion 3']],
   ['100 failed in a row stops the', ['FAILED_IN_A_ROW', 'NIST SP 800-63B-4', '3.2.2', '"no more than 100"']],
@@ -594,7 +613,7 @@ const ACCOUNT_ROWS = [
   ['Pwned Passwords sees 5', ['pwned', 'PWNED_RANGE_URL', 'lib/password-rules.js', 'https://api.pwnedpasswords.com/range/', 'https://haveibeenpwned.com/API/v3', '2026-10-06', '#222\'s pickup']],
   ['Which photos it sent', ['D17', 'account_id', 'migrations/0012_photos_account.sql', 'insertPhoto', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
-  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', '#225', '#219\'s review']],
+  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', 'promoteAdmin', 'demoteAdmin', '#224\'s criterion 6', '#225', '#219\'s review']],
   ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
   ['No sailor\'s name', ['D18']],
   ['Kept until it is deleted', ['#219\'s pickup']],
@@ -663,6 +682,15 @@ test('the head comment traces every account claim in its own row, and the code i
     insertPhoto: '../lib/photos.js',
     sessionKey: '../lib/photos.js',
     senderColumns: '../lib/photos.js',
+    // #224
+    startCode: '../lib/admin-code.js',
+    checkCode: '../lib/admin-code.js',
+    useCode: '../lib/admin-code.js',
+    clearExpiredCodes: '../lib/admin-code.js',
+    signAdminSession: '../lib/admin-session.js',
+    requireAdmin: '../lib/admin-session.js',
+    promoteAdmin: '../lib/people.js',
+    demoteAdmin: '../lib/people.js',
   };
   for (const [name, module] of Object.entries(exported)) {
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
@@ -770,8 +798,9 @@ test('the sign-in figures are the code\'s: 90 days, 10 an hour per address, 20 p
     'The cookie holds your account\'s number, a session number and when you signed in, signed with a secret key so it cannot be changed, and no password, name or email address.',
     // Every device: the owner's choice at #222's pickup. A revoke ends every
     // session today through sessionAccount's approved-team read
-    // (test/sign-in.test.js); #225 is to add 1 to the version as well.
-    'Signing out, setting a new password, or an admin revoking the account ends every session the account has, on every phone and computer, the next time each is used.',
+    // (test/sign-in.test.js); #225 is to add 1 to the version as well. Being
+    // made an admin does since #224's review (promoteAdmin, test/admins.test.js).
+    'Signing out, setting a new password, being made one of the site\'s admins, or an admin revoking the account ends every session the account has, on every phone and computer, the next time each is used.',
   ], '"What an account keeps"');
   assert.match(kept, new RegExp(`at most ${EMAIL_FAILURE_LIMIT} an hour for one email address, whether or not it has an account, and ${NETWORK_FAILURE_LIMIT} an hour from one network\\.`));
   assert.match(kept, new RegExp(`The site takes at most ${FAILURE_BUDGET_PER_HOUR} failed sign-ins an hour from everyone together, and after that nobody can sign in until the hour is up\\.`));
@@ -794,7 +823,7 @@ test('"opens the admin home page" deletes failed sign-ins and reset requests ove
     insertTry.run(`e-${name}`, `a-${name}`, at);
     insertAsk.run(`a-${name}`, at);
   }
-  const response = await adminHomeRoute({ data: { owner: { email: 'owner@example.com' } }, env: { DB: db } });
+  const response = await adminHomeRoute({ data: adminData(), env: { DB: db } });
   assert.equal(response.status, 200);
   assert.deepEqual(db.sqlite.prepare('SELECT email_hash FROM sign_in_failures').all().map((r) => r.email_hash), ['e-fresh']);
   assert.deepEqual(db.sqlite.prepare('SELECT address_hash FROM reset_request_log').all().map((r) => r.address_hash), ['a-fresh']);
@@ -910,6 +939,9 @@ const TABLES = {
   sign_in_budget: 'a count per hour',
   reset_request_log: 'keyed network addresses',
   reset_mail_budget: 'a count per day',
+  // #224. An admin's emailed sign-in code, kept as a keyed hash, and the time
+  // each was sent, kept a day; deleted with the account.
+  admin_codes: 'an admin\'s sign-in codes, deleted with it (ON DELETE CASCADE) (#224)',
   // A counter, not a reference: the highest id each AUTOINCREMENT table has
   // given, which can equal a deleted account's.
   sqlite_sequence: 'the highest id each AUTOINCREMENT table has given',
@@ -984,8 +1016,18 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     assert.equal(await sendLink(env, { accountId, admin, now, site: 'https://photos.madcowsailing.com' }), 'sent');
   }
   assert.deepEqual(await rejectTeams(db, { accountId: 1, teams: ['cohssa'], admin, now }), ['cohssa']);
+  // #224: the one that stays is the owner, by README's by-hand statement, and
+  // the owner makes the one to delete an admin, who is then sent a sign-in
+  // code, so the delete has an admin's role, log entry and code to meet.
+  const owner = db.sqlite.prepare(readme.split('### Making the owner\n')[1]?.match(/--command "(UPDATE accounts SET admin_role = 'owner' [^"]+)"/)?.[1].replace('<id>', '?') ?? 'missing');
+  assert.equal(owner.run(2).changes, 1);
+  assert.equal(await promoteAdmin(db, { accountId: 1, actorId: 2, admin, now }), true);
+  const code = await startCode({ ...env, SESSION_SIGNING_KEY: 'test-session-signing-key-0123456789abcdef' }, {
+    accountId: 1, version: 1, email: 'Delete.Me@Example.org', now, site: 'https://photos.madcowsailing.com',
+  });
+  assert.equal(code.outcome, 'sent');
   const logged = db.sqlite.prepare('SELECT action, name, email FROM admin_log WHERE account_id = 1 ORDER BY id').all().map((r) => ({ ...r }));
-  assert.deepEqual(logged.map((r) => r.action), ['role', 'approve', 'link', 'reject']);
+  assert.deepEqual(logged.map((r) => r.action), ['role', 'approve', 'link', 'reject', 'promote']);
 
   const tables = db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
   assert.deepEqual(tables, Object.keys(TABLES).sort(), 'a table this test does not know: seed it here, and say whether it may name an account');
@@ -1015,10 +1057,18 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     return [...new Set(found)].sort();
   };
   // The control: before the delete, the check finds the account, its teams,
-  // its link (#221) and the photo it sent (#223).
-  assert.deepEqual(naming(), ['account_teams.account_id', 'accounts.email', 'accounts.id', 'password_links.account_id', 'photos.account_id']);
+  // its link (#221), the photo it sent (#223) and its sign-in code (#224).
+  assert.deepEqual(naming(), [
+    'account_teams.account_id', 'accounts.email', 'accounts.id', 'admin_codes.account_id', 'password_links.account_id', 'photos.account_id',
+  ]);
 
-  assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(target.id).changes, 1);
+  // The owner's account is never deleted, by this statement or any other
+  // (#224, criterion 3; migration 0013), and refusing it changes nothing.
+  const deleteOne = db.sqlite.prepare(sql.replace('<id>', '?'));
+  assert.throws(() => deleteOne.run(2), /the owner account is kept/);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM accounts').get().n, 2);
+
+  assert.equal(deleteOne.run(target.id).changes, 1);
   assert.deepEqual(naming(), []);
   // The photo stays, waiting as it was, and says only that a coach's account
   // sent it: "no longer record which account sent them, only whether it was
@@ -1215,5 +1265,95 @@ test('README\'s by-hand "hide every photo an account sent" hides exactly its app
   assert.ok(readBack, 'README has no read-back statement');
   const rows = db.sqlite.prepare(readBack.replace(/\s+/g, ' ').replace('<id>', '?')).all(1).map((r) => r.state);
   assert.deepEqual(rows.sort(), ['hidden', 'pending']);
+});
+
+// ---- #224: what an admin's sign-in keeps (its criterion 8) ------------------
+//
+// Each record #224 adds has a row in the trace table (ACCOUNT_ROWS, above)
+// and a line here: the admin role, the emailed code kept as a keyed hash with
+// its time for a day, the code's cookie, the 12-hour admin cookie, and making
+// and removing an admin in the admins' log (the log's sentence is held with
+// the rest of "What an account keeps", above).
+
+test('the admin figures are the code\'s: 6 digits, once, 10 minutes, 5 tries, 10 a day, kept a day; the admin pages\' cookie 12 hours (#224, criterion 8)', () => {
+  const kept = words(section('What an account keeps'));
+  has(kept, [
+    `An admin's sign-in takes one more step. Once the password is right, the site emails a ${CODE_DIGITS}-digit code to the account's address.`,
+    `The code works once, for ${CODE_SECONDS / 60} minutes and ${CODE_TRIES} tries, and only in the browser where the password was typed, which holds a small cookie naming that sign-in for those ${CODE_SECONDS / 60} minutes.`,
+    `The code is kept only as a hash, made with a secret key, and when it was sent is kept for a day, so that the site sends an admin at most ${CODES_PER_DAY} codes a day; after that day it is deleted, the next time a code is sent or an admin opens the admin home page.`,
+    'Setting a new password deletes an account\'s codes at once.',
+    `The right code opens a second cookie, for the admin pages, which lasts ${ADMIN_SESSION_HOURS} hours and holds what the first one holds, and nothing more.`,
+  ], '"What an account keeps"');
+  // The figures themselves, as the page states them, so a change to a
+  // constant is a change someone has to make here too.
+  assert.deepEqual([CODE_DIGITS, CODE_SECONDS, CODE_TRIES, CODES_PER_DAY, ADMIN_SESSION_HOURS], [6, 600, 5, 10, 12]);
+});
+
+test('"kept only as a hash, made with a secret key" and "kept for a day" are what a code\'s row is, and the admin home\'s load deletes it after its day (#224, criterion 8)', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ id: 'msg-224' }));
+  const db = d1();
+  await requestAccount(db, { request: { name: 'Ann Admin', email: 'ann@example.org', role: 'coach', teams: ['cohssa'], note: null }, address: 'a', now: 1 });
+  db.sqlite.prepare("UPDATE account_teams SET state = 'approved'").run();
+  const key = 'test-session-signing-key-0123456789abcdef';
+  const env = { DB: db, RESEND_API_KEY: 'test-key', SESSION_SIGNING_KEY: key };
+  const now = nowSeconds();
+  const old = await startCode(env, { accountId: 1, version: 1, email: 'ann@example.org', now: now - 86_400, site: 'https://photos.madcowsailing.com' });
+  const fresh = await startCode(env, { accountId: 1, version: 1, email: 'ann@example.org', now, site: 'https://photos.madcowsailing.com' });
+  assert.equal(old.outcome, 'sent');
+  assert.equal(fresh.outcome, 'sent');
+  // Sending the fresh code deleted the old one, a day old to the second and
+  // so past its day (made_at <= now - 86,400): "the next time a code is sent".
+  assert.deepEqual(db.sqlite.prepare('SELECT made_at FROM admin_codes').all().map((r) => r.made_at), [now]);
+  const row = { ...db.sqlite.prepare('SELECT * FROM admin_codes').get() };
+  assert.equal(row.token_hash, await tokenHash(fresh.token));
+  assert.match(row.code_hash, /^[A-Za-z0-9_-]{43}$/);
+  assert.ok(!Object.values(row).some((value) => String(value).includes(fresh.token)), 'the row holds the token');
+  // The admin home's load deletes a row over a day old and keeps the rest.
+  db.sqlite.prepare('INSERT INTO admin_codes (token_hash, account_id, version, code_hash, made_at, expires_at) VALUES (?, 1, 1, NULL, ?, ?)')
+    .run('o'.repeat(43), now - 86_401, now - 85_801);
+  const response = await adminHomeRoute({ data: adminData(), env: { DB: db } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(db.sqlite.prepare('SELECT made_at FROM admin_codes').all().map((r) => r.made_at), [now]);
+  // And clearExpiredCodes keeps a row at 86,399 seconds, the control on the boundary.
+  await clearExpiredCodes(db, now + 86_399);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM admin_codes').get().n, 1);
+});
+
+test('"holds what the first one holds, and nothing more" is the admin cookie: the account\'s number, its session number and the time, signed (#224, criterion 8)', async () => {
+  const key = 'test-session-signing-key-0123456789abcdef';
+  const value = await signAdminSession(key, { accountId: 7, version: 3 }, 1_790_000_000);
+  assert.match(value, /^m1\.7\.3\.1790000000\.[A-Za-z0-9_-]{43}$/);
+  const line = await adminCookie(key, { accountId: 7, version: 3 }, 1_790_000_000);
+  assert.equal(line, `${ADMIN_COOKIE}=${value}; Max-Age=${ADMIN_SESSION_HOURS * 3600}; Path=/; Secure; HttpOnly; SameSite=Lax`);
+  // The account's own cookie holds the same three numbers: the page's
+  // "what the first one holds".
+  const account = (await accountCookie(key, { accountId: 7, version: 3 }, 1_790_000_000)).split(';')[0].split('=')[1];
+  assert.deepEqual(account.split('.').slice(1, 4), value.split('.').slice(1, 4));
+  // A changed byte is refused, as the account cookie's is.
+  const changed = value.replace('m1.7.', 'm1.8.');
+  assert.equal(await readAdminSession(new Request('https://photos.madcowsailing.com/', { headers: { Cookie: `${ADMIN_COOKIE}=${changed}` } }), key, 1_790_000_100), null);
+  assert.ok(await readAdminSession(new Request('https://photos.madcowsailing.com/', { headers: { Cookie: `${ADMIN_COOKIE}=${value}` } }), key, 1_790_000_100));
+  // The code's cookie: 43 random characters, for the code's 10 minutes.
+  assert.match(codeCookie('A'.repeat(43)), new RegExp(`^${CODE_COOKIE}=A{43}; Max-Age=${CODE_SECONDS}; Path=/; Secure; HttpOnly; SameSite=Lax$`));
+});
+
+test('README\'s owner statement makes nobody the owner who is approved for no team: "or none for an account approved for no team" (#224\'s review)', async () => {
+  // Run on approved accounts only, the statement's approved-team clause was
+  // seen passing and never refusing, so deleting it reddened nothing.
+  const readme = read('..', 'README.md');
+  assert.match(readme, /changes 1 row, or none for an account approved for no team/);
+  const db = d1();
+  await requestAccount(db, { request: { name: 'Una Waiting', email: 'una@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'u', now: 1 });
+  const owner = db.sqlite.prepare(readme.split('### Making the owner\n')[1]?.match(/--command "(UPDATE accounts SET admin_role = 'owner' [^"]+)"/)?.[1].replace('<id>', '?') ?? 'missing');
+  const role = () => db.sqlite.prepare('SELECT admin_role FROM accounts WHERE id = 1').get().admin_role;
+  // Waiting, then turned down: no row changes, and nobody is the owner.
+  assert.equal(owner.run(1).changes, 0);
+  db.sqlite.prepare("UPDATE account_teams SET state = 'rejected' WHERE account_id = 1").run();
+  assert.equal(owner.run(1).changes, 0);
+  assert.equal(role(), null);
+  // The control: approved, the same statement makes the owner.
+  db.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = 1").run();
+  assert.equal(owner.run(1).changes, 1);
+  assert.equal(role(), 'owner');
 });
 

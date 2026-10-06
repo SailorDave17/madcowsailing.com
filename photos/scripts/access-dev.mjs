@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * A local stand-in for Cloudflare Access, so the admin pages run under
- * wrangler pages dev with the real token check (#151, criterion 5).
+ * A local stand-in for what stands in front of the site, so the admin pages
+ * and the coach sign-in run under wrangler pages dev with the real checks
+ * (#151, criterion 5; #192; #224).
  *
  *   node scripts/access-dev.mjs          then open http://127.0.0.1:8789/admin/
  *
@@ -9,43 +10,55 @@
  * (below), so from localhost:8789 every admin form is refused, 403 origin.
  *
  * Run from photos/, beside `npx --no-install wrangler pages dev` on its
- * default port, 8788. It does what Access does in front of the site, with a
- * key pair generated when it starts:
- *   - it publishes the public key at /cdn-cgi/access/certs, where the admin
- *     guard fetches a team's keys;
- *   - it forwards every other request to localhost:8788, adding a
- *     Cf-Access-Jwt-Assertion token signed RS256 with that key, for the first
- *     address in ADMIN_EMAILS, issued by this server, for ACCESS_AUD;
- *   - a request for /coach or under it (#192) gets a token for the first
- *     address in COACH_EMAILS, for ACCESS_COACH_AUD, as the coach
- *     application on photos.madcowsailing.com would send. Without those two
- *     lines it is forwarded with no token, and the coach guard answers 403.
- * So the guard in lib/access.js runs unchanged: it fetches these keys, checks
- * the signature, iss, aud, exp, nbf and the list, and refuses as it would on
- * production. There is no flag that turns the check off, here or anywhere.
- * It also passes this stand-in's own Origin on as the site's, as one host
- * would on production, so the admin pages' forms get past the Origin guard
+ * default port, 8788. It forwards every request to 127.0.0.1:8788, and:
+ *
+ *   - the admin pages (#224): since #224 they answer to an account holding
+ *     the admin role, through the __Host-admin cookie its sign-in sets once
+ *     the emailed code passes (lib/admin-session.js). Locally the code
+ *     cannot be emailed, since photos/.dev.vars holds no RESEND_API_KEY, so
+ *     this adds that cookie to every request for the account ADMIN_DEV_ACCOUNT
+ *     names, at session version ADMIN_DEV_VERSION (1 unless said), signed
+ *     with SESSION_SIGNING_KEY from .dev.vars, fresh each time. The guard runs
+ *     unchanged: it checks the signature and the age, and reads the account's
+ *     role, version and teams from the local database on every request, so
+ *     an account that is no admin is still refused. Make the account by
+ *     README.md's "The admin pages run locally" statements.
+ *   - /coach and under it (#192): a Cf-Access-Jwt-Assertion token signed RS256
+ *     with a key pair generated when this starts, for the first address in
+ *     COACH_EMAILS, for ACCESS_COACH_AUD, issued by this server, as the coach
+ *     application on photos.madcowsailing.com would send. It publishes the
+ *     public key at /cdn-cgi/access/certs, where the coach guard fetches a
+ *     team's keys. So lib/access.js runs unchanged too. Without
+ *     ACCESS_TEAM_DOMAIN, ACCESS_COACH_AUD and COACH_EMAILS in .dev.vars,
+ *     /coach is forwarded with no token, and the coach guard answers 403.
+ *     (Until #224 every other path got the admin application's token too,
+ *     which nothing reads now.)
+ *
+ * There is no flag that turns either check off, here or anywhere. It also
+ * passes this stand-in's own Origin on as the site's, as one host would on
+ * production, so the admin pages' forms get past the Origin guard
  * (lib/origin.js). Any other Origin is left alone.
  *
- * It needs three lines in photos/.dev.vars (gitignored), which wrangler pages
- * dev reads in place of wrangler.jsonc's values for those names:
+ * Lines it reads from photos/.dev.vars (gitignored), which wrangler pages dev
+ * reads in place of wrangler.jsonc's values for those names:
+ *
+ *   SESSION_SIGNING_KEY=<the throwaway local key, as README's Secrets makes it>
+ *   ADMIN_DEV_ACCOUNT=<the local admin account's id>
+ *
+ * and, for /coach, which is optional:
  *
  *   ACCESS_TEAM_DOMAIN=http://127.0.0.1:8789
- *   ACCESS_AUD=local
- *   ADMIN_EMAILS=<your address>
- *
- * and two more for /coach, which are optional:
- *
  *   ACCESS_COACH_AUD=local-coach
  *   COACH_EMAILS=<a coach's address>
  *
- * Requests straight to :8788 carry no token and get the guard's 403, which
- * is the other half worth seeing. The key lives only in this process, and
- * nothing is written to disk.
+ * Requests straight to :8788 carry no cookie or token and get the guards'
+ * refusals, which is the other half worth seeing. The key pair lives only in
+ * this process, and nothing is written to disk.
  */
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 
+import { ADMIN_COOKIE, signAdminSession } from '../lib/admin-session.js';
 import { base64url } from '../lib/crypto.js';
 
 const PORT = 8789;
@@ -65,15 +78,17 @@ function devVars() {
 }
 
 const vars = devVars();
-const email = (vars.ADMIN_EMAILS ?? '').split(',')[0].trim();
+const adminAccount = /^[1-9][0-9]{0,14}$/.test(vars.ADMIN_DEV_ACCOUNT ?? '') ? Number(vars.ADMIN_DEV_ACCOUNT) : null;
+const adminVersion = /^[1-9][0-9]{0,14}$/.test(vars.ADMIN_DEV_VERSION ?? '') ? Number(vars.ADMIN_DEV_VERSION) : 1;
 const coachEmail = (vars.COACH_EMAILS ?? '').split(',')[0].trim();
-const coaching = Boolean(vars.ACCESS_COACH_AUD && coachEmail);
-if (vars.ACCESS_TEAM_DOMAIN !== ISSUER || !vars.ACCESS_AUD || !email) {
-  console.error(`photos/.dev.vars needs these three lines, then restart wrangler pages dev:
+const coaching = vars.ACCESS_TEAM_DOMAIN === ISSUER && Boolean(vars.ACCESS_COACH_AUD && coachEmail);
+if (!vars.SESSION_SIGNING_KEY || adminAccount === null) {
+  console.error(`photos/.dev.vars needs these two lines, then restart wrangler pages dev:
 
-  ACCESS_TEAM_DOMAIN=${ISSUER}
-  ACCESS_AUD=local
-  ADMIN_EMAILS=<your address>`);
+  SESSION_SIGNING_KEY=<the throwaway local key>
+  ADMIN_DEV_ACCOUNT=<the local admin account's id>
+
+README.md, The photo site, Running it locally, says how to make the account.`);
   process.exit(2);
 }
 
@@ -95,8 +110,12 @@ async function token(aud, address) {
   return `${input}.${base64url(await crypto.subtle.sign(RSA, privateKey, encoder.encode(input)))}`;
 }
 
-// /coach and under it sit behind the coach application (#192); every other
-// path gets the admin application's token, as before.
+// An admin session as the sign-in's code step opens one, issued now.
+const adminSession = async () => signAdminSession(
+  vars.SESSION_SIGNING_KEY, { accountId: adminAccount, version: adminVersion }, Math.floor(Date.now() / 1000),
+);
+
+// /coach and under it sit behind the coach application (#192).
 const isCoachPath = (url) => url === '/coach' || url.startsWith('/coach/') || url.startsWith('/coach?');
 
 const DROP = new Set(['connection', 'content-length', 'content-encoding', 'transfer-encoding', 'keep-alive']);
@@ -110,8 +129,13 @@ createServer(async (req, res) => {
   for (const [name, value] of Object.entries(req.headers)) {
     if (!DROP.has(name) && name !== 'host') headers.set(name, Array.isArray(value) ? value.join(', ') : value);
   }
-  if (!isCoachPath(req.url)) headers.set('Cf-Access-Jwt-Assertion', await token(vars.ACCESS_AUD, email));
-  else if (coaching) headers.set('Cf-Access-Jwt-Assertion', await token(vars.ACCESS_COACH_AUD, coachEmail));
+  if (isCoachPath(req.url)) {
+    if (coaching) headers.set('Cf-Access-Jwt-Assertion', await token(vars.ACCESS_COACH_AUD, coachEmail));
+  } else {
+    // Beside whatever the browser holds, as a second cookie on the request.
+    const held = headers.get('cookie');
+    headers.set('cookie', `${held ? `${held}; ` : ''}${ADMIN_COOKIE}=${await adminSession()}`);
+  }
   // The browser is on this stand-in's origin, and the site sees each request
   // arrive on its own. On production, Access sits on the site's own host, so
   // those are one origin. Say the same here, so a form the admin pages post
@@ -132,9 +156,9 @@ createServer(async (req, res) => {
     res.writeHead(502, { 'Content-Type': 'text/plain' }).end(`wrangler pages dev did not answer on ${SITE}: ${err.message}\n`);
   }
 }).listen(PORT, '127.0.0.1', () => {
-  console.log(`Access stand-in on ${ISSUER}: signing in ${email}, forwarding to ${SITE}.`);
+  console.log(`Stand-in on ${ISSUER}, forwarding to ${SITE}: the admin pages as account ${adminAccount} (version ${adminVersion}).`);
   console.log(coaching
     ? `Signing in ${coachEmail} at /coach.`
-    : '/coach is forwarded with no token: add ACCESS_COACH_AUD and COACH_EMAILS to .dev.vars to sign a coach in.');
+    : '/coach is forwarded with no token: add ACCESS_TEAM_DOMAIN, ACCESS_COACH_AUD and COACH_EMAILS to .dev.vars to sign a coach in.');
   console.log(`Open ${ISSUER}/admin/ . Stop with Ctrl-C.`);
 });

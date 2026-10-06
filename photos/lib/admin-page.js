@@ -20,6 +20,7 @@
  * added the home's count of requests for an account. #221's page for them,
  * /admin/people, is lib/people-page.js, which takes adminPage() from here.
  */
+import { ADMIN_SESSION_SECONDS } from './admin-session.js';
 import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
@@ -68,7 +69,7 @@ export const SECTIONS = [
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
   { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
   { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
-  { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, and the admins\' log' },
+  { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, who the admins are, and the admins\' log' },
   { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
 ];
 
@@ -143,21 +144,29 @@ export function storageText(bytes) {
 }
 
 /**
- * The admin home for the admin signed in as `email`. `summary` is
- * lib/queue.js's queueSummary(): how many photos wait, how many removal
- * requests wait, and the bytes stored; and, since #220, `requests`,
- * lib/accounts.js's waitingRequests().
+ * The admin home for `admin`, lib/admin-session.js's context.data.admin:
+ * { name, email, role, issued }. Since #224 it says who is signed in, whether
+ * as the owner or an admin, and when the 12-hour admin sign-in ends, and has
+ * Sign out, which ends every session the account holds (lib/sign-in.js,
+ * signOut). `summary` is lib/queue.js's queueSummary(): how many photos wait,
+ * how many removal requests wait, and the bytes stored; and, since #220,
+ * `requests`, lib/accounts.js's waitingRequests().
  */
-export function adminHome(email, { waiting, removals, bytes, requests = 0 }) {
-  const items = SECTIONS.map(({ href, name, what }) =>
-    `      <li><a href="${href}">${escapeHtml(name)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
+export function adminHome({ name, email, role, issued }, { waiting, removals, bytes, requests = 0 }) {
+  const items = SECTIONS.map(({ href, name: section, what }) =>
+    `      <li><a href="${href}">${escapeHtml(section)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
+  const as = role === 'owner' ? 'the owner' : 'an admin';
   return adminPage({
     title: 'Admin',
     main: `<main id="main">
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Photo site admin</h1>
-    <p class="lede">Signed in as ${escapeHtml(email)}.</p>
+    <p class="lede">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
+    <form method="post" action="/sign-out">
+      <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
+      <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>
+    </form>
   </section>
 
   <section class="wrap" aria-labelledby="admin-now">
