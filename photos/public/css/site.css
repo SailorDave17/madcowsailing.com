@@ -635,6 +635,79 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- Admin: people (#221) ------------------------------------------- */
+
+.people {
+  list-style: none;
+  padding: 0;
+}
+
+.people,
+.people-empty {
+  margin-block-start: var(--space-3);
+}
+
+.person {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.person > * + * {
+  margin-block-start: var(--space-2);
+}
+
+.person h3 {
+  font-size: var(--text-xl);
+}
+
+/* An email address is one unbroken word, which can be wider than a 360 px
+   screen; so is a name or a note with no spaces. A 40-character name made
+   the page 590 px wide at 320 until the heading was in this rule (#221's
+   ux-design audit, 1.4.10). */
+.person h3,
+.person-facts,
+.admin-log li {
+  overflow-wrap: anywhere;
+}
+
+/* A note keeps its line breaks, as a takedown's does. */
+.person-note {
+  white-space: pre-line;
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
+}
+
+/* Each team's box is its label as well, padded past 24 px as the request
+   form's are (WCAG 2.5.8). */
+.person-form .choices label {
+  padding-block: var(--space-1);
+}
+
+.person-form .choices input {
+  accent-color: var(--blue);
+  margin-inline-end: var(--space-1);
+}
+
+/* The same field edge as .album-form's inputs: --deep reads 3:1 and more
+   against the page (WCAG 1.4.11). */
+.person-form select {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.admin-log {
+  padding-inline-start: var(--space-4);
+  max-width: var(--measure);
+}
+
+.admin-log li + li {
+  margin-block-start: var(--space-2);
+}
+
 /* ---- Public: asking for an account (#220) --------------------------- */
 
 /* The form follows its head closely, as the album grid does, at the width

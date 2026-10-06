@@ -17,7 +17,8 @@
  * approval queue, adminQueuePage(), and its script, and the home's counts.
  * #158 added the removal requests, adminRemovalsPage(), and its script, and
  * the home's count of them. #217 added the test email, adminMailPage(). #220
- * added the home's count of requests for an account.
+ * added the home's count of requests for an account. #221's page for them,
+ * /admin/people, is lib/people-page.js, which takes adminPage() from here.
  */
 import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
@@ -53,7 +54,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=53f7c065e8">
+<link rel="stylesheet" href="/css/site.css?v=75d6a77b92">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -66,6 +67,7 @@ export const SECTIONS = [
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
   { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
   { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
+  { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, and the admins\' log' },
   { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
 ];
 
@@ -179,17 +181,23 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
 /**
- * A moment as a <time>: the machine-readable instant, and text in UTC, which
- * public/js/admin-code.js rewrites into the reader's own time zone. Built by
- * hand rather than with Intl, so the text does not depend on a runtime's
- * locale data.
+ * A moment as text in UTC: "12 October 2026, 14:03 UTC". Built by hand rather
+ * than with Intl, so the text does not depend on a runtime's locale data. The
+ * email with a link to set a password says when it expires this way (#221).
  */
-export function timeElement(seconds) {
+export function utcText(seconds) {
   const d = new Date(seconds * 1000);
   const two = (n) => String(n).padStart(2, '0');
-  const text = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
     `${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC`;
-  return `<time datetime="${d.toISOString()}">${text}</time>`;
+}
+
+/**
+ * A moment as a <time>: the machine-readable instant, and utcText(), which
+ * public/js/admin-code.js rewrites into the reader's own time zone.
+ */
+export function timeElement(seconds) {
+  return `<time datetime="${new Date(seconds * 1000).toISOString()}">${utcText(seconds)}</time>`;
 }
 
 /**

@@ -495,6 +495,7 @@ a new file is listed here.
 | `0005_photos.sql` | #154 | `photos`, every photo and clip in every state, and `upload_counts`, each session's uploads per UTC day |
 | `0006_removal_requests.sql` | #158 | `removal_requests`, the hour's takedowns per address that rate-limit "Remove this photo" |
 | `0007_accounts.sql` | #220 | `teams`, `accounts` and `account_teams`, each request for an account and its teams; `account_request_log`, `account_request_budget` and `account_request_mail`, the request limits and the admins' email hour |
+| `0008_admin_people.sql` | #221 | `password_links`, each unused link to set a password, kept as a hash; `admin_log`, what the admins do with each account |
 
 ### The invite code
 
@@ -917,14 +918,49 @@ old invite link there.
   hour old, by the next request the site takes or the next load of `/admin`.
 - **One account per email address**, matched without regard to letter case.
   A request from an address the site already has writes nothing, and is
-  answered with the same `303` to `/ask?sent` as a new one.
+  answered with the same `303` to `/ask?sent` as a new one. That includes a
+  turned-down address (owner, at #221's pickup): an admin who changes their
+  mind approves it on `/admin/people` instead.
 - **The admins hear at most once an hour.** The first new request emails
   every address on `ADMIN_EMAILS` at once and opens the hour; requests inside
   it send nothing; the first after it sends one email naming everyone since,
-  by name, role and teams only, with a link to `/admin/people`, which #221
-  builds. The admin home says how many requests wait, which is how a request
-  that no later one follows is seen. If no admin's email goes through, the
-  requests stay unnamed and the next request tries again.
+  by name, role and teams only, with a link to `/admin/people` (below). The
+  admin home says how many requests wait, which is how a request that no
+  later one follows is seen. If no admin's email goes through, the requests
+  stay unnamed and the next request tries again.
+
+### Approving accounts
+
+`/admin/people` (#221; `CLAUDE.md`, The photo site, item 26, has the
+decisions) lists every request for an account in three lists: **Waiting**,
+**Approved** and **Turned down**. The admins' log is under them.
+
+- **Each team is decided on its own** (D16). A waiting request's form has a
+  box per team, ticked, and the role the requester chose. **Approve** takes
+  the ticked teams and the role. **Turn down** takes the ticked teams and
+  sends nothing. A turned-down team keeps an unticked box under Approve, so a
+  mistake can be undone.
+- **Approving emails a link to set a password**, to the address on the
+  request, from `no-reply@photos.madcowsailing.com`. The link is
+  `/set-password?token=…`, and it works once, for 7 days. **"Send a new
+  link"** on an approved person sends another, and once that email is sent the
+  last one stops working. If Resend refuses the email, the page says why, the
+  new link is deleted and the last one keeps working; if Resend does not
+  answer, both work. The approval stands either way.
+- **Until #222, the link only says the account is approved.** Setting the
+  password is #222's, so **approve no real person before #222 ships**: their
+  link would have nothing to set yet. Opening a link spends nothing, so a mail
+  scanner fetching it cannot use it up. A used, expired, replaced or mistyped
+  link answers `404` with one page for all of them.
+- **The log** records who did what to whom, and when: each approval and
+  turn-down per team, a role change, and each link sent, with how the email
+  went. A link's entry is written with the link itself, so no link exists
+  without one. It copies the person's name and address into every entry, so
+  it still names them after their account is deleted. The page shows the
+  newest 100, and nothing deletes from the table.
+- **A link's row holds only the token's SHA-256** (`password_links`). An
+  expired row is deleted by the next load of `/admin/people` or the next link
+  sent.
 
 ### Deleting an account by hand
 
@@ -950,13 +986,14 @@ and a request can come from anyone. From `photos/`, with the D1 token in
 
 4. Read it back: step 1's statement must return no row.
 
-Its teams go with it (`ON DELETE CASCADE`). `photos/test/policy.test.js` runs
-the step-3 statement against the real schema, with a row in every table, and
-fails if any row afterwards names the account's id or address. Only two may:
-the admins' log entries (#221) and, for a revoked account, its address kept
-as a keyed hash (#225). #221, #223 and #225 keep that test passing as they add
-tables. The database's restore points keep the account for up to 30 days, as
-`/policy` says.
+Its teams and any unused link to set a password go with it (`ON DELETE
+CASCADE`). `photos/test/policy.test.js` runs the step-3 statement against the
+real schema, with a row in every table, and fails if any row afterwards names
+the account's id or address. Only two may: the admins' log entries (#221),
+which keep naming the person, as the test also checks, and, for a revoked
+account, its address kept as a keyed hash (#225). #223 and #225 keep that test
+passing as they add tables. The database's restore points keep the account
+for up to 30 days, as `/policy` says.
 
 ## The push guard
 
