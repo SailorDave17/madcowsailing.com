@@ -50,9 +50,19 @@
                                          user email, IP address and request
                                          time (read 2026-10-01, #192)
        Every photo and caption checked   D2, D5, D8; the approval queue (#156)
-       against the media release         and README.md, Approving. It states
+       against its team's release        and README.md, Approving. It states
                                          the check, not a guaranteed outcome
-                                         (owner, at #159's review)
+                                         (owner, at #159's review). A photo's
+                                         team is its album's, albums.team in
+                                         migrations/0010_album_teams.sql
+                                         (#227)
+       Hoover JRT: the release families  D5. Worded as the whole check read
+       sign, and their opt-outs          before #238 (#238's criterion 3)
+       COHSSA: its season-registration   CLAUDE.md, The photo site, item 24:
+       release, which COHSSA issues,     the owner, 2026-10-05 (#194). Its
+       with no opt-out                   wording is not recorded yet, and
+                                         #253 quotes it here (owner, at
+                                         #238's gate)
        Turned down means deleted         rejectPhotos in lib/queue.js (#156)
        "Remove this photo" hides it      requestRemoval in lib/removals.js and
        from everyone at once             functions/api/remove.js (#158; D7);
@@ -302,6 +312,13 @@
                                          (read 2026-10-05; owner, at #219's
                                          review)
 
+     #238 (the teams' releases) changed the check: it says which release
+     covers which team's photos, keeps Hoover JRT's check against the
+     families who opted out as it read, and names COHSSA's season-registration
+     release, which has no opt-out. Its wording is #253's to quote. Every
+     team in lib/teams.js needs its own sentence here, which
+     test/policy.test.js holds.
+
      #222 (signing in) added the session cookie and what ends it, the count
      of failed sign-ins in a row, the failed sign-in limits and their
      scrambled addresses, the reset link, its limits and its scrambled
@@ -437,9 +454,14 @@
     <h2>Every photo is checked first</h2>
     <p>Nothing sent shows up straight away. One of the site's admins looks at
       each photo and its caption, and checks it against the media release
-      families sign when they register with the team. The admin turns down
-      any photo they recognize as showing a sailor whose family opted out,
-      and can edit or clear a caption before the photo goes up.</p>
+      that covers its team. The admin can edit or clear a caption before the
+      photo goes up.</p>
+    <p>For Hoover JRT, that is the media release families sign when they
+      register with the team. The admin turns down any photo they recognize
+      as showing a sailor whose family opted out.</p>
+    <p>For COHSSA, it is COHSSA's season-registration release, which COHSSA
+      issues as part of registering for its season. It has no opt-out, so
+      there is no list of families to check a COHSSA photo against.</p>
     <p>A check can miss one. If a photo is up that should not be, press
       "Remove this photo" under it, or email the address above, and it comes
       down.</p>

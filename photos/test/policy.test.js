@@ -28,6 +28,7 @@ import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
 } from '../lib/removals.js';
 import { SESSION_DAYS, coachListed, coachSessionCookie, nowSeconds, readSession } from '../lib/session.js';
+import { TEAMS } from '../lib/teams.js';
 import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
 import { onRequestGet as adminHomeRoute } from '../functions/admin/index.js';
 import { ACCOUNT_COOKIE, ACCOUNT_SESSION_DAYS, accountCookie, readAccountSession, sessionAccount } from '../lib/account-session.js';
@@ -1000,5 +1001,68 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   assert.deepEqual(find.all('Delete.Me@Example.org'), []);
   // The lookup matches whatever letter case the address is written in.
   assert.equal(find.all('STAYS@example.org').length, 1);
+});
+
+// ---- #238: which release covers which team's photos -------------------------
+//
+// Hoover JRT's photos are checked against the families who opted out of its
+// release, and COHSSA's release has none (CLAUDE.md, The photo site, item
+// 24). COHSSA's wording is not recorded yet, so the page names the release
+// and does not quote it (owner, at #238's gate).
+
+// One paragraph of the check, whole: the capture stops at its own </p>, so a
+// claim in the paragraph after it cannot stand in for one in it.
+const checkParagraph = (lead) => {
+  const found = section('Every photo is checked first').match(new RegExp(`<p>(${lead}(?:(?!</p>)[\\s\\S])*)</p>`));
+  assert.ok(found, `the check has no paragraph starting "${lead}"`);
+  return words(found[1]);
+};
+
+test('/policy names COHSSA\'s season-registration release and says it has no opt-out (#238, criterion 2)', () => {
+  const cohssa = checkParagraph('For COHSSA,');
+  has(cohssa, [
+    'COHSSA\'s season-registration release',
+    'which COHSSA issues as part of registering for its season', // item 24, #194
+    'It has no opt-out, so there is no list of families to check a COHSSA photo against.',
+  ], 'COHSSA\'s paragraph');
+  assert.doesNotMatch(cohssa, /opted out/);
+});
+
+test('the check says which release covers each team\'s photos, and Hoover JRT\'s reads as it did (#238, criterion 3)', () => {
+  const check = section('Every photo is checked first');
+  const paragraphs = [...check.matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => words(m[1]));
+  assert.ok(paragraphs[0].includes('checks it against the media release that covers its team.'), paragraphs[0]);
+  // One paragraph for each team, in the order every page lists them, each
+  // naming its release. A third team fails here until the page names its.
+  const teams = paragraphs.filter((paragraph) => paragraph.startsWith('For '));
+  assert.deepEqual(teams.map((paragraph) => paragraph.match(/^For ([^,]+),/)?.[1]), TEAMS.map(({ name }) => name));
+  for (const paragraph of teams) assert.match(paragraph, /release/);
+  // Hoover JRT's check against the families who opted out, in the words the
+  // whole check used before #238.
+  assert.equal(teams[0], 'For Hoover JRT, that is the media release families sign when they register with the team. '
+    + 'The admin turns down any photo they recognize as showing a sailor whose family opted out.');
+});
+
+// The trace table's #238 rows, in order, each with the sources its own cell
+// must name, read from column 41 up to the next row's first line, as for
+// ACCOUNT_ROWS. The last row ends where the row after it begins.
+const RELEASE_ROWS = [
+  ['Every photo and caption checked', ['D5', '#159\'s review', 'albums.team', 'migrations/0010_album_teams.sql', '#227']],
+  ['Hoover JRT: the release families', ['D5', '#238\'s criterion 3']],
+  ['COHSSA: its season-registration', ['item 24', '2026-10-05 (#194)', 'not recorded yet', '#238\'s gate']],
+  ['Turned down means deleted', []],
+];
+
+test('the head comment traces which release covers which team, each in its own row (#238)', () => {
+  const lines = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0].split('\n');
+  const starts = RELEASE_ROWS.map(([head]) => lines.findIndex((line) => line.startsWith(`       ${head}`)));
+  RELEASE_ROWS.forEach(([head], i) => {
+    assert.ok(starts[i] > 0, `the trace table has no "${head}" row`);
+    if (i > 0) assert.ok(starts[i] > starts[i - 1], `the "${head}" row is out of order`);
+  });
+  RELEASE_ROWS.slice(0, -1).forEach(([head, sources], i) => {
+    const cell = lines.slice(starts[i], starts[i + 1]).map((line) => line.slice(41).trim()).join(' ');
+    for (const source of sources) assert.ok(cell.includes(source), `the "${head}" row does not name ${source}`);
+  });
 });
 
