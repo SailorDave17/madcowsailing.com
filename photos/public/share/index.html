@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Send photos — Mad Cow Sailing photos</title>
-<meta name="description" content="Send the team your regatta and practice photos from the invite link you were given.">
+<meta name="description" content="Send the team your regatta and practice photos from your account, or from the invite link you were given.">
 
 <!-- Story #150: the share page, where an invite link lands. The link is
      /share/#code=<code>. share.js reads the code from the fragment, which a
@@ -47,7 +47,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-180.png">
 <meta name="apple-mobile-web-app-title" content="Mad Cow photos">
-<script src="/js/share.js?v=d7049a3242" defer></script>
+<script src="/js/share.js?v=fcfddede1f" defer></script>
 </head>
 
 <body>
@@ -101,8 +101,8 @@
   <section class="wrap page-head">
     <p class="eyebrow">Photos</p>
     <h1>Send photos</h1>
-    <p class="lede" id="join-status" role="status">Open the invite link you were
-      sent to start sending photos to the team.</p>
+    <p class="lede" id="join-status" role="status">Sign in, or open the invite
+      link you were sent, to start sending photos to the team.</p>
     <noscript><p>This page needs JavaScript to open an invite link. Turn it on,
       then open the link again.</p></noscript>
     <p><button type="button" class="button" id="join-retry" hidden>Try again</button></p>
@@ -119,6 +119,11 @@
          lands here with none, finds the way back here. Always shown:
          share.js never touches it. -->
     <p>A coach? <a href="/coach">Sign in at /coach</a> instead.</p>
+    <!-- #223: an account sends from this page once signed in, and /account
+         links back here (owner, at #223's pickup). Always shown: share.js
+         never touches it. /ask stays unlinked until #226 (owner, at #220's
+         pickup). -->
+    <p>Have an account? <a href="/sign-in">Sign in</a>.</p>
 
     <!-- Sending (#155), shown once this phone holds a session. share.js
          fills the album list from GET /api/albums/open and preselects one,

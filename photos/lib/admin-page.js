@@ -557,6 +557,16 @@ function sizeImage(photo, size, lazy) {
   return `<img src="${photoUrl(photo.id, size)}" width="${width}" height="${height}" alt="Photo ${photo.id} at ${size} size"${lazy ? ' loading="lazy"' : ''}>`;
 }
 
+// Who sent a photo, as the queue and removals pages say it, per photo rather
+// than per batch, so it stays true whatever a batch holds. A photo from an
+// account names it (#223, criterion 3, D17): the name the person gave, as
+// typed, so escaped. A coach's Access sign-in says only that a coach sent it
+// (#192). The invite link, and an account since deleted, say nothing.
+const sentBy = (photo) => {
+  if (photo.accountName != null) return ` · sent by ${escapeHtml(photo.accountName)}`;
+  return photo.sender === 'coach' ? ' · sent by a coach' : '';
+};
+
 // A photo: the screen size large enough to see a face, then the grid and the
 // full, which the public sees (#157), smaller beside each other. Each links
 // to itself, to open alone. The owner's choice at #156's pickup: all three in
@@ -568,10 +578,7 @@ function waitingPhoto(photo, formId, first, team) {
               <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
               <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
             </figure>`;
-  // A coach's photo says so (#192): it came through a coach's Access sign-in,
-  // not the invite link. Per photo rather than per batch, so it stays true
-  // whatever a batch holds.
-  const from = photo.sender === 'coach' ? ' · sent by a coach' : '';
+  const from = sentBy(photo);
   return `<li class="waiting" id="photo-${id}">
           <h3>Photo ${id}</h3>
           <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}${from}</p>
@@ -727,7 +734,7 @@ function removalItem(photo, team) {
   const caption = photo.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(photo.caption)}</p>`;
   return `<li class="removal" id="photo-${id}">
       <h2>Photo ${id}</h2>
-      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}</p>
+      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}${sentBy(photo)}</p>
       <a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${photo.grid.width}" height="${photo.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>${caption}
       <h3 class="removal-note-heading">The note</h3>
       ${note}

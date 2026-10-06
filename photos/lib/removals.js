@@ -238,13 +238,15 @@ export async function clearExpiredTakedowns(db, now) {
  * hidden and the note, for /admin/removals. One query, by the photos_by_state
  * index; the hidden rows are few, so the sort by hidden_at is cheap. `team`
  * keeps only the photos in that team's albums (#227), for the page's team
- * filter; null keeps every team's.
+ * filter; null keeps every team's. `accountName` is the name of the account
+ * that sent it (#223, criterion 3, D17), for the admins alone, or null.
  */
 export async function hiddenPhotos(db, team = null) {
   const statement = db.prepare(
     'SELECT p.id, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, ' +
-    'a.title AS album_title, a.address AS album_address, a.team AS album_team ' +
+    'a.title AS album_title, a.address AS album_address, a.team AS album_team, acc.name AS account_name ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
+    'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
     "WHERE p.state = 'hidden' AND p.kind = 'photo' " +
     (team === null ? '' : 'AND a.team = ? ') +
     'ORDER BY p.hidden_at, p.id',
@@ -255,6 +257,7 @@ export async function hiddenPhotos(db, team = null) {
     caption: row.caption,
     hiddenAt: row.hidden_at,
     note: row.hidden_note,
+    accountName: row.account_name,
     grid: { width: row.grid_width, height: row.grid_height },
     album: { title: row.album_title, address: row.album_address, team: row.album_team },
   }));

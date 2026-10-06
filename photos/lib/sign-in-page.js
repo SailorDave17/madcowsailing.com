@@ -197,8 +197,10 @@ const ACCOUNT_NOTICES = {
 
 /**
  * The page a signed-in person lands on: who they are, the teams they are
- * approved for, and Sign out. Sending photos from an account is #223's, so
- * the page says that isn't open yet. `notice` is a key of ACCOUNT_NOTICES.
+ * approved for, the way to the share page, and Sign out. Since #223 an
+ * account sends from /share/, to its approved teams' albums only (owner, at
+ * #223's pickup: /account links the share page, which links /sign-in back).
+ * `notice` is a key of ACCOUNT_NOTICES.
  */
 export function accountPage({ name, email, teams }, { notice = null } = {}) {
   const noticeText = notice && ACCOUNT_NOTICES[notice]
@@ -208,7 +210,8 @@ export function accountPage({ name, email, teams }, { notice = null } = {}) {
     main: `${head('You are signed in', `As ${escapeHtml(name)}, ${escapeHtml(email)}, approved for ${escapeHtml(teamsText(teams))}.`)}
 
   <section class="wrap ask" aria-label="Your account">${noticeText}
-    <p>Sending photos from your account isn't open yet.</p>
+    <p class="actions"><a class="button button-accent" href="/share/">Send photos</a></p>
+    <p>You can send photos to the albums of ${escapeHtml(teamsText(teams))}. Each waits for one of the site's admins to check it before anyone sees it, and the admins see that it came from your account.</p>
     <p>To change your password, <a href="/forgot-password">reset it</a>: the site emails you a link.</p>
     <form method="post" action="/sign-out" class="ask-form">
       <p class="hint" id="sign-out-hint">Signing out signs you out on every phone and computer signed in to your account.</p>

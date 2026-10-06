@@ -502,6 +502,7 @@ a new file is listed here.
 | `0009_sign_in.sql` | #222 | Three columns on `accounts`: the password hash, the session version and the failed sign-ins in a row; `sign_in_failures` and `sign_in_budget`, the sign-in limits; `reset_request_log` and `reset_mail_budget`, the reset limits |
 | `0010_album_teams.sql` | #227 | `team` on `albums`, Hoover JRT for every album made before it; four triggers that hold it to a row in `teams`, in place of a reference SQLite will not add with a default |
 | `0011_teams_replace_guard.sql` | #227 | A fifth trigger: a `REPLACE` into `teams` cannot remove a team an album names, the one path 0010's four left open |
+| `0012_photos_account.sql` | #223 | `account_id` on `photos`, the account that sent each photo, set to NULL when the account is deleted; a CHECK holding an account's row to the placeholder code generation and session time 0; a partial index |
 
 ### The invite code
 
@@ -609,6 +610,16 @@ photo site, item 14.
   the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
   item 15 has the decisions. To try it locally, open the invite link from
   `/admin/code`, add an album on `/admin/albums`, and choose photos.
+- **From an account** (#223; `CLAUDE.md`, The photo site, item 29). A phone
+  signed in at `/sign-in` sends as the account, even beside an invite link, to
+  the open albums of the teams the account is approved for: the share page
+  lists only those, and any other album answers `403 {"error":"team"}`,
+  storing nothing. Each row names the account in `account_id`, which the
+  queue and removals pages show by name; the sender column is the account's
+  role (`coach`, else `parent`), and the code generation and session time are
+  0. An account's 500 a day are shared by every phone signed in to it
+  (`upload_counts` under `account.<id>`). A coach account's clips may run 15
+  minutes and everyone else's 3 (`clipSeconds` in `lib/photos.js`, for #198).
 
 ### The installed app
 
@@ -994,9 +1005,10 @@ decisions) lists every request for an account in three lists: **Waiting**,
 
 An approved person sets a password from their emailed link, signs in at
 `/sign-in`, and resets a forgotten password at `/forgot-password` (#222;
-`CLAUDE.md`, The photo site, item 27, has the decisions). Nothing public links
-to `/sign-in` or `/forgot-password` yet, as nothing links to `/ask`: the
-emails do, and #223 and #226 add the rest. Sending from an account is #223's.
+`CLAUDE.md`, The photo site, item 27, has the decisions). Since #223 the share
+page links `/sign-in` ("Have an account? Sign in"), and `/account` links the
+share page, where an account sends (Uploads, above). Nothing links `/ask`
+until #226.
 
 - **The password**: 15 to 256 characters, counted after NFC, with no rules
   about mixing kinds. It is turned down when it is the person's own address
@@ -1030,12 +1042,39 @@ emails do, and #223 and #226 add the rest. Sending from an account is #223's.
   password: from a reset, or from "Send a new link" on `/admin/people`.
   Setting it puts the count of failures in a row back to 0.
 
+### Hiding every photo an account sent, by hand
+
+For a deletion request that asks for the photos to come down too, until #225
+builds "Hide all their photos" (#223, criterion 6; #219's review). Do it
+**before** the delete below: deleting the account stops its photos naming it,
+so afterwards nothing finds them as a group. From `photos/`, with the D1 token
+in `photos/.env` (above):
+
+1. Find the account's id with step 1 of the delete below.
+2. Hide every public photo it sent:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET state = 'hidden', hidden_at = unixepoch(), hidden_note = NULL WHERE account_id = <id> AND kind = 'photo' AND state = 'approved'"
+   ```
+
+3. Read it back. `--command "SELECT state, COUNT(*) FROM photos WHERE account_id
+   = <id> GROUP BY state"` must list no `approved`.
+4. Turn down its waiting photos on `/admin/queue`, where each says who sent
+   it. Turning down deletes them.
+
+The hidden photos wait on `/admin/removals`, each naming the account, to be
+deleted for good or put back, and no takedown is counted against anyone's
+limit. `photos/test/policy.test.js` runs the step-2 statement against the
+real schema: it hides exactly the account's approved photos, and nothing
+waiting, hidden already, or sent by anyone else.
+
 ### Deleting an account by hand
 
 How an account is deleted until #225 builds the admin's button, and the
 fallback after it (#219; owner, 2026-10-05). **Only once a reply from the
 account's own address confirms the request**, since a delete cannot be undone
-and a request can come from anyone. From `photos/`, with the D1 token in
+and a request can come from anyone. If the request asks for the photos to
+come down too, hide them first (above). From `photos/`, with the D1 token in
 `photos/.env` (above):
 
 1. Find the account, and check it is the one the email is about (write any `'`
@@ -1055,13 +1094,17 @@ and a request can come from anyone. From `photos/`, with the D1 token in
 4. Read it back: step 1's statement must return no row.
 
 Its teams and any unused link to set a password go with it (`ON DELETE
-CASCADE`). `photos/test/policy.test.js` runs the step-3 statement against the
-real schema, with a row in every table, and fails if any row afterwards names
-the account's id or address. Only two may: the admins' log entries (#221),
-which keep naming the person, as the test also checks, and, for a revoked
-account, its address kept as a keyed hash (#225). #223 and #225 keep that test
-passing as they add tables. The database's restore points keep the account
-for up to 30 days, as `/policy` says.
+CASCADE`). The photos it sent stay as they are and stop naming it: their
+`account_id` becomes NULL (`ON DELETE SET NULL`, migration 0012, #223), and
+each still says whether a coach's account sent it. `photos/test/policy.test.js`
+runs the step-3 statement against the real schema, with a row in every table,
+and fails if any row afterwards names the account's id or address. Only these
+may: the admins' log entries (#221), which keep naming the person, as the test
+also checks; the day's upload count under `account.<id>`, until anyone's
+first upload of a later day clears it (#223); and, for a revoked account, its
+address kept as a keyed hash (#225). #225 keeps that test passing as it adds
+tables. The database's restore points keep the account for up to 30 days, as
+`/policy` says.
 
 ## The push guard
 

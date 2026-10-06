@@ -61,8 +61,9 @@ request form at `/ask`, behind Turnstile, which nothing links to yet
 (item 25), and #221 the page where admins approve each request per team,
 `/admin/people`, which emails a link to set a password (item 26). #222 made
 that link set a password, and added signing in at `/sign-in`, `/account`
-with Sign out, and a reset at `/forgot-password` (item 27); an account
-cannot send until #223. **Epic #191 makes COHSSA a section of the same
+with Sign out, and a reset at `/forgot-password` (item 27), and #223 let an
+account send from the share page, to its approved teams' albums, each photo
+recording the account (item 29). **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24), and #227 gave every album a team: `/` leads to
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
@@ -980,7 +981,8 @@ every answer are in the route's header comment.
   the bucket against the table. The row's `id` is AUTOINCREMENT, so a rejected
   photo's id (#156) is never given to a later one.
 - **The daily cap is 500 uploads per session per UTC day** (owner, 2026-09-29,
-  confirming the story's proposal), counted in `upload_counts` by one guarded upsert,
+  confirming the story's proposal; an account's 500 are the account's, shared
+  by every phone signed in to it, since #223, item 29), counted in `upload_counts` by one guarded upsert,
   as #177's join budget is, so two uploads arriving together cannot both take the
   last one. A unit is spent before the objects are stored, so a capped session costs
   no R2 write, and given back by a guarded decrement when the bucket or the
@@ -2045,9 +2047,11 @@ operating record. The owner's decisions, through the question tool:
   site keeps.
 - **The page is `/ask`** (owner, at pickup). Not chosen: `/account/request`,
   `/request-access`.
-- **Nothing links to `/ask` yet** (owner, at pickup). An account cannot send
-  until #223, and #226 points the old invite link at it. Not chosen: a link
-  from `/policy`; links from the album list and the share page.
+- **Nothing links to `/ask` yet** (owner, at pickup). #226 points the old
+  invite link at it. Not chosen: a link from `/policy`; links from the album
+  list and the share page. *#223 kept it so (item 29): the share page links
+  `/sign-in`, not `/ask`. This bullet said "an account cannot send until
+  #223" until #223.*
 - **Turnstile's script loads on the form's first focus or touch** (owner, at
   the review). *Measured* through `tools/h2proxy.mjs` on a local serve,
   Lighthouse 13.4.1, mobile, three runs each, accessibility 100 in every one:
@@ -2402,10 +2406,11 @@ The rest are defaults, recorded on #222 at pickup:
 - **The pages**: `/sign-in`, `/sign-out` (POST only, so a link or a prefetch
   never signs anyone out), `/forgot-password`, `/set-password` (GET shows the
   form, POST sets the password) and `/account`. They take `/ask`'s form
-  classes, so the only CSS change was the password field's edge. Nothing
-  public links to `/sign-in` or `/forgot-password` yet, as nothing links to
-  `/ask` (owner, at #220's pickup); #223 and #226 decide where they are
-  linked.
+  classes, so the only CSS change was the password field's edge. *Since
+  #223 the share page links `/sign-in` and `/account` links the share page
+  (item 29); `/ask` stays unlinked until #226. This bullet said nothing
+  public linked `/sign-in` yet, and that #223 and #226 would decide, until
+  #223.*
 
 **D1 rows written, measured** on `madcowphotos-preview` on 2026-10-06 (UTC)
 with `wrangler d1 execute --remote --json`, each statement the code runs
@@ -2498,9 +2503,9 @@ the rest were taken while building and are named as such.
 - **The share page groups its album choices under each team's name**
   (owner, at pickup): an `<optgroup>` per team, in the order the teams first
   appear in the newest-first list. `GET /api/albums/open` gives each album
-  `team` and `teamName`. Today's senders, the invite link and a coach's
-  sign-in, have no team, so they are offered every open album; #223 narrows
-  the list to an account's approved teams. Not chosen: a team picker before
+  `team` and `teamName`. The invite link and a coach's sign-in have no
+  team, so they are offered every open album; since #223 an account is
+  offered its approved teams' albums only (item 29). Not chosen: a team picker before
   the list, which #223 would mostly take away again; the API alone, which
   shows nothing about teams until #223.
 - **An album page's eyebrow leads to its team's section** ("COHSSA photos"),
@@ -2547,6 +2552,97 @@ the rest were taken while building and are named as such.
   it. Not chosen: a code gate refusing COHSSA albums or approvals until the
   wording is recorded, which the wording's story would then have to remove;
   rewording #238's criterion.
+
+### 29. Sending from an account
+
+**Built in #223, 2026-10-06.** A phone signed in at `/sign-in` sends from
+the share page as the account, to the open albums of the teams an admin
+approved it for (D16), and each photo records the account, which the
+admins alone see (D17). `requireUploadSession` in `lib/session.js` takes
+the account's session, `functions/api/albums/open.js` and
+`functions/api/upload/index.js` hold it to its teams, `senderColumns` and
+`insertPhoto` in `lib/photos.js` write the row, and migration 0012 adds the
+column. README.md, The photo site, Uploads and Hiding every photo an account
+sent, by hand, is the operating record. The owner's decisions at pickup,
+through the question tool:
+
+- **The account is a column on `photos`, not a rebuild.** 0005's CHECKs
+  allow a sender of `parent` or `coach` only and require a parent's row to
+  name a code generation, and SQLite changes a CHECK only by rebuilding the
+  table (item 6). So 0012 adds `account_id INTEGER REFERENCES accounts (id)
+  ON DELETE SET NULL`, NULL by default, which SQLite allows under enforced
+  foreign keys where a non-NULL default is refused (cairn:
+  `sqlite-a-references-column-cannot-be-added-with-a-default`), and an
+  account's row fills 0005's columns with placeholders: the sender is the
+  account's role, `coach` or else `parent`, and the code generation and
+  session time are 0, which no invite code is. 0012's CHECK holds an
+  account's row to those zeros with `IS 0`, since `= 0` reads NULL as a
+  pass (*measured* on node:sqlite: a coach-shaped row with no zeros got
+  through). The delete's SET NULL is what `/policy`'s "no longer record
+  which account sent them" rests on, so README's by-hand delete and #225's
+  need no statement of their own. A partial index serves "hide all their
+  photos" and the delete's lookup, and costs a row with no account nothing.
+  Not chosen: a side table naming each photo's account, a second write per
+  upload and a second table to join; rebuilding `photos` under a
+  two-release plan, the destructive class, which on D1 also needs
+  `defer_foreign_keys` and must carry AUTOINCREMENT's high-water mark over
+  by hand, or a rejected photo's id could be given out again.
+  `test/upload.test.js`'s one-migration rule now names 0012 beside 0005.
+- **An account's session wins over an upload cookie.** A phone holding a
+  live account session sends as the account, to its approved teams only,
+  whatever invite or coach cookie it also holds; one whose account session
+  no longer holds (signed out, a new password, no approved team, gone)
+  sends with the upload cookie as before, until #226. A database that does
+  not answer while the account is read is 503, closed, even beside a live
+  upload cookie. The accepted cost: someone signed in for one team who also
+  opened the other team's invite link cannot send to the other while signed
+  in. Not chosen: the upload cookie first, which leaves gaps in D17's
+  record of who sent each photo.
+- **The share page links `/sign-in` and `/account` links the share page.**
+  "Have an account? Sign in" sits beside the coach line, and `/account`'s
+  "isn't open yet" became a Send photos button. `/ask` stays unlinked until
+  #226 (item 25). Not chosen: `/account` only; linking `/ask` too.
+
+The rest are defaults, recorded on #223 at pickup or taken while building:
+
+- **Another team's album is `403 {"error":"team"}`, before the cap is
+  spent.** The route reads the album's team after `openAlbum` and refuses
+  it unless the guard's `teams` hold it, storing nothing. `insertPhoto` then
+  checks the team again in the statement that writes the row, so a team
+  revoked mid-send stores nothing too: it answers `409 album`, the objects
+  are deleted and the unit given back. The share page fails every photo
+  queued for that album with the team's words and reloads the list
+  preselecting nothing, as after a 409.
+- **The daily cap is the account's** (`sessionKey`: `account.<id>`, issued
+  time left out), so every phone signed in to it shares its 500, and
+  signing in again opens no new 500 (criterion 5).
+- **A clip's length goes by role** (criterion 4, D11): `clipSeconds(session)`
+  in `lib/photos.js` gives 15 minutes (`CLIP_SECONDS.coach`) to a coach's
+  Access session or an account approved as a coach, and 3 to everyone else.
+  The guard reads the role on every request, so a role changed at approval
+  applies from the next upload. #198 reads it; nothing sends a clip yet.
+- **The queue and removals pages name the account** ("sent by <name>",
+  escaped), by a LEFT JOIN on `accounts`. A coach's Access sign-in still
+  says only "sent by a coach" on the queue, and the invite link and a
+  deleted account say nothing. `test/account-upload.test.js` scans every
+  public route's GET and HEAD, `/remove` and `/api/remove`, headers and
+  bytes, for a planted name and address, and the admin queue is its
+  control.
+- **The share page's words name both ways in**, since the server does not
+  say which kind of session ended: "Sign in, or open the invite link you
+  were sent", "Your sign-in or invite has ended", and the cap's "This
+  phone, or your account". `GET /api/upload/session` still answers a bare
+  204.
+- **What a deleted account leaves** (`/policy`, Having an account deleted):
+  its photos stay with `account_id` NULL and the sender still saying
+  whether a coach's account sent them, and the day's count under
+  `account.<id>` stays until anyone's first upload of a later day.
+  `test/policy.test.js`'s by-hand delete test holds both.
+- **`lib/account-session.js` no longer imports `lib/session.js`.** The
+  guard now reads it, and the import back made a cycle in which
+  `ACCOUNT_SESSION_DAYS = SESSION_DAYS` would meet an unset constant
+  whenever `session.js` loaded first. It states 90 itself, and
+  `test/policy.test.js` still holds the two equal.
 
 ## The two-presentation rule
 

@@ -145,6 +145,7 @@ test('a photo\'s three sizes from a live session into an open album: 201, three 
     captured_at: CAPTURED, sent_at: undefined, width: 2560, height: 1920, grid_width: 480, grid_height: 360,
     screen_width: 1600, screen_height: 1200, bytes: SENT.grid.length + SENT.screen.length + SENT.full.length,
     content_type: null, duration_ms: null, upload_id: null, approved_at: null, hidden_at: null, hidden_note: null,
+    account_id: null, // the invite link names no account (#223)
   });
 
   const keys = photoObjectKeys(row.media_key);
@@ -796,10 +797,15 @@ const touchesPhotos = (sql) => {
   return TOUCHES_PHOTOS.some((pattern) => pattern.test(code));
 };
 
-test('one migration makes the photos table, and no other touches it', () => {
+test('one migration makes the photos table, and only #223\'s column touches it after', () => {
+  // 0005 carries every state the epic needs, so the stories after it add no
+  // migration to it (#154, criterion 7). 0012 is the one owner-chosen
+  // exception: the column naming the account that sent a photo, which
+  // 0005's sender CHECK has no room for (owner, at #223's pickup). It is
+  // additive, which test/site.test.js holds of every migration.
   const files = readdirSync(MIGRATIONS).sort();
   const touching = files.filter((file) => touchesPhotos(readFileSync(new URL(file, MIGRATIONS), 'utf8')));
-  assert.deepEqual(touching, ['0005_photos.sql']);
+  assert.deepEqual(touching, ['0005_photos.sql', '0012_photos_account.sql']);
 });
 
 test('the check above sees every way a later migration could change the table', () => {
@@ -835,8 +841,14 @@ function insertRow(sqlite, changes = {}) {
 test('the table holds every state the epic needs, and refuses a row no story should write', async () => {
   const { env } = await site();
   const { sqlite } = env.DB;
+  sqlite.prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES ('sender@example.org', 'Sender', 'parent', 1)").run();
+  const fromAccount = { account_id: 1, code_generation: 0, session_issued: 0 };
   const clip = { kind: 'clip', grid_width: null, grid_height: null, screen_width: null, screen_height: null };
   const allowed = {
+    // #223 (0012): an account's photo, with 0005's columns given the
+    // placeholders, as a parent's and as a coach's.
+    'an account\'s photo': fromAccount,
+    'an account\'s photo, sent as a coach': { ...fromAccount, sender: 'coach' },
     'a pending photo': {},
     'an approved photo (#156)': { state: 'approved', approved_at: 5 },
     'a hidden photo with its note (#158)': { state: 'hidden', approved_at: 5, hidden_at: 6, hidden_note: 'please take this down' },
@@ -881,6 +893,12 @@ test('the table holds every state the epic needs, and refuses a row no story sho
     'a zero height': { height: 0 },
     'a negative byte count': { bytes: -1 },
     'an album that does not exist': { album_id: 999 },
+    // 0012's CHECK and reference (#223). The coach-shaped row with no
+    // placeholders is the case `= 0` let through: a CHECK reading NULL passes.
+    'an account\'s photo naming a code generation': { ...fromAccount, code_generation: 2 },
+    'an account\'s photo naming a session time': { ...fromAccount, session_issued: 5 },
+    'an account\'s photo with no placeholders': { ...fromAccount, sender: 'coach', code_generation: null, session_issued: null },
+    'an account that does not exist': { ...fromAccount, account_id: 999 },
   };
   for (const [name, changes] of Object.entries(refused)) {
     assert.throws(() => insertRow(sqlite, changes), /constraint failed/, name);

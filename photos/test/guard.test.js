@@ -16,10 +16,13 @@
 //     another Access application (#192);
 //   - every other route answers 401 for a missing, tampered,
 //     earlier-generation and expired upload cookie, for a coach's cookie that
-//     is tampered, expired or names an address off the coach list, and for an
-//     owner's or a coach's valid Access token with no cookie; and a write
-//     under api/upload/ answers 403 to a current session without the site's
-//     own Origin (#154).
+//     is tampered, expired or names an address off the coach list, for an
+//     account's cookie that is tampered, expired, signed with another key,
+//     on a version the account no longer holds, or names an account that is
+//     gone or approved for no team (#223), and for an owner's or a coach's
+//     valid Access token with no cookie; and a write under api/upload/
+//     answers 403 to a current session, an account's included, without the
+//     site's own Origin (#154).
 // A route that skips its guard, whether it sits outside its directory or the
 // directory loses its _middleware.js, fails here. The only routes excused are
 // PUBLIC, each with its reason; adding one there is a decision, and belongs
@@ -182,6 +185,19 @@ const CASES = {
   'a coach\'s cookie for an address off the list': await signCoachSession(KEY, await coachTag(KEY, 'former@example.com'), now),
 };
 
+// An account's session (#223), which the upload guard takes beside the two
+// above, and every way one can fail to hold. call() seeds account 1 approved
+// for a team at version 1, and account 2 approved for none.
+const accountLive = await signAccountSession(KEY, { accountId: 1, version: 1 }, now);
+const UPLOAD_ACCOUNT_CASES = {
+  'an account\'s cookie with a tampered signature': tamper(accountLive),
+  'an expired account\'s cookie': await signAccountSession(KEY, { accountId: 1, version: 1 }, now - ACCOUNT_SESSION_SECONDS),
+  'an account\'s cookie signed with another key': await signAccountSession(`${KEY}-other`, { accountId: 1, version: 1 }, now),
+  'an account\'s cookie on a version the account no longer holds': await signAccountSession(KEY, { accountId: 1, version: 2 }, now),
+  'an account\'s cookie for an account approved for no team': await signAccountSession(KEY, { accountId: 2, version: 1 }, now),
+  'an account\'s cookie for an account that does not exist': await signAccountSession(KEY, { accountId: 3, version: 1 }, now),
+};
+
 test('every PUBLIC entry is a route that exists', () => {
   for (const file of Object.keys(PUBLIC)) assert.ok(routes.includes(file), `PUBLIC names ${file}, which is not a route`);
 });
@@ -282,6 +298,19 @@ for (const file of guarded) {
       assert.notEqual(res.status, 401);
       assert.notEqual(res.status, 403);
     });
+    for (const [name, held] of Object.entries(UPLOAD_ACCOUNT_CASES)) {
+      test(`${method} ${routePath(file)} with ${name}: 401`, async (t) => {
+        t.mock.method(console, 'error', () => {});
+        const res = await call(file, method, undefined, undefined, SITE, held);
+        assert.equal(res.status, 401, `functions/${file} answered ${res.status}: does it skip the upload guard?`);
+      });
+    }
+    test(`${method} ${routePath(file)} with an account's current session: past the guard (#223)`, async () => {
+      // The control for the account's cookies above.
+      const res = await call(file, method, undefined, undefined, SITE, accountLive);
+      assert.notEqual(res.status, 401);
+      assert.notEqual(res.status, 403);
+    });
     // An upload write needs the site's own Origin as well as a session (#154),
     // so a page elsewhere cannot post into a parent's session. The albums
     // directory holds reads only, and runs no Origin guard.
@@ -289,6 +318,11 @@ for (const file of guarded) {
     for (const [name, origin] of Object.entries(FOREIGN_ORIGINS)) {
       test(`${method} ${routePath(file)} with a current session and ${name}: 403`, async () => {
         const res = await call(file, method, current, undefined, origin);
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the Origin guard?`);
+        assert.deepEqual(await res.json(), { error: 'origin' });
+      });
+      test(`${method} ${routePath(file)} with an account's current session and ${name}: 403 (#223)`, async () => {
+        const res = await call(file, method, undefined, undefined, origin, accountLive);
         assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the Origin guard?`);
         assert.deepEqual(await res.json(), { error: 'origin' });
       });
@@ -334,6 +368,12 @@ for (const file of admin) {
       t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
       const res = await call(file, method, coachCurrent);
       assert.equal(res.status, 403, `functions/${file} answered ${res.status}: a coach's session opened it`);
+    });
+    test(`${method} ${routePath(file)} with an account's session and no Access token: 403 (#223)`, async (t) => {
+      // An account sends photos; it is not an admin until #224 says so.
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, undefined, undefined, SITE, accountLive);
+      assert.equal(res.status, 403, `functions/${file} answered ${res.status}: an account's session opened it`);
     });
     test(`${method} ${routePath(file)} with the owner's Access token: past the guard`, async (t) => {
       // The control, as above: the 403s come from the guard. A route with a

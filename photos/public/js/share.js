@@ -10,6 +10,11 @@
  * holds a session. Either way, say plainly where this phone stands, in the
  * page's live region.
  *
+ * Accounts (#223). A phone signed in at /sign-in holds a session too, and
+ * GET /api/upload/session answers it the same 204, so the page needs no code
+ * of its own for it: the album list then holds only the account's approved
+ * teams' albums, and the page links /sign-in beside the invite link's words.
+ *
  * Sending. Once the phone holds a session, the page lists the open albums and
  * preselects one, so a parent sends with four taps and nothing typed: the
  * link, "Add photos", the photos, "Send". Each photo is made ready as soon as
@@ -39,7 +44,9 @@
 
   // One message per answer. A code that was once right says the invite has
   // changed, never that it is wrong: the parent did nothing wrong, the owner
-  // rotated it (#152).
+  // rotated it (#152). Since #223 a phone can send from an account as well,
+  // and the server does not say which kind of session ended, so the messages
+  // with no session name both ways back in.
   const MESSAGES = {
     joining: 'Opening your invite…',
     ready: "You're set to send photos from this phone.",
@@ -48,8 +55,8 @@
     tooMany: 'Too many tries from this network. Wait an hour, then open the link again.',
     closed: "Sending photos isn't open right now. Try again later.",
     offline: "Couldn't reach the photo site. Check your signal, then try again.",
-    none: 'Open the invite link you were sent to start sending photos to the team.',
-    ended: 'This invite has ended. Open the newest invite link you were sent, then send again.',
+    none: 'Sign in, or open the invite link you were sent, to start sending photos to the team.',
+    ended: 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then send again.',
   };
 
   let again = null;
@@ -179,9 +186,13 @@
   // Why a photo did not send, by the answer POST /api/upload gave.
   const FAILURES = {
     offline: "Couldn't reach the photo site. Check your signal, then try again.",
-    ended: 'This invite has ended. Open the newest invite link you were sent, then try again.',
+    ended: 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.',
     album: 'That album has closed. Choose another album above, then try again.',
-    cap: "This phone has sent today's limit of 500 photos. Try again tomorrow.",
+    // #223: an account sends to its approved teams' albums only, so this is
+    // an album the list offered before a team was taken off the account.
+    team: "Your account can't send to that team's albums. Choose another album above, then try again.",
+    // An account's 500 are shared by every phone signed in to it (#223).
+    cap: "This phone, or your account, has sent today's limit of 500 photos. Try again tomorrow.",
     unavailable: "The photo site isn't taking photos right now. Try again in a few minutes.",
     refused: "The photo site couldn't take this photo. Try again, and if it fails again, leave it out.",
   };
@@ -805,6 +816,14 @@
       // Send or a Try again may have queued photos for another album.
       fail(photo, 'album');
       for (const waiting of photos.filter((one) => one.state === 'queued' && one.album === photo.album)) fail(waiting, 'album');
+      loadAlbums({ pick: false });
+    } else if (response.status === 403 && (await errorOf(response)) === 'team') {
+      // #223: the account is no longer approved for that album's team. Every
+      // queued photo bound for it would be refused too, and only those; the
+      // list reloads without the team's albums and preselects nothing, as
+      // after a 409.
+      fail(photo, 'team');
+      for (const waiting of photos.filter((one) => one.state === 'queued' && one.album === photo.album)) fail(waiting, 'team');
       loadAlbums({ pick: false });
     } else if (response.status === 429) {
       fail(photo, 'cap');
