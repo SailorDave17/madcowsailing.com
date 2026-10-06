@@ -59,7 +59,10 @@ and #218 chose the password hash every account will use: scrypt, in
 of CPU, so the account is on Workers Paid since 2026-10-05. #220 built the
 request form at `/ask`, behind Turnstile, which nothing links to yet
 (item 25), and #221 the page where admins approve each request per team,
-`/admin/people`, which emails a link to set a password (item 26). **Epic #191 makes COHSSA a section of the same
+`/admin/people`, which emails a link to set a password (item 26). #222 made
+that link set a password, and added signing in at `/sign-in`, `/account`
+with Sign out, and a reset at `/forgot-password` (item 27); an account
+cannot send until #223. **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24).
 Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
@@ -138,7 +141,11 @@ story, this is the paragraph to check.*
 │   │                         share/receive.js answers a share that found no
 │   │                         worker on the phone, #193; ask.js is /ask, a
 │   │                         request for an account, #220; set-password.js
-│   │                         is where an approval email's link lands, #221)
+│   │                         is where an approval or reset email's link
+│   │                         lands, #221, and sets the password, #222;
+│   │                         sign-in.js, sign-out.js and forgot-password.js
+│   │                         sign in, out and reset, #222; and account/
+│   │                         behind the account guard, #222)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -157,8 +164,9 @@ story, this is the paragraph to check.*
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /remove, /ask, /set-password, /api/*, /admin,
-│       │                     /admin/*, /coach, /coach/*, /share/receive
+│       │                     /remove, /ask, /set-password, /sign-in, /sign-out,
+│       │                     /forgot-password, /account, /account/*, /api/*,
+│       │                     /admin, /admin/*, /coach, /coach/*, /share/receive
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -169,7 +177,9 @@ story, this is the paragraph to check.*
 │       ├── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
 │       ├── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
 │       └── js/ask.js         /ask's Turnstile loader, on the form's first focus or
-│                             touch; stamped by hand in lib/ask-page.js (#220)
+│                             touch; stamped by hand in lib/ask-page.js (#220).
+│                             /forgot-password loads it too (#222,
+│                             lib/sign-in-page.js)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -1770,8 +1780,8 @@ hold a session (reasoned, from cairn's
 
 **Chosen in #218, 2026-10-02, before any story stores a password** (epic
 #216, D14). `lib/password.js` is the one place a password is hashed or
-checked. Nothing calls it yet: #222's sign-in and reset and #224's admin
-sign-in will.
+checked. #222's set-password and sign-in call it (item 27), and #224's
+admin sign-in will.
 
 **What a Pages Function can run without a library**, read 2026-10-02:
 
@@ -1849,7 +1859,7 @@ and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).`
   string it could not have written. Nothing in it logs.
 - **The password goes in as the UTF-8 it arrives as.** Normalising it, its
   minimum and maximum length, and a breached-password check are #222's, under
-  NIST SP 800-63B (its first criterion).
+  NIST SP 800-63B (its first criterion): item 27 has them.
 - **Tests**: `test/password.test.js` runs RFC 7914's scrypt vectors 1–3
   (section 12, read 2026-10-02) through `derive()`; the fourth needs N·r·p of
   2^23 and 1 GiB, past the runtime's limit. OWASP's row is written out in the
@@ -2052,6 +2062,8 @@ before: one of them, the email's 50-name cap, narrows criterion 5.
   whole of `frame-src`. `lib/headers.js`'s `headersFor` picks it by path, and
   every other path keeps the site's policy. *Measured* in Chrome: no CSP
   report and no console error on `/ask`, the widget's frame from that origin.
+  *Since #222 the reset form at `/forgot-password` gets it too
+  (`TURNSTILE_PATHS`, item 27), the one other page with the widget.*
 - **One account per email address**, unique without regard to letter case.
   A request from an address the site already has, in any state, writes
   nothing about the account, and is answered with the same `303` to
@@ -2140,12 +2152,14 @@ record. The owner's decisions at pickup, through the question tool:
   was used, and would confirm a live address to a spammer. Not chosen: a
   short note.
 - **#221 checks the link and nothing more; setting the password is #222's.**
-  A valid link's page says the account is approved, when the link runs out,
-  and that setting a password is not open yet. It shows no form and spends
-  nothing. `spendLink` is built and tested here, and #222's form calls it.
-  **So approve no real person before #222 ships**: their link would have
-  nothing to set. Not chosen: a set-password form here under a stopgap
-  length rule, which would have decided the password rules twice.
+  A valid link's page said the account is approved, when the link runs out,
+  and that setting a password was not open yet, with no form. Not chosen: a
+  set-password form here under a stopgap length rule, which would have
+  decided the password rules twice. *Since #222 the link opens the form
+  (item 27), so a real person can be approved once a release carries #222.
+  This bullet said "`spendLink` is built and tested here, and #222's form
+  calls it" until #222 retired `spendLink` for a batch that stores the
+  password with the spend.*
 - **A turned-down address that asks again still writes nothing**, so #220's
   criterion 4 stands as tested. `/admin/people` lists the turned-down, and
   an admin can still approve them. Not chosen: turned down as final, with
@@ -2164,7 +2178,10 @@ The rest are defaults, recorded on #221 at pickup or in its pull request:
 - **Opening the link changes nothing.** `GET /set-password` reads one row, so
   a mail scanner that fetches every link cannot use it up. A used, replaced,
   expired, mistyped or missing link answers `404` with one page for all of
-  them, which offers no form and no sign-in, only who to ask for a new link.
+  them, which offers no form and no sign-in, only how to get a new link.
+  *Since #222 that includes a link to the reset at `/forgot-password`
+  (item 27), and a usable link opens the form to choose a password. This
+  bullet said "only who to ask for a new link" until #222's review.*
 - **A new link replaces the account's last only once its email is sent**
   (`replaceOthers`). A refused send deletes the new link instead
   (`dropLink`), so the link a person already holds keeps working, and an
@@ -2210,6 +2227,191 @@ The rest are defaults, recorded on #221 at pickup or in its pull request:
   #224 and #225 add their own and SQLite cannot change a CHECK in place. The
   page shows the newest 100 (`LOG_SHOWN`), and nothing deletes from the
   table.
+
+### 27. Signing in, signing out, and a forgotten password
+
+**Built in #222, 2026-10-06.** An approved person sets a password from the
+emailed link at `/set-password`, signs in at `/sign-in`, lands on
+`/account`, signs out there, and resets a forgotten password at
+`/forgot-password`. `lib/sign-in.js` holds sign-in, sign-out and setting a
+password, `lib/account-session.js` the cookie and its guard,
+`lib/password-rules.js` the password's rules and the breach check,
+`lib/reset.js` the reset, `lib/sign-in-page.js` and `lib/password-page.js`
+the pages, and migration 0009 the columns and tables. README.md, The photo
+site, Signing in, is the operating record. Sending from an account is
+#223's, and the admin sign-in with its emailed code #224's.
+
+**The password follows NIST SP 800-63B-4**, section 3.1.1.2
+(pages.nist.gov/800-63-4/sp800-63b.html, last modified 2025-08-26, read
+2026-10-06; criterion 1):
+
+- *"Verifiers and CSPs SHALL require passwords that are used as a
+  single-factor authentication mechanism to be a minimum of 15 characters
+  in length."* A parent's or coach's password is their only factor, so 15
+  (`PASSWORD_MIN`). The 8 NIST allows inside multi-factor is not taken for
+  admins either: #224 adds the code on top of the same password.
+- *"Verifiers and CSPs SHOULD permit a maximum password length of at least
+  64 characters."* 256 (`PASSWORD_MAX`): any passphrase or password manager
+  fits, and scrypt's cost does not grow with it.
+- *"Each Unicode code point SHALL be counted as a single character"*, and
+  *"the verifier SHOULD apply the normalization process ... (NFC) ... before
+  hashing"*. The routes normalise to NFC before counting, hashing and
+  checking (`normalizePassword`), since #218's `hashPassword` hashes the
+  UTF-8 it is given.
+- *"Verifiers and CSPs SHALL NOT impose other composition rules"*. None.
+- *"verifiers SHALL compare the prospective secret against a blocklist that
+  contains known commonly used, expected, or compromised passwords. The
+  entire password SHALL be subject to comparison"*. Two halves: the whole
+  password, case and punctuation folded, against the person's own address,
+  the part before its @, their name and the site's and teams' names
+  (`SITE_WORDS`); and every password Have I Been Pwned has seen in a breach
+  (below).
+- *"Verifiers SHALL offer guidance"*: the field's hint, and the short and
+  breached messages, suggest a few unrelated words.
+- Section 3.2.2: *"the verifier SHALL limit consecutive failed
+  authentication attempts ... to no more than 100 by disabling that
+  authenticator"*, and *"When the subscriber successfully authenticates, the
+  verifier SHOULD disregard any previous failed attempts"*. `FAILED_IN_A_ROW`
+  is 100, on the account (`failed_sign_ins`); a password that reaches it
+  stops working until a new one is set from an emailed link, and a sign-in
+  that succeeds sets it back to 0 and forgets the address's failed tries.
+- Not built: a show-password toggle, which NIST says SHOULD be offered and
+  which needs a script. The form asks for the password twice instead.
+  Pasting and password managers work (`autocomplete` `new-password` and
+  `current-password`, the address as `username`).
+
+The owner's decisions at pickup (2026-10-06), through the question tool:
+
+- **The breach check is Pwned Passwords, failing open.** Setting a password
+  asks `https://api.pwnedpasswords.com/range/{first 5 SHA-1 chars}`, which
+  needs no key, with `Add-Padding: true` (haveibeenpwned.com/API/v3, read
+  2026-10-06), and refuses a password whose suffix it lists with a count. If
+  it does not answer within 3 s (`PWNED_TIMEOUT_MS`), the password is let
+  through and the miss logged. Only the 5 characters leave the site, and
+  `/policy` says so. It runs when a password is set, never at sign-in. Not
+  chosen: failing closed, which would stop every new account and reset while
+  the service is down; a local list only, which has to be sourced and kept
+  and misses most breached passwords. *Measured* on #222's local run: a
+  real call from workerd turned down `password12345678`.
+- **Signing out ends every session the account holds, on every device.** It
+  adds 1 to `session_version`, as setting a password does, so every cookie
+  naming the older version is refused at its next request. Nothing new is
+  stored, and a copied cookie dies too. Not chosen: a sessions table, one
+  row per device, which /policy would have to name. *A revoke ends sessions
+  today by another route: the guard reads only an account approved for a
+  team. That #225's revoke also adds 1, so a re-approval cannot bring a
+  pre-revoke cookie back, is #225's criterion; criterion 4's revoke half is
+  deferred there (owner, at #222's review).*
+- **Failed sign-ins: 10 an hour per email address, 20 an hour per network,
+  100 an hour for the whole site** (`EMAIL_FAILURE_LIMIT`,
+  `NETWORK_FAILURE_LIMIT`, `FAILURE_BUDGET_PER_HOUR`). The address is counted
+  by a keyed hash of what was typed, so one with no account is counted as
+  one with an account is, and a limit says nothing about which. Once the
+  site's hour is spent nobody can sign in until it turns, and nothing is
+  written; a session already open keeps working. The accepted cost: someone
+  on five or more networks can close sign-in for an hour at a time. Not
+  chosen: 10/10/100; 10/20/1,000; Turnstile on the sign-in form, which a
+  password manager's autofill-and-submit can beat.
+- **Every unit is claimed before the password is checked** (owner, at
+  #222's review). The first build read the counts before the hash and wrote
+  the failure after it, so tries sent at once all read the limits as free:
+  `review-fanout`'s refuters measured 12 tries at once against the limit of
+  10 all checked, and a burst of 150 checking 150 guesses and setting the
+  count in a row to 100 in seconds. Now each try claims, each in one guarded
+  statement, its address's and network's units together (an `INSERT …
+  SELECT` that counts both, as `claimResetRequest` and `/ask` claim theirs),
+  then the site's hour, then a step of the count in a row, and only then is
+  scrypt run. A sign-in that succeeds gives all three back. So a burst gets
+  10 checks per address and 20 per network, and every check spends a unit of
+  the hour before its CPU. Not chosen: saying the limits hold one try at a
+  time.
+- **A reset link lasts an hour** (`RESET_SECONDS`), works once and is kept
+  only as a hash, in `password_links` beside the approval links. The form
+  sits behind the `/ask` Turnstile widget (`lib/headers.js` widens the CSP
+  for `/forgot-password` too). 10 requests an hour per network
+  (`RESET_REQUEST_LIMIT`), at most one email per account every 15 minutes
+  (`RESET_GAP_SECONDS`), and 20 a day for the whole site
+  (`RESET_EMAILS_PER_DAY`), so resets can never spend more than a fifth of
+  Resend's 100 a day (item 21). Not chosen: 24 hours; no Turnstile. *The gap
+  is the link insert's own `NOT EXISTS` a link made in the last 15 minutes,
+  so resets sent at once get one link (#222's review: a read before the
+  insert let three at once all send). It counts the links the account still
+  holds, so a used link ends it, and `/policy` says "while an earlier one
+  waits to be used". The day's unit is spent only once the link is stored.*
+
+The rest are defaults, recorded on #222 at pickup:
+
+- **The session is its own cookie, `__Host-account`**:
+  `a1.<account>.<version>.<issued>.<signature>`, HMAC-SHA256 with
+  `SESSION_SIGNING_KEY`, 90 days, `Secure; HttpOnly; SameSite=Lax; Path=/`.
+  It is not a third shape of `__Host-upload`, so #223 reads it alongside the
+  invite link's and the coach's, and #226 retires those without touching it.
+  `requireAccount` (`functions/account/_middleware.js`, with the Origin
+  check) reads the account on every request: gone, approved for no team, or
+  on another version, and the page is sent to `/sign-in` with the dead cookie
+  deleted.
+- **One path for every failure** (criterion 2). An unknown address, a wrong
+  password, an account not approved, one with no password yet and one whose
+  password stopped all run the same statements in the same order, and check
+  the typed password against one scrypt hash: the account's, or
+  `STAND_IN_HASH`, made at `SCRYPT` from bytes nobody kept. They get one
+  page, which points at the reset. `test/sign-in.test.js` compares the
+  statements and counts the checks. *Measured* on #222's local run in
+  workerd, 8 of each alternating: an unknown address 252 ms median
+  (218–326), a wrong password 237 ms (223–312).
+- **Setting a password is one D1 batch**, every statement held by the link
+  still being the account's, unexpired, and the account approved: the hash,
+  the version up by 1, the count in a row back to 0, the address's failed
+  tries forgotten, and every link the account holds deleted. So of two posts
+  of one link only the first changes anything, and a failed store keeps the
+  link. #221's `spendLink`, a delete of its own, would have spent the link
+  before the password was stored; #222 retired it. Setting a password signs
+  that browser in.
+- **A reset is answered before its email is decided.** Every request past
+  the checks gets the same `303` to `/forgot-password?sent`, after the same
+  statements; `sendReset` runs in `waitUntil`, and emails only an account
+  approved for a team, whether or not it had a password. A reset link does
+  not replace the approval link the person may still hold; setting a
+  password with either ends both. Nothing is written to the admins' log,
+  which records what admins do.
+- **The pages**: `/sign-in`, `/sign-out` (POST only, so a link or a prefetch
+  never signs anyone out), `/forgot-password`, `/set-password` (GET shows the
+  form, POST sets the password) and `/account`. They take `/ask`'s form
+  classes, so the only CSS change was the password field's edge. Nothing
+  public links to `/sign-in` or `/forgot-password` yet, as nothing links to
+  `/ask` (owner, at #220's pickup); #223 and #226 decide where they are
+  linked.
+
+**D1 rows written, measured** on `madcowphotos-preview` on 2026-10-06 (UTC)
+with `wrangler d1 execute --remote --json`, each statement the code runs
+with probe values, every probe row deleted after:
+
+| Statement | Rows written | Rows read |
+|---|---|---|
+| Read the site's hour (`sign_in_budget`) | 0 | 1 |
+| Claim the try: address and network together (`sign_in_failures` guarded `INSERT … SELECT`, two indexes) | 3 | 4 |
+| Spend the site's unit (`sign_in_budget` upsert), a new hour or the same | 1 | 2 |
+| The account's count in a row, `+ 1 … RETURNING`: an account / no such account | 1 / 0 | 2 / 1 |
+| Delete the failure an hour on (no index on time) | 1 | 1 |
+| A sign-in that succeeds: forget the address's tries (one row) / the count back to 0 / the hour's unit back | 1 / 1 / 1 | 1 / 1 / 1 |
+| Reset: claim the network's unit (`reset_request_log`, one index) | 2 | 3 |
+| Reset: delete the claim an hour on | 1 | 1 |
+| Reset: the link, inserted under the gap / refused inside it | 2 / 0 | 5 / 4 |
+| Reset: the day's email unit (`reset_mail_budget` upsert) | 1 | 2 |
+
+Measured in two passes the same day: the first before #222's review moved
+the claims in front of the hash, the second, after it, for the claim, the
+`RETURNING` count, the success path and the guarded link insert. So a recorded
+failure costs 5 rows written, 6 where the address has an account, counting
+its own delete an hour on; a sign-in that succeeds costs about 8, since it
+claims like a failure and gives the units back; a limited or busy try
+writes nothing. The site's budget caps failed sign-ins at 600 rows an hour,
+14,400 a day, and their CPU at 100 hashes an hour, about 14 s (item 23's
+137 ms), about 10 million CPU-milliseconds a month against Workers Paid's
+30 million: every check now spends a unit of the hour before it runs. The
+delete with no time index read 1 row on a table holding only the probe; on
+a full table it reads at most the rows two hours of the budget leave, a few
+hundred.
 
 ## The two-presentation rule
 

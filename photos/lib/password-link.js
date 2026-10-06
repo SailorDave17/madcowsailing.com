@@ -1,23 +1,25 @@
 /**
- * The link an approved person sets a password with (#221, criterion 2).
+ * The link an approved person sets a password with (#221, criterion 2), and
+ * since #222 the link a reset sends (lib/reset.js).
  *
  * Approving a request on /admin/people emails the person a link to
  * /set-password carrying a token: 32 random bytes, 43 characters of base64url.
  * The database keeps only the token's SHA-256 (password_links, migration
  * 0008), so neither a copy of the table nor anyone reading it can open the
- * link. A link lasts LINK_SECONDS and works once.
+ * link. An approval's link lasts LINK_SECONDS, a reset's lib/reset.js's
+ * RESET_SECONDS: each row carries its own expires_at. A link works once.
  *
- * A newer link replaces the account's earlier one only once its email has
- * gone; a send that is refused deletes the newer one instead, so the link a
- * person already holds never dies for an email that never reached them
- * (#221's review). lib/people.js's sendLink makes that call.
+ * A newer approval link replaces the account's earlier links only once its
+ * email has gone; a send that is refused deletes the newer one instead, so
+ * the link a person already holds never dies for an email that never reached
+ * them (#221's review). lib/people.js's sendLink makes that call. A reset
+ * link replaces nothing (lib/reset.js).
  *
- * Opening the link changes nothing: functions/set-password.js only checks it
+ * Opening the link changes nothing: GET /set-password only checks it
  * (linkAccount), so a mail scanner that fetches every link in an email cannot
- * use it up. Using it is spendLink, which deletes the row as it reads it.
- * Setting the password is #222's, and that is what will call spendLink; until
- * then a valid link's page says the account is approved and that setting a
- * password is coming (the owner's choice at #221's pickup, 2026-10-05).
+ * use it up. Using it is setting the password: lib/sign-in.js's setPassword
+ * stores the new hash and deletes every link the account holds in one D1
+ * batch, which holds only while this link is still there (#222).
  *
  * The token rides in the query string, so the page can answer without
  * JavaScript. The site's Referrer-Policy, strict-origin-when-cross-origin,
@@ -53,13 +55,17 @@ export const passwordLink = (site, token) => `${site}/set-password?token=${token
  * the admins' log entry in the same one). The statements delete every expired
  * link in the table, then insert the new hash. They leave the account's
  * earlier links alone: whether the new one replaces them depends on whether
- * its email goes (replaceOthers, dropLink). `random` fills a Uint8Array and
- * returns it, as crypto.getRandomValues does; tests pass their own.
+ * its email goes (replaceOthers, dropLink). `seconds` is how long it lasts,
+ * LINK_SECONDS unless a reset says otherwise (#222). `random` fills a
+ * Uint8Array and returns it, as crypto.getRandomValues does; tests pass their
+ * own.
  */
-export async function newLink(db, accountId, now, random = (bytes) => crypto.getRandomValues(bytes)) {
+export async function newLink(db, accountId, now, {
+  seconds = LINK_SECONDS, random = (bytes) => crypto.getRandomValues(bytes),
+} = {}) {
   const token = base64url(random(new Uint8Array(TOKEN_BYTES)));
   const hash = await tokenHash(token);
-  const expiresAt = now + LINK_SECONDS;
+  const expiresAt = now + seconds;
   return {
     token,
     hash,
@@ -78,8 +84,8 @@ export async function newLink(db, accountId, now, random = (bytes) => crypto.get
  * D1 runs as a transaction. The account must exist (the foreign key), or the
  * batch throws and nothing changes.
  */
-export async function makeLink(db, accountId, now, random) {
-  const { token, expiresAt, statements } = await newLink(db, accountId, now, random);
+export async function makeLink(db, accountId, now, options) {
+  const { token, expiresAt, statements } = await newLink(db, accountId, now, options);
   await db.batch(statements);
   return { token, expiresAt };
 }
@@ -110,22 +116,6 @@ export async function linkAccount(db, token, now) {
     .bind(await tokenHash(token), now)
     .first();
   return row ? { accountId: row.account_id, expiresAt: row.expires_at } : null;
-}
-
-/**
- * Use a link: the account it opens, or null as linkAccount answers it. One
- * statement deletes the row and returns it, so of two uses at once only one
- * gets the account, and a link once used answers null. An expired link is not
- * deleted here; makeLink and clearExpiredLinks delete it. #222's form calls
- * this, and nothing does before it.
- */
-export async function spendLink(db, token, now) {
-  if (!isToken(token)) return null;
-  const row = await db
-    .prepare('DELETE FROM password_links WHERE token_hash = ? AND expires_at > ? RETURNING account_id')
-    .bind(await tokenHash(token), now)
-    .first();
-  return row ? row.account_id : null;
 }
 
 /**

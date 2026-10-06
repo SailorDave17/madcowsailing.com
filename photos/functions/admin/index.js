@@ -16,17 +16,26 @@
  * Since #220 it also says how many requests for an account wait: the email
  * to the admins goes at most once an hour, and only when a request arrives,
  * so this count is how a request that no later one follows is seen.
+ *
+ * Since #222 each load also deletes the failed sign-ins (lib/sign-in.js) and
+ * the reset requests (lib/reset.js) more than an hour old, for the same
+ * reason: each keeps a scrambled address, and the next failure or request
+ * alone could leave one kept for months.
  */
 import { clearExpiredRequests, waitingRequests } from '../../lib/accounts.js';
 import { adminHome } from '../../lib/admin-page.js';
 import { queueSummary } from '../../lib/queue.js';
 import { clearExpiredTakedowns } from '../../lib/removals.js';
+import { clearExpiredResetRequests } from '../../lib/reset.js';
 import { nowSeconds } from '../../lib/session.js';
+import { clearExpiredSignIns } from '../../lib/sign-in.js';
 
 export async function onRequestGet({ data, env }) {
   const now = nowSeconds();
   await clearExpiredTakedowns(env.DB, now);
   await clearExpiredRequests(env.DB, now);
+  await clearExpiredSignIns(env.DB, now);
+  await clearExpiredResetRequests(env.DB, now);
   const summary = { ...(await queueSummary(env.DB)), requests: await waitingRequests(env.DB) };
   return new Response(adminHome(data.owner.email, summary), {
     headers: {

@@ -18,14 +18,15 @@ import { requestAccount } from '../lib/accounts.js';
 import { utcText } from '../lib/admin-page.js';
 import { RESEND_URL } from '../lib/mail.js';
 import {
-  LINK_SECONDS, TOKEN_BYTES, clearExpiredLinks, dropLink, isToken, linkAccount, makeLink, passwordLink, replaceOthers, spendLink, tokenHash,
+  LINK_SECONDS, TOKEN_BYTES, clearExpiredLinks, dropLink, isToken, linkAccount, makeLink, passwordLink, replaceOthers, tokenHash,
 } from '../lib/password-link.js';
+import { STAND_IN_HASH, setPassword as storePassword } from '../lib/sign-in.js';
 import {
   ACTIONS, LINK_DAYS, LOG_SHOWN, adminLog, approveTeams, linkEmail, peopleLists, readAccountId, readTeams, rejectTeams, sendLink,
 } from '../lib/people.js';
 import { readFileSync } from 'node:fs';
 import { adminPeoplePage, peopleLocation, peopleNotice } from '../lib/people-page.js';
-import { linkGonePage, linkReadyPage } from '../lib/password-page.js';
+import { linkGonePage, setPasswordPage } from '../lib/password-page.js';
 import { PRODUCTION_SITE } from '../lib/invite.js';
 import { nowSeconds } from '../lib/session.js';
 import { onRequestGet as peoplePage } from '../functions/admin/people.js';
@@ -76,6 +77,16 @@ const env = (db, extra = {}) => ({ DB: db, RESEND_API_KEY: 'test-key', ...extra 
 // A fixed byte source, so a token is known before it is made.
 const bytes = (fill) => (array) => array.fill(fill);
 
+// Use a link the one way #222 uses one: set a password with it
+// (lib/sign-in.js's setPassword), which holds only for an account approved for
+// a team, so the account's waiting teams are approved first. Answers the new
+// session version, or null when the link could not be used. test/sign-in.test.js
+// holds setPassword itself, its race included.
+async function useLink(db, accountId, token, now) {
+  db.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = ? AND state = 'requested'").run(accountId);
+  return storePassword(db, { accountId, token, passwordHash: STAND_IN_HASH, emailKey: 'email-key', now });
+}
+
 // ---- The link: lib/password-link.js ----------------------------------------
 
 test('a link\'s token is 32 random bytes as 43 characters of base64url, and the row keeps only its SHA-256', async () => {
@@ -124,7 +135,8 @@ test('a link opens until its 7 days are up, and not a second after', async () =>
   const { token } = await makeLink(db, id, NOW);
   assert.deepEqual(await linkAccount(db, token, NOW + LINK_SECONDS - 1), { accountId: id, expiresAt: NOW + LINK_SECONDS });
   assert.equal(await linkAccount(db, token, NOW + LINK_SECONDS), null);
-  assert.equal(await spendLink(db, token, NOW + LINK_SECONDS), null);
+  assert.equal(await useLink(db, id, token, NOW + LINK_SECONDS), null);
+  assert.equal(await useLink(db, id, token, NOW + LINK_SECONDS - 1), 2);
 });
 
 test('checking a link writes nothing, so opening it any number of times spends nothing', async () => {
@@ -139,46 +151,11 @@ test('checking a link writes nothing, so opening it any number of times spends n
   assert.equal(count(db, 'password_links'), 1);
 });
 
-test('a link works once: the first use answers the account, every later one null, and two at once only one', async () => {
-  const db = d1();
-  const id = await ask(db);
-  const { token } = await makeLink(db, id, NOW);
-  assert.equal(await spendLink(db, token, NOW + 5), id);
-  assert.equal(await spendLink(db, token, NOW + 6), null);
-  assert.equal(await linkAccount(db, token, NOW + 6), null);
-  assert.equal(count(db, 'password_links'), 0);
-
-  // A use is one statement, the delete that returns the row, so nothing can
-  // come between reading the link and spending it.
-  const counted = await makeLink(db, id, NOW);
-  const before = db.statements.length;
-  assert.equal(await spendLink(db, counted.token, NOW), id);
-  const spent = db.statements.slice(before);
-  assert.equal(spent.length, 1, spent.join('\n'));
-  assert.match(spent[0], /^DELETE FROM password_links WHERE .* RETURNING account_id$/);
-
-  // Two uses at once, through a D1 that lets them interleave between every
-  // statement: the second finds nothing to delete.
-  const again = await makeLink(db, id, NOW);
-  const both = await Promise.all([spendLink(slow(db), again.token, NOW), spendLink(slow(db), again.token, NOW)]);
-  assert.deepEqual(both.sort(), [id, null].sort());
-});
-
-// A D1 whose every statement waits a macrotask before it runs, so two calls in
-// flight interleave between their statements, as two requests on D1 can. The
-// plain stand-in settles in microtasks, so a read and a delete inside one call
-// always ran back to back, and a spend that read and then deleted passed the
-// race (#221's review: 0 double spends in 200).
-function slow(db) {
-  const tick = () => new Promise((resolve) => setImmediate(resolve));
-  const wrap = (statement) => ({
-    bind: (...values) => wrap(statement.bind(...values)),
-    first: async (...args) => { await tick(); return statement.first(...args); },
-    all: async () => { await tick(); return statement.all(); },
-    run: async () => { await tick(); return statement.run(); },
-  });
-  return { ...db, prepare: (sql) => wrap(db.prepare(sql)) };
-}
+// A link works once, and two uses at once change the account once: that is
+// lib/sign-in.js's setPassword, the one way a link is used since #222, held in
+// test/sign-in.test.js. #221 built spendLink for it, a delete of its own, and
+// #222 retired it: it would have spent the link before the password was
+// stored.
 
 test('a token of the wrong shape is refused before the database is asked', async () => {
   const db = d1();
@@ -186,7 +163,6 @@ test('a token of the wrong shape is refused before the database is asked', async
   for (const token of [null, undefined, 42, '', 'short', 'A'.repeat(42), 'A'.repeat(44), `${'A'.repeat(42)}=`, `${'A'.repeat(42)}+`, `${'A'.repeat(42)}/`]) {
     assert.equal(isToken(token), false, String(token));
     assert.equal(await linkAccount(db, token, NOW), null);
-    assert.equal(await spendLink(db, token, NOW), null);
   }
   assert.equal(db.statements.length, before);
   assert.equal(isToken('A'.repeat(43)), true);
@@ -921,21 +897,30 @@ const open = (db, query, method = 'GET') => {
   return handler({ request: new Request(`${SITE}/set-password${query}`, { method }), env: { DB: db } });
 };
 
-test('a link that can be used opens a page saying the account is approved and until when, with no form, and is not spent (criterion 2)', async () => {
+test('a link that can be used opens the form to choose a password, saying until when, and opening it spends nothing (criterion 2; #222)', async () => {
   const db = d1();
   const id = await ask(db, { teams: ['cohssa'] });
+  // Approved, as an approval's link always is: the form opens only for an
+  // account approved for a team (#222).
+  await approveTeams(db, { accountId: id, teams: ['cohssa'], role: 'parent', admin: ADMIN, now: nowSeconds() });
   const { token, expiresAt } = await makeLink(db, id, nowSeconds());
   for (const method of ['GET', 'HEAD', 'GET']) {
     const res = await open(db, `?token=${token}`, method);
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('Cache-Control'), 'no-store');
     const html = await res.text();
-    assert.match(html, /<h1>Your account is approved<\/h1>/);
+    assert.match(html, /<h1>Choose a password<\/h1>/);
     assert.ok(html.includes(utcText(expiresAt)));
-    assert.doesNotMatch(html, /<form|<input|type="password"/);
+    assert.match(html, /<form method="post" action="\/set-password"/);
+    assert.ok(html.includes(`<input type="hidden" name="token" value="${token}">`));
+    assert.equal((html.match(/type="password"/g) ?? []).length, 2);
   }
   assert.equal(count(db, 'password_links'), 1);
   assert.equal((await linkAccount(db, token, nowSeconds())).accountId, id);
+  // A link whose account is not approved for any team opens nothing.
+  const waiting = await ask(db, { name: 'Sam Lee', email: 'sam@example.org' });
+  const unapproved = await makeLink(db, waiting, nowSeconds());
+  assert.equal((await open(db, `?token=${unapproved.token}`)).status, 404);
 });
 
 test('a used, expired, replaced, mistyped or missing link says so, the same way, and offers no way in (criterion 2)', async () => {
@@ -943,7 +928,7 @@ test('a used, expired, replaced, mistyped or missing link says so, the same way,
   const id = await ask(db, { teams: ['cohssa'] });
   const now = nowSeconds();
   const used = await makeLink(db, id, now);
-  assert.equal(await spendLink(db, used.token, now), id);
+  assert.equal(await useLink(db, id, used.token, now), 2);
   // Replaced the way a person's link is: a second email went.
   const third = await ask(db, { name: 'Tia Moss', email: 'tia@example.org' });
   await approveTeams(db, { accountId: third, teams: ['cohssa'], role: 'parent', admin: ADMIN, now });
@@ -989,11 +974,17 @@ test('when the database does not answer, the link page says so with a 503, and n
 test('a usable link\'s page says, in UTC, when the link runs out', () => {
   // Written out, not computed: NOW + LINK_SECONDS is 28 September 2026,
   // 14:13:20 UTC.
-  assert.match(linkReadyPage(NOW + LINK_SECONDS), /this link works until 28 September 2026, 14:13 UTC, and it can be used once\./);
+  const page = setPasswordPage({ token: 'T'.repeat(43), email: 'jane@example.org', hasPassword: false, expiresAt: NOW + LINK_SECONDS });
+  assert.match(page, /This link works once, until 28 September 2026, 14:13 UTC\./);
 });
 
 test('the link pages are valid under the photo site\'s html-validate config', async () => {
-  for (const html of [linkReadyPage(NOW), linkGonePage()]) {
+  const form = (options) => setPasswordPage({ token: 'T'.repeat(43), email: 'jane@example.org', hasPassword: false, expiresAt: NOW, ...options });
+  for (const html of [
+    form(), form({ hasPassword: true }),
+    form({ errors: [{ field: 'password', message: 'Too short.' }, { field: 'confirm', message: 'Not the same.' }] }),
+    linkGonePage(),
+  ]) {
     assert.deepEqual(problems(await validate(html)), []);
     assert.equal((await validate(html.replace('<h1>', '<h1>again</h1><h1>'))).valid, false);
   }
@@ -1005,7 +996,7 @@ test('the whole flow: Approve emails a link, the link opens, and once used it op
   await approveRoute.onRequestPost(context(post('/api/admin/people/approve', [['account', String(id)], ['team', 'hoover-jrt'], ['role', 'parent']]), db));
   const link = new URL(sends[0].text.match(/https:\/\/\S+/)[0]);
   assert.equal((await open(db, link.search)).status, 200);
-  assert.equal(await spendLink(db, link.searchParams.get('token'), nowSeconds()), id);
+  assert.equal(await useLink(db, id, link.searchParams.get('token'), nowSeconds()), 2);
   assert.equal((await open(db, link.search)).status, 404);
   assert.equal(passwordLink(SITE, 'T'), `${SITE}/set-password?token=T`);
 });

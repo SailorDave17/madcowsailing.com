@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { SITE_HEADERS, TURNSTILE_CSP, TURNSTILE_ORIGIN, TURNSTILE_PATH } from '../lib/headers.js';
+import { SITE_HEADERS, TURNSTILE_CSP, TURNSTILE_ORIGIN, TURNSTILE_PATHS } from '../lib/headers.js';
 import { onRequest } from '../functions/_middleware.js';
 
 // The rules of a Pages _headers file: a path at column 0, then its headers
@@ -127,20 +127,27 @@ test("the request form's CSP is the site's, with Turnstile's origin added to scr
   assert.deepEqual(rest(form), rest(site));
 });
 
-test('the middleware gives /ask the form\'s CSP, and every other path the site\'s', async () => {
+test('the middleware gives /ask and /forgot-password the form\'s CSP, and every other path the site\'s', async () => {
   const answer = (path) => onRequest({ request: at(path), next: async () => new Response('x') });
-  assert.equal(TURNSTILE_PATH, '/ask');
+  // The request form (#220) and the reset form (#222, the owner's choice at
+  // its pickup). The sign-in form has no Turnstile, so it keeps the site's.
+  assert.deepEqual(TURNSTILE_PATHS, ['/ask', '/forgot-password']);
   // The query does not move it: /ask?sent is the same page's path.
-  for (const path of ['/ask', '/ask?sent', '/ask?x=/admin']) {
+  for (const path of ['/ask', '/ask?sent', '/ask?x=/admin', '/forgot-password', '/forgot-password?sent']) {
     assert.equal((await answer(path)).headers.get('Content-Security-Policy'), TURNSTILE_CSP, path);
   }
-  for (const path of ['/', '/ask/', '/asking', '/ask.html', '/api/ask', '/albums/ask/', '/admin', '/admin/ask', '/share/', '/policy', '/ASK']) {
+  for (const path of [
+    '/', '/ask/', '/asking', '/ask.html', '/api/ask', '/albums/ask/', '/admin', '/admin/ask', '/share/', '/policy', '/ASK',
+    '/sign-in', '/set-password', '/account', '/forgot-password/', '/forgot-password.html', '/sign-out',
+  ]) {
     assert.equal((await answer(path)).headers.get('Content-Security-Policy'), SITE_HEADERS['Content-Security-Policy'], path);
   }
-  // Every other site header is on /ask's answer too.
-  const res = await answer('/ask');
-  for (const [name, value] of Object.entries(SITE_HEADERS)) {
-    if (name !== 'Content-Security-Policy') assert.equal(res.headers.get(name), value, name);
+  // Every other site header is on each form's answer too.
+  for (const path of TURNSTILE_PATHS) {
+    const res = await answer(path);
+    for (const [name, value] of Object.entries(SITE_HEADERS)) {
+      if (name !== 'Content-Security-Policy') assert.equal(res.headers.get(name), value, `${path} ${name}`);
+    }
   }
 });
 

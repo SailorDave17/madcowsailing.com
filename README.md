@@ -300,7 +300,8 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   the policy alone gets a PIN and then a `403`. A tag changes only if its application is
   deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
   refuses everyone.
-- **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC),
+- **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC;
+  since #222 the reset form at `/forgot-password` uses it too),
   in Managed mode with pre-clearance off, for the hostnames
   `photos.madcowsailing.com` and `madcowphotos.pages.dev`. A hostname covers
   its subdomains, so the second serves the `develop` preview too. Its site key
@@ -317,8 +318,9 @@ By name only; a value never goes in this repo.
 - **Pages secrets**, one value per environment, set in the dashboard under the
   project's Settings → Variables and Secrets, as type *Secret*:
   - `SESSION_SIGNING_KEY` (#150) signs the upload session cookie, a parent's
-    and a coach's. Changing it ends every session at once, a coach's
-    included; rotating the code ends only the parents' (#192).
+    and a coach's, and since #222 the account session cookie,
+    `__Host-account`. Changing it ends every session at once, a coach's and
+    an account's included; rotating the code ends only the parents' (#192).
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
     stores instead of a network address.
   - `ADMIN_EMAILS` (#151) is the comma-separated list of addresses the admin
@@ -358,17 +360,18 @@ By name only; a value never goes in this repo.
     that way. Unset, nothing is sent and `/admin/mail` says so. Email, below,
     says how to replace it.
   - `TURNSTILE_SECRET_KEY` (#220) is the secret of the Turnstile widget on
-    `/ask`, which `photos/lib/turnstile.js` sends to Cloudflare's siteverify
-    with each request's token. One widget, so the same value in both
-    environments; its site key is public, and is `TURNSTILE_SITE_KEY` in
-    `photos/wrangler.jsonc`. Unset, `/ask` answers `503`, that requests are
-    closed, and keeps nothing. Never set one of Cloudflare's test keys here:
+    `/ask` and, since #222, `/forgot-password`, which `photos/lib/turnstile.js`
+    sends to Cloudflare's siteverify with each request's token. One widget, so
+    the same value in both environments; its site key is public, and is
+    `TURNSTILE_SITE_KEY` in `photos/wrangler.jsonc`. Unset, `/ask` and
+    `/forgot-password` answer `503`, that they are closed, and keep nothing. Never set one of Cloudflare's test keys here:
     the always-pass one passes every token, which production refuses to
     trust, so requests there would close, and a preview would pass them all.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
-  different values. Without them, `POST /api/join` answers `503` and opens
-  nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` and `POST /ask`
+  different values. Without them, `POST /api/join`, `/sign-in` and
+  `POST /set-password` answer `503` and open nothing, and without
+  `ADDRESS_HASH_KEY`, `POST /api/remove`, `POST /ask` and `/forgot-password`
   answer `503` and change nothing. Check that all six exist in both
   environments on the dashboard, which shows a secret's name and never its
   value.
@@ -496,6 +499,7 @@ a new file is listed here.
 | `0006_removal_requests.sql` | #158 | `removal_requests`, the hour's takedowns per address that rate-limit "Remove this photo" |
 | `0007_accounts.sql` | #220 | `teams`, `accounts` and `account_teams`, each request for an account and its teams; `account_request_log`, `account_request_budget` and `account_request_mail`, the request limits and the admins' email hour |
 | `0008_admin_people.sql` | #221 | `password_links`, each unused link to set a password, kept as a hash; `admin_log`, what the admins do with each account |
+| `0009_sign_in.sql` | #222 | Three columns on `accounts`: the password hash, the session version and the failed sign-ins in a row; `sign_in_failures` and `sign_in_budget`, the sign-in limits; `reset_request_log` and `reset_mail_budget`, the reset limits |
 
 ### The invite code
 
@@ -860,8 +864,8 @@ delete the old key in Resend.
 
 Every password the accounts epic (#216) stores is hashed by
 `photos/lib/password.js`: scrypt from `node:crypto`, N=2^14, r=8, p=5
-(#218; `CLAUDE.md`, The photo site, item 23, for why). Nothing is stored yet;
-#222 is the first story that does.
+(#218; `CLAUDE.md`, The photo site, item 23, for why). Since #222 a password
+set at `/set-password` is stored this way (Signing in, below).
 
 - **Measuring its CPU** on the develop preview: sign in to
   `https://develop.madcowphotos.pages.dev/admin/` through Access, then drive
@@ -947,11 +951,10 @@ decisions) lists every request for an account in three lists: **Waiting**,
   last one stops working. If Resend refuses the email, the page says why, the
   new link is deleted and the last one keeps working; if Resend does not
   answer, both work. The approval stands either way.
-- **Until #222, the link only says the account is approved.** Setting the
-  password is #222's, so **approve no real person before #222 ships**: their
-  link would have nothing to set yet. Opening a link spends nothing, so a mail
-  scanner fetching it cannot use it up. A used, expired, replaced or mistyped
-  link answers `404` with one page for all of them.
+- **The link opens the form to choose a password** (#222; Signing in, below).
+  Opening a link spends nothing, so a mail scanner fetching it cannot use it
+  up. A used, expired, replaced or mistyped link answers `404` with one page
+  for all of them.
 - **The log** records who did what to whom, and when: each approval and
   turn-down per team, a role change, and each link sent, with how the email
   went. A link's entry is written with the link itself, so no link exists
@@ -961,6 +964,46 @@ decisions) lists every request for an account in three lists: **Waiting**,
 - **A link's row holds only the token's SHA-256** (`password_links`). An
   expired row is deleted by the next load of `/admin/people` or the next link
   sent.
+
+### Signing in
+
+An approved person sets a password from their emailed link, signs in at
+`/sign-in`, and resets a forgotten password at `/forgot-password` (#222;
+`CLAUDE.md`, The photo site, item 27, has the decisions). Nothing public links
+to `/sign-in` or `/forgot-password` yet, as nothing links to `/ask`: the
+emails do, and #223 and #226 add the rest. Sending from an account is #223's.
+
+- **The password**: 15 to 256 characters, counted after NFC, with no rules
+  about mixing kinds. It is turned down when it is the person's own address
+  or name or the site's name, or when Have I Been Pwned's Pwned Passwords has
+  seen it in a breach. That check sends only the first 5 characters of the
+  password's SHA-1, and if the service does not answer within 3 s the
+  password is let through and the miss logged (owner, at #222's pickup).
+- **The session** is the `__Host-account` cookie, signed with
+  `SESSION_SIGNING_KEY`, for 90 days. It names the account and its session
+  version. Signing out and setting a password each add 1 to the version,
+  which ends every session the account holds at its next request, on every
+  device. A revoke ends them too, since the guard reads only an account
+  approved for a team; #225's revoke is to add 1 as well. `/account` is the
+  page behind it, with Sign out.
+- **Failed sign-ins**: 10 an hour per email address (counted for an address
+  with no account too), 20 an hour per network, and 100 an hour for the whole
+  site, after which nobody can sign in until the hour turns. Each try claims
+  its units before the password is checked, so tries sent at once cannot all
+  pass, and a sign-in that succeeds gives them back. Each failure is kept
+  for an hour as keyed hashes in `sign_in_failures`. After 100 failures in a
+  row an account's password stops working until a new one is set from a
+  reset link. Every failure answers with the same page, after the same
+  statements.
+- **A reset** emails a link to `/set-password` that works once, for an hour,
+  only to an account approved for a team, whether or not it had a password.
+  At most one every 15 minutes per account while an earlier link waits to be
+  used, 20 a day for the whole site, and 10 requests an hour per network. The form sits behind the `/ask` Turnstile
+  widget, and its answer is the same `303` whether or not the address has an
+  account; the email goes after the answer.
+- **A password that stopped working** comes back only through a new
+  password: from a reset, or from "Send a new link" on `/admin/people`.
+  Setting it puts the count of failures in a row back to 0.
 
 ### Deleting an account by hand
 
