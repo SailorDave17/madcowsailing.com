@@ -32,9 +32,17 @@
  * browser refuse the cookie unless it is Secure, Path=/ and set with no
  * Domain, so no other host under madcowsailing.com can set or read it.
  *
+ * Since #223 the guard also takes an account's session, the __Host-account
+ * cookie lib/account-session.js signs (#222), and takes it first: a phone
+ * holding a live account session sends as that account, to its approved
+ * teams only, whatever upload cookie it also holds (owner, at #223's pickup).
+ * One that holds no live account session sends as today, until #226 retires
+ * the invite link and the coaches' sign-in.
+ *
  * Nothing here logs the cookie, the signature, an address or the key.
  */
 import { allowList } from './access.js';
+import { readAccountSession, sessionAccount } from './account-session.js';
 import { base64url, fromBase64url, hmac, hmacVerify } from './crypto.js';
 
 export const COOKIE_NAME = '__Host-upload';
@@ -164,11 +172,33 @@ const refuse = (status, error) =>
  * The one guard. functions/api/upload/_middleware.js runs it in front of
  * every upload route, and test/guard.test.js fails for any route that
  * answers without it. On success the session is on context.data.session,
- * for a route that records who sent something (#154, #192): its `sender` is
- * 'parent' or 'coach'.
+ * for a route that records who sent something (#154, #192, #223):
+ *   { sender: 'account', accountId, role, teams, issued }   an account (#223)
+ *   { sender: 'parent', generation, issued }                the invite link
+ *   { sender: 'coach', coach, issued }                      a coach at /coach
+ * An account's `teams` are the ones it is approved for now, read on this
+ * request, and `role` the one an admin approved (#221).
  */
 export async function requireUploadSession(context) {
   const { request, env } = context;
+  // An account's session first (#223). One whose account is gone, approved
+  // for no team, or on another version is no session, and the upload cookie
+  // is read as if it were not there.
+  const held = await readAccountSession(request, env.SESSION_SIGNING_KEY);
+  if (held) {
+    let account;
+    try {
+      account = await sessionAccount(env.DB, held);
+    } catch (err) {
+      // Fail closed, as for a parent's below.
+      console.error('upload guard: database did not answer:', err instanceof Error ? err.message : String(err));
+      return refuse(503, 'unavailable');
+    }
+    if (account) {
+      context.data.session = { sender: 'account', accountId: account.id, role: account.role, teams: account.teams, issued: held.issued };
+      return context.next();
+    }
+  }
   const session = await readSession(request, env.SESSION_SIGNING_KEY);
   if (!session) return refuse(401, 'not-joined');
   if (session.sender === 'coach') {

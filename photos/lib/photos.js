@@ -35,9 +35,28 @@ export const CAPTION_MAX = 200;
 // Uploads one session may send in a UTC day: the owner's figure at #154's
 // pickup (2026-09-29), confirming the 500 the story proposed. It stops a
 // runaway phone. It does not stop a leaked code, since whoever holds the code
-// can join again for a new session; rotating the code does that (#152).
+// can join again for a new session; rotating the code does that (#152). An
+// account's 500 are the account's, shared by every phone signed in to it
+// (#223, criterion 5), so signing in again opens no new 500.
 export const DAILY_UPLOADS = 500;
 const DAY_SECONDS = 24 * 60 * 60;
+
+// How long a clip may run, by who sends it (epic #147, D11): a coach's 15
+// minutes, everyone else's 3. #198's clip routes read clipSeconds(session),
+// so the role an admin approved decides it for an account (#223, criterion 4).
+export const CLIP_SECONDS = Object.freeze({ coach: 15 * 60, everyone: 3 * 60 });
+
+/**
+ * Whether a session sends as a coach: a coach's Access sign-in (#192), or an
+ * account an admin approved with the coach role (#221, #223). An account's
+ * role is read on every request (lib/session.js), so a role changed at
+ * approval applies from the next upload.
+ */
+export const sendsAsCoach = (session) =>
+  session.sender === 'coach' || (session.sender === 'account' && session.role === 'coach');
+
+/** The longest clip, in seconds, a session may send (D11). */
+export const clipSeconds = (session) => (sendsAsCoach(session) ? CLIP_SECONDS.coach : CLIP_SECONDS.everyone);
 
 // A batch is what one press of Send carries, so the approval queue (#156)
 // can show it together. The page names it with crypto.randomUUID().
@@ -113,12 +132,15 @@ export async function readCapped(request, max) {
 /**
  * The key upload_counts holds a session under: a parent's by its code's
  * generation, a coach's (#192) by its coach tag, each with when it was
- * issued. The two can never meet: a generation is digits, and a coach's key
- * starts "coach.".
+ * issued, and an account's (#223) by the account alone, so its phones share
+ * one count. None can meet another: a generation is digits, and the others
+ * start "coach." and "account.".
  */
-export const sessionKey = (session) => (session.sender === 'coach'
-  ? `coach.${session.coach}.${session.issued}`
-  : `${session.generation}.${session.issued}`);
+export function sessionKey(session) {
+  if (session.sender === 'account') return `account.${session.accountId}`;
+  if (session.sender === 'coach') return `coach.${session.coach}.${session.issued}`;
+  return `${session.generation}.${session.issued}`;
+}
 
 /**
  * Spend one of the session's uploads for this UTC day, and say whether there
@@ -188,32 +210,62 @@ export function sizesAgree({ grid, screen, full }) {
 export const secondsToNextDay = (now) => DAY_SECONDS - (now % DAY_SECONDS);
 
 /**
+ * The columns 0005 and 0012 record about who sent a photo, for `session`:
+ * { sender, code_generation, session_issued, account_id }.
+ *
+ * A parent's row names the code's generation and when the phone opened it. A
+ * coach's (#192) says `coach` and names no code generation, since no code
+ * opened the session, and keeps no session time either: the second a coach
+ * signed in sits beside their address in Cloudflare's sign-in log, and would
+ * name which coach sent the photo (owner, at #192's review).
+ *
+ * An account's (#223) names the account. 0005's CHECKs allow no third
+ * sender and require a parent's row to name a generation, so the row carries
+ * placeholders: the sender is the account's role, `coach` or else `parent`,
+ * and the generation and session time are 0, which no invite code is, as
+ * 0012's CHECK requires of every row naming an account (owner, at #223's
+ * pickup). The sign-in time is not kept: the account is named already.
+ */
+export function senderColumns(session) {
+  if (session.sender === 'account') {
+    return { sender: sendsAsCoach(session) ? 'coach' : 'parent', code_generation: 0, session_issued: 0, account_id: session.accountId };
+  }
+  if (session.sender === 'coach') return { sender: 'coach', code_generation: null, session_issued: null, account_id: null };
+  return { sender: 'parent', code_generation: session.generation, session_issued: session.issued, account_id: null };
+}
+
+/**
  * Write a photo, pending, into the album at `address` if it is still open,
  * and return the row's id. Null when it is not: the album check and the
  * insert are one statement, so an album closed or deleted after the route
- * looked at it takes nothing. A coach's photo (#192) waits for approval like
- * a parent's (epic #147, D10); its row says `coach` and names no code
- * generation, since no code opened the session. It keeps no session time
- * either: the second a coach signed in sits beside their address in
- * Cloudflare's sign-in log, and would name which coach sent the photo
- * (owner, at #192's review).
+ * looked at it takes nothing. Every photo waits for approval (epic #147,
+ * D10), whoever sent it. senderColumns says what the row records about the
+ * sender.
+ *
+ * From an account (#223), the same statement also requires the album's team
+ * to be one the account is approved for now, so a team revoked after the
+ * route checked it takes nothing either.
  */
 export async function insertPhoto(db, address, photo) {
-  const coach = photo.session.sender === 'coach';
+  const from = senderColumns(photo.session);
+  const account = from.account_id !== null;
   const row = await db
     .prepare(
       'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, ' +
-      'session_issued, caption, captured_at, sent_at, width, height, grid_width, grid_height, ' +
+      'session_issued, account_id, caption, captured_at, sent_at, width, height, grid_width, grid_height, ' +
       'screen_width, screen_height, bytes) ' +
-      "SELECT id, 'photo', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
+      "SELECT id, 'photo', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
       'FROM albums WHERE address = ? AND closed_at IS NULL ' +
+      (account
+        ? "AND team IN (SELECT team FROM account_teams WHERE account_id = ? AND state = 'approved') "
+        : '') +
       'RETURNING id',
     )
     .bind(
-      photo.mediaKey, photo.batch, coach ? 'coach' : 'parent', coach ? null : photo.session.generation,
-      coach ? null : photo.session.issued, photo.caption,
-      photo.captured, photo.sentAt, photo.full.width, photo.full.height, photo.grid.width,
+      photo.mediaKey, photo.batch, from.sender, from.code_generation, from.session_issued, from.account_id,
+      photo.caption, photo.captured, photo.sentAt, photo.full.width, photo.full.height, photo.grid.width,
       photo.grid.height, photo.screen.width, photo.screen.height, photo.bytes, address,
+      ...(account ? [from.account_id] : []),
     )
     .first();
   return row?.id ?? null;

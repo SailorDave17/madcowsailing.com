@@ -116,6 +116,33 @@
                                          review)
        No set limit                      owner, at #159's pickup, 2026-09-30
        The address for removals          owner, at #159's pickup, 2026-09-30
+       An approved account sends to its  requireUploadSession in
+       team's albums only, from any      lib/session.js, which reads
+       phone signed in to it             readAccountSession and
+                                         sessionAccount in
+                                         lib/account-session.js first;
+                                         functions/api/albums/open.js
+                                         offers and
+                                         functions/api/upload/index.js
+                                         takes only the approved teams'
+                                         albums, and insertPhoto in
+                                         lib/photos.js checks again (#223's
+                                         criteria 1 and 2; D16)
+       Signed in, a phone sends from the owner, at #223's pickup, 2026-10-06:
+       account, invite link or not       requireUploadSession takes the
+                                         account's session before the
+                                         upload cookie
+       A daily count per account, for    sessionKey and DAILY_UPLOADS in
+       every phone signed in to it;      lib/photos.js; upload_counts in
+       cleared the next day anyone       0005 (#223's criterion 5).
+       sends, a deleted account's too    spendDailyUpload deletes every
+                                         earlier day's count at anyone's
+                                         first upload of a day
+       Whether an account's photo was    senderColumns in lib/photos.js
+       a coach's, kept after a delete    writes the account's role as
+                                         sender, which 0005's CHECK needs,
+                                         and 0012's ON DELETE SET NULL
+                                         leaves it (owner, at #223's pickup)
        A photo sent with the invite      0005 and insertPhoto, as above. Since
        link, or by a coach, names        #219 the page promises this for those
        nobody; one sent from an          two ways only (D17, CLAUDE.md, The
@@ -234,9 +261,12 @@
                                          https://haveibeenpwned.com/API/v3
                                          (read 2026-10-06); owner, at #222's
                                          pickup, 2026-10-06
-       Which photos it sent              D17; stored by #223, whose criterion
-                                         3 keeps the account off every public
-                                         page, response and image
+       Which photos it sent              D17; account_id in
+                                         migrations/0012_photos_account.sql,
+                                         written by insertPhoto (#223), whose
+                                         criterion 3 keeps the account off
+                                         every public page, response and
+                                         image
        On the site, only the admins      D17; D15's admin role has no team
        see it; every admin, both teams   (item 24, confirmed 2026-10-05).
                                          Resend sees what it sends (below)
@@ -305,12 +335,20 @@
                                          4 holds after a delete
        The photos stay, and no longer    owner, at #219's pickup, 2026-10-05:
        record the account                D17's rule for revoking, applied to
-                                         a delete
+                                         a delete; ON DELETE SET NULL on
+                                         account_id in
+                                         migrations/0012_photos_account.sql
+                                         does it (#223)
        Restore points, up to 30 days     D1 Time Travel, always on: "30 days
                                          (Workers Paid) / 7 days (Free)" at
                                          https://developers.cloudflare.com/d1/platform/limits/
                                          (read 2026-10-05; owner, at #219's
                                          review)
+
+     #223 (sending from an account) changed the lede, "Who can send a
+     photo", what a photo keeps and the daily count, which it counts per
+     account, and added that a signed-in phone sends from the account, and
+     that a deleted account's photos still say whether it was a coach's.
 
      #238 (the teams' releases) changed the check: it says which release
      covers which team's photos, keeps Hoover JRT's check against the
@@ -417,9 +455,10 @@
     <p class="eyebrow">Photos</p>
     <h1>Who sees these photos</h1>
     <p class="lede">Anyone can look at a photo here once it is approved. Only
-      people with the team's invite link, and the team's coaches, who sign
-      in, can send one, and nothing shows until one of the site's admins has
-      checked it. To take a photo down, press
+      people with an account the site's admins approved for the team, people
+      with the team's invite link, and the team's coaches, who sign in, can
+      send one, and nothing shows until one of the site's admins has checked
+      it. To take a photo down, press
       "Remove this photo" under it, or email
       <a href="mailto:dave@madcowsailing.com">dave@madcowsailing.com</a>.</p>
   </section>
@@ -438,6 +477,12 @@
 
   <section class="wrap policy">
     <h2>Who can send a photo</h2>
+    <p>Someone with an account one of the site's admins approved for a team.
+      They sign in with their email address and password, and can then send
+      photos to that team's albums only, from any phone or computer signed in
+      to the account, for as long as an admin leaves the team on the account.
+      A phone signed in to an account sends from the account, even if it has
+      also opened the invite link.</p>
     <p>Someone holding the team's invite link, which is for the team's
       parents, sailors and coaches. Opening the link on a phone lets that
       phone send photos for 90 days, with no account, and no name or email
@@ -491,7 +536,8 @@
       <li>when it was taken, and when it was sent;</li>
       <li>which invite link it was sent with, and when that phone opened
         it, or for a coach's photo, only that a coach sent it;</li>
-      <li>for a photo sent from an account, which account sent it.</li>
+      <li>for a photo sent from an account, which account sent it, and
+        whether the account is a coach's.</li>
     </ul>
     <p>A photo sent with the invite link, or by a coach, keeps nothing that
       names who sent it: no name, no account and no email address, and for a
@@ -513,10 +559,13 @@
       with the coach's email address and network address, as it does for the
       admins. So when a coach's photo was sent could still be matched against
       who signed in shortly before.</p>
-    <p>The site also counts how many photos each phone sends in a day, so no
-      phone can send more than 500. The count is kept under the invite link,
-      or a coach's scrambled address, and the time the phone opened it, and
-      is cleared the next day that phone sends.</p>
+    <p>The site also counts how many photos are sent in a day, so no more
+      than 500 come from one account, or from one phone sending with the
+      invite link or a coach's sign-in. An account's count is kept under the
+      account, for every phone and computer signed in to it together. A
+      phone's is kept under the invite link, or a coach's scrambled address,
+      and the time the phone opened it. Each count is cleared the next day
+      anyone sends a photo.</p>
     <p>An invite link carrying an old or wrong code is refused. So that nobody
       can try code after code, the site records failed attempts, up to a set
       number each hour. It keeps the network address each attempt came from
@@ -660,13 +709,16 @@
       request came from you, and deletes the account once you confirm: your
       name, email address, role, teams, note and password hash all go.</p>
     <p>The photos you sent stay, approved or still waiting, and are checked
-      as usual, but they no longer record which account sent them. To have
+      as usual, but they no longer record which account sent them, only
+      whether it was a coach's. To have
       them taken down as well, press "Remove this photo" under each, or say
       so in the same email.</p>
     <p>Some things stay. The admins' log keeps its entries about your
       account, and they still name you. If an admin had revoked the account,
       the site keeps its email address in a scrambled form, made with a
-      secret key, so that a new request from it is still held back. Emails
+      secret key, so that a new request from it is still held back. The
+      count of photos the account sent that day stays, under the account's
+      number, until the next day anyone sends a photo. Emails
       already sent are not deleted with it: Resend keeps each for its 30
       days, and the email telling the admins about your request stays in
       their mailboxes.</p>

@@ -27,15 +27,22 @@
  *                                   a smaller size larger than the next, or a
  *                                   different aspect ratio (lib/photos.js,
  *                                   sizesAgree)
+ *   403 {"error": "team"}           from an account (#223), an open album of a
+ *                                   team the account is not approved for:
+ *                                   nothing stored, none of the cap spent
  *   409 {"error": "album"}          not an open album: unknown, closed, or
- *                                   closed or deleted while this was sent
+ *                                   closed or deleted while this was sent; or,
+ *                                   from an account, its team revoked while
+ *                                   this was sent
  *   413 {"error": "too-large"}      a body past every cap together
  *   413 {"error": "too-large", "size": s}   one file past its size's bytes or
  *                                   long edge
  *   415 {"error": "not-jpeg", "size": s}    a file that is not a JPEG this
  *                                   site takes, a PNG renamed .jpg among them
- *   429 {"error": "daily-cap"}      this session has sent DAILY_UPLOADS today,
- *                                   with Retry-After to the next UTC day
+ *   429 {"error": "daily-cap"}      this session, or for an account every
+ *                                   phone signed in to it together (#223), has
+ *                                   sent DAILY_UPLOADS today, with Retry-After
+ *                                   to the next UTC day
  *   503 {"error": "unavailable"}    the database or the bucket did not answer:
  *                                   closed, never open, and nothing stored
  *
@@ -84,7 +91,15 @@ export async function onRequestPost({ request, env, data }) {
 
   const now = nowSeconds();
   try {
-    if (!(await openAlbum(DB, fields.album))) return answer(409, { error: 'album' });
+    const album = await openAlbum(DB, fields.album);
+    if (!album) return answer(409, { error: 'album' });
+    // An account sends to its approved teams' albums only (#223, criterion 2,
+    // D16). The guard read its teams on this request. Refused before the cap
+    // is spent, so a refusal costs the account nothing; insertPhoto checks
+    // the team again in the statement that writes the row.
+    if (data.session.sender === 'account' && !data.session.teams.includes(album.team)) {
+      return answer(403, { error: 'team' });
+    }
     if (!(await spendDailyUpload(DB, data.session, now))) {
       return answer(429, { error: 'daily-cap' }, { 'Retry-After': String(secondsToNextDay(now)) });
     }

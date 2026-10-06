@@ -246,13 +246,19 @@ export const acted = (ids) => (ids.length === 1 ? { photo: ids[0] } : { n: ids.l
  * `team` keeps only the batches sent to that team's albums (#227), for the
  * page's team filter; null keeps every team's. A batch's number is its place
  * among the batches shown.
+ *
+ * Each photo sent from an account carries the account's name (#223,
+ * criterion 3, D17), for the admins alone: `accountName`, null for the
+ * invite link, a coach's Access sign-in, or an account since deleted.
  */
 export async function waitingBatches(db, team = null) {
   const statement = db.prepare(
     'SELECT p.id, p.batch, p.sender, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
     'p.grid_width, p.grid_height, p.screen_width, p.screen_height, ' +
-    'a.id AS album_id, a.title AS album_title, a.address AS album_address, a.team AS album_team ' +
+    'a.id AS album_id, a.title AS album_title, a.address AS album_address, a.team AS album_team, ' +
+    'acc.name AS account_name ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
+    'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
     "WHERE p.state = 'pending' AND p.kind = 'photo' " +
     (team === null ? '' : 'AND a.team = ? ') +
     'ORDER BY p.sent_at, p.id',
@@ -272,6 +278,7 @@ export async function waitingBatches(db, team = null) {
     batches.get(key).photos.push({
       id: row.id,
       sender: row.sender,
+      accountName: row.account_name,
       caption: row.caption,
       capturedAt: row.captured_at,
       sentAt: row.sent_at,
