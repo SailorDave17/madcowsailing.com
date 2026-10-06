@@ -27,8 +27,18 @@ import { DAILY_UPLOADS, SIZES, insertPhoto } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
 } from '../lib/removals.js';
-import { SESSION_DAYS, coachListed, coachSessionCookie, readSession } from '../lib/session.js';
+import { SESSION_DAYS, coachListed, coachSessionCookie, nowSeconds, readSession } from '../lib/session.js';
 import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
+import { onRequestGet as adminHomeRoute } from '../functions/admin/index.js';
+import { ACCOUNT_COOKIE, ACCOUNT_SESSION_DAYS, accountCookie, readAccountSession, sessionAccount } from '../lib/account-session.js';
+import { PWNED_RANGE_URL, pwned } from '../lib/password-rules.js';
+import {
+  RESET_EMAILS_PER_DAY, RESET_GAP_SECONDS, RESET_REQUEST_LIMIT, RESET_REQUEST_WINDOW_SECONDS, RESET_SECONDS, sendReset,
+} from '../lib/reset.js';
+import {
+  EMAIL_FAILURE_LIMIT, FAILED_IN_A_ROW, FAILURE_BUDGET_PER_HOUR, FAILURE_WINDOW_SECONDS as SIGN_IN_WINDOW_SECONDS,
+  NETWORK_FAILURE_LIMIT, signOut,
+} from '../lib/sign-in.js';
 import { d1, seedCodes } from './d1.js';
 import { r2 } from './r2.js';
 
@@ -196,8 +206,11 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
 });
 
 test('the policy\'s figures are the code\'s: a session\'s days, the join limit\'s hour, the full size\'s long edge and the daily cap', () => {
-  // A parent's phone, a coach's (#192) and the cookie: three times.
-  assert.equal(MAIN.match(new RegExp(`\\b${SESSION_DAYS} days\\b`, 'g'))?.length, 3, `the page names ${SESSION_DAYS} days three times`);
+  // A parent's phone, a coach's (#192) and the cookie: three times. The
+  // account's session (#222) is a fourth, which is held to its own constant
+  // below, so the two must agree.
+  assert.equal(ACCOUNT_SESSION_DAYS, SESSION_DAYS);
+  assert.equal(MAIN.match(new RegExp(`\\b${SESSION_DAYS} days\\b`, 'g'))?.length, 4, `the page names ${SESSION_DAYS} days four times`);
   assert.equal(FAILURE_WINDOW_SECONDS, 60 * 60, 'the join limit\'s window moved; the page says "an hour"');
   assert.match(MAIN, /An attempt counts for an hour/);
   assert.match(MAIN, new RegExp(`the largest at most ${SIZES.full.longEdge.toLocaleString('en-US')} pixels on its long side`));
@@ -450,6 +463,8 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     'when you asked, which teams still wait for an admin\'s answer, and whether the admins have been emailed about your request;',
     'the note you left with your request, if any;',
     'your password, only as a hash, which can check a password typed in but cannot be turned back into it;', // D14
+    // #222: failed_sign_ins (0009), NIST's count in a row.
+    'how many times in a row signing in to it has failed, until a sign-in succeeds;',
     // #221, criteria 2 and 7: the link's token, kept as its SHA-256.
     'a link to set your password, while it waits to be used, only as a hash, which can check the link but cannot be turned back into it;',
     'which photos you sent from it.', // D17
@@ -464,8 +479,10 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     'No public page, photo or download shows who sent a photo.', // #223's criterion 3
     // #221's link: 7 days (owner, at #221's pickup), once, replaced by a
     // newer one only once that one's email is sent (#221's review), and
-    // deleted by /admin/people's load or the next link made.
-    'When an admin approves your account for a team, the site emails you a link to set your password. It can be used once, for 7 days, and a newer link replaces it once the newer one\'s email is sent. Once its 7 days are up, it is deleted the next time an admin opens the list of accounts or sends a link.',
+    // deleted by /admin/people's load or the next link made, an approval's
+    // or a reset's. #222: setting a password ends every link the account
+    // holds (setPassword).
+    'When an admin approves your account for a team, the site emails you a link to set your password. It can be used once, for 7 days, and a newer link replaces it once the newer one\'s email is sent. Once its 7 days are up, it is deleted the next time an admin opens the list of accounts or any link is sent. Setting a password with a link uses up every link the account holds.',
     // #221's log (criterion 5: who, what, whom, when), and #225's revoke and
     // delete entries (owner, at #219's review). The name and address are
     // copied into each entry (migration 0008).
@@ -483,7 +500,8 @@ test('the page names Turnstile and Resend as handling a request, and says what e
     // TLS Fingerprint, User-Agent Header and Sitekey and associated origin",
     // and Turnstile's docs say it "does not access, store, or transmit ...
     // form entries" (both read 2026-10-05).
-    'Cloudflare Turnstile checks that the request form was filled in by a person, not a program.',
+    // #222 put Turnstile on the reset form too (the owner's choice at pickup).
+    'Cloudflare Turnstile checks that the request form, and the form to reset a password, were filled in by a person, not a program.',
     'it sees your network address, what your browser reports about itself, details of how it connects, and which site the form is on, but not what you type into the form.',
     'not to identify, profile or target anyone, and also uses them to improve Turnstile.',
     // #217's sender, and #220's email to the admins naming each requester.
@@ -539,18 +557,29 @@ const ACCOUNT_ROWS = [
   ['If you ask for an account, for', ['D13', 'D16', '#220', '#219\'s review', '#158\'s precedent']],
   ['What an account keeps: name,', ['#220\'s criteria 1 and 6', '#221']],
   ['When you asked, which teams', ['requested_at', 'admins_emailed', 'account_teams', 'migrations/0007_accounts.sql', 'requestAccount', 'mailAdmins', '#220', '/admin/people', 'peopleLists', '#221']],
-  ['The password, only as a hash', ['hashPassword', 'verifyPassword', 'lib/password.js', '#222']],
+  ['The password, only as a hash', ['hashPassword', 'verifyPassword', 'lib/password.js', 'setPassword', 'lib/sign-in.js', '#222', 'normalizePassword', 'lib/password-rules.js']],
+  // #222, criterion 8: what this story adds, each in its own row.
+  ['Failed sign-ins in a row, until', ['failed_sign_ins', 'migrations/0009_sign_in.sql', 'signIn', 'setPassword', 'lib/sign-in.js', '#222']],
   // #221, criterion 7: the link's token kept as a hash, and how long it lasts.
   ['A link to set a password, only', ['password_links', 'migrations/0008_admin_people.sql', 'tokenHash', 'newLink', 'lib/password-link.js', '#221\'s criterion 2']],
-  ['Approval emails it; once, 7', ['sendLink', 'lib/people.js', 'functions/api/admin/people/', 'LINK_SECONDS', 'spendLink', '#222', 'replaceOthers', 'dropLink', '#221\'s pickup', '#221\'s review']],
-  ['Deleted once its 7 days are up,', ['clearExpiredLinks', 'lib/password-link.js', 'functions/admin/people.js', 'newLink', '#221']],
+  ['Approval emails it; once, 7', ['sendLink', 'lib/people.js', 'functions/api/admin/people/', 'LINK_SECONDS', 'setPassword', 'lib/sign-in.js', '#222', 'replaceOthers', 'dropLink', '#221\'s pickup', '#221\'s review']],
+  ['Deleted once its 7 days are up,', ['clearExpiredLinks', 'lib/password-link.js', 'functions/admin/people.js', 'newLink', '#221', 'sendReset', 'lib/reset.js', '#222']],
+  ['Signing in: one cookie, 90', ['ACCOUNT_COOKIE', 'ACCOUNT_SESSION_DAYS', 'signAccountSession', 'lib/account-session.js', '#222\'s criterion 4']],
+  ['Signing out, a new password or', ['signOut', 'setPassword', 'lib/sign-in.js', 'session_version', 'migrations/0009_sign_in.sql', 'requireAccount', '#222\'s pickup', 'sessionAccount', '#225\'s criterion']],
+  ['Failed sign-ins: 10 an hour', ['EMAIL_FAILURE_LIMIT', 'NETWORK_FAILURE_LIMIT', 'FAILURE_BUDGET_PER_HOUR', 'lib/sign-in.js', '#222\'s pickup']],
+  ['Each failed try, scrambled, an', ['sign_in_failures', 'migrations/0009_sign_in.sql', 'emailHash', 'addressHash', 'clearExpiredSignIns', 'functions/admin/index.js', '#222\'s criterion 3']],
+  ['100 failed in a row stops the', ['FAILED_IN_A_ROW', 'NIST SP 800-63B-4', '3.2.2', '"no more than 100"']],
+  ['A reset emails a link: once,', ['sendReset', 'RESET_SECONDS', 'lib/reset.js', 'newLink', 'password_links', '#222\'s criterion 5', '#222\'s pickup']],
+  ['One every 15 minutes for an', ['RESET_GAP_SECONDS', 'RESET_EMAILS_PER_DAY', 'reset_mail_budget', 'migrations/0009_sign_in.sql']],
+  ['10 reset requests an hour from', ['RESET_REQUEST_LIMIT', 'claimResetRequest', 'reset_request_log', 'migrations/0009_sign_in.sql', 'clearExpiredResetRequests', 'functions/admin/index.js']],
+  ['Pwned Passwords sees 5', ['pwned', 'PWNED_RANGE_URL', 'lib/password-rules.js', 'https://api.pwnedpasswords.com/range/', 'https://haveibeenpwned.com/API/v3', '2026-10-06', '#222\'s pickup']],
   ['Which photos it sent', ['D17', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
   ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', '#225', '#219\'s review']],
   ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
   ['No sailor\'s name', ['D18']],
   ['Kept until it is deleted', ['#219\'s pickup']],
-  ['Turnstile, and what it sees', ['Turnstile Privacy Addendum', 'https://www.cloudflare.com/turnstile-privacy-policy/', '2025-06-18', 'form entries', 'verifyTurnstile', 'lib/turnstile.js', 'functions/ask.js']],
+  ['Turnstile, and what it sees', ['Turnstile Privacy Addendum', 'https://www.cloudflare.com/turnstile-privacy-policy/', '2025-06-18', 'form entries', 'verifyTurnstile', 'lib/turnstile.js', 'functions/ask.js', 'functions/forgot-password.js']],
   // #220, criterion 9: the request limit, and how long it keeps a scrambled
   // address.
   ['10 requests an hour from one', ['REQUEST_LIMIT', 'REQUEST_BUDGET_PER_HOUR', 'lib/accounts.js', '#220\'s']],
@@ -589,8 +618,21 @@ test('the head comment traces every account claim in its own row, and the code i
     replaceOthers: '../lib/password-link.js',
     dropLink: '../lib/password-link.js',
     tokenHash: '../lib/password-link.js',
-    spendLink: '../lib/password-link.js',
     clearExpiredLinks: '../lib/password-link.js',
+    // #222
+    setPassword: '../lib/sign-in.js',
+    signIn: '../lib/sign-in.js',
+    signOut: '../lib/sign-in.js',
+    emailHash: '../lib/sign-in.js',
+    clearExpiredSignIns: '../lib/sign-in.js',
+    signAccountSession: '../lib/account-session.js',
+    requireAccount: '../lib/account-session.js',
+    normalizePassword: '../lib/password-rules.js',
+    pwned: '../lib/password-rules.js',
+    sendReset: '../lib/reset.js',
+    claimResetRequest: '../lib/reset.js',
+    clearExpiredResetRequests: '../lib/reset.js',
+    addressHash: '../lib/address.js',
     approveTeams: '../lib/people.js',
     rejectTeams: '../lib/people.js',
     sendLink: '../lib/people.js',
@@ -691,6 +733,130 @@ test('"only as a hash" is what a link\'s row holds: the token\'s SHA-256, never 
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM password_links').get().n, 0);
 });
 
+// ---- #222: signing in, failed sign-ins, the reset, Pwned Passwords ----------
+
+test('the sign-in figures are the code\'s: 90 days, 10 an hour per address, 20 per network, 100 from everyone, an hour kept, 100 in a row (#222, criterion 8)', () => {
+  const kept = words(section('What an account keeps'));
+  assert.equal(ACCOUNT_SESSION_DAYS, 90);
+  assert.equal(ACCOUNT_COOKIE, '__Host-account');
+  assert.match(kept, new RegExp(`Signing in leaves one small cookie on that phone or computer, which keeps it signed in for ${ACCOUNT_SESSION_DAYS} days\\.`));
+  has(kept, [
+    'The cookie holds your account\'s number, a session number and when you signed in, signed with a secret key so it cannot be changed, and no password, name or email address.',
+    // Every device: the owner's choice at #222's pickup. A revoke ends every
+    // session today through sessionAccount's approved-team read
+    // (test/sign-in.test.js); #225 is to add 1 to the version as well.
+    'Signing out, setting a new password, or an admin revoking the account ends every session the account has, on every phone and computer, the next time each is used.',
+  ], '"What an account keeps"');
+  assert.match(kept, new RegExp(`at most ${EMAIL_FAILURE_LIMIT} an hour for one email address, whether or not it has an account, and ${NETWORK_FAILURE_LIMIT} an hour from one network\\.`));
+  assert.match(kept, new RegExp(`The site takes at most ${FAILURE_BUDGET_PER_HOUR} failed sign-ins an hour from everyone together, and after that nobody can sign in until the hour is up\\.`));
+  assert.match(kept, new RegExp(`After ${FAILED_IN_A_ROW} failed sign-ins in a row, an account's password stops working until a new one is set\\.`));
+  assert.equal(SIGN_IN_WINDOW_SECONDS, 60 * 60, 'the failed sign-in window moved; the page says "an hour"');
+  has(kept, [
+    'It keeps each failed try for an hour, with the email address that was typed and the network address it came from, both only in a scrambled form, made with a secret key.',
+    'After that hour it is deleted, the next time a sign-in fails or one of the site\'s admins opens the admin home page, and a sign-in that succeeds deletes its address\'s tries at once.',
+  ], '"What an account keeps"');
+});
+
+test('"opens the admin home page" deletes failed sign-ins and reset requests over an hour old, and keeps the rest (#222)', async () => {
+  // The admin home itself, loaded, rather than a regex over its source,
+  // which a commented-out call still matched (#222's review).
+  const db = d1();
+  const now = nowSeconds();
+  const insertTry = db.sqlite.prepare('INSERT INTO sign_in_failures (email_hash, address_hash, failed_at) VALUES (?, ?, ?)');
+  const insertAsk = db.sqlite.prepare('INSERT INTO reset_request_log (address_hash, requested_at) VALUES (?, ?)');
+  for (const [name, at] of [['old', now - 2 * 3600], ['fresh', now - 60]]) {
+    insertTry.run(`e-${name}`, `a-${name}`, at);
+    insertAsk.run(`a-${name}`, at);
+  }
+  const response = await adminHomeRoute({ data: { owner: { email: 'owner@example.com' } }, env: { DB: db } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(db.sqlite.prepare('SELECT email_hash FROM sign_in_failures').all().map((r) => r.email_hash), ['e-fresh']);
+  assert.deepEqual(db.sqlite.prepare('SELECT address_hash FROM reset_request_log').all().map((r) => r.address_hash), ['a-fresh']);
+});
+
+test('the reset figures are the code\'s: an hour, once, a hash, one every 15 minutes, 20 a day, 10 requests an hour per network (#222, criterion 8)', () => {
+  const kept = words(section('What an account keeps'));
+  assert.equal(RESET_SECONDS, 60 * 60, 'the reset link\'s lifetime moved; the page says "for an hour"');
+  assert.equal(RESET_REQUEST_WINDOW_SECONDS, 60 * 60, 'the reset request window moved; the page says "an hour"');
+  has(kept, [
+    'If you forget your password, the form to reset it emails a link to set a new one, but only to an address with an account the site\'s admins approved.',
+    'The link works once, for an hour, and is kept only as a hash, like the link an approval sends.',
+  ], '"What an account keeps"');
+  // "While an earlier one waits": the gap is read from the links the account
+  // still holds, and a used link is gone (#222's review).
+  assert.match(kept, new RegExp(`The site sends one account at most one link every ${RESET_GAP_SECONDS / 60} minutes while an earlier one waits to be used, and at most ${RESET_EMAILS_PER_DAY} reset emails a day for everyone together\\.`));
+  assert.match(kept, new RegExp(`One network can ask at most ${RESET_REQUEST_LIMIT} times an hour, counted by its network address in the same scrambled form, which is kept for an hour and deleted after that, the next time anyone asks or one of the site's admins opens the admin home page\\.`));
+});
+
+test('"no password, name or email address" is what the cookie holds, and a changed byte is refused (#222)', async () => {
+  const db = d1();
+  const now = 1_790_000_000;
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane.rivers@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
+  const key = 'test-session-signing-key-0123456789abcdef';
+  const line = await accountCookie(key, { accountId: 1, version: 1 }, now);
+  const value = line.split(';')[0].slice(`${ACCOUNT_COOKIE}=`.length);
+  for (const part of ['jane', 'rivers', 'example', 'Jane Rivers']) assert.ok(!value.toLowerCase().includes(part.toLowerCase()), `the cookie holds "${part}"`);
+  assert.match(value, /^a1\.1\.1\.1790000000\.[A-Za-z0-9_-]{43}$/);
+  const request = (cookie) => new Request('https://photos.madcowsailing.com/account', { headers: { Cookie: `${ACCOUNT_COOKIE}=${cookie}` } });
+  assert.deepEqual(await readAccountSession(request(value), key, now), { accountId: 1, version: 1, issued: now });
+  // The control: the same cookie naming another account is refused.
+  assert.equal(await readAccountSession(request(value.replace(/^a1\.1\./, 'a1.2.')), key, now), null);
+});
+
+test('"ends every session the account has, on every phone and computer" is what signing out does (#222, criterion 7)', async () => {
+  const db = d1();
+  const now = 1_790_000_000;
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
+  // Two devices, both signed in at version 1.
+  const phone = { accountId: 1, version: 1, issued: now };
+  const laptop = { accountId: 1, version: 1, issued: now + 60 };
+  assert.ok(await sessionAccount(db, phone));
+  assert.ok(await sessionAccount(db, laptop));
+  assert.equal(await signOut(db, phone), true);
+  assert.equal(await sessionAccount(db, phone), null);
+  assert.equal(await sessionAccount(db, laptop), null, 'signing out on one device left another signed in');
+});
+
+test('"only the first 5 characters of the password\'s SHA-1 hash, never the password" is what the breach check sends (#222)', async (t) => {
+  const password = 'four unrelated words in a row';
+  const sha1 = (await import('node:crypto')).createHash('sha1').update(password, 'utf8').digest('hex').toUpperCase();
+  const asked = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    asked.push({ url, init });
+    return new Response(`${sha1.slice(5)}:0\r\n${'0'.repeat(35)}:3\r\n`);
+  });
+  // A padded line counts 0, so the password reads clear.
+  assert.equal(await pwned(password), 'clear');
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].url, `${PWNED_RANGE_URL}${sha1.slice(0, 5)}`);
+  assert.equal(PWNED_RANGE_URL, 'https://api.pwnedpasswords.com/range/');
+  assert.equal(asked[0].init.headers['Add-Padding'], 'true');
+  const sent = JSON.stringify(asked[0]);
+  assert.ok(!sent.includes(password) && !sent.includes(sha1.slice(5)), 'the check sent the password or the rest of its hash');
+  assert.equal(words(section('What an account keeps')).includes('It sends the service only the first 5 characters of the password\'s SHA-1 hash, never the password, and gets back every breached hash that starts with them, so the service never learns which password was checked.'), true);
+});
+
+test('"kept only as a hash" is what a reset link\'s row holds, and it lasts an hour (#222, criterion 5)', async (t) => {
+  const db = d1();
+  const now = 1_790_000_000;
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
+  let token = null;
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(url, RESEND_URL);
+    token = JSON.parse(init.body).text.match(/token=([A-Za-z0-9_-]{43})/)[1];
+    return Response.json({ id: 'msg-222' });
+  });
+  assert.equal(await sendReset({ DB: db, RESEND_API_KEY: 'test-key' }, { email: 'jane@example.org', now, site: 'https://photos.madcowsailing.com' }), 'sent');
+  const stored = db.sqlite.prepare('SELECT * FROM password_links').all().map((row) => ({ ...row }));
+  assert.deepEqual(stored, [{ token_hash: await tokenHash(token), account_id: 1, made_at: now, expires_at: now + RESET_SECONDS }]);
+  for (const value of Object.values(stored[0])) {
+    if (typeof value === 'string') assert.ok(!value.includes(token.slice(0, 8)), 'a stored column holds part of the token');
+  }
+});
+
 // Every table the schema holds, and what each can hold about an account. A
 // table this list does not know fails the test below: a later story adding
 // one (#223's sender, #225's revoked addresses) seeds it there and says
@@ -711,6 +877,13 @@ const TABLES = {
   join_failures: 'keyed network addresses',
   join_budget: 'a count per hour',
   removal_requests: 'keyed network addresses',
+  // #222. A failed try keeps the typed email address as a keyed hash, which
+  // names no account by id and holds no address; a deleted account's stay
+  // until their hour is up, as /policy says every failed try is kept.
+  sign_in_failures: 'keyed email and network addresses, each kept an hour',
+  sign_in_budget: 'a count per hour',
+  reset_request_log: 'keyed network addresses',
+  reset_mail_budget: 'a count per day',
   // A counter, not a reference: the highest id each AUTOINCREMENT table has
   // given, which can equal a deleted account's.
   sqlite_sequence: 'the highest id each AUTOINCREMENT table has given',
@@ -743,6 +916,12 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   db.sqlite.prepare('INSERT INTO removal_requests (address_hash, requested_at) VALUES (?, ?)').run('h', now);
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, 1)').run('1.1', Math.floor(now / 86400));
   db.sqlite.prepare('INSERT INTO account_request_mail (id, sent_at) VALUES (1, ?)').run(now);
+  // #222's: a failed sign-in for the address to delete, the hour's and the
+  // day's counts, and a reset request.
+  db.sqlite.prepare('INSERT INTO sign_in_failures (email_hash, address_hash, failed_at) VALUES (?, ?, ?)').run('keyed-email', 'h', now);
+  db.sqlite.prepare('INSERT INTO sign_in_budget (hour, failed) VALUES (?, 1)').run(Math.floor(now / 3600));
+  db.sqlite.prepare('INSERT INTO reset_request_log (address_hash, requested_at) VALUES (?, ?)').run('h', now);
+  db.sqlite.prepare('INSERT INTO reset_mail_budget (day, sent) VALUES (?, 1)').run(Math.floor(now / 86400));
   const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, now);
   const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   db.sqlite.prepare(

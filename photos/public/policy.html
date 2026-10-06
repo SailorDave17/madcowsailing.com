@@ -128,7 +128,15 @@
                                          lib/people.js, #221)
        The password, only as a hash      hashPassword and verifyPassword in
                                          lib/password.js (#218; D14), stored
-                                         by #222
+                                         by setPassword in lib/sign-in.js
+                                         (#222), NFC first: normalizePassword
+                                         in lib/password-rules.js
+       Failed sign-ins in a row, until   failed_sign_ins in
+       one succeeds                      migrations/0009_sign_in.sql, counted
+                                         by signIn and set back to 0 by a
+                                         sign-in that succeeds or by
+                                         setPassword, both in lib/sign-in.js
+                                         (#222)
        A link to set a password, only    password_links in
        as a hash                         migrations/0008_admin_people.sql,
                                          holding tokenHash, the SHA-256 of
@@ -138,9 +146,10 @@
        Approval emails it; once, 7       sendLink in lib/people.js, from
        days, a newer one replaces it     approve.js and link.js under
        once its email is sent            functions/api/admin/people/;
-                                         LINK_SECONDS and spendLink in
-                                         lib/password-link.js, which #222's
-                                         form calls; replaceOthers runs only
+                                         LINK_SECONDS in lib/password-link.js;
+                                         setPassword in lib/sign-in.js uses
+                                         up every link the account holds
+                                         (#222); replaceOthers runs only
                                          after a send Resend accepted, and a
                                          refused one runs dropLink on the new
                                          link (owner, at #221's pickup,
@@ -148,7 +157,73 @@
        Deleted once its 7 days are up,   clearExpiredLinks in
        by /admin/people or a new link    lib/password-link.js, run by
                                          functions/admin/people.js, and the
-                                         same delete in newLink (#221)
+                                         same delete in newLink (#221), which
+                                         a reset's link runs too (sendReset
+                                         in lib/reset.js, #222)
+       Signing in: one cookie, 90        ACCOUNT_COOKIE, ACCOUNT_SESSION_DAYS
+       days, holding no password,        and signAccountSession in
+       name or email address             lib/account-session.js: the account's
+                                         id, its version and the time, signed
+                                         (#222's criterion 4)
+       Signing out, a new password or    signOut and setPassword in
+       a revoke ends every session       lib/sign-in.js add 1 to
+                                         session_version in
+                                         migrations/0009_sign_in.sql, and
+                                         requireAccount refuses an older one;
+                                         every device (owner, at #222's
+                                         pickup, 2026-10-06). A revoke ends
+                                         sessions today because
+                                         sessionAccount reads only an account
+                                         approved for a team; that #225's
+                                         revoke will add 1 too, so a
+                                         re-approval cannot bring an old
+                                         cookie back, is #225's criterion
+                                         (#222's review)
+       Failed sign-ins: 10 an hour       EMAIL_FAILURE_LIMIT,
+       per address, 20 per network,      NETWORK_FAILURE_LIMIT and
+       100 from everyone, then none      FAILURE_BUDGET_PER_HOUR in
+                                         lib/sign-in.js (owner, at #222's
+                                         pickup, 2026-10-06); counted for an
+                                         address with no account too
+       Each failed try, scrambled, an    sign_in_failures in
+       hour                              migrations/0009_sign_in.sql, keyed by
+                                         emailHash in lib/sign-in.js and
+                                         addressHash in lib/address.js;
+                                         deleted by the next failure, by
+                                         clearExpiredSignIns from
+                                         functions/admin/index.js, or by a
+                                         sign-in that succeeds (#222's
+                                         criterion 3)
+       100 failed in a row stops the     FAILED_IN_A_ROW in lib/sign-in.js:
+       password until a new one is       NIST SP 800-63B-4, section 3.2.2,
+       set                               "no more than 100" (read 2026-10-06)
+       A reset emails a link: once,      sendReset and RESET_SECONDS in
+       an hour, kept as a hash           lib/reset.js, storing it with newLink
+                                         in password_links, as an approval's
+                                         (#222's criterion 5; an hour, owner,
+                                         at #222's pickup, 2026-10-06)
+       One every 15 minutes for an       RESET_GAP_SECONDS and
+       account while one is unused,      RESET_EMAILS_PER_DAY in lib/reset.js;
+       20 a day for everyone             reset_mail_budget in
+                                         migrations/0009_sign_in.sql (owner,
+                                         at #222's pickup); the gap is the
+                                         link insert's own NOT EXISTS in
+                                         sendReset, and a used link is gone
+                                         (#222's review)
+       10 reset requests an hour from    RESET_REQUEST_LIMIT and
+       one network, kept an hour         claimResetRequest in lib/reset.js;
+                                         reset_request_log in
+                                         migrations/0009_sign_in.sql; deleted
+                                         by the next claim or by
+                                         clearExpiredResetRequests from
+                                         functions/admin/index.js
+       Pwned Passwords sees 5            pwned and PWNED_RANGE_URL in
+       characters of a hash              lib/password-rules.js: "GET
+                                         https://api.pwnedpasswords.com/range/
+                                         {first 5 SHA-1 chars}", padded, at
+                                         https://haveibeenpwned.com/API/v3
+                                         (read 2026-10-06); owner, at #222's
+                                         pickup, 2026-10-06
        Which photos it sent              D17; stored by #223, whose criterion
                                          3 keeps the account off every public
                                          page, response and image
@@ -180,10 +255,11 @@
                                          access, store, or transmit user
                                          communications, form entries, or
                                          other page inputs" (both read
-                                         2026-10-05); the widget is on /ask,
-                                         checked by verifyTurnstile in
-                                         lib/turnstile.js (functions/ask.js,
-                                         #220)
+                                         2026-10-05); the widget is on /ask
+                                         and /forgot-password, checked by
+                                         verifyTurnstile in lib/turnstile.js
+                                         (functions/ask.js, #220;
+                                         functions/forgot-password.js, #222)
        10 requests an hour from one      REQUEST_LIMIT and
        network, 100 from everyone        REQUEST_BUDGET_PER_HOUR in
                                          lib/accounts.js (owner, at #220's
@@ -226,6 +302,11 @@
                                          (read 2026-10-05; owner, at #219's
                                          review)
 
+     #222 (signing in) added the session cookie and what ends it, the count
+     of failed sign-ins in a row, the failed sign-in limits and their
+     scrambled addresses, the reset link, its limits and its scrambled
+     network address, Pwned Passwords, and Turnstile on the reset form.
+
      #221 (approving requests on /admin/people) added the link to set a
      password, kept as a hash until it is used or replaced, or deleted at
      the first /admin/people load or new link after its 7 days, and named
@@ -264,7 +345,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=75d6a77b92">
+<link rel="stylesheet" href="/css/site.css?v=4578c5c5aa">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -447,6 +528,8 @@
       <li>the note you left with your request, if any;</li>
       <li>your password, only as a hash, which can check a password typed in
         but cannot be turned back into it;</li>
+      <li>how many times in a row signing in to it has failed, until a
+        sign-in succeeds;</li>
       <li>a link to set your password, while it waits to be used, only as a
         hash, which can check the link but cannot be turned back into it;</li>
       <li>which photos you sent from it.</li>
@@ -458,7 +541,41 @@
       link to set your password. It can be used once, for 7 days, and a newer
       link replaces it once the newer one's email is sent. Once its 7 days are
       up, it is deleted the next time an admin opens the list of accounts or
-      sends a link.</p>
+      any link is sent. Setting a password with a link uses up every link
+      the account holds.</p>
+    <p>Signing in leaves one small cookie on that phone or computer, which
+      keeps it signed in for 90 days. The cookie holds your account's number,
+      a session number and when you signed in, signed with a secret key so it
+      cannot be changed, and no password, name or email address. Signing out,
+      setting a new password, or an admin revoking the account ends every
+      session the account has, on every phone and computer, the next time
+      each is used.</p>
+    <p>So that nobody can guess a password, the site counts failed sign-ins:
+      at most 10 an hour for one email address, whether or not it has an
+      account, and 20 an hour from one network. It keeps each failed try for
+      an hour, with the email address that was typed and the network address
+      it came from, both only in a scrambled form, made with a secret key.
+      After that hour it is deleted, the next time a sign-in fails or one of
+      the site's admins opens the admin home page, and a sign-in that
+      succeeds deletes its address's tries at once. The site takes at most
+      100 failed sign-ins an hour from everyone together, and after that
+      nobody can sign in until the hour is up. After 100 failed sign-ins in a
+      row, an account's password stops working until a new one is set.</p>
+    <p>If you forget your password, the form to reset it emails a link to set
+      a new one, but only to an address with an account the site's admins
+      approved. The link works once, for an hour, and is kept only as a hash,
+      like the link an approval sends. The site sends one account at most one
+      link every 15 minutes while an earlier one waits to be used, and at
+      most 20 reset emails a day for everyone together. One network can ask at most 10 times an hour, counted by its
+      network address in the same scrambled form, which is kept for an hour
+      and deleted after that, the next time anyone asks or one of the site's
+      admins opens the admin home page.</p>
+    <p>When you set a password, the site checks it against passwords seen in
+      data breaches elsewhere, using Have I Been Pwned's Pwned Passwords
+      service. It sends the service only the first 5 characters of the
+      password's SHA-1 hash, never the password, and gets back every breached
+      hash that starts with them, so the service never learns which password
+      was checked.</p>
     <p>The admins also keep a log of what they do with each account: who
       approved it or turned it down for each team, changed its role, sent it a
       link to set a password, revoked it or deleted it, and when. Each entry
@@ -469,7 +586,8 @@
     <p>An account, and a request for one, is kept until it is deleted. There
       is no set limit.</p>
     <p>Two other services handle a request. Cloudflare Turnstile checks that
-      the request form was filled in by a person, not a program. To do that,
+      the request form, and the form to reset a password, were filled in by
+      a person, not a program. To do that,
       it sees your network address, what your browser reports about itself,
       details of how it connects, and which site the form is on, but not what
       you type into the form. Cloudflare says it collects these to tell

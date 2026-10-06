@@ -14,9 +14,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 // The admin guard's group (#151): the Access token, what it claims, and the
-// owner's address, which is kept out of the public repo too. The last is an
-// email's (#217): who it is to, its subject and its contents.
-const FORBIDDEN = /\b(code|codes|presented|stored|cookie|cookies|value|signature|secret|secrets|key|keys|[A-Z_]*_KEY|body|text|headers|request|session|token|tokens|jwt|claims|payload|email|emails|owner|ADMIN_EMAILS|to|recipient|recipients|subject|html|reply_to)\b/i;
+// owner's address, which is kept out of the public repo too. The next is an
+// email's (#217): who it is to, its subject and its contents. The last is a
+// password's and its hash's (#222, criterion 6). test/sign-in.test.js runs
+// every sign-in route with planted values and reads what they log, which
+// also catches a value under a name this list does not know.
+const FORBIDDEN = /\b(code|codes|presented|stored|cookie|cookies|value|signature|secret|secrets|key|keys|[A-Z_]*_KEY|body|text|headers|request|session|token|tokens|jwt|claims|payload|email|emails|owner|ADMIN_EMAILS|to|recipient|recipients|subject|html|reply_to|\w*password\w*|\w*hash\w*)\b/i;
 
 function sources(dir) {
   const out = [];
@@ -82,6 +85,9 @@ test('the scanner finds a secret handed to a logging call, and passes a clean on
     "console.error('mail refused for', to);",
     'console.error(`mail: ${subject} failed`);',
     "console.warn('resend said', message.reply_to);",
+    "console.error('sign-in failed:', password);",
+    'console.error(`stored ${account.password_hash}`);',
+    "console.warn('limited', addressHash);",
   ];
   for (const source of planted) {
     const calls = consoleCalls(source);

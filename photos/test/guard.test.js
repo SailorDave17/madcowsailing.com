@@ -35,6 +35,7 @@ import {
 } from '../lib/session.js';
 import { TOKEN_HEADER, keyCache, requireCoach, requireOwner } from '../lib/access.js';
 import { requireSameOrigin } from '../lib/origin.js';
+import { ACCOUNT_COOKIE, ACCOUNT_SESSION_SECONDS, requireAccount, signAccountSession } from '../lib/account-session.js';
 import { COACH, COACH_AUD, accessEnv, certs, claims, coachClaims, keyPair, mint } from './access.js';
 import { d1, seedCodes } from './d1.js';
 
@@ -61,11 +62,17 @@ const PUBLIC = {
   // itself, the Origin, Turnstile and the limits, which test/ask.test.js
   // holds.
   'ask.js': 'takes a request for an account, from the site\'s own Origin, past Turnstile, 10 an hour per address (#220)',
-  // Where an approval email's link lands (#221). The person it is for has no
-  // sign-in yet, so the link is the only thing it can ask for. It reads one
-  // row and writes nothing, so opening it spends nothing, which
-  // test/people.test.js holds.
-  'set-password.js': 'says whether a link to set a password can be used, and changes nothing (#221)',
+  // Where an approval or reset email's link lands (#221, #222). The person it
+  // is for has no sign-in yet, so the link is the only thing it can ask for.
+  // Opening it reads and writes nothing (test/people.test.js); the form's
+  // post checks the Origin and the link itself (test/sign-in.test.js).
+  'set-password.js': 'shows the form a usable link opens, changing nothing, and sets the password from the site\'s own Origin with that link (#221, #222)',
+  // The doors to an account session (#222): nothing can be required in front
+  // of them but what each checks itself, the Origin, Turnstile on the reset
+  // form, and the limits, which test/sign-in.test.js holds.
+  'sign-in.js': 'signs in, from the site\'s own Origin, 10 failures an hour per address and 20 per network (#222)',
+  'sign-out.js': 'ends a session from the site\'s own Origin, and deletes a dead cookie (#222)',
+  'forgot-password.js': 'takes a reset request, from the site\'s own Origin, past Turnstile, 10 an hour per network (#222)',
   // The share target's address (#193). The installed app's worker answers it
   // on the phone; this route answers only when no worker is there, sending
   // the browser to the share page. It reads no body and changes nothing,
@@ -73,10 +80,12 @@ const PUBLIC = {
   'share/receive.js': 'sends a share that arrived with no worker to the share page, reading and changing nothing (#193)',
 };
 
-// Admin routes answer to the admin guard, not the upload guard (#151), and
-// coach routes to the coach guard (#192).
+// Admin routes answer to the admin guard, not the upload guard (#151), coach
+// routes to the coach guard (#192), and account routes to the account guard
+// (#222).
 const isAdmin = (file) => /^(api\/)?admin\//.test(file);
 const isCoach = (file) => /^coach\//.test(file);
+const isAccount = (file) => /^account\//.test(file);
 
 const team = await keyPair();
 beforeEach(() => keyCache.clear());
@@ -125,12 +134,22 @@ async function methodsOf(file) {
   return METHODS.filter((m) => route[handlerName(m)]);
 }
 
-async function call(file, method, cookie, token, origin = SITE) {
+async function call(file, method, cookie, token, origin = SITE, account = undefined) {
   const env = { DB: d1(), SESSION_SIGNING_KEY: KEY, ...accessEnv() };
   seedCodes(env.DB, 'AAAA-AAAA-AAAA', 'BBBB-BBBB-BBBB'); // generation 2 is current
+  // #222: account 1 approved for a team at session version 1, and account 2
+  // still waiting, approved for none.
+  env.DB.sqlite.exec(
+    "INSERT INTO accounts (email, name, role, requested_at) VALUES ('approved@example.org', 'Approved', 'parent', 1), ('waiting@example.org', 'Waiting', 'parent', 1);" +
+    "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved'), (2, 'cohssa', 'requested');",
+  );
   const headers = {};
   if (origin !== null) headers.Origin = origin;
-  if (cookie) headers.Cookie = `${COOKIE_NAME}=${cookie}`;
+  const cookies = [
+    ...(cookie ? [`${COOKIE_NAME}=${cookie}`] : []),
+    ...(account ? [`${ACCOUNT_COOKIE}=${account}`] : []),
+  ];
+  if (cookies.length) headers.Cookie = cookies.join('; ');
   if (token) headers[TOKEN_HEADER] = token;
   const request = new Request(`${SITE}${routePath(file)}`, {
     method, headers, body: ['GET', 'HEAD'].includes(method) ? undefined : '{}',
@@ -187,9 +206,15 @@ test('the coach directory runs the coach guard (#192)', async () => {
   assert.deepEqual(mod.onRequest, [requireCoach]);
 });
 
-const guarded = routes.filter((file) => !(file in PUBLIC) && !isAdmin(file) && !isCoach(file));
+test('the account directory runs the account guard, then the Origin guard (#222)', async () => {
+  const mod = await import(pathToFileURL(join(FUNCTIONS, 'account', '_middleware.js')));
+  assert.deepEqual(mod.onRequest, [requireAccount, requireSameOrigin]);
+});
+
+const guarded = routes.filter((file) => !(file in PUBLIC) && !isAdmin(file) && !isCoach(file) && !isAccount(file));
 const admin = routes.filter((file) => !(file in PUBLIC) && isAdmin(file));
 const coach = routes.filter((file) => !(file in PUBLIC) && isCoach(file));
+const account = routes.filter((file) => !(file in PUBLIC) && isAccount(file));
 
 test('at least one upload route exists, so the checks below check something', () => {
   assert.ok(guarded.length > 0);
@@ -200,8 +225,12 @@ test('at least one admin page and one admin API exist, so the checks below check
   assert.ok(admin.some((file) => file.startsWith('api/admin/')));
 });
 
-test('no route is both public and admin, or public and coach', () => {
-  for (const file of Object.keys(PUBLIC)) assert.ok(!isAdmin(file) && !isCoach(file), file);
+test('no route is both public and admin, public and coach, or public and account', () => {
+  for (const file of Object.keys(PUBLIC)) assert.ok(!isAdmin(file) && !isCoach(file) && !isAccount(file), file);
+});
+
+test('the account page exists, so the checks below check something (#222)', () => {
+  assert.ok(account.includes('account/index.js'));
 });
 
 test('the coach route exists, so the checks below check something (#192)', () => {
@@ -367,5 +396,105 @@ for (const file of coach) {
       const res = await call(file, method, undefined, await mint(team, coachClaims()));
       assert.ok(res.status < 400, `functions/${file} answered ${res.status} to a coach`);
     });
+  }
+}
+
+// A write under /account reaches the directory's middleware whether or not a
+// route answers its method, so the guard's 401 and the Origin's 403 are
+// served today though /account itself answers GET and HEAD only (#222's
+// review). Run them through the directory's own chain, with a stand-in route
+// behind it that answers 200.
+test('the account directory refuses a write with no session that holds (401) and one from another site (403), before any route (#222)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const mod = await import(pathToFileURL(join(FUNCTIONS, 'account', '_middleware.js')));
+  const run = async ({ cookie, origin = SITE, method = 'POST' }) => {
+    const env = { DB: d1(), SESSION_SIGNING_KEY: KEY };
+    env.DB.sqlite.exec(
+      "INSERT INTO accounts (email, name, role, requested_at) VALUES ('approved@example.org', 'Approved', 'parent', 1);" +
+      "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved');",
+    );
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    if (origin) headers.Origin = origin;
+    if (cookie) headers.Cookie = `${ACCOUNT_COOKIE}=${cookie}`;
+    const request = new Request(`${SITE}/account/anything`, { method, headers, body: 'x=1' });
+    const stack = [...mod.onRequest, () => new Response('reached', { status: 200 })];
+    const data = {};
+    const go = (i) => stack[i]({ request, env, data, params: {}, next: () => go(i + 1) });
+    return go(0);
+  };
+  const current = await signAccountSession(KEY, { accountId: 1, version: 1 }, now);
+  for (const cookie of [undefined, tamper(current), await signAccountSession(KEY, { accountId: 1, version: 2 }, now)]) {
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const res = await run({ cookie, method });
+      assert.equal(res.status, 401, `${method} with ${cookie ? 'a dead session' : 'no session'}`);
+      assert.deepEqual(await res.json(), { error: 'not-signed-in' });
+      assert.equal(res.headers.get('Set-Cookie'), null);
+    }
+  }
+  for (const origin of [null, 'https://evil.example', 'https://madcowsailing.com']) {
+    const res = await run({ cookie: current, origin });
+    assert.equal(res.status, 403, `origin ${origin}`);
+    assert.deepEqual(await res.json(), { error: 'origin' });
+  }
+  // The control: a current session from the site's own Origin reaches the route.
+  const reached = await run({ cookie: current });
+  assert.equal(reached.status, 200);
+  assert.equal(await reached.text(), 'reached');
+});
+
+// The account routes (#222, criterion 4): the account guard, which sends a
+// page to /sign-in and refuses anything else with 401. call() seeds account 1
+// approved at version 1, and account 2 approved for no team.
+const accountCurrent = await signAccountSession(KEY, { accountId: 1, version: 1 }, now);
+const ACCOUNT_CASES = {
+  'no account cookie': { account: undefined },
+  'a tampered signature': { account: tamper(accountCurrent) },
+  'an expired account cookie': { account: await signAccountSession(KEY, { accountId: 1, version: 1 }, now - ACCOUNT_SESSION_SECONDS) },
+  'a cookie signed with another key': { account: await signAccountSession(`${KEY}-other`, { accountId: 1, version: 1 }, now) },
+  // Signing out, a new password or a revoke has moved the account on.
+  'a session version the account no longer holds': { account: await signAccountSession(KEY, { accountId: 1, version: 2 }, now) },
+  'an account approved for no team': { account: await signAccountSession(KEY, { accountId: 2, version: 1 }, now) },
+  'an account that does not exist': { account: await signAccountSession(KEY, { accountId: 3, version: 1 }, now) },
+  'only a parent\'s upload session': { cookie: current },
+  'only a coach\'s upload session': { cookie: coachCurrent },
+};
+
+for (const file of account) {
+  for (const method of await methodsOf(file)) {
+    for (const [name, { cookie, account: held }] of Object.entries(ACCOUNT_CASES)) {
+      test(`${method} ${routePath(file)} with ${name}: refused by the account guard`, async (t) => {
+        t.mock.method(console, 'error', () => {});
+        const res = await call(file, method, cookie, undefined, SITE, held);
+        if (SAFE.includes(method)) {
+          assert.equal(res.status, 303, `functions/${file} answered ${res.status}: does it skip the account guard?`);
+          assert.equal(res.headers.get('Location'), '/sign-in');
+          // A cookie that no longer holds is deleted, so the browser stops
+          // sending it; with none, nothing is set.
+          const set = res.headers.get('Set-Cookie');
+          if (held) assert.match(set, new RegExp(`^${ACCOUNT_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax$`));
+          else assert.equal(set, null);
+        } else {
+          assert.equal(res.status, 401, `functions/${file} answered ${res.status}: does it skip the account guard?`);
+        }
+      });
+    }
+    test(`${method} ${routePath(file)} with the owner's Access token and no account cookie: refused`, async (t) => {
+      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+      const res = await call(file, method, undefined, await ownerToken());
+      assert.equal(res.status, SAFE.includes(method) ? 303 : 401, `functions/${file} answered ${res.status}`);
+    });
+    test(`${method} ${routePath(file)} with a current account session: past the guard`, async () => {
+      // The control: the refusals above come from the guard.
+      const res = await call(file, method, undefined, undefined, SITE, accountCurrent);
+      assert.ok(res.status < 300, `functions/${file} answered ${res.status} to a current session`);
+    });
+    if (SAFE.includes(method)) continue;
+    for (const [name, origin] of Object.entries(FOREIGN_ORIGINS)) {
+      test(`${method} ${routePath(file)} with a current account session and ${name}: 403`, async () => {
+        const res = await call(file, method, undefined, undefined, origin, accountCurrent);
+        assert.equal(res.status, 403, `functions/${file} answered ${res.status}: does it skip the Origin guard?`);
+        assert.deepEqual(await res.json(), { error: 'origin' });
+      });
+    }
   }
 }

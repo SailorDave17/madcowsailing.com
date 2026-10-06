@@ -711,7 +711,8 @@
 /* ---- Public: asking for an account (#220) --------------------------- */
 
 /* The form follows its head closely, as the album grid does, at the width
-   of the text above it. */
+   of the text above it. Since #222 the sign-in, reset and set-password
+   forms and the account page take the same classes (lib/sign-in-page.js). */
 .ask {
   padding-block-start: 0;
 }
@@ -756,6 +757,7 @@
    the page, where the --spray hairline does not (WCAG 1.4.11). */
 .ask-form input[type="text"],
 .ask-form input[type="email"],
+.ask-form input[type="password"],
 .ask-form textarea {
   display: block;
   width: 100%;
