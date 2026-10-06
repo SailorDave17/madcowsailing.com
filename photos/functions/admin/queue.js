@@ -9,14 +9,20 @@
  * (lib/admin-page.js, queueNotice), and lib/queue.js holds the rules.
  *
  * Rendered here, never a static file (CLAUDE.md, The photo site, item 4).
+ *
+ * ?team=<team> shows that team's batches only (#227); anything else in it
+ * shows every team's, as no ?team= does.
  */
 import { adminQueuePage, queueNotice } from '../../lib/admin-page.js';
 import { waitingBatches } from '../../lib/queue.js';
+import { readTeam } from '../../lib/teams.js';
 
 export async function onRequestGet({ request, env }) {
-  const batches = await waitingBatches(env.DB);
-  const notice = queueNotice(new URL(request.url).searchParams);
-  return new Response(adminQueuePage({ batches, notice }), {
+  const params = new URL(request.url).searchParams;
+  const team = readTeam(params.get('team'));
+  const batches = await waitingBatches(env.DB, team);
+  const notice = queueNotice(params);
+  return new Response(adminQueuePage({ batches, notice, team }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       // Behind Access: no cache between here and the owner may keep it.

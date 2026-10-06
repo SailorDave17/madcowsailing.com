@@ -49,7 +49,9 @@ const PUBLIC = {
   // Public viewing is epic #147's D1: the code gates uploading only. Each of
   // these shows approved photos and nothing else, which test/public.test.js
   // holds (#157).
-  'index.js': 'lists the albums holding an approved photo (#157)',
+  'index.js': 'leads to each team\'s section, counting what each shows (#157, #227)',
+  'hoover-jrt/index.js': 'lists Hoover JRT\'s albums holding an approved photo (#227)',
+  'cohssa/index.js': 'lists COHSSA\'s albums holding an approved photo (#227)',
   'albums/[address]/index.js': 'shows an album\'s approved photos (#157)',
   'photos/[id]/[size].js': 'serves an approved photo, and 404s every other state (#157)',
   // "Remove this photo" is for anyone (epic #147, D7): a parent needs no code

@@ -33,14 +33,12 @@
 import { allowList } from './access.js';
 import { isEmailAddress, sendMail } from './mail.js';
 import { readNote } from './removals.js';
+import { TEAMS } from './teams.js';
 
-// The teams a request can name (D16), in the order the form lists them.
-// Migration 0007 makes the same two rows in `teams`, and
-// test/accounts.test.js fails if the two part.
-export const TEAMS = Object.freeze([
-  Object.freeze({ team: 'hoover-jrt', name: 'Hoover JRT' }),
-  Object.freeze({ team: 'cohssa', name: 'COHSSA' }),
-]);
+// The teams a request can name (D16), in the order the form lists them. They
+// live in lib/teams.js since #227, which gave albums a team too; exported
+// from here as well, where every account module has always read them.
+export { TEAMS };
 
 // The role a requester picks (criterion 1), which 0007's CHECK holds to these
 // three. Not the admin role, which is #224's.

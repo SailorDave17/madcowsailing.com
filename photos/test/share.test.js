@@ -195,16 +195,24 @@ class Element {
   addEventListener(type, listener) { (this.listeners[type] ??= []).push(listener); }
   focus() { this.ownerDocument.activeElement = this; }
 
+  // A <select>'s options in document order, an <optgroup>'s included, as a
+  // browser's select.options lists them (#227 groups the albums by team).
+  get options() {
+    return this.children
+      .flatMap((c) => (c.tagName === 'OPTGROUP' ? c.children : [c]))
+      .filter((c) => c.tagName === 'OPTION');
+  }
+
   // A <select>'s value is its selected option's, the first when none is.
   get value() {
     if (this.tagName !== 'SELECT') return this.ownValue ?? '';
-    const options = this.children.filter((c) => c.tagName === 'OPTION');
+    const { options } = this;
     return (this.selected && options.includes(this.selected) ? this.selected : options[0])?.value ?? '';
   }
 
   set value(value) {
     if (this.tagName === 'SELECT') {
-      this.selected = this.children.find((c) => c.tagName === 'OPTION' && c.value === value) ?? null;
+      this.selected = this.options.find((c) => c.value === value) ?? null;
     } else if (this.type === 'file') {
       this.files = [];
     } else {
@@ -267,8 +275,9 @@ async function load({
   seedCodes(env.DB, OLD, CODE);
   const now = Math.floor(Date.now() / 1000);
   const made = {};
+  // Hoover JRT's unless an album names its team (#227).
   for (const album of albums ?? [{ key: 'today', title: 'Tuesday practice', kind: 'practice', date: dayOffset(0) }]) {
-    made[album.key] = await createAlbum(env.DB, album, now);
+    made[album.key] = await createAlbum(env.DB, { team: 'hoover-jrt', ...album }, now);
   }
 
   const document = { activeElement: null, byId: new Map() };
@@ -495,7 +504,7 @@ const settled = (page) => until(
 );
 const joined = async (page) => {
   await until(() => page.$('join-status').textContent.startsWith("You're set"), 'joined');
-  await until(() => page.$('album').children.some((o) => o.value), 'albums listed');
+  await until(() => page.$('album').options.some((o) => o.value), 'albums listed');
 };
 
 // ---- The harness ------------------------------------------------------
@@ -576,21 +585,21 @@ test('the preselect: an album held today, else the latest past one, never a futu
   ];
   for (const { albums, expected } of cases) {
     const page = await load({ albums });
-    await until(() => page.$('album').children.length > 0 && !page.$('album').children[0].textContent.startsWith('Loading'), 'listed');
+    await until(() => page.$('album').options.length > 0 && !page.$('album').options[0].textContent.startsWith('Loading'), 'listed');
     const select = page.$('album');
     if (expected === null) {
       assert.equal(select.value, '', 'a future album was preselected');
-      assert.equal(select.children[0].textContent, 'Choose an album');
+      assert.equal(select.options[0].textContent, 'Choose an album');
     } else {
       assert.equal(select.value, page.made[expected]);
     }
-    assert.equal(select.children.filter((o) => o.value).length, albums.length, 'every open album stays in the list');
+    assert.equal(select.options.filter((o) => o.value).length, albums.length, 'every open album stays in the list');
   }
 });
 
 test('with only a future album, Send asks for an album first and sends nothing', async () => {
   const page = await load({ albums: [{ key: 'future', title: 'Next week', kind: 'regatta', date: dayOffset(3) }] });
-  await until(() => page.$('album').children.length > 0, 'listed');
+  await until(() => page.$('album').options.length > 0, 'listed');
   page.choose(photoFile());
   await until(() => page.items()[0]?.state === 'ready', 'ready');
   page.click(page.$('send'));
@@ -609,10 +618,63 @@ test('an album\'s title is shown as text, with its own day in any zone', async (
   // must not become the 14th, as it does when the day is made at midnight
   // and shown in the phone's zone.
   const page = await load({ albums: [{ key: 'today', title: '<b>Tuesday</b> practice', kind: 'practice', date: '2026-06-15' }] });
-  await until(() => page.$('album').children.some((o) => o.value), 'listed');
-  const [option] = page.$('album').children.filter((o) => o.value);
+  await until(() => page.$('album').options.some((o) => o.value), 'listed');
+  const [option] = page.$('album').options.filter((o) => o.value);
   assert.match(option.textContent, /^<b>Tuesday<\/b> practice \(.*15.*\)$/);
   assert.doesNotMatch(option.textContent, /14/);
+});
+
+test('#227: the albums are grouped under each team\'s name, in the order the teams first appear, newest first inside each', async () => {
+  const page = await load({
+    albums: [
+      { key: 'districts', team: 'cohssa', title: 'Districts', kind: 'regatta', date: dayOffset(2) },
+      { key: 'today', title: 'Tuesday practice', kind: 'practice', date: dayOffset(0) },
+      { key: 'league', team: 'cohssa', title: 'League day', kind: 'regatta', date: dayOffset(-1) },
+      { key: 'past', title: 'Club race', kind: 'regatta', date: dayOffset(-3) },
+    ],
+  });
+  await joined(page);
+  const select = page.$('album');
+  const groups = select.children.filter((c) => c.tagName === 'OPTGROUP');
+  assert.deepEqual(groups.map((g) => g.getAttribute('label')), ['COHSSA', 'Hoover JRT']);
+  assert.deepEqual(groups.map((g) => g.children.map((o) => o.value)), [
+    [page.made.districts, page.made.league],
+    [page.made.today, page.made.past],
+  ]);
+  // Every option sits in a group, and the preselect still finds today's album inside one.
+  assert.deepEqual(select.children.map((c) => c.tagName), ['OPTGROUP', 'OPTGROUP']);
+  assert.equal(select.value, page.made.today);
+  // Sending from a grouped list goes to the album chosen in it.
+  select.value = page.made.league;
+  page.choose(photoFile());
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.rows()[0].address, page.made.league);
+});
+
+test('#227: the groups follow the list, not the teams\' names: Hoover JRT first when its album is newest', async () => {
+  // The case above puts COHSSA first, which is also the alphabetical order of
+  // the labels, so a sort by label passed it (review-fanout at #227's review).
+  // Here the newest album is Hoover JRT's, which sorts after COHSSA by name.
+  const page = await load({
+    albums: [
+      { key: 'regatta', title: 'Fall Regatta', kind: 'regatta', date: dayOffset(3) },
+      { key: 'districts', team: 'cohssa', title: 'Districts', kind: 'regatta', date: dayOffset(1) },
+    ],
+  });
+  await joined(page);
+  const groups = page.$('album').children.filter((c) => c.tagName === 'OPTGROUP');
+  assert.deepEqual(groups.map((g) => g.getAttribute('label')), ['Hoover JRT', 'COHSSA']);
+});
+
+test('#227: with nothing preselected, the blank choice comes before the groups, outside them', async () => {
+  const page = await load({ albums: [{ key: 'future', team: 'cohssa', title: 'Next week', kind: 'regatta', date: dayOffset(3) }] });
+  await joined(page);
+  const select = page.$('album');
+  assert.deepEqual(select.children.map((c) => [c.tagName, c.tagName === 'OPTION' ? c.textContent : c.getAttribute('label')]),
+    [['OPTION', 'Choose an album'], ['OPTGROUP', 'COHSSA']]);
+  assert.equal(select.value, '');
 });
 
 test('with no album open, the page says so and offers to check again, which lists one opened since', async () => {
@@ -620,7 +682,7 @@ test('with no album open, the page says so and offers to check again, which list
   await until(() => !page.$('album-note').hidden, 'note shown');
   assert.match(page.$('album-note').textContent, /^No album is taking photos right now/);
   assert.equal(page.$('album-again').hidden, false);
-  const address = await createAlbum(page.env.DB, { title: 'Opened late', kind: 'practice', date: dayOffset(0) }, 1_790_000_000);
+  const address = await createAlbum(page.env.DB, { team: 'hoover-jrt', title: 'Opened late', kind: 'practice', date: dayOffset(0) }, 1_790_000_000);
   page.click(page.$('album-again'));
   await until(() => page.$('album').value === address, 'the new album preselected');
   assert.equal(page.$('album-note').hidden, true);
@@ -635,9 +697,9 @@ test('an album list that cannot be read says so, and the list stops saying it is
   ]) {
     const page = await load();
     page.net.albumsAnswer = answer;
-    await until(() => page.$('album').children.length > 0, 'the list rebuilt');
+    await until(() => page.$('album').options.length > 0, 'the list rebuilt');
     await tick();
-    assert.deepEqual(page.$('album').children.map((o) => o.textContent), ['No albums loaded']);
+    assert.deepEqual(page.$('album').options.map((o) => o.textContent), ['No albums loaded']);
     assert.equal(page.$('album').value, '');
     assert.equal(page.$('join-status').textContent, status);
   }
@@ -1045,11 +1107,11 @@ test('after an album closes mid-send, nothing is preselected: Try again asks for
   page.release();
   await until(() => page.items()[0].state === 'failed', 'failed');
   assert.equal(page.items()[0].text, CLOSED);
-  await until(() => !page.$('album').children.some((o) => o.value === page.made.today), 'the list reloaded without the closed album');
-  assert.equal(page.$('album').children.length, 2);
+  await until(() => !page.$('album').options.some((o) => o.value === page.made.today), 'the list reloaded without the closed album');
+  assert.equal(page.$('album').options.length, 2);
   // Not quietly the past album: the parent picks where these photos go.
   assert.equal(page.$('album').value, '');
-  assert.equal(page.$('album').children[0].textContent, 'Choose an album');
+  assert.equal(page.$('album').options[0].textContent, 'Choose an album');
   page.click(page.items()[0].tryAgain);
   await tick();
   assert.equal(page.summary().startsWith('Choose an album first.'), true);

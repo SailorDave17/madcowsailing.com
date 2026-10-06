@@ -6,7 +6,9 @@
 // test/access.js. Each test names the criterion it holds.
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { FileSystemConfigLoader, HtmlValidate } from 'html-validate';
 
@@ -28,6 +30,7 @@ import { accessEnv, certs, keyPair, mint } from './access.js';
 import { d1, seedCodes } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const MIGRATIONS = new URL('../migrations/', import.meta.url);
 const SITE = 'https://photos.madcowsailing.com';
 const KEY = 'test-session-signing-key-0123456789abcdef';
 const ROUTES = { create, update, close, reopen, delete: remove };
@@ -91,11 +94,13 @@ const session = () => signSession(KEY, 2, nowSeconds());
 const openAddresses = async (env) => (await (await openCall(env, await session())).json()).albums.map((a) => a.address);
 
 const rows = (env) => env.DB.sqlite.prepare('SELECT address, title, kind, held_on, closed_at FROM albums ORDER BY id').all().map((r) => ({ ...r }));
+const teams = (env) => env.DB.sqlite.prepare('SELECT address, team FROM albums ORDER BY id').all().map((r) => ({ ...r }));
 
-const FALL = { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
+const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
 
+/** Add an album through the page's form: Hoover JRT's unless `fields` names a team. */
 async function add(env, fields = FALL) {
-  return landing(await post(env, 'create', fields)).album;
+  return landing(await post(env, 'create', { team: 'hoover-jrt', ...fields })).album;
 }
 
 // Rows in #154's real photos table, one per state given. Each references its
@@ -136,7 +141,7 @@ test('the page then names the new album and its address, and lists it with its k
   const html = await page(env, '?done=created&album=2026-10-04-fall-regatta');
   assert.match(html, /<p role="status">Added Fall Regatta\. Its address is <code>2026-10-04-fall-regatta<\/code>\.<\/p>/);
   assert.match(html, /<h3 id="album-1">Fall Regatta<\/h3>/);
-  assert.match(html, /Regatta · <time datetime="2026-10-04">4 October 2026<\/time> · <code>2026-10-04-fall-regatta<\/code>/);
+  assert.match(html, /<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-04">4 October 2026<\/time> · <code>2026-10-04-fall-regatta<\/code><\/p>/);
 });
 
 test('an address drops accents, makes every run of punctuation one hyphen, and cuts a long title at a word', () => {
@@ -182,7 +187,7 @@ test('when every address a date and title can take is held, adding says so on th
 test('editing the title, kind and date keeps the address, so a shared link keeps working', async () => {
   const env = site();
   const address = await add(env);
-  const res = await post(env, 'update', { address, title: 'Fall Regatta, day one', kind: 'practice', date: '2026-10-05' });
+  const res = await post(env, 'update', { address, team: 'hoover-jrt', title: 'Fall Regatta, day one', kind: 'practice', date: '2026-10-05' });
   assert.deepEqual(landing(res), { done: 'saved', album: address });
   assert.deepEqual(rows(env), [{ address, title: 'Fall Regatta, day one', kind: 'practice', held_on: '2026-10-05', closed_at: null }]);
   assert.equal((await openAlbum(env.DB, address)).title, 'Fall Regatta, day one');
@@ -199,7 +204,13 @@ test('a missing or wrong field saves nothing, and the page says which', async ()
     [{ ...FALL, title: 'Fall\nRegatta' }, 'title'],
     [{ ...FALL, title: `Fall${String.fromCharCode(0x85)}Regatta` }, 'title'], // NEL, a C1 control
     [{ ...FALL, title: `Fall${String.fromCharCode(0x2028)}Regatta` }, 'title'],
-    [{ kind: 'regatta', date: '2026-10-04' }, 'title'],
+    [{ team: 'hoover-jrt', kind: 'regatta', date: '2026-10-04' }, 'title'],
+    [{ title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 'team'],
+    [{ ...FALL, team: '' }, 'team'],
+    [{ ...FALL, team: 'COHSSA' }, 'team'], // the name, not the key
+    [{ ...FALL, team: 'hoover' }, 'team'],
+    [{ ...FALL, team: '__proto__' }, 'team'],
+    [{ ...FALL, team: 'cohssa ' }, 'team'],
     [{ ...FALL, kind: 'race' }, 'kind'],
     [{ ...FALL, kind: '__proto__' }, 'kind'],
     [{ ...FALL, date: '2026-02-30' }, 'date'],
@@ -213,6 +224,7 @@ test('a missing or wrong field saves nothing, and the page says which', async ()
   // The control: the longest title allowed, and 29 February in a leap year, save.
   assert.equal(await add(env, { ...FALL, title: 'x'.repeat(80), date: '2028-02-29' }), `2028-02-29-${'x'.repeat(60)}`);
   assert.match(await page(env, '?error=date'), /<p role="status">Nothing was saved: the date is not a real day\.<\/p>/);
+  assert.match(await page(env, '?error=team'), /<p role="status">Nothing was saved: choose Hoover JRT or COHSSA\.<\/p>/);
 });
 
 test('an edit with a wrong field, or of an album that is not there, changes nothing', async () => {
@@ -227,10 +239,12 @@ test('an edit with a wrong field, or of an album that is not there, changes noth
 
 test('a body that is not a form saves nothing, and is not a 500', async () => {
   const env = site();
+  // The team is the form's first field (#227), so a body read as no form at
+  // all is refused on it.
   for (const [type, body] of [['application/json', JSON.stringify(FALL)], ['text/plain', '{}'], [`${FORM}x`, new URLSearchParams(FALL).toString()]]) {
-    assert.deepEqual(landing(await post(env, 'create', null, { type, body })), { error: 'title' }, type);
+    assert.deepEqual(landing(await post(env, 'create', null, { type, body })), { error: 'team' }, type);
   }
-  assert.deepEqual(landing(await post(env, 'create', null, { body: `${new URLSearchParams(FALL)}&pad=${'x'.repeat(5000)}` })), { error: 'title' });
+  assert.deepEqual(landing(await post(env, 'create', null, { body: `${new URLSearchParams(FALL)}&pad=${'x'.repeat(5000)}` })), { error: 'team' });
   assert.deepEqual(rows(env), []);
   // The control: the same fields as a form, with a charset, save.
   assert.equal(landing(await post(env, 'create', FALL, { type: `${FORM}; charset=UTF-8` })).album, '2026-10-04-fall-regatta');
@@ -432,7 +446,7 @@ test('/api/albums/open gives a title as the text it is, in JSON, for the share p
 test('GET /api/albums/open with a session: the open albums, newest first, and nothing else about them', async () => {
   const env = site();
   const september = await add(env, { title: 'Harvest Moon', kind: 'regatta', date: '2026-09-20' });
-  const earlier = await add(env, { title: 'Morning practice', kind: 'practice', date: '2026-10-04' });
+  const earlier = await add(env, { team: 'cohssa', title: 'Morning practice', kind: 'practice', date: '2026-10-04' });
   const later = await add(env, { title: 'Afternoon practice', kind: 'practice', date: '2026-10-04' });
   const august = await add(env, { title: 'Summer Series', kind: 'regatta', date: '2026-08-01' });
   await post(env, 'close', { address: august });
@@ -440,11 +454,13 @@ test('GET /api/albums/open with a session: the open albums, newest first, and no
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
   assert.equal(res.headers.get('X-Robots-Tag'), 'noindex');
+  // Each names its team by key and by name (#227), for the share page's
+  // groups and #223's narrowing.
   assert.deepEqual(await res.json(), {
     albums: [
-      { address: later, title: 'Afternoon practice', kind: 'practice', date: '2026-10-04' },
-      { address: earlier, title: 'Morning practice', kind: 'practice', date: '2026-10-04' },
-      { address: september, title: 'Harvest Moon', kind: 'regatta', date: '2026-09-20' },
+      { address: later, title: 'Afternoon practice', kind: 'practice', date: '2026-10-04', team: 'hoover-jrt', teamName: 'Hoover JRT' },
+      { address: earlier, title: 'Morning practice', kind: 'practice', date: '2026-10-04', team: 'cohssa', teamName: 'COHSSA' },
+      { address: september, title: 'Harvest Moon', kind: 'regatta', date: '2026-09-20', team: 'hoover-jrt', teamName: 'Hoover JRT' },
     ],
   });
 });
@@ -489,7 +505,7 @@ test('it has one h1, no inline script or style, and every form posts to an album
   assert.equal((html.match(/<form /g) ?? []).length, actions.length);
 });
 
-test('each album\'s controls are named for it, and the new-album form preselects no kind', async () => {
+test('each album\'s controls are named for it, and the new-album form preselects no team and no kind', async () => {
   const env = site();
   await add(env);
   const html = await page(env);
@@ -497,8 +513,143 @@ test('each album\'s controls are named for it, and the new-album form preselects
   assert.match(html, /aria-label="Close Fall Regatta">Close<\/button>/);
   assert.match(html, /aria-label="Delete Fall Regatta">Delete<\/button>/);
   assert.match(html, /<input type="radio" name="kind" value="regatta" required checked> Regatta/, 'the edit form keeps the kind');
+  assert.match(html, /<input type="radio" name="team" value="hoover-jrt" required checked> Hoover JRT/, 'the edit form keeps the team');
   const addForm = html.split('<form')[1];
+  // Both teams are offered, as a required choice, and neither is made for you.
+  assert.match(addForm, /<input type="radio" name="team" value="hoover-jrt" required> Hoover JRT/);
+  assert.match(addForm, /<input type="radio" name="team" value="cohssa" required> COHSSA/);
   assert.doesNotMatch(addForm, /checked/);
+});
+
+// ---- #227: every album belongs to a team ------------------------------
+
+test('#227: adding an album names its team, and the page lists it with that team', async () => {
+  const env = site();
+  const cohssa = await add(env, { ...FALL, team: 'cohssa', title: 'Districts' });
+  const hoover = await add(env);
+  assert.deepEqual(teams(env), [{ address: cohssa, team: 'cohssa' }, { address: hoover, team: 'hoover-jrt' }]);
+  const html = await page(env);
+  assert.match(html, /<p class="album-facts">COHSSA · Regatta · <time datetime="2026-10-04">4 October 2026<\/time> · <code>2026-10-04-districts<\/code><\/p>/);
+  assert.match(html, /<p class="album-facts">Hoover JRT · Regatta · /);
+  // Each edit form starts on the album's own team.
+  const [, districts] = html.split('<h3 id="album-1">');
+  assert.match(districts.split('</li>')[0], /<input type="radio" name="team" value="cohssa" required checked> COHSSA/);
+  assert.doesNotMatch(districts.split('</li>')[0], /value="hoover-jrt" required checked/);
+});
+
+test('#227: editing moves an album to the other team, and its address stays, so every link to it keeps working', async () => {
+  const env = site();
+  const address = await add(env);
+  const res = await post(env, 'update', { ...FALL, address, team: 'cohssa' });
+  assert.deepEqual(landing(res), { done: 'saved', album: address });
+  assert.deepEqual(teams(env), [{ address, team: 'cohssa' }]);
+  assert.equal((await openAlbum(env.DB, address)).team, 'cohssa');
+  // An edit naming no team, or one the site does not have, moves nothing.
+  for (const team of [undefined, 'boston', '']) {
+    const fields = { ...FALL, address };
+    if (team === undefined) delete fields.team; else fields.team = team;
+    assert.deepEqual(landing(await post(env, 'update', fields)), { error: 'team' }, String(team));
+  }
+  assert.deepEqual(teams(env), [{ address, team: 'cohssa' }]);
+  // The control: moving it back works.
+  await post(env, 'update', { ...FALL, address });
+  assert.deepEqual(teams(env), [{ address, team: 'hoover-jrt' }]);
+});
+
+test('#227: the database refuses an album whose team is not in teams, on insert and on update, whatever the route checks', () => {
+  // Migration 0010's triggers, which stand in for a reference SQLite would
+  // not add with a default (the migration's header says why).
+  const { sqlite } = site().DB;
+  const insert = (team) => sqlite.prepare(
+    "INSERT INTO albums (address, team, title, kind, held_on, created_at) VALUES (?, ?, 'x', 'regatta', '2026-10-04', 1)",
+  ).run(`2026-10-04-${team}`, team);
+  assert.throws(() => insert('boston'), /albums\.team must name a row in teams/);
+  assert.throws(() => insert('Hoover JRT'), /albums\.team must name a row in teams/);
+  assert.throws(() => sqlite.prepare(
+    "INSERT INTO albums (address, team, title, kind, held_on, created_at) VALUES ('2026-10-04-null', NULL, 'x', 'regatta', '2026-10-04', 1)",
+  ).run(), /NOT NULL constraint failed: albums\.team/);
+  // The controls: both teams insert.
+  insert('cohssa');
+  insert('hoover-jrt');
+  assert.throws(() => sqlite.prepare("UPDATE albums SET team = 'boston' WHERE address = '2026-10-04-cohssa'").run(), /albums\.team must name a row in teams/);
+  sqlite.prepare("UPDATE albums SET team = 'hoover-jrt' WHERE address = '2026-10-04-cohssa'").run();
+  // A title edit never trips it. The trigger's `OF team` only spares a title
+  // edit the subquery: with it gone the WHEN is still false for any album
+  // whose team is a row, which every album's is, so no behaviour pins it
+  // (review-fanout at #227's review; an equivalent mutant, kept for cost).
+  sqlite.prepare("UPDATE albums SET title = 'y' WHERE address = '2026-10-04-cohssa'").run();
+  assert.deepEqual(sqlite.prepare('SELECT team FROM albums ORDER BY id').all().map((r) => r.team), ['hoover-jrt', 'hoover-jrt']);
+});
+
+test('#227: a team an album names cannot be deleted or have its key changed; one no album names can', () => {
+  const { sqlite } = site().DB;
+  sqlite.prepare("INSERT INTO albums (address, team, title, kind, held_on, created_at) VALUES ('2026-10-04-x', 'cohssa', 'x', 'regatta', '2026-10-04', 1)").run();
+  assert.throws(() => sqlite.prepare("DELETE FROM teams WHERE team = 'cohssa'").run(), /a team an album names cannot be deleted/);
+  assert.throws(() => sqlite.prepare("UPDATE teams SET team = 'cohssa-2' WHERE team = 'cohssa'").run(), /a team an album names cannot be renamed/);
+  // An update that sets the key to the value it has changes no key, so it is
+  // allowed. This is what pins `NEW.team IS NOT OLD.team`: without it, any
+  // update naming the team column fires (review-fanout at #227's review: the
+  // name-only update below cannot, since `OF team` already spares it).
+  sqlite.prepare("UPDATE teams SET team = 'cohssa', name = 'COHSSA' WHERE team = 'cohssa'").run();
+  // Renaming the team's shown name keeps its key, so it is allowed.
+  sqlite.prepare("UPDATE teams SET name = 'COHSSA league' WHERE team = 'cohssa'").run();
+  // The control: a third team, named by no album, deletes.
+  sqlite.prepare("INSERT INTO teams (team, name) VALUES ('third', 'Third')").run();
+  sqlite.prepare("DELETE FROM teams WHERE team = 'third'").run();
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM teams').get().n, 2);
+});
+
+test('#227: a REPLACE into teams cannot remove a team an album names; one that keeps its key, or names no album\'s team, can', () => {
+  // review-fanout at #227's review: REPLACE removes the row it clashes with on
+  // `name` without firing 0010's delete trigger (recursive_triggers is off),
+  // so a different key under the same name orphaned every album of the old
+  // one. Migration 0011 refuses that before the clash is resolved.
+  const { sqlite } = site().DB;
+  assert.equal(sqlite.prepare('PRAGMA recursive_triggers').get().recursive_triggers, 0, 'the case 0011 exists for');
+  sqlite.prepare("INSERT INTO albums (address, team, title, kind, held_on, created_at) VALUES ('2026-10-04-x', 'cohssa', 'x', 'regatta', '2026-10-04', 1)").run();
+  for (const sql of ["REPLACE INTO teams (team, name) VALUES ('cohssa-league', 'COHSSA')",
+    "INSERT OR REPLACE INTO teams (team, name) VALUES ('cohssa-league', 'COHSSA')"]) {
+    assert.throws(() => sqlite.prepare(sql).run(), /a team an album names cannot be replaced/, sql);
+  }
+  const teamRows = () => sqlite.prepare('SELECT team, name FROM teams ORDER BY team').all().map((r) => ({ ...r }));
+  assert.deepEqual(teamRows(), [{ team: 'cohssa', name: 'COHSSA' }, { team: 'hoover-jrt', name: 'Hoover JRT' }]);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM albums WHERE team NOT IN (SELECT team FROM teams)").get().n, 0);
+  // A REPLACE that keeps the key is allowed: the same row again, which clashes
+  // with itself on `name` (what pins the trigger's `t.team IS NOT NEW.team`),
+  // and a new shown name. Every album still names a row.
+  sqlite.prepare("REPLACE INTO teams (team, name) VALUES ('cohssa', 'COHSSA')").run();
+  sqlite.prepare("REPLACE INTO teams (team, name) VALUES ('cohssa', 'COHSSA league')").run();
+  // A team no album names can be replaced, as it can be deleted: the control
+  // that the trigger asks about albums, not about every clash.
+  sqlite.prepare("INSERT INTO teams (team, name) VALUES ('third', 'Third')").run();
+  sqlite.prepare("REPLACE INTO teams (team, name) VALUES ('fourth', 'Third')").run();
+  assert.deepEqual(teamRows(), [
+    { team: 'cohssa', name: 'COHSSA league' }, { team: 'fourth', name: 'Third' }, { team: 'hoover-jrt', name: 'Hoover JRT' },
+  ]);
+});
+
+test('#227: migration 0010 makes every album already made a Hoover JRT album, with no other change to it', () => {
+  // The schema before 0010, with albums in it, as production holds them.
+  // Applied up to 0010 and no further, so a later migration changes nothing here.
+  const sqlite = new DatabaseSync(':memory:');
+  for (const file of readdirSync(MIGRATIONS).sort().filter((f) => f < '0010')) {
+    sqlite.exec(readFileSync(new URL(file, MIGRATIONS), 'utf8'));
+  }
+  const insert = sqlite.prepare('INSERT INTO albums (address, title, kind, held_on, created_at, closed_at) VALUES (?, ?, ?, ?, ?, ?)');
+  insert.run('2026-09-30-production-check-test', 'Production check (test)', 'regatta', '2026-09-30', 1, null);
+  insert.run('2026-10-04-fall-regatta', 'Fall Regatta', 'regatta', '2026-10-04', 2, 3);
+  const schema = () => sqlite.prepare("SELECT type, name, sql FROM sqlite_master WHERE name <> 'albums' ORDER BY type, name").all().map((r) => ({ ...r }));
+  const before = { rows: sqlite.prepare('SELECT * FROM albums ORDER BY id').all().map((r) => ({ ...r })), schema: schema() };
+  sqlite.exec(readFileSync(new URL('0010_album_teams.sql', MIGRATIONS), 'utf8'));
+  const after = { rows: sqlite.prepare('SELECT * FROM albums ORDER BY id').all().map((r) => ({ ...r })), schema: schema() };
+  assert.deepEqual(after.rows, before.rows.map((row) => ({ ...row, team: 'hoover-jrt' })));
+  // Additive: the schema gained the four triggers and nothing else changed.
+  const added = after.schema.filter((entry) => !before.schema.some((old) => old.name === entry.name));
+  assert.deepEqual(added.map((entry) => `${entry.type} ${entry.name}`), [
+    'trigger albums_team_known_on_insert', 'trigger albums_team_known_on_update',
+    'trigger teams_kept_while_named_on_delete', 'trigger teams_kept_while_named_on_update',
+  ]);
+  assert.deepEqual(after.schema.filter((entry) => before.schema.some((old) => old.name === entry.name)), before.schema);
 });
 
 test('an empty site says no album is open', async () => {

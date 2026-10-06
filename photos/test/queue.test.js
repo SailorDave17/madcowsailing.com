@@ -53,8 +53,8 @@ const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
 const block = (html, tag) => html.match(new RegExp(`<${tag}[\\s>][\\s\\S]*?</${tag}>`))?.[0];
 
 const SITE = 'https://photos.madcowsailing.com';
-const FALL = { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
-const PRACTICE = { title: 'Tuesday practice', kind: 'practice', date: '2026-10-06' };
+const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
+const PRACTICE = { team: 'hoover-jrt', title: 'Tuesday practice', kind: 'practice', date: '2026-10-06' };
 const BATCH_A = '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b';
 const BATCH_B = '9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d';
 const T0 = 1_790_000_000; // 2026-09-21T14:13:20Z
@@ -243,14 +243,104 @@ test('waiting photos are grouped by batch and album, oldest batch first, each wi
   const sections = [...html.matchAll(/<section class="wrap batch"[\s\S]*?<\/section>/g)].map((m) => m[0]);
   assert.equal(sections.length, 3);
   const heads = sections.map((s) => [s.match(/<h2 [^>]*>([^<]*)<\/h2>/)[1], s.match(/<p class="batch-facts"[^>]*>([\s\S]*?)<\/p>/)[1]]);
+  // Each batch names its album's team first (#227).
   assert.deepEqual(heads, [
-    ['Tuesday practice', `Batch 1 of 3 · 1 photo · sent <time datetime="${new Date((T0 + 50) * 1000).toISOString()}">21 September 2026, 14:14 UTC</time>`],
-    ['Fall Regatta', `Batch 2 of 3 · 2 photos · sent <time datetime="${new Date((T0 + 100) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
-    ['Tuesday practice', `Batch 3 of 3 · 1 photo · sent <time datetime="${new Date((T0 + 102) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
+    ['Tuesday practice', `Hoover JRT · Batch 1 of 3 · 1 photo · sent <time datetime="${new Date((T0 + 50) * 1000).toISOString()}">21 September 2026, 14:14 UTC</time>`],
+    ['Fall Regatta', `Hoover JRT · Batch 2 of 3 · 2 photos · sent <time datetime="${new Date((T0 + 100) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
+    ['Tuesday practice', `Hoover JRT · Batch 3 of 3 · 1 photo · sent <time datetime="${new Date((T0 + 102) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
   ]);
   const idsIn = (s) => [...s.matchAll(/<li class="waiting" id="photo-(\d+)">/g)].map((m) => Number(m[1]));
   assert.deepEqual(sections.map(idsIn), [[b1], [a1, a2], [a3]]);
   assert.deepEqual(forms(html).map((f) => Object.fromEntries(f.fields).ids), [`${b1}`, `${a1} ${a2}`, `${a3}`]);
+});
+
+// ---- #227: the queue filters by team --------------------------------------
+
+/** The team filter's links: [href, name, current]. The site header has a nav of its own. */
+const filterLinks = (html) => [...html.match(/<nav class="team-filter"[\s\S]*?<\/nav>/)[0].matchAll(/<a href="([^"]+)"( aria-current="page")?>([^<]+)<\/a>/g)]
+  .map(([, href, current, name]) => [href, name, Boolean(current)]);
+const idsOf = (html) => forms(html).map((f) => Object.fromEntries(f.fields).ids);
+
+test('#227: ?team= shows that team\'s batches only, the filter marks it, and an unknown team shows every team\'s', async () => {
+  const { env, fall } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  const h = seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 + 10 });
+  const c1 = seedPhoto(env, districts, { batch: BATCH_B, sentAt: T0 + 20 });
+  const c2 = seedPhoto(env, districts, { batch: BATCH_B, sentAt: T0 + 21 });
+  const at = async (query) => (await admin(env, 'GET', `/admin/queue${query}`, { origin: null })).text();
+
+  const all = await at('');
+  assert.deepEqual(idsOf(all), [`${h}`, `${c1} ${c2}`]);
+  assert.match(all, /3 photos in 2 batches, oldest first\./);
+  assert.deepEqual(filterLinks(all), [
+    ['/admin/queue', 'All teams', true], ['/admin/queue?team=hoover-jrt', 'Hoover JRT', false], ['/admin/queue?team=cohssa', 'COHSSA', false],
+  ]);
+  const cohssa = await at('?team=cohssa');
+  assert.deepEqual(idsOf(cohssa), [`${c1} ${c2}`]);
+  assert.match(cohssa, /2 photos from COHSSA in 1 batch, oldest first\./);
+  assert.match(cohssa, /<p class="batch-facts"[^>]*>COHSSA · Batch 1 of 1 · 2 photos/);
+  assert.deepEqual(filterLinks(cohssa).map(([, name, current]) => [name, current]), [['All teams', false], ['Hoover JRT', false], ['COHSSA', true]]);
+  assert.deepEqual(idsOf(await at('?team=hoover-jrt')), [`${h}`]);
+  // Anything else in ?team= is every team, and marks All teams: a crafted
+  // link shows nothing but the known names. Read while both teams have a
+  // batch waiting, so every team and one team cannot read alike
+  // (review-fanout at #227's review: read after Hoover JRT's was approved,
+  // a filter quietly applied to COHSSA passed).
+  for (const query of ['?team=boston', '?team=COHSSA', '?team=%3Cb%3E', '?team=']) {
+    const html = await at(query);
+    assert.deepEqual(idsOf(html), [`${h}`, `${c1} ${c2}`], query);
+    assert.equal(filterLinks(html)[0][2], true, query);
+    assert.doesNotMatch(html, /\?team=(?!hoover-jrt">|cohssa">)|<b>/, query);
+  }
+  // A team with nothing waiting says so in its own words.
+  env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = 1 WHERE id = ?").run(h);
+  assert.match(await at('?team=hoover-jrt'), /No photo from Hoover JRT is waiting\./);
+});
+
+test('#227: every press on a filtered queue lands back on the same team, and one on the whole queue names no team', async () => {
+  const { env, fall } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  const ids = [1, 2, 3, 4].map((i) => seedPhoto(env, districts, { batch: BATCH_B, sentAt: T0 + i }));
+  seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 });
+  const at = async (query) => (await admin(env, 'GET', `/admin/queue${query}`, { origin: null })).text();
+  const cohssa = await at('?team=cohssa');
+  // Every place a press posts to carries the team in its address: the form's
+  // own action, each Approve, and the reject dialog's confirm.
+  const [form] = forms(cohssa);
+  assert.equal(form.action, '/api/admin/queue/captions?team=cohssa');
+  assert.ok(form.buttons.filter((b) => b.name === 'approve').every((b) => b.formaction === '/api/admin/queue/approve?team=cohssa'));
+  assert.equal(confirmButton(cohssa).formaction, '/api/admin/queue/reject?team=cohssa');
+  assert.ok(!form.fields.some(([name]) => name === 'team'), 'one source for the team: the address, not a field');
+  const anchor = `#batch-${BATCH_B}-${env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(districts).id}`;
+  assert.equal((await press(env, cohssa, 0, 'save', { [ids[0]]: 'Start' })).location, `/admin/queue?done=saved&n=1&team=cohssa${anchor}`);
+  assert.equal((await press(env, await at('?team=cohssa'), 0, { approve: ids[0] })).location, `/admin/queue?done=approved&photo=${ids[0]}&team=cohssa${anchor}`);
+  assert.equal((await press(env, await at('?team=cohssa'), 0, { reject: ids[1] })).location, `/admin/queue?done=rejected&photo=${ids[1]}&team=cohssa${anchor}`);
+  // A refused press keeps the team too.
+  const refused = await admin(env, 'POST', '/api/admin/queue/approve?team=cohssa', { body: 'ids=x&approve=1' });
+  assert.equal(refused.headers.get('Location'), '/admin/queue?error=form&team=cohssa');
+  // A team the site does not have is dropped, never echoed into the address,
+  // and a team in the body is not read at all.
+  const crafted = await admin(env, 'POST', `/api/admin/queue/approve?team=${encodeURIComponent('<b>')}`, { body: 'ids=x&approve=1&team=cohssa' });
+  assert.equal(crafted.headers.get('Location'), '/admin/queue?error=form');
+  // The control: the unfiltered page's presses name no team, and land on the whole queue.
+  const all = await at('');
+  assert.ok(forms(all).every((f) => !f.action.includes('?') && f.buttons.every((b) => !(b.formaction ?? '').includes('?'))));
+  assert.equal(confirmButton(all).formaction, '/api/admin/queue/reject');
+  assert.doesNotMatch((await press(env, all, 1, { approve: ids[2] })).location, /team=/);
+});
+
+test('#227: a press that arrives as a GET, after the sign-in ran out, still lands on its team, and changes nothing', async () => {
+  // review-fanout at #227's review: with the team in a hidden field, the GET
+  // a lapsed Access sign-in replays carried no team.
+  const { env, fall } = await site();
+  const id = seedPhoto(env, fall);
+  for (const path of ['/api/admin/queue/approve', '/api/admin/queue/reject', '/api/admin/queue/captions']) {
+    const res = await admin(env, 'GET', `${path}?team=hoover-jrt`, { origin: null });
+    assert.equal(res.headers.get('Location'), '/admin/queue?error=unchanged&team=hoover-jrt', path);
+    // The control: the same GET from the whole queue names no team.
+    assert.equal((await admin(env, 'GET', path, { origin: null })).headers.get('Location'), '/admin/queue?error=unchanged', path);
+  }
+  assert.equal(row(env, id).state, 'pending');
 });
 
 test('with nothing waiting, the page says so and shows no batch', async () => {
@@ -732,7 +822,7 @@ test('"Reject" and "Reject all" are plain buttons that post nothing; the dialog\
 
 test('a caption of <img src=x onerror=alert(1)> is shown as text in its field, and an album title with markup as text', async () => {
   const { env } = await site();
-  const hostile = await createAlbum(env.DB, { title: '<b>"Hostile"</b> & co', kind: 'regatta', date: '2026-10-05' }, T0);
+  const hostile = await createAlbum(env.DB, { team: 'hoover-jrt', title: '<b>"Hostile"</b> & co', kind: 'regatta', date: '2026-10-05' }, T0);
   const caption = '<img src=x onerror=alert(1)>';
   const id = seedPhoto(env, hostile, { caption });
   const html = await page(env);
@@ -897,8 +987,8 @@ test('a batch over 200 photos is shown in parts of 200, each its own form, and "
   assert.deepEqual(parts.map((f) => Object.fromEntries(f.fields).ids.split(' ').length), [200, 200, 50, 1]);
   const facts = [...html.matchAll(/<p class="batch-facts"[^>]*>([^<]*)</g)].map((m) => m[1].replace(/ · sent $/, ''));
   assert.deepEqual(facts, [
-    'Batch 1 of 2 · part 1 of 3 · 200 photos', 'Batch 1 of 2 · part 2 of 3 · 200 photos',
-    'Batch 1 of 2 · part 3 of 3 · 50 photos', 'Batch 2 of 2 · 1 photo',
+    'Hoover JRT · Batch 1 of 2 · part 1 of 3 · 200 photos', 'Hoover JRT · Batch 1 of 2 · part 2 of 3 · 200 photos',
+    'Hoover JRT · Batch 1 of 2 · part 3 of 3 · 50 photos', 'Hoover JRT · Batch 2 of 2 · 1 photo',
   ]);
   assert.match(html, /451 photos in 2 batches, oldest first\./);
   assert.equal(new Set(parts.map((f) => f.id)).size, 4, 'two parts share a form id');

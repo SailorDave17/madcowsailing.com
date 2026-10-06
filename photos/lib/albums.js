@@ -18,7 +18,14 @@
  * foreign-keys, read 2026-09-28). So no count taken first can be overtaken by
  * an upload landing between it and the DELETE. The count is read only to say
  * why the DELETE failed.
+ *
+ * Every album belongs to a team since #227 (lib/teams.js), chosen when it is
+ * added and changed by an edit. Its team's section of the site lists it, and
+ * the address does not name the team, so moving an album to the other team
+ * keeps every link to it working. Migration 0010's triggers refuse a team the
+ * `teams` table does not hold.
  */
+import { isTeam } from './teams.js';
 
 export const KINDS = { regatta: 'Regatta', practice: 'Practice' };
 
@@ -82,27 +89,29 @@ export function isDate(text) {
 }
 
 /**
- * An album's fields from a submitted form: { album: { title, kind, date } },
- * or { error } naming the first field that is wrong. The title is trimmed;
- * nothing else about it is changed, markup included, since every page
- * escapes it where it is shown.
+ * An album's fields from a submitted form: { album: { team, title, kind,
+ * date } }, or { error } naming the first field that is wrong, in the order
+ * the form shows them. The title is trimmed; nothing else about it is
+ * changed, markup included, since every page escapes it where it is shown.
  */
 export function readAlbumFields(fields) {
+  if (!isTeam(fields.team)) return { error: 'team' };
   const title = typeof fields.title === 'string' ? fields.title.trim() : '';
   if (!title || title.length > TITLE_MAX || CONTROL.test(title)) return { error: 'title' };
   if (!Object.hasOwn(KINDS, fields.kind)) return { error: 'kind' };
   if (!isDate(fields.date)) return { error: 'date' };
-  return { album: { title, kind: fields.kind, date: fields.date } };
+  return { album: { team: fields.team, title, kind: fields.kind, date: fields.date } };
 }
 
 /** Whether `text` could be an album's address, before asking the database. */
 export const isAddress = (text) => typeof text === 'string' && text.length <= ADDRESS_MAX && ADDRESS.test(text);
 
-const COLUMNS = 'id, address, title, kind, held_on, created_at, closed_at';
+const COLUMNS = 'id, address, team, title, kind, held_on, created_at, closed_at';
 
 const fromRow = (row) => row && {
   id: row.id,
   address: row.address,
+  team: row.team,
   title: row.title,
   kind: row.kind,
   date: row.held_on,
@@ -117,14 +126,14 @@ const fromRow = (row) => row && {
  * so two albums made at once cannot share one. Null, with nothing made, when
  * all MAX_SUFFIX are taken.
  */
-export async function createAlbum(db, { title, kind, date }, now) {
+export async function createAlbum(db, { team, title, kind, date }, now) {
   const base = baseAddress({ title, kind, date });
   for (let n = 1; n <= MAX_SUFFIX; n++) {
     const address = n === 1 ? base : `${base}-${n}`;
     try {
       await db
-        .prepare('INSERT INTO albums (address, title, kind, held_on, created_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(address, title, kind, date, now)
+        .prepare('INSERT INTO albums (address, team, title, kind, held_on, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(address, team, title, kind, date, now)
         .run();
       return address;
     } catch (err) {
@@ -163,14 +172,15 @@ export async function openAlbum(db, address) {
 }
 
 /**
- * Change an album's title, kind and date. Its address stays as it was made.
- * True when an album was there to change.
+ * Change an album's team, title, kind and date. Its address stays as it was
+ * made, so a link to it keeps working when it moves to the other team's
+ * section. True when an album was there to change.
  */
-export async function updateAlbum(db, address, { title, kind, date }) {
+export async function updateAlbum(db, address, { team, title, kind, date }) {
   if (!isAddress(address)) return false;
   const { meta } = await db
-    .prepare('UPDATE albums SET title = ?, kind = ?, held_on = ? WHERE address = ?')
-    .bind(title, kind, date, address)
+    .prepare('UPDATE albums SET team = ?, title = ?, kind = ?, held_on = ? WHERE address = ?')
+    .bind(team, title, kind, date, address)
     .run();
   return meta.changes > 0;
 }

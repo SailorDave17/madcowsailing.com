@@ -17,7 +17,7 @@ import {
 } from '../lib/accounts.js';
 import { adminHome } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
-import { HTML_CACHE, albumListPage } from '../lib/public-page.js';
+import { HTML_CACHE, sectionPage, teamListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { LINK_SECONDS, clearExpiredLinks, tokenHash } from '../lib/password-link.js';
@@ -62,7 +62,8 @@ function staticPages(dir = join(ROOT, 'public'), prefix = '') {
 const everyPage = () => ({
   ...Object.fromEntries(staticPages().map((file) => [`public/${file}`, read('public', ...file.split('/'))])),
   'templates/page.html': read('templates', 'page.html'),
-  'the album list, rendered': albumListPage([]),
+  'the team list at /, rendered': teamListPage([]),
+  'a team\'s section, rendered': sectionPage('cohssa', []),
   'the admin home, rendered': adminHome('owner@example.com', { waiting: 0, removals: 0, bytes: 0 }),
 });
 
@@ -89,17 +90,19 @@ test('every page\'s footer links /policy: the static pages, the public template,
   }
 });
 
-test('every page\'s header has the nav: All albums only, with no page marked current', () => {
+test('every page\'s header has the nav: Team photos only, with no page marked current', () => {
   // Owner, at #159's review, gave the nav two links. The owner took
   // /policy back out of it on 2026-10-01: the footer's copy is enough. No
   // aria-current, so the five header copies stay byte for byte the same,
-  // which site, admin-page and public tests hold.
+  // which site, admin-page and public tests hold. The link read "All
+  // albums" until #227 made / the way into each team's section (owner, at
+  // #227's review: every link to / is "Team photos", the page's own title).
   for (const [name, html] of Object.entries(everyPage())) {
     const nav = block(block(html, 'header') ?? '', 'nav');
     assert.ok(nav, `${name}'s header has no nav`);
     assert.match(nav, /^<nav class="site-nav" aria-label="Primary">/, name);
     const links = [...nav.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[1]} ${m[2]}`);
-    assert.deepEqual(links, ['/ All albums'], name);
+    assert.deepEqual(links, ['/ Team photos'], name);
     assert.doesNotMatch(nav, /aria-current/, name);
   }
 });
@@ -280,7 +283,7 @@ test('the page\'s promises about a takedown are what the code does', async () =>
   // photo if an admin puts it back", "and go with it when an admin deletes it".
   const db = d1();
   const bucket = r2();
-  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
   const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   const photo = (state, key) => Number(db.sqlite.prepare(
     'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
@@ -379,7 +382,7 @@ test('the page\'s coach claims are what the code does: no address in the cookie,
   // "For a coach's photo, only that a coach sent it": the row says coach and
   // names no invite link, and nothing on it names the coach.
   const db = d1();
-  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
   const id = await insertPhoto(db, address, {
     mediaKey: 'd'.repeat(32), batch: '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b', session, caption: null,
     captured: 1, sentAt: 2, full: { width: 4, height: 3 }, grid: { width: 4, height: 3 }, screen: { width: 4, height: 3 }, bytes: 10,
@@ -415,7 +418,7 @@ test('README\'s hand takedown, the fallback when the button is refused, hides th
   assert.ok(sql && sql.includes('<id>'), 'README has no takedown statement naming <id>');
 
   const db = d1();
-  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
   const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   const photo = (state, key, note = null) => Number(db.sqlite.prepare(
     'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
@@ -922,7 +925,7 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   db.sqlite.prepare('INSERT INTO sign_in_budget (hour, failed) VALUES (?, 1)').run(Math.floor(now / 3600));
   db.sqlite.prepare('INSERT INTO reset_request_log (address_hash, requested_at) VALUES (?, ?)').run('h', now);
   db.sqlite.prepare('INSERT INTO reset_mail_budget (day, sent) VALUES (?, 1)').run(Math.floor(now / 86400));
-  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, now);
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, now);
   const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   db.sqlite.prepare(
     'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +

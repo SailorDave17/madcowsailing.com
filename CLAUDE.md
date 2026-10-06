@@ -64,7 +64,8 @@ that link set a password, and added signing in at `/sign-in`, `/account`
 with Sign out, and a reset at `/forgot-password` (item 27); an account
 cannot send until #223. **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
-(The photo site, item 24).
+(The photo site, item 24), and #227 gave every album a team: `/` leads to
+`/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
 Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
@@ -895,6 +896,8 @@ applications and their policies.
   `openAlbum()` find nothing. That is the check #154's upload route makes, answering 409.
   Its approved photos stay public, so #157's public list must not filter on it.
   Reopening clears it.
+- **Every album belongs to a team since #227**, Hoover JRT or COHSSA, set on
+  this page and changed by an edit, and its team's section lists it (item 28).
 - **Deleting an album that holds a photo is refused by the database.** Owner's choice
   at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
   `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
@@ -1198,6 +1201,9 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
 `/albums/<address>/` shows one (`functions/albums/[address]/index.js`), and
 `/photos/<id>/<size>` serves a photo (`functions/photos/[id]/[size].js`).
 `lib/public.js` holds the queries and `lib/public-page.js` the markup.
+**Since #227 `/` leads to each team's section**, `/hoover-jrt/` and
+`/cohssa/`, and the album list described below is each section's, for its
+own team's albums (item 28).
 
 - **Only an approved photo is public.** Every public statement names
   `state = 'approved' AND kind = 'photo'`, so a waiting, hidden or rejected
@@ -1243,7 +1249,9 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
   still saves it named. The grid and screen sizes open in the page.
 - **An album page links back with an "All albums" eyebrow link** (owner, at
   pickup). Not chosen: a one-item nav now. #159 added the second kind of page,
-  and with it a two-item nav (item 18); the eyebrow stays.
+  and with it a two-item nav (item 18); the eyebrow stays. **Since #227 it
+  leads to the album's team's section**, named for it ("COHSSA photos"),
+  rather than to `/` (item 28).
 - **Every page is `public, max-age=0, must-revalidate`** (#157, criterion 8),
   so an approval or a takedown shows on the next load. Every photo is
   `private, max-age=300` (item 3). A missing photo is a plain `404`,
@@ -1298,7 +1306,9 @@ it, and the share page links it beside the join step.
   the sailing site's hash check does. **Since 2026-10-01 the nav is All
   albums alone** (owner): the policy link sat in the header and the footer,
   and "it only needs to be in the footer". The nav stays, with its one link,
-  because the Quality floor names a real `<nav>`.
+  because the Quality floor names a real `<nav>`. **Since #227 that link
+  reads "Team photos"** (owner, at #227's review), since `/` lists teams now,
+  not albums (item 28).
 - **The check is described, not promised as an outcome** (owner, at the
   review). The page says an admin turns down any photo they recognize as a
   sailor whose family opted out, and that a check can miss one, with the
@@ -1428,7 +1438,8 @@ it, and the share page links it beside the join step.
   `public/policy.html`, `public/share/index.html`, `templates/page.html` and
   `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
   `test/public.test.js` fail until they agree, and `test/policy.test.js` until
-  each footer links `/policy` and each nav holds All albums alone.
+  each footer links `/policy` and each nav holds Team photos alone (All
+  albums until #227, item 28).
 
 ### 19. Remove this photo
 
@@ -1953,7 +1964,7 @@ describe production until the cutover, #226.
 - **COHSSA is a section of this site** (the recommendation), superseding
   the copy D12 chose on 2026-09-28. With one sign-in and one admin area, the
   copy's reason, separate queues and codes, is gone. Each album belongs to a
-  team, and each team's section lists its own (#227). Not chosen: the copy as
+  team, and each team's section lists its own (#227, item 28). Not chosen: the copy as
   filed under #191; a separate address served by this site with shared
   accounts. #195 and #196 closed with it.
 - **COHSSA photos are public once approved, from the start, against the
@@ -2412,6 +2423,112 @@ writes nothing. The site's budget caps failed sign-ins at 600 rows an hour,
 delete with no time index read 1 row on a table holding only the probe; on
 a full table it reads at most the rows two hours of the budget leave, a few
 hundred.
+
+### 28. Albums belong to a team, and each team has its own section
+
+**Built in #227, 2026-10-06, the first story of epic #191 to change the
+site.** Four decisions were the owner's at pickup, each the recommendation;
+the rest were taken while building and are named as such.
+
+- **The sections are `/hoover-jrt/` and `/cohssa/`**, the keys `teams`
+  (0007) already held (owner, at pickup). Each is a two-line route file
+  under `functions/<team>/` calling `lib/section-route.js`, with both
+  spellings in `_routes.json`. Not a top-level `functions/[team]/` route,
+  which would sit beside `/ask`, `/admin` and every other top-level path. A
+  third team is a `teams` row, an entry in `lib/teams.js`'s `TEAMS`, a route
+  file and two `_routes.json` lines, and `test/public.test.js` fails on any
+  one missing. An album's address names no team, so every album link sent
+  before #227 keeps working, and so does one to an album moved to the other
+  team. Not chosen: `/teams/<team>/`, one dynamic route under its own prefix
+  but a longer link; shorter words such as `/hoover/`, a second naming of the
+  teams beside their keys.
+- **The migration is `team TEXT NOT NULL DEFAULT 'hoover-jrt'` plus four
+  triggers** (owner, at pickup). SQLite refuses `ADD COLUMN … REFERENCES`
+  with a non-NULL default while foreign keys are enforced (*"Cannot add a
+  REFERENCES column with non-NULL default value"*, measured on node:sqlite
+  3.53.3), and D1 enforces them in every query and migration, with only
+  `PRAGMA defer_foreign_keys` to relax them
+  ([foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/),
+  read 2026-10-06). So the triggers do the reference's work: an album's team
+  must be a `teams` row on insert and on update, and a team an album names
+  cannot be deleted or have its key changed. Every album made before 0010 is
+  Hoover JRT's by the default, with no UPDATE of a stored row. `teams` stays
+  the one list, as 0007 made it a table for. Not chosen: a CHECK naming the
+  two teams, a third copy of the list that needs a table rebuild for a third
+  team; a nullable REFERENCES column set by an UPDATE, which leaves NULL
+  allowed for good and is the destructive class. `test/site.test.js`'s
+  additive check now reads a trigger's event (`BEFORE DELETE`) as when it
+  runs, and still fails a trigger whose body changes rows.
+  **0010's four were not the whole reference, and 0011 adds the fifth**
+  (found by `review-fanout` at #227's review). `REPLACE INTO teams` whose
+  row clashes with another key's unique `name` deletes that row without
+  firing a delete trigger, since `recursive_triggers` is off on node:sqlite
+  and D1 (measured on both), and the albums naming it were left pointing at
+  nothing. 0011's `BEFORE INSERT` trigger runs before the clash is resolved
+  and refuses exactly that case. 0010 was already on the preview database,
+  and D1 records a migration by its filename, so 0010 was left as it was.
+  In the two update triggers, `OF team` only spares a title or name edit
+  the subquery; no behaviour tells it apart, and the tests say so.
+- **`/` is one row per team** (owner, at pickup): its name, how many albums
+  and photos its section shows, and its newest album's cover. A team with
+  nothing posted keeps its row, saying so, with an empty tile where the cover
+  goes, since its section is a page all the same. Not chosen: every album on
+  `/`, grouped under a heading per team, which still has a COHSSA parent
+  scroll past Hoover JRT's. `/` costs D1 what it did before: one read of every
+  approved photo's index entry, summed per team in the code. The first row
+  with a cover loads it at once, so a first team with nothing posted leaves
+  the other team's cover eager (the review's finding).
+- **A section reads only its own team's photos.** The team is applied inside
+  the window's scan (`album_id IN (SELECT id FROM albums WHERE team = ?)`),
+  which reaches the photos by `photos_by_album`.
+- **The share page groups its album choices under each team's name**
+  (owner, at pickup): an `<optgroup>` per team, in the order the teams first
+  appear in the newest-first list. `GET /api/albums/open` gives each album
+  `team` and `teamName`. Today's senders, the invite link and a coach's
+  sign-in, have no team, so they are offered every open album; #223 narrows
+  the list to an account's approved teams. Not chosen: a team picker before
+  the list, which #223 would mostly take away again; the API alone, which
+  shows nothing about teams until #223.
+- **An album page's eyebrow leads to its team's section** ("COHSSA photos"),
+  where it led to `/` as "All albums". Taken while building, which reversed
+  #157's recorded choice, so `review-fanout` raised it, and the owner kept it
+  at #227's review: #157's choice was the eyebrow as the way back to the
+  list, and an album's list is its section now.
+- **Every link to `/` is named "Team photos"**, the page's own title (owner,
+  at #227's review): the header nav in its five byte-identical copies (item
+  18), and the eyebrows on the sections, `/ask`, `/sign-in` and the refusal
+  pages. They said "All albums", and the sections briefly "All teams", for a
+  page that now lists teams. `test/site.test.js` reads every source for a
+  link to `/` named anything else. Not chosen: reverting the album eyebrow
+  to #157's "All albums"; shipping the mixed labels with a story to follow.
+- **A takedown that leaves its album with nothing public lands on the album's
+  team's section**, with `?removed`. It lands on `/` only when the album could
+  not be read back, which is why `/` still shows the notice.
+- **The queue and removals pages filter by `?team=`** (criterion 2): links to
+  all teams and to each, the one showing marked `aria-current`. Every press
+  on a filtered page posts to its route with the same `?team=`, so it lands
+  back on that team, and anything else in `?team=` shows every team. The
+  team travels in the address, never in a field, so a press that arrives as
+  a GET after the Access sign-in ran out keeps it too (`lib/teams.js`,
+  `teamOf`; the first build used a hidden field, and `review-fanout` found
+  the GET dropped it). Each batch and each hidden photo names its team; the
+  admin home's counts stay whole-site.
+  `/admin/albums` shows each album's team and sets it as the form's first
+  field, preselected on neither team for a new album, as the kind is not.
+- **`TEAMS` moved to `lib/teams.js`**, and `lib/accounts.js` re-exports it.
+  `lib/albums.js` needs it, and importing `accounts.js` there makes a cycle
+  through `removals.js` and `photos.js`, which import `albums.js`.
+- **The release that carries #227 waits for #238** (owner, at #227's review,
+  2026-10-06). #227 is the first release in which an admin can make a
+  COHSSA album and approve a COHSSA photo, and item 24 says no COHSSA photo
+  is approved until #238 has recorded the COHSSA release's wording and put
+  it on `/policy`; #238's criterion 4 says it reaches production no later
+  than #227. Nothing in code holds that order, so the promotion does: merging
+  #227 into `develop` is safe behind the preview's Access, and the
+  `develop` → `release` PR that would carry it waits until #238 is in
+  `develop` too. Not chosen: a code gate refusing COHSSA albums or approvals
+  until the wording is recorded, which #238 would then have to remove;
+  relying on the admins; rewording #238's criterion.
 
 ## The two-presentation rule
 

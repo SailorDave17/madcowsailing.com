@@ -19,10 +19,12 @@
  * since it compares rows rather than reading them in index order.
  *
  * What each costs D1, which counts every row a query reads (CLAUDE.md, The
- * photo site, item 2): the list reads one index entry per approved photo on
- * the site and one row per album holding one; an album page, one row per
- * approved photo in it; a grid or screen image, one row by its id; a full
- * size, one row plus one index entry per photo up to its position.
+ * photo site, item 2): / reads one index entry per approved photo on the
+ * site and one row per album holding one; a team's section (#227), the same
+ * for its own team's photos and albums, plus its team's album ids; an album
+ * page, one row per approved photo in it; a grid or screen image, one row by
+ * its id; a full size, one row plus one index entry per photo up to its
+ * position.
  */
 import { isAddress } from './albums.js';
 
@@ -30,27 +32,33 @@ const APPROVED = "state = 'approved' AND kind = 'photo'";
 
 /**
  * Every album holding at least one approved photo, newest first (latest date,
- * then the later made, as the admin list sorts), each with how many approved
- * photos it holds and its cover, the first of them in capture order. One
- * query: the window functions count and rank each album's photos in one pass
- * over the photos_by_state index.
+ * then the later made, as the admin list sorts), each with its team, how many
+ * approved photos it holds and its cover, the first of them in capture order.
+ * One query: the window functions count and rank each album's photos in one
+ * pass.
+ *
+ * `team` narrows it to one team's albums, for that team's section (#227). The
+ * team is applied inside the window's own scan, so a section reads only its
+ * own team's photos, through photos_by_album, never the other team's. With no
+ * team, every album: what / sums per team.
  */
-export async function publicAlbums(db) {
-  const { results } = await db
-    .prepare(
-      'SELECT a.address, a.title, a.kind, a.held_on, p.total, p.id AS cover_id, ' +
-      'p.grid_width, p.grid_height ' +
-      'FROM (SELECT album_id, id, grid_width, grid_height, ' +
-      'ROW_NUMBER() OVER (PARTITION BY album_id ORDER BY captured_at, id) AS n, ' +
-      'COUNT(*) OVER (PARTITION BY album_id) AS total ' +
-      `FROM photos WHERE ${APPROVED}) AS p ` +
-      'JOIN albums AS a ON a.id = p.album_id ' +
-      'WHERE p.n = 1 ' +
-      'ORDER BY a.held_on DESC, a.id DESC',
-    )
-    .all();
+export async function publicAlbums(db, team = null) {
+  const byTeam = team === null ? '' : ' AND album_id IN (SELECT id FROM albums WHERE team = ?)';
+  const statement = db.prepare(
+    'SELECT a.address, a.team, a.title, a.kind, a.held_on, p.total, p.id AS cover_id, ' +
+    'p.grid_width, p.grid_height ' +
+    'FROM (SELECT album_id, id, grid_width, grid_height, ' +
+    'ROW_NUMBER() OVER (PARTITION BY album_id ORDER BY captured_at, id) AS n, ' +
+    'COUNT(*) OVER (PARTITION BY album_id) AS total ' +
+    `FROM photos WHERE ${APPROVED}${byTeam}) AS p ` +
+    'JOIN albums AS a ON a.id = p.album_id ' +
+    'WHERE p.n = 1 ' +
+    'ORDER BY a.held_on DESC, a.id DESC',
+  );
+  const { results } = await (team === null ? statement : statement.bind(team)).all();
   return results.map((row) => ({
     address: row.address,
+    team: row.team,
     title: row.title,
     kind: row.kind,
     date: row.held_on,
@@ -68,7 +76,7 @@ export async function publicAlbum(db, address) {
   if (!isAddress(address)) return null;
   const { results } = await db
     .prepare(
-      'SELECT a.address, a.title, a.kind, a.held_on, p.id, p.caption, ' +
+      'SELECT a.address, a.team, a.title, a.kind, a.held_on, p.id, p.caption, ' +
       'p.grid_width, p.grid_height, p.screen_width, p.screen_height, p.width, p.height ' +
       'FROM albums AS a JOIN photos AS p ON p.album_id = a.id ' +
       "WHERE a.address = ? AND p.state = 'approved' AND p.kind = 'photo' " +
@@ -80,6 +88,7 @@ export async function publicAlbum(db, address) {
   const [first] = results;
   return {
     address: first.address,
+    team: first.team,
     title: first.title,
     kind: first.kind,
     date: first.held_on,

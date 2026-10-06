@@ -9,27 +9,33 @@
  * caption a photo goes public with is the one on the page, and clearing the
  * field publishes none. Then only the photos the press named change state,
  * and only those still waiting. 303 back to the queue, at the batch.
+ *
+ * A press from a page filtered to one team posts here with that ?team=
+ * (#227), and lands back on the same team's list, as a GET does.
  */
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
   QUEUE_FORM_BYTES, acted, approvePhotos, queueLocation, readPress, saveCaptions, unsavedCaptions,
 } from '../../../../lib/queue.js';
 import { nowSeconds } from '../../../../lib/session.js';
+import { teamOf } from '../../../../lib/teams.js';
 
 export async function onRequestPost({ request, env }) {
+  const team = teamOf(request);
   const press = readPress(await readForm(request, QUEUE_FORM_BYTES), 'approve');
-  if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo }));
+  if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
   // Counted first: after the approval its own photos would count too.
   const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
   await saveCaptions(env.DB, press.captions);
   const approved = await approvePhotos(env.DB, press.targets, nowSeconds());
-  if (!approved.length) return seeOther(queueLocation({ error: 'gone', unsaved }, press.anchor));
-  return seeOther(queueLocation({ done: 'approved', ...acted(approved), unsaved }, press.anchor));
+  if (!approved.length) return seeOther(queueLocation({ error: 'gone', unsaved, team }, press.anchor));
+  return seeOther(queueLocation({ done: 'approved', ...acted(approved), unsaved, team }, press.anchor));
 }
 
 /**
  * GET changes nothing and goes back to the queue, which says so. A press can
  * arrive as a GET when the Access sign-in ran out while the page was open
- * (functions/api/admin/code/rotate.js says how), and GET needs no Origin.
+ * (functions/api/admin/code/rotate.js says how), and GET needs no Origin. The
+ * press's ?team= comes with it, so it lands on the list it was made from.
  */
-export const onRequestGet = () => seeOther(queueLocation({ error: 'unchanged' }));
+export const onRequestGet = ({ request }) => seeOther(queueLocation({ error: 'unchanged', team: teamOf(request) }));

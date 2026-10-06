@@ -63,7 +63,7 @@ export const PROBLEMS = {
 const lede = 'Ask here for an account to send photos to the team\'s albums, as a parent, a coach or anyone else. One of the site\'s admins reads each request and approves it for each team on its own. If yours is approved, an email comes to the address you give, with a link to set a password.';
 
 const head = (heading, text) => `  <section class="wrap page-head">
-    <p class="eyebrow"><a href="/">All albums</a></p>
+    <p class="eyebrow"><a href="/">Team photos</a></p>
     <h1>${heading}</h1>
     <p class="lede">${text}</p>
   </section>`;

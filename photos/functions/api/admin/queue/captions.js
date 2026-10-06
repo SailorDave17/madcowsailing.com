@@ -12,14 +12,17 @@ import { readForm, seeOther } from '../../../../lib/form.js';
 import {
   QUEUE_FORM_BYTES, queueLocation, readPress, saveCaptions, unsavedCaptions,
 } from '../../../../lib/queue.js';
+import { teamOf } from '../../../../lib/teams.js';
 
+// A press from a filtered page carries its ?team= (#227), as approve.js says.
 export async function onRequestPost({ request, env }) {
+  const team = teamOf(request);
   const press = readPress(await readForm(request, QUEUE_FORM_BYTES), null);
-  if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo }));
+  if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
   const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
   const saved = await saveCaptions(env.DB, press.captions);
-  return seeOther(queueLocation({ done: 'saved', n: saved, unsaved }, press.anchor));
+  return seeOther(queueLocation({ done: 'saved', n: saved, unsaved, team }, press.anchor));
 }
 
-/** GET changes nothing, as approve.js's GET says. */
-export const onRequestGet = () => seeOther(queueLocation({ error: 'unchanged' }));
+/** GET changes nothing, as approve.js's GET says, and keeps the press's ?team=. */
+export const onRequestGet = ({ request }) => seeOther(queueLocation({ error: 'unchanged', team: teamOf(request) }));

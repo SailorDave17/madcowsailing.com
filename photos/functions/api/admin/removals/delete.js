@@ -15,14 +15,18 @@
 import { readForm, seeOther } from '../../../../lib/form.js';
 import { readPhotoId } from '../../../../lib/queue.js';
 import { deletePhoto, removalsLocation } from '../../../../lib/removals.js';
+import { teamOf } from '../../../../lib/teams.js';
 
 export async function onRequestPost({ request, env }) {
+  // The team the page was filtered to, in the press's ?team= (#227), so the
+  // press lands back on it.
+  const team = teamOf(request);
   const id = readPhotoId((await readForm(request)).photo);
-  if (id === null) return seeOther(removalsLocation({ error: 'form' }));
+  if (id === null) return seeOther(removalsLocation({ error: 'form', team }));
   const { deleted, kept } = await deletePhoto(env.DB, env.MEDIA, id);
-  if (!deleted) return seeOther(removalsLocation({ error: 'gone' }));
-  return seeOther(removalsLocation({ done: 'deleted', photo: id, kept: kept ? 1 : null }));
+  if (!deleted) return seeOther(removalsLocation({ error: 'gone', team }));
+  return seeOther(removalsLocation({ done: 'deleted', photo: id, kept: kept ? 1 : null, team }));
 }
 
-/** GET changes nothing, as restore.js's GET says. */
-export const onRequestGet = () => seeOther(removalsLocation({ error: 'unchanged' }));
+/** GET changes nothing, as restore.js's GET says, and keeps the press's ?team=. */
+export const onRequestGet = ({ request }) => seeOther(removalsLocation({ error: 'unchanged', team: teamOf(request) }));

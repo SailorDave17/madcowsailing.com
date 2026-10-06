@@ -27,7 +27,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=4578c5c5aa">
+<link rel="stylesheet" href="/css/site.css?v=0caea28e64">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -44,12 +44,15 @@
      are copied from sailing/404.html, so a change to the sailing lockup is a
      change here too.
 
-     The nav links the album list. #159's review put /policy in it too, and
-     the owner took it back out on 2026-10-01: the footer links it on every
-     page. Its hrefs are root-relative, for the depth trap #7 and #10 hit on
-     the sailing site. It marks no aria-current, so this block stays byte
-     for byte the same on every page, which the tests hold. An album page
-     keeps its "All albums" eyebrow too (owner's choice at #157's pickup).
+     The nav holds one link, Team photos, to /, the way into each team's
+     section since #227 (it read "All albums" while / listed every album).
+     #159's review put /policy in it too, and the owner took it back out on
+     2026-10-01: the footer links it on every page. Its hrefs are
+     root-relative, for the depth trap #7 and #10 hit on the sailing site.
+     It marks no aria-current, so this block stays byte for byte the same
+     on every page, which the tests hold. An album page has an eyebrow back
+     to its team's section too (#227; it was "All albums", to /, from
+     #157's pickup until then).
      The public pages a Function renders take this block from
      templates/page.html (#157), and the admin pages from lib/admin-page.js.
      ============================================================= -->
@@ -61,7 +64,7 @@
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/">All albums</a></li>
+        <li><a href="/">Team photos</a></li>
       </ul>
     </nav>
   </div>
