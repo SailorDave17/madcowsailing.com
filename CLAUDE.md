@@ -1417,6 +1417,17 @@ it, and the share page links it beside the join step.
   its scrambled address is kept. Each has a row in the trace and a line in
   `test/policy.test.js`, which also runs README's by-hand account delete
   against the real schema (item 25).
+- **#238 put each team's release on the page** (2026-10-06). "Every photo
+  is checked first" says which release covers which team's photos. Hoover
+  JRT's check against the families who opted out keeps its words, and
+  COHSSA's is named as its season-registration release, which has no
+  opt-out (item 24). `test/policy.test.js` fails if Hoover JRT's sentences
+  change, if COHSSA's paragraph stops naming its release or its lack of an
+  opt-out, and if a team in `lib/teams.js` has no sentence of its own, so a
+  third team needs its release named here before it ships. **The page does
+  not quote COHSSA's release yet**: the wording was not to hand, and the
+  owner chose at #238's gate to ship without the quote rather than hold for
+  it. #253 records the wording in item 24 and quotes it here.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1978,9 +1989,12 @@ describe production until the cutover, #226.
   **Confirmed by the owner on 2026-10-05 (#194):** the release is part of
   COHSSA's season registration, COHSSA issues it, and it covers photos
   published online. It has no opt-out, so unlike Hoover's (item 18) there is
-  no per-family list for an admin to check a COHSSA photo against. **Its
-  exact wording is not recorded yet.** #238 records it here word for word
-  and puts it on `/policy`, and no COHSSA photo is approved until then.
+  no per-family list for an admin to check a COHSSA photo against.
+  `/policy` has said so since #238 (2026-10-06), naming the release.
+  **Its exact wording is not recorded yet.** #253 records it here word
+  for word and quotes it on `/policy`, and no COHSSA photo is approved until
+  then. #238 shipped without the quote rather than wait for the wording
+  (owner, at #238's gate, 2026-10-06).
 - **The section shows COHSSA's name as text, with no COHSSA logo** unless
   COHSSA's permission is recorded here (a default, confirmed on 2026-10-05).
   None was recorded that day.
@@ -2518,17 +2532,21 @@ the rest were taken while building and are named as such.
 - **`TEAMS` moved to `lib/teams.js`**, and `lib/accounts.js` re-exports it.
   `lib/albums.js` needs it, and importing `accounts.js` there makes a cycle
   through `removals.js` and `photos.js`, which import `albums.js`.
-- **The release that carries #227 waits for #238** (owner, at #227's review,
-  2026-10-06). #227 is the first release in which an admin can make a
+- **No COHSSA album is made on production until #253 is released**
+  (owner, 2026-10-06). #227 is the first release in which an admin can make a
   COHSSA album and approve a COHSSA photo, and item 24 says no COHSSA photo
-  is approved until #238 has recorded the COHSSA release's wording and put
-  it on `/policy`; #238's criterion 4 says it reaches production no later
-  than #227. Nothing in code holds that order, so the promotion does: merging
-  #227 into `develop` is safe behind the preview's Access, and the
-  `develop` → `release` PR that would carry it waits until #238 is in
-  `develop` too. Not chosen: a code gate refusing COHSSA albums or approvals
-  until the wording is recorded, which #238 would then have to remove;
-  relying on the admins; rewording #238's criterion.
+  is approved until the COHSSA release's wording is recorded and on
+  `/policy`; #238's criterion 4 said that reaches production no later
+  than #227. Nothing in code holds that order. At #227's review the owner
+  chose to hold the promotion that would carry #227 until #238 was in
+  `develop`; release PR #251 carried #227 to production that same day with
+  #238 still open, and the owner then put the rule on the admins instead:
+  no COHSSA album on production until #238 is released. **At #238's gate
+  the wording moved to #253**, since it was not to hand, and the rule
+  moved with it: #238 names COHSSA's release on `/policy` but does not quote
+  it. Not chosen: a code gate refusing COHSSA albums or approvals until the
+  wording is recorded, which the wording's story would then have to remove;
+  rewording #238's criterion.
 
 ## The two-presentation rule
 
