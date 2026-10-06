@@ -2518,17 +2518,18 @@ the rest were taken while building and are named as such.
 - **`TEAMS` moved to `lib/teams.js`**, and `lib/accounts.js` re-exports it.
   `lib/albums.js` needs it, and importing `accounts.js` there makes a cycle
   through `removals.js` and `photos.js`, which import `albums.js`.
-- **The release that carries #227 waits for #238** (owner, at #227's review,
+- **No COHSSA album is made on production until #238 is released** (owner,
   2026-10-06). #227 is the first release in which an admin can make a
   COHSSA album and approve a COHSSA photo, and item 24 says no COHSSA photo
   is approved until #238 has recorded the COHSSA release's wording and put
   it on `/policy`; #238's criterion 4 says it reaches production no later
-  than #227. Nothing in code holds that order, so the promotion does: merging
-  #227 into `develop` is safe behind the preview's Access, and the
-  `develop` → `release` PR that would carry it waits until #238 is in
-  `develop` too. Not chosen: a code gate refusing COHSSA albums or approvals
-  until the wording is recorded, which #238 would then have to remove;
-  relying on the admins; rewording #238's criterion.
+  than #227. Nothing in code holds that order. At #227's review the owner
+  chose to hold the promotion that would carry #227 until #238 was in
+  `develop`; release PR #251 carried #227 to production that same day with
+  #238 still open, and the owner then put the rule on the admins instead:
+  no COHSSA album on production until #238 is released. Not chosen: a code
+  gate refusing COHSSA albums or approvals until the wording is recorded,
+  which #238 would then have to remove; rewording #238's criterion.
 
 ## The two-presentation rule
 
