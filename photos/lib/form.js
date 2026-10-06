@@ -12,7 +12,20 @@
 // a date. This is room for all of them, encoded, many times over. A queue
 // batch's form, which carries a caption for every photo, passes its own
 // larger cap (lib/queue.js).
-const MAX_FORM_BYTES = 4096;
+export const MAX_FORM_BYTES = 4096;
+
+/**
+ * Every value of every name in a urlencoded form, as URLSearchParams, so a
+ * group of checkboxes sharing one name arrives whole (#220's teams). Empty
+ * when the body is anything else or longer than `maxBytes`.
+ */
+export async function readFormParams(request, maxBytes = MAX_FORM_BYTES) {
+  const type = request.headers.get('Content-Type') ?? '';
+  if (!/^application\/x-www-form-urlencoded\s*(;|$)/i.test(type)) return new URLSearchParams();
+  const text = await request.text();
+  if (text.length > maxBytes) return new URLSearchParams();
+  return new URLSearchParams(text);
+}
 
 /**
  * The fields of a urlencoded form, first value of each name, in an object
@@ -21,11 +34,7 @@ const MAX_FORM_BYTES = 4096;
  */
 export async function readForm(request, maxBytes = MAX_FORM_BYTES) {
   const fields = Object.create(null);
-  const type = request.headers.get('Content-Type') ?? '';
-  if (!/^application\/x-www-form-urlencoded\s*(;|$)/i.test(type)) return fields;
-  const text = await request.text();
-  if (text.length > maxBytes) return fields;
-  for (const [name, value] of new URLSearchParams(text)) {
+  for (const [name, value] of await readFormParams(request, maxBytes)) {
     if (!(name in fields)) fields[name] = value;
   }
   return fields;

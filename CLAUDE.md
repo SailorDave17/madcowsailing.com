@@ -56,7 +56,9 @@ approves, and retires both at its cutover, #226. Its first story, #217, is
 the email the site sends through Resend, with a test send at `/admin/mail`,
 and #218 chose the password hash every account will use: scrypt, in
 `photos/lib/password.js`. One hash takes far more than the free plan's 10 ms
-of CPU, so the account is on Workers Paid since 2026-10-05. **Epic #191 makes COHSSA a section of the same
+of CPU, so the account is on Workers Paid since 2026-10-05. #220 built the
+request form at `/ask`, behind Turnstile, which nothing links to yet
+(item 25). **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24).
 Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
@@ -131,7 +133,8 @@ story, this is the paragraph to check.*
 │   │                         with api/admin/removals/; admin/mail.js the
 │   │                         test email, #217, with api/admin/mail/;
 │   │                         share/receive.js answers a share that found no
-│   │                         worker on the phone, #193)
+│   │                         worker on the phone, #193; ask.js is /ask, a
+│   │                         request for an account, #220)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -150,8 +153,8 @@ story, this is the paragraph to check.*
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /remove, /api/*, /admin, /admin/*, /coach, /coach/*,
-│       │                     /share/receive
+│       │                     /remove, /ask, /api/*, /admin, /admin/*, /coach,
+│       │                     /coach/*, /share/receive
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -160,7 +163,9 @@ story, this is the paragraph to check.*
 │       ├── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
 │       │                     in lib/admin-page.js (#152)
 │       ├── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
-│       └── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
+│       ├── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
+│       └── js/ask.js         /ask's Turnstile loader, on the form's first focus or
+│                             touch; stamped by hand in lib/ask-page.js (#220)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -1382,6 +1387,12 @@ it, and the share page links it beside the join step.
   photo sent from an account names the account (D17). **The sentence about
   matching a coach's send time to Cloudflare's sign-in record stays until
   the cutover, #226**, which removes it with the coaches' sign-in.
+- **#220 put the request's own records on the page** (its criterion 9):
+  when it was asked, which teams still wait for an answer and whether the
+  admins have been emailed about it, and the request limit, with how long
+  its scrambled address is kept. Each has a row in the trace and a line in
+  `test/policy.test.js`, which also runs README's by-hand account delete
+  against the real schema (item 25).
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1952,6 +1963,159 @@ describe production until the cutover, #226.
   confirmed on 2026-10-05). D15's admin role has no team, so every admin
   approves for both teams. Not chosen: a COHSSA person approving COHSSA's
   photos, which needs a team-scoped admin role that nothing has built.
+
+### 25. Requests for an account
+
+**Built in #220, 2026-10-05, the first story of epic #216 to keep anything
+about a person.** Anyone asks at `/ask` (`functions/ask.js`) with a name, an
+email address, parent, coach or other, Hoover JRT, COHSSA or both, and an
+optional note. `lib/accounts.js` holds the rules, `lib/ask-page.js` the page,
+`lib/turnstile.js` the check, and migration 0007 the tables. README.md, The
+photo site, Account requests and Deleting an account by hand, is the
+operating record. The owner's decisions, through the question tool:
+
+- **The admins' email is the lazy hour** (owner, at pickup, as criterion 5
+  proposed). The first new request emails every address on `ADMIN_EMAILS` at
+  once and opens an hour; requests inside it send nothing; the first after it
+  sends one email naming every request no email has named. The admin home
+  counts the waiting requests, which is how a request that no later one
+  follows is seen: Pages runs no scheduled job. Not chosen: a 3-hour window;
+  no email, the count alone.
+- **10 requests an hour from one network address, 100 an hour from
+  everyone** (owner, at pickup): the join limit's figure (item 11) and #177's
+  budget. Not chosen: 5 and 30, which an email to every COHSSA family could
+  hit; 20 and 200. A scrambled address is deleted after its hour by the next
+  request the site takes or the next load of the admin home, as #158's
+  takedown log is; a refused request deletes nothing.
+- **A spent hour writes nothing** (owner, at the review). The site's hour is
+  read before the address's unit is claimed, as #177's join budget is spent
+  before its failure is recorded. Then the unit is spent, and if another
+  request took the last one in between, or the spend fails, the address's
+  unit goes back. Not chosen: claiming first and recording the cost of a
+  spent hour's claim and give-back (about 4 rows a request, bounded only by
+  Turnstile); keeping the address's unit when the site is busy, which would
+  count a refused request against the person's own 10.
+- **The address log's time is the account's, to the second, and `/policy`
+  says so** (owner, at the review). A request that makes an account stores
+  one clock reading in both `accounts.requested_at` and its
+  `account_request_log` row, so for the hour that row is kept the scrambled
+  address can be matched to the account. `test/policy.test.js` holds the
+  sentence to the code: it fails if the two times ever differ. Not chosen:
+  a coarser time on the account, which would cost the admins the exact time;
+  recording it here alone, which would leave `/policy` claiming less than the
+  site keeps.
+- **The page is `/ask`** (owner, at pickup). Not chosen: `/account/request`,
+  `/request-access`.
+- **Nothing links to `/ask` yet** (owner, at pickup). An account cannot send
+  until #223, and #226 points the old invite link at it. Not chosen: a link
+  from `/policy`; links from the album list and the share page.
+- **Turnstile's script loads on the form's first focus or touch** (owner, at
+  the review). *Measured* through `tools/h2proxy.mjs` on a local serve,
+  Lighthouse 13.4.1, mobile, three runs each, accessibility 100 in every one:
+  loaded with the page, `/ask` read 86, 87 and 87 for performance, under
+  the photo site's floor of 95 (Quality floor); with Turnstile's origin
+  blocked 94, 94 and 97; the
+  album list on the same template 97, 97 and 99 (the control). Added on the
+  first focus or touch by `public/js/ask.js`, it read 96, 97 and 99, with no
+  Turnstile request during the run. A page sent back with a reason loads it
+  at once, since the person is part way through. Not chosen: loading it with
+  the page and holding `/ask` to 85; a preconnect hint (88, 87, 87); adding
+  it after the page's load event (84, 84, 83). The cost: someone who sends
+  within a second or two of starting meets the check unfinished, and the 403
+  page asks them to wait and send again, keeping what they typed (measured:
+  the token arrived 1.9 s after the first Tab, with the test keys).
+
+The rest are defaults. The first three were taken at pickup and recorded on
+#220 then. The rest were taken while building, and are recorded in #220's
+pull request and its story comment, which #220's review found they were not
+before: one of them, the email's 50-name cap, narrows criterion 5.
+
+- **Turnstile is checked on the server before any field is read.** A token
+  siteverify does not pass is a `403` and writes nothing, so neither limit is
+  spent by a request no person sent. Only `success` decides: Cloudflare's
+  always-pass test secret answered `"hostname":"example.com"` and no action,
+  for a token as well as for `not-a-token` (*measured* 2026-10-05), so a
+  hostname or action check would refuse every local run. In production a
+  response marked `result_with_testing_key` is refused as unavailable (`503`),
+  so a test secret set there by mistake cannot pass every request. Siteverify
+  answered a request with no `User-Agent`, unlike Resend (item 21); the
+  site sends one anyway. One widget, Managed, serves both environments: a
+  hostname covers its subdomains (Turnstile's Hostname management page, read
+  2026-10-05), so `madcowphotos.pages.dev` covers the `develop` preview.
+  Local runs use the test keys (README, Running it locally).
+- **The CSP widens on `/ask` alone**, by the two values Turnstile's CSP page
+  lists: `https://challenges.cloudflare.com` in `script-src`, and as the
+  whole of `frame-src`. `lib/headers.js`'s `headersFor` picks it by path, and
+  every other path keeps the site's policy. *Measured* in Chrome: no CSP
+  report and no console error on `/ask`, the widget's frame from that origin.
+- **One account per email address**, unique without regard to letter case.
+  A request from an address the site already has, in any state, writes
+  nothing about the account, and is answered with the same `303` to
+  `/ask?sent` by the same statements as a new address (criterion 4). Only a
+  new address emails the admins, and that runs after the answer
+  (`context.waitUntil`), so its timing does not carry it. Whether a
+  turned-down address may ask again is #221's, and a revoked one's #225's.
+- **The admins' email names a request by name, role and teams only**, never
+  the address or the note, as `/policy` says, and links `/admin/people`,
+  which #221 builds. Each address on `ADMIN_EMAILS` gets a send of its own,
+  until #224 makes admins accounts. Only a request that made an account sends
+  it. If no admin's email goes through, the hour is given back and the
+  requests stay unnamed for the next request.
+- **One email names at most 50 requests** (`LIST_MAX`) and says how many more
+  wait; those are named by the next email. That narrows criterion 5's "names
+  every requester since the last one" for a backlog alone: the budget counts
+  clock hours and the email's hour slides, so up to 200 requests can fall in
+  one email's hour, and the 200th's email names 50 and counts 150. 50 of the
+  widest lines stay inside `lib/mail.js`'s `TEXT_MAX`, which
+  `test/accounts.test.js` holds. Not chosen: no cap, which a full backlog
+  of the widest names would push past `TEXT_MAX`'s 20,000 characters, and
+  `sendMail` refuses a text that long, so no email would go at all.
+- **The form's limits**: a name of 100 characters, one line; a note of 500,
+  read as a takedown note is (`readNote`); one plain address by
+  `lib/mail.js`'s rule. 0007's CHECKs hold the same figures. A name drops
+  Unicode's bidirectional controls, which would reorder the rest of its line
+  in the admins' email, and a name of only format characters (a zero-width
+  space, say) is no name; other format characters stay, since a zero-width
+  non-joiner belongs in some names (#220's review).
+- **The teams are a table**, `teams`, so a third team is a row and #227 can
+  point albums at it. `account_teams`' CHECK already holds all four states
+  (requested, approved, rejected, revoked), since SQLite cannot change a CHECK
+  in place, which #223 meets on `photos`.
+- **The two team checkboxes share one name, `team`**, as an HTML checkbox
+  group does. html-validate's `form-dup-name` shares radio, button, reset and
+  submit names by default, and checkboxes by an option, which
+  `photos/.htmlvalidate.json` now sets. Not chosen: `team[]`, a framework's
+  convention the server would have to read back.
+
+**D1 rows written, measured** on `madcowphotos-preview` on 2026-10-06 (UTC)
+with `wrangler d1 execute --remote --json`, each statement the code runs
+with probe values, every probe row deleted after:
+
+| Statement | Rows written | Rows read |
+|---|---|---|
+| Read the site's hour first (`account_request_budget`) | 0 | 1 |
+| Claim the address's unit (`account_request_log`, two indexes) | 3 | 3 |
+| Spend the site's unit (`account_request_budget` upsert) | 1 | 2 |
+| The account, new (`accounts`: its UNIQUE email and its AUTOINCREMENT counter) | 3 | 3 |
+| Its two teams (`account_teams`, `WITHOUT ROWID`) | 2 | 13 |
+| The account, an address already there (`ON CONFLICT DO NOTHING`) | **1** | 4 |
+| Its teams, an address already there | 0 | 3 |
+| The admins' hour: claim it / inside it | 1 / 0 | 2 |
+| Mark the named requests | 1 a request | 5 |
+| Delete the address's row once over an hour old (a later request's tidy) | 1 | 1 |
+| README's by-hand delete (the account and two teams, by cascade) | 3 | 9 |
+
+The budget read and the one-row delete were measured at #220's review, the
+same way, on 2026-10-06 (UTC), with a probe row planted at time 1000 so the
+tidy's own statement could delete it and nothing else. So a new request
+costs 10 rows written (9 with one team), counting the delete of its own log
+row an hour on, and a repeat 6. A repeat's insert does nothing and still
+writes 1 row: SQLite moves an AUTOINCREMENT counter even for an insert that
+does nothing. So a repeat spends an id. A request once the site's hour is
+spent writes nothing: it runs the budget read alone. The budget caps the
+route at 100 × 10 = 1,000 rows an hour, plus one email's marks (at most 50),
+about 25,000 a day: 25% of the free plan's daily 100,000 and a sliver of
+Workers Paid's 50 million a month.
 
 ## The two-presentation rule
 

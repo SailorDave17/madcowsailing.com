@@ -16,7 +16,8 @@
  * the albums page, adminAlbumsPage(), which needs no script. #156 added the
  * approval queue, adminQueuePage(), and its script, and the home's counts.
  * #158 added the removal requests, adminRemovalsPage(), and its script, and
- * the home's count of them. #217 added the test email, adminMailPage().
+ * the home's count of them. #217 added the test email, adminMailPage(). #220
+ * added the home's count of requests for an account.
  */
 import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
@@ -52,7 +53,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=70c2619187">
+<link rel="stylesheet" href="/css/site.css?v=53f7c065e8">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -114,6 +115,15 @@ export function removalsText(removals) {
 }
 
 /**
+ * How many requests for an account wait (#220): each is one person, with a
+ * team an admin has not yet approved or turned down.
+ */
+export function requestsText(requests) {
+  if (requests === 0) return 'No request for an account is waiting.';
+  return `${plural(requests, 'request for an account is', 'requests for an account are')} waiting.`;
+}
+
+/**
  * The storage the stored photos take, against the free allowance #148
  * recorded (lib/queue.js, FREE_STORAGE_BYTES). Decimal units, as the
  * allowance is read: KB under a megabyte, MB under a gigabyte, then GB.
@@ -132,9 +142,10 @@ export function storageText(bytes) {
 /**
  * The admin home for the admin signed in as `email`. `summary` is
  * lib/queue.js's queueSummary(): how many photos wait, how many removal
- * requests wait, and the bytes stored.
+ * requests wait, and the bytes stored; and, since #220, `requests`,
+ * lib/accounts.js's waitingRequests().
  */
-export function adminHome(email, { waiting, removals, bytes }) {
+export function adminHome(email, { waiting, removals, bytes, requests = 0 }) {
   const items = SECTIONS.map(({ href, name, what }) =>
     `      <li><a href="${href}">${escapeHtml(name)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   return adminPage({
@@ -150,6 +161,7 @@ export function adminHome(email, { waiting, removals, bytes }) {
     <h2 id="admin-now">At a glance</h2>
     <p>${waitingText(waiting)}</p>
     <p>${removalsText(removals)}</p>
+    <p>${requestsText(requests)}</p>
     <p>${storageText(bytes)}</p>
   </section>
 

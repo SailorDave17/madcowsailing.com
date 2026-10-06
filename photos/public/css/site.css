@@ -635,6 +635,115 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- Public: asking for an account (#220) --------------------------- */
+
+/* The form follows its head closely, as the album grid does, at the width
+   of the text above it. */
+.ask {
+  padding-block-start: 0;
+}
+
+.ask-form,
+.error-summary {
+  max-width: var(--measure);
+}
+
+.ask-form .field {
+  margin-block-end: var(--space-4);
+}
+
+.ask-form fieldset {
+  border: none;
+  padding: 0;
+}
+
+.ask-form label,
+.ask-form legend {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Each choice is its label as well as its box, so the whole line is the
+   target: the block padding takes it past 24 px (WCAG 2.5.8). */
+.ask-form .choices label {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  padding-block: var(--space-1);
+  margin-inline-end: var(--space-4);
+}
+
+.ask-form .choices input {
+  accent-color: var(--blue);
+  margin-inline-end: var(--space-1);
+}
+
+/* The same field edge as .album-form's: --deep reads 3:1 and more against
+   the page, where the --spray hairline does not (WCAG 1.4.11). */
+.ask-form input[type="text"],
+.ask-form input[type="email"],
+.ask-form textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+}
+
+.ask-form textarea {
+  resize: vertical;
+}
+
+/* A field with a reason beside it. The thicker edge is a second sign beside
+   the words, never the only one (WCAG 1.4.1), and it is --deep: the send
+   button is the page's one accent. */
+.ask-form input[aria-invalid="true"]:not([type="radio"]):not([type="checkbox"]) {
+  border-width: 3px;
+}
+
+.field-error {
+  display: block;
+  font-weight: 600;
+}
+
+/* The reasons above the form. It takes the focus when the page loads, so it
+   shows the ring it holds, from a script or a key. */
+.error-summary {
+  border: 3px solid var(--deep);
+  background: var(--chalk);
+  padding: var(--space-3) var(--space-4);
+  margin-block-end: var(--space-4);
+}
+
+.error-summary:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.error-summary h2 {
+  font-size: var(--text-xl);
+}
+
+.error-summary ul {
+  padding-inline-start: var(--space-4);
+  margin-block-start: var(--space-2);
+}
+
+/* Turnstile's widget is 65 px tall in its flexible size (its widget
+   configurations page). Its room is kept before the script draws it, so the
+   button below does not move when it arrives. */
+.cf-turnstile {
+  min-height: var(--space-7);
+  margin-block-end: var(--space-3);
+}
+
+.ask-policy {
+  margin-block-start: var(--space-4);
+}
+
 /* ---- Footer --------------------------------------------------------- */
 
 .footer-inner {

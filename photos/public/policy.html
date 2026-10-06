@@ -118,6 +118,11 @@
                                          precedent, item 18)
        What an account keeps: name,      #220's criteria 1 and 6; the teams an
        email, role, teams, the note      admin approved are #221's (D16)
+       When you asked, which teams       requested_at and admins_emailed on
+       still wait, and whether the       accounts, and state on account_teams,
+       admins were emailed               in migrations/0007_accounts.sql;
+                                         requestAccount and mailAdmins in
+                                         lib/accounts.js (#220)
        The password, only as a hash      hashPassword and verifyPassword in
                                          lib/password.js (#218; D14), stored
                                          by #222
@@ -139,11 +144,32 @@
                                          access, store, or transmit user
                                          communications, form entries, or
                                          other page inputs" (both read
-                                         2026-10-05); #220 adds the widget
+                                         2026-10-05); the widget is on /ask,
+                                         checked by verifyTurnstile in
+                                         lib/turnstile.js (functions/ask.js,
+                                         #220)
+       10 requests an hour from one      REQUEST_LIMIT and
+       network, 100 from everyone        REQUEST_BUDGET_PER_HOUR in
+                                         lib/accounts.js (owner, at #220's
+                                         pickup, 2026-10-05); only a request
+                                         past Turnstile counts
+       The request's scrambled           account_request_log in
+       address, an hour                  migrations/0007_accounts.sql, and
+                                         clearExpiredRequests in
+                                         lib/accounts.js (#220). Deleted after
+                                         the hour by the next request taken
+                                         or the next load of the admin home
+       Its time is the account's, to     requested_at in account_request_log
+       the second, for that hour         and in accounts, both one clock
+                                         reading in requestAccount
+                                         (migrations/0007_accounts.sql);
+                                         owner, at #220's review, 2026-10-05,
+                                         over a coarser time on the account
        Resend sends the site's email,    sendMail in lib/mail.js (#217); the
        and the admins' email names       admins' email names each requester,
        each requester                    their role and teams (#220's
-                                         criterion 5)
+                                         criterion 5; mailAdmins in
+                                         lib/accounts.js)
        Resend keeps each 30 days         https://resend.com/pricing, Free:
                                          "30-day data retention" (read
                                          2026-10-01 for item 21, again
@@ -163,6 +189,11 @@
                                          https://developers.cloudflare.com/d1/platform/limits/
                                          (read 2026-10-05; owner, at #219's
                                          review)
+
+     #220 (the request form at /ask) added what a request keeps about
+     itself, its time and which teams still wait, and the request limit and
+     its scrambled address, whose time matches the account's for the hour it
+     is kept (owner, at #220's review).
 
      #219 (accounts) changed it: what an account keeps, the two services that
      handle a request, how to have an account deleted, and the sentence that
@@ -192,7 +223,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=70c2619187">
+<link rel="stylesheet" href="/css/site.css?v=53f7c065e8">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -370,6 +401,8 @@
       <li>your name and email address;</li>
       <li>your role, the teams you asked for, and which of them an admin
         approved;</li>
+      <li>when you asked, which teams still wait for an admin's answer, and
+        whether the admins have been emailed about your request;</li>
       <li>the note you left with your request, if any;</li>
       <li>your password, only as a hash, which can check a password typed in
         but cannot be turned back into it;</li>
@@ -392,6 +425,15 @@
       you type into the form. Cloudflare says it collects these to tell
       people from programs, not to identify, profile or target anyone, and
       also uses them to improve Turnstile.</p>
+    <p>So that nobody can flood the site with requests, one network can send
+      at most 10 requests an hour, and the site takes at most 100 an hour
+      from everyone together. It counts them by the network address each came
+      from, kept only in a scrambled form, made with a secret key. A request
+      counts for an hour, and is deleted after that, the next time the site
+      takes a request or one of the site's admins opens the admin home page.
+      Until then, the scrambled address is kept with the time of the request,
+      to the second. A request that made an account gave the account that
+      same time, so for that hour the two could be matched.</p>
     <p>Resend sends the site's email. When you ask for an account, the site
       emails its admins through Resend with your name, role and teams, and
       the emails sent to you, such as the link to set your password, go

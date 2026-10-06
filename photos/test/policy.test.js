@@ -12,6 +12,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  REQUEST_BUDGET_PER_HOUR, REQUEST_LIMIT, REQUEST_WINDOW_SECONDS, requestAccount,
+} from '../lib/accounts.js';
 import { adminHome } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
 import { HTML_CACHE, albumListPage } from '../lib/public-page.js';
@@ -23,7 +26,7 @@ import {
 } from '../lib/removals.js';
 import { SESSION_DAYS, coachListed, coachSessionCookie, readSession } from '../lib/session.js';
 import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
-import { d1 } from './d1.js';
+import { d1, seedCodes } from './d1.js';
 import { r2 } from './r2.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -440,6 +443,8 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
   assert.deepEqual(items, [
     'your name and email address;',
     'your role, the teams you asked for, and which of them an admin approved;', // D16
+    // #220, criterion 9: the request's time and state (0007).
+    'when you asked, which teams still wait for an admin\'s answer, and whether the admins have been emailed about your request;',
     'the note you left with your request, if any;',
     'your password, only as a hash, which can check a password typed in but cannot be turned back into it;', // D14
     'which photos you sent from it.', // D17
@@ -522,14 +527,20 @@ const ACCOUNT_ROWS = [
   ['A photo sent with the invite', ['insertPhoto', 'D17', '#223']],
   ['If you ask for an account, for', ['D13', 'D16', '#220', '#219\'s review', '#158\'s precedent']],
   ['What an account keeps: name,', ['#220\'s criteria 1 and 6', '#221']],
+  ['When you asked, which teams', ['requested_at', 'admins_emailed', 'account_teams', 'migrations/0007_accounts.sql', 'requestAccount', 'mailAdmins', '#220']],
   ['The password, only as a hash', ['hashPassword', 'verifyPassword', 'lib/password.js', '#222']],
   ['Which photos it sent', ['D17', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
   ['The admins\' log names the person,', ['#221\'s criterion 5', '#225', '#219\'s review']],
   ['No sailor\'s name', ['D18']],
   ['Kept until it is deleted', ['#219\'s pickup']],
-  ['Turnstile, and what it sees', ['Turnstile Privacy Addendum', 'https://www.cloudflare.com/turnstile-privacy-policy/', '2025-06-18', 'form entries']],
-  ['Resend sends the site\'s email,', ['sendMail', 'lib/mail.js', '#220\'s criterion 5']],
+  ['Turnstile, and what it sees', ['Turnstile Privacy Addendum', 'https://www.cloudflare.com/turnstile-privacy-policy/', '2025-06-18', 'form entries', 'verifyTurnstile', 'lib/turnstile.js', 'functions/ask.js']],
+  // #220, criterion 9: the request limit, and how long it keeps a scrambled
+  // address.
+  ['10 requests an hour from one', ['REQUEST_LIMIT', 'REQUEST_BUDGET_PER_HOUR', 'lib/accounts.js', '#220\'s']],
+  ['The request\'s scrambled', ['account_request_log', 'migrations/0007_accounts.sql', 'clearExpiredRequests', '#220', 'request taken', 'admin home']],
+  ['Its time is the account\'s, to', ['requested_at', 'account_request_log', 'requestAccount', 'migrations/0007_accounts.sql', '#220\'s review']],
+  ['Resend sends the site\'s email,', ['sendMail', 'lib/mail.js', '#220\'s criterion 5', 'mailAdmins']],
   ['Resend keeps each 30 days', ['https://resend.com/pricing', '"30-day data retention"']],
   ['Deleted on request, by email,', ['#219\'s pickup', '#219\'s review', 'confirmed by reply', '#220', '#225']],
   ['A revoked address stays, as a', ['#219\'s review', '#225']],
@@ -550,7 +561,15 @@ test('the head comment traces every account claim in its own row, and the code i
     const cell = lines.slice(starts[i], starts[i + 1] ?? end).map((line) => line.slice(41).trim()).join(' ');
     for (const source of sources) assert.ok(cell.includes(source), `the "${head}" row does not name ${source}`);
   });
-  const exported = { hashPassword: '../lib/password.js', verifyPassword: '../lib/password.js', sendMail: '../lib/mail.js' };
+  const exported = {
+    hashPassword: '../lib/password.js',
+    verifyPassword: '../lib/password.js',
+    sendMail: '../lib/mail.js',
+    requestAccount: '../lib/accounts.js',
+    mailAdmins: '../lib/accounts.js',
+    clearExpiredRequests: '../lib/accounts.js',
+    verifyTurnstile: '../lib/turnstile.js',
+  };
   for (const [name, module] of Object.entries(exported)) {
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
   }
@@ -575,3 +594,135 @@ test('"only as a hash" is what lib/password.js stores: a PHC string and nothing 
   assert.equal(await verifyPassword(password, stored), true);
   assert.equal(await verifyPassword('Fall regatta, 2025', stored), false);
 });
+
+// ---- #220: what a request keeps, and the request limit ----------------------
+
+test('the request limit\'s figures are the code\'s: 10 an hour from a network, 100 from everyone, an hour kept, and the admin home clears it', () => {
+  const kept = words(section('What an account keeps'));
+  assert.match(kept, new RegExp(`one network can send at most ${REQUEST_LIMIT} requests an hour, and the site takes at most ${REQUEST_BUDGET_PER_HOUR} an hour from everyone together\.`));
+  assert.equal(REQUEST_WINDOW_SECONDS, 60 * 60, 'the request limit\'s window moved; the page says "an hour"');
+  has(kept, [
+    'It counts them by the network address each came from, kept only in a scrambled form, made with a secret key.',
+    'A request counts for an hour, and is deleted after that, the next time the site takes a request or one of the site\'s admins opens the admin home page.',
+    'Until then, the scrambled address is kept with the time of the request, to the second.',
+    'A request that made an account gave the account that same time, so for that hour the two could be matched.',
+  ], '"What an account keeps"');
+  // "Opens the admin home page" is the admin home's own load.
+  assert.match(read('functions', 'admin', 'index.js'), /await clearExpiredRequests\(env\.DB, now\);/);
+});
+
+test('"the two could be matched" is true: a request that makes an account gives its log row the account\'s time, to the second (#220\'s review)', async () => {
+  // Said on /policy rather than changed (owner, at #220's review): if the
+  // account's time is ever made coarser, this fails and the sentence goes.
+  const db = d1();
+  const now = 1_790_000_123;
+  const request = { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null };
+  assert.deepEqual(await requestAccount(db, { request, address: 'address-a', now }), { outcome: 'taken', created: true });
+  const account = db.sqlite.prepare('SELECT requested_at FROM accounts').get().requested_at;
+  const logged = db.sqlite.prepare('SELECT requested_at FROM account_request_log').get().requested_at;
+  assert.equal(account, now);
+  assert.equal(logged, account);
+});
+
+// Every table the schema holds, and what each can hold about an account. A
+// table this list does not know fails the test below: a later story adding
+// one (#221's log, #223's sender, #225's revoked addresses) seeds it there and
+// says whether it may keep naming an account after a delete.
+const TABLES = {
+  accounts: 'the account itself',
+  account_teams: 'its teams, deleted with it (ON DELETE CASCADE)',
+  teams: 'the two teams, which name no account',
+  account_request_log: 'keyed network addresses, which name no account; a row\'s time matches its account\'s for the hour it is kept, and nothing once the account is gone',
+  account_request_budget: 'a count per hour',
+  account_request_mail: 'when the admins were last emailed',
+  albums: 'albums, which name no account',
+  photos: 'photos; none names an account until #223',
+  upload_counts: 'a count per upload session',
+  invite_codes: 'the invite codes',
+  join_failures: 'keyed network addresses',
+  join_budget: 'a count per hour',
+  removal_requests: 'keyed network addresses',
+  // A counter, not a reference: the highest id each AUTOINCREMENT table has
+  // given, which can equal a deleted account's.
+  sqlite_sequence: 'the highest id each AUTOINCREMENT table has given',
+};
+
+// What may keep naming an account after README's delete, each by the story
+// that makes it: the admins' log entries (#221) and, for a revoked account,
+// its address as a keyed hash (#225). Neither exists yet, so nothing may.
+const SURVIVORS = new Set();
+
+test('README\'s by-hand account delete, run only once the account\'s own address confirms, leaves no row naming the account (#220, criterion 8)', async () => {
+  const readme = read('..', 'README.md');
+  const steps = readme.split('### Deleting an account by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
+  assert.match(steps, /\*\*Only once a reply from the\s+account's own address confirms the request\*\*/);
+  const sql = steps.match(/--command "(DELETE FROM accounts [^"]+)"/)?.[1];
+  assert.ok(sql && sql.includes('<id>'), 'README has no delete statement naming <id>');
+
+  // A row in every table, two accounts among them: the one to delete, and one
+  // that must stay.
+  const db = d1();
+  const now = 1_790_000_000;
+  const ask = (email, address) => requestAccount(db, {
+    request: { name: email.split('@')[0], email, role: 'parent', teams: ['hoover-jrt', 'cohssa'], note: 'a note' }, address, now,
+  });
+  await ask('Delete.Me@Example.org', 'address-one');
+  await ask('stays@example.org', 'address-two');
+  seedCodes(db, 'K7QM-3XRD-9FWB');
+  db.sqlite.prepare('INSERT INTO join_failures (address_hash, failed_at) VALUES (?, ?)').run('h', now);
+  db.sqlite.prepare('INSERT INTO join_budget (hour, recorded) VALUES (?, 1)').run(Math.floor(now / 3600));
+  db.sqlite.prepare('INSERT INTO removal_requests (address_hash, requested_at) VALUES (?, ?)').run('h', now);
+  db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, 1)').run('1.1', Math.floor(now / 86400));
+  db.sqlite.prepare('INSERT INTO account_request_mail (id, sent_at) VALUES (1, ?)').run(now);
+  const address = await createAlbum(db, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, now);
+  const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at) ' +
+    "VALUES (?, 'photo', 'approved', ?, 'b', 'parent', 1, 1, 1, 2, 4, 3, 4, 3, 4, 3, 10, 3)",
+  ).run(album, 'a'.repeat(32));
+
+  const tables = db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
+  assert.deepEqual(tables, Object.keys(TABLES).sort(), 'a table this test does not know: seed it here, and say whether it may name an account');
+  for (const table of tables) {
+    assert.ok(db.sqlite.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get().n > 0, `${table} holds no row, so the check below could not see one`);
+  }
+
+  // What names the account: its id in a column that refers to accounts, or a
+  // column named for an account's id, and its address in any letter case.
+  const target = db.sqlite.prepare("SELECT id, email FROM accounts WHERE email = 'Delete.Me@Example.org'").get();
+  const naming = () => {
+    const found = [];
+    for (const table of tables) {
+      if (SURVIVORS.has(table)) continue;
+      const idColumns = new Set([
+        ...db.sqlite.prepare(`SELECT "from" AS col FROM pragma_foreign_key_list('${table}') WHERE "table" = 'accounts'`).all().map((r) => r.col),
+        ...db.sqlite.prepare(`SELECT name FROM pragma_table_info('${table}')`).all().map((r) => r.name).filter((name) => /(^|_)account(_id)?$/.test(name)),
+      ]);
+      if (table === 'accounts') idColumns.add('id');
+      for (const row of db.sqlite.prepare(`SELECT * FROM "${table}"`).all()) {
+        for (const [column, value] of Object.entries(row)) {
+          if (idColumns.has(column) && value === target.id) found.push(`${table}.${column}`);
+          if (typeof value === 'string' && value.toLowerCase().includes(target.email.toLowerCase())) found.push(`${table}.${column}`);
+        }
+      }
+    }
+    return [...new Set(found)].sort();
+  };
+  // The control: before the delete, the check finds the account and its teams.
+  assert.deepEqual(naming(), ['account_teams.account_id', 'accounts.email', 'accounts.id']);
+
+  assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(target.id).changes, 1);
+  assert.deepEqual(naming(), []);
+  // The other account is as it was, teams and all.
+  assert.deepEqual(db.sqlite.prepare('SELECT email FROM accounts').all().map((r) => r.email), ['stays@example.org']);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM account_teams').get().n, 2);
+  // And README's read-back finds nothing, as step 4 says.
+  const lookup = steps.match(/--command "(SELECT id, name, email FROM accounts WHERE email = '<address>')"/)?.[1];
+  assert.ok(lookup, 'README has no lookup statement');
+  const find = db.sqlite.prepare(lookup.replace("'<address>'", '?'));
+  assert.deepEqual(find.all('Delete.Me@Example.org'), []);
+  // The lookup matches whatever letter case the address is written in.
+  assert.equal(find.all('STAYS@example.org').length, 1);
+});
+

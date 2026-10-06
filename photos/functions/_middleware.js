@@ -7,15 +7,17 @@
  *
  * Its one job is the site-wide headers: X-Robots-Tag: noindex above all, and
  * the Content-Security-Policy. Pages applies public/_headers to static files
- * only, so without this a Function's answer would go out with neither. That
- * covers three kinds of response:
+ * only, so without this a Function's answer would go out with neither. The
+ * request form at /ask gets a CSP that admits Turnstile (#220), and every
+ * other path the site's own (lib/headers.js, headersFor). That covers three
+ * kinds of response:
  *   - whatever a route returns;
  *   - the 404 page, when no route matches and Pages falls through to the
  *     static files (/api/nope);
  *   - a route that throws, answered here with a plain 500 rather than
  *     Cloudflare's error page, which would carry none of these headers.
  */
-import { SITE_HEADERS } from '../lib/headers.js';
+import { headersFor } from '../lib/headers.js';
 
 export async function onRequest(context) {
   let response;
@@ -34,7 +36,7 @@ export async function onRequest(context) {
   // A response from next() can have immutable headers (a static file's does),
   // so copy it before setting anything.
   const out = new Response(response.body, response);
-  for (const [name, value] of Object.entries(SITE_HEADERS)) {
+  for (const [name, value] of Object.entries(headersFor(new URL(context.request.url).pathname))) {
     out.headers.set(name, value);
   }
   return out;

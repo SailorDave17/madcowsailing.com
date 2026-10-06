@@ -168,15 +168,31 @@ test('every database_id is a real one, written out', () => {
   }
 });
 
-test('the config carries no secret: vars hold SITE_ENV and the three Access settings, nothing else', () => {
+test('the config carries no secret: vars hold SITE_ENV, the three Access settings and Turnstile\'s site key, nothing else', () => {
   // Secrets are Pages secrets, set in the dashboard and named in README.md.
   // The admin and coach allow-lists are two of them (#151, owner's choice
-  // 2026-09-28; #192), so no address is in this public repo.
+  // 2026-09-28; #192), so no address is in this public repo. Turnstile's site
+  // key is public, on every /ask page; its secret is TURNSTILE_SECRET_KEY
+  // (#220).
   for (const env of [config, config.env.preview, config.env.production]) {
-    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ACCESS_COACH_AUD']);
+    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ACCESS_COACH_AUD', 'TURNSTILE_SITE_KEY']);
     assert.ok(!('ADMIN_EMAILS' in env.vars));
     assert.ok(!('COACH_EMAILS' in env.vars));
+    assert.ok(!('TURNSTILE_SECRET_KEY' in env.vars));
   }
+});
+
+test('one Turnstile widget serves both environments, and it is a real one, not one of Cloudflare\'s test keys', () => {
+  // #220: the widget "madcowphotos ask" lists photos.madcowsailing.com and
+  // madcowphotos.pages.dev, which covers the develop preview. A test key
+  // here would put Cloudflare's "for testing only" widget on the live page.
+  const keys = [config, config.env.preview, config.env.production].map((env) => env.vars.TURNSTILE_SITE_KEY);
+  assert.equal(new Set(keys).size, 1);
+  // A real site key starts 0x4; every test key starts 1x, 2x or 3x
+  // (Turnstile's Testing page). The control: a test key fails the pattern.
+  const real = /^0x4[A-Za-z0-9_-]{18,}$/;
+  assert.match(keys[0], real);
+  assert.doesNotMatch('1x00000000000000000000AA', real);
 });
 
 test('the admin guard trusts the madcowsailing team, with one Access application per environment', () => {
