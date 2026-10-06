@@ -174,6 +174,27 @@
   font-size: var(--text-sm);
 }
 
+/* ---- Admin: the team filter (#227) ------------------------------------ */
+
+/* All teams, then each team, on the queue and removals pages: one row of
+   links that wraps on a phone, the one showing marked as the site nav marks
+   its page, in the nav's type. */
+.team-filter ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  list-style: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.team-filter a[aria-current="page"] {
+  color: var(--blue-deep);
+  font-weight: 700;
+  text-decoration: none;
+}
+
 /* ---- Admin: the approval queue (#156) ------------------------------- */
 
 .batch {
@@ -404,7 +425,8 @@
   padding-block-start: 0;
 }
 
-/* The list at /: the cover beside the words, as on the sailing logs index.
+/* The lists at / (a row per team) and in each team's section (a row per
+   album, #227): the cover beside the words, as on the sailing logs index.
    The cover is cropped to 4:3, a thumbnail for the row, not the photo. */
 .album-rows {
   list-style: none;
@@ -420,7 +442,8 @@
   padding-block: var(--space-4);
 }
 
-.album-cover img {
+.album-cover img,
+.album-cover-none {
   display: block;
   width: 100%;
   height: auto;

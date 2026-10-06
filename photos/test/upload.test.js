@@ -34,7 +34,7 @@ import { r2 } from './r2.js';
 const SITE = 'https://photos.madcowsailing.com';
 const KEY = 'test-session-signing-key-0123456789abcdef';
 const BATCH = '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b';
-const FALL = { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
+const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
 const CAPTURED = 1_790_000_000;
 const MIGRATIONS = new URL('../migrations/', import.meta.url);
 

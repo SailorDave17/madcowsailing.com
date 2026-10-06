@@ -173,7 +173,7 @@ function seed(env, address, n) {
 
 test('#158\'s takedown with the worker installed: the three image routes answer 404 on the next request, and the album page drops the photo', async () => {
   const env = { DB: d1(), MEDIA: r2(), ADDRESS_HASH_KEY: 'test-address-hash-key-fedcba9876543210' };
-  const fall = await createAlbum(env.DB, { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, T0);
+  const fall = await createAlbum(env.DB, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, T0);
   const id = seed(env, fall, 1);
   const other = seed(env, fall, 2);
   // The worker reaches the same routes the browser does, so a worker that

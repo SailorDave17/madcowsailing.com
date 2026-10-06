@@ -500,6 +500,8 @@ a new file is listed here.
 | `0007_accounts.sql` | #220 | `teams`, `accounts` and `account_teams`, each request for an account and its teams; `account_request_log`, `account_request_budget` and `account_request_mail`, the request limits and the admins' email hour |
 | `0008_admin_people.sql` | #221 | `password_links`, each unused link to set a password, kept as a hash; `admin_log`, what the admins do with each account |
 | `0009_sign_in.sql` | #222 | Three columns on `accounts`: the password hash, the session version and the failed sign-ins in a row; `sign_in_failures` and `sign_in_budget`, the sign-in limits; `reset_request_log` and `reset_mail_budget`, the reset limits |
+| `0010_album_teams.sql` | #227 | `team` on `albums`, Hoover JRT for every album made before it; four triggers that hold it to a row in `teams`, in place of a reference SQLite will not add with a default |
+| `0011_teams_replace_guard.sql` | #227 | A fifth trigger: a `REPLACE` into `teams` cannot remove a team an album names, the one path 0010's four left open |
 
 ### The invite code
 
@@ -561,17 +563,23 @@ To read the current code without the page:
 Parents send photos into an album, one per regatta or practice day, kept on
 `/admin/albums` (#153) behind the same Access sign-in as the code.
 
-- **Add album** takes a title, Regatta or Practice, and the date. Its address,
-  which a link to it names, is made then from the date and title
-  (`2026-10-04-fall-regatta`) and never changes, so editing the title, kind or
-  date under **Edit** keeps every link working. A second album with the same
-  date and title gets `-2`.
+- **Add album** takes a team, Hoover JRT or COHSSA, a title, Regatta or
+  Practice, and the date. Nothing is preselected, so the team is a choice
+  every time. Its address, which a link to it names, is made then from the
+  date and title (`2026-10-04-fall-regatta`) and never changes, so editing the
+  team, title, kind or date under **Edit** keeps every link working. A second
+  album with the same date and title gets `-2`.
+- **The team decides which section lists the album** (#227): `/hoover-jrt/`
+  or `/cohssa/` (The public albums, below). Moving an album to the other team
+  under **Edit** moves it between the sections at the next load. Every album
+  made before #227 is Hoover JRT's (migration 0010).
 - **Close** stops uploads to an album and takes it off the share page's list;
   its approved photos stay public. **Reopen** undoes both.
 - **Delete** works only on an empty album. One holding any photo, waiting,
   approved or hidden, is refused and the page says how many it holds.
-- `GET /api/albums/open` is the list the share page reads, newest first. It
-  answers only to a live upload session.
+- `GET /api/albums/open` is the list the share page reads, newest first, each
+  album with its team's key and name, under which the page groups it (#227).
+  It answers only to a live upload session.
 
 ### Uploads
 
@@ -652,8 +660,11 @@ the same Access sign-in as the code and the albums. The admin home says how
 many photos are waiting and how much of R2's free 10 GB the stored photos take.
 `CLAUDE.md`, The photo site, item 16 has the decisions.
 
-- **Each batch is one press of Send**, oldest first, with its album, when it
-  was sent and how many photos it holds. A batch over 200 photos comes in parts
+- **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
+  team's batches, at `/admin/queue?team=<team>`, and every press lands back on
+  the same team.
+- **Each batch is one press of Send**, oldest first, with its team, its album,
+  when it was sent and how many photos it holds. A batch over 200 photos comes in parts
   of 200, and each part's Approve all and Reject all mean that part. Every
   photo shows its screen size large and its grid and full sizes beside it; each
   opens alone when tapped. Check each against the families who opted out of the
@@ -677,13 +688,21 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
 Anyone can browse them, with no code and no sign-in (#157; epic #147, D1).
 Nothing but an approved photo is ever listed, counted or served.
 
-- **`/`** lists every album holding at least one approved photo, latest date
-  first, each with its kind, day, count and first photo. An album whose photos
-  are all waiting is not listed, and a closed album still is.
+- **`/`** leads to each team's section (#227): a row for Hoover JRT and one
+  for COHSSA, each with how many albums and photos its section shows, under
+  its newest album's first photo. A team with nothing posted keeps its row,
+  saying so.
+- **`/hoover-jrt/`** and **`/cohssa/`** each list that team's albums holding at
+  least one approved photo, latest date first, each with its kind, day, count
+  and first photo. An album whose photos are all waiting is not listed, and a
+  closed album still is. A team's section is a file of its own under
+  `photos/functions/`, plus two lines in `_routes.json`; a third team needs
+  both, and the tests say so.
 - **`/albums/<address>/`** shows an album's approved photos in the order they
   were taken, in the trip logs' lightbox. The address is the one `/admin/albums`
-  shows, and it never changes, so a link sent to parents keeps working. An
-  album with nothing approved answers the site's 404 page.
+  shows, and it never changes, so a link sent to parents keeps working, a
+  link sent before #227 included. Its eyebrow leads back to its team's
+  section. An album with nothing approved answers the site's 404 page.
 - **`/photos/<id>/<size>`** serves one size of an approved photo: `grid` in the
   album, `screen` in the lightbox, and `full` from **Download**, saved as
   `<address>-<nnn>.jpg` by its place in the album. Anything else is 404: a
@@ -732,9 +751,12 @@ decisions.
   that the two times are equal.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
-  `photos/lib/admin-page.js`. The header's nav links the album list and
-  `/policy`, and marks no `aria-current`, so all five stay byte for byte the
-  same. The tests fail until they agree.
+  `photos/lib/admin-page.js`. The header's nav holds one link, **Team
+  photos**, to `/` (it read "All albums" until #227 made `/` the way into
+  each team's section; `/policy` left it on 2026-10-01 and the footer links
+  it). It marks no `aria-current`, so all five stay byte for byte the same.
+  Every other link to `/`, each eyebrow included, is named Team photos too.
+  The tests fail until they agree.
 
 ### Taking a photo down
 
@@ -789,9 +811,12 @@ stops taking it.
 ### Removal requests
 
 Every photo taken down waits on `/admin/removals` (#158), behind the same
-Access sign-in as the queue, the oldest takedown first, with its album, when
-it was hidden and the note. The admin home says how many wait.
+Access sign-in as the queue, the oldest takedown first, with its album, its
+team, when it was hidden and the note. The admin home says how many wait.
 
+- **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
+  team's hidden photos, at `/admin/removals?team=<team>`, and both presses
+  land back on the same team.
 - **Put it back** makes it approved and public again. When it was hidden and
   the note stay on its row as a record, and a later takedown writes over
   them.

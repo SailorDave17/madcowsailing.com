@@ -11,17 +11,22 @@
 import { readForm, seeOther } from '../../../../lib/form.js';
 import { readPhotoId } from '../../../../lib/queue.js';
 import { removalsLocation, restorePhoto } from '../../../../lib/removals.js';
+import { teamOf } from '../../../../lib/teams.js';
 
 export async function onRequestPost({ request, env }) {
+  // The team the page was filtered to, in the press's ?team= (#227), so the
+  // press lands back on it.
+  const team = teamOf(request);
   const id = readPhotoId((await readForm(request)).photo);
-  if (id === null) return seeOther(removalsLocation({ error: 'form' }));
-  if (!(await restorePhoto(env.DB, id))) return seeOther(removalsLocation({ error: 'gone' }));
-  return seeOther(removalsLocation({ done: 'restored', photo: id }));
+  if (id === null) return seeOther(removalsLocation({ error: 'form', team }));
+  if (!(await restorePhoto(env.DB, id))) return seeOther(removalsLocation({ error: 'gone', team }));
+  return seeOther(removalsLocation({ done: 'restored', photo: id, team }));
 }
 
 /**
  * GET changes nothing and goes back to the page, which says so. A press can
  * arrive as a GET when the Access sign-in ran out while the page was open
- * (functions/api/admin/code/rotate.js says how), and GET needs no Origin.
+ * (functions/api/admin/code/rotate.js says how), and GET needs no Origin. The
+ * press's ?team= comes with it, so it lands on the list it was made from.
  */
-export const onRequestGet = () => seeOther(removalsLocation({ error: 'unchanged' }));
+export const onRequestGet = ({ request }) => seeOther(removalsLocation({ error: 'unchanged', team: teamOf(request) }));

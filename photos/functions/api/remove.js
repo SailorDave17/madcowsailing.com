@@ -5,8 +5,9 @@
  *
  * The answers:
  *
- *   303  hidden: back to its album page, or to the list when the album has
- *        nothing public left, each with ?removed for the notice
+ *   303  hidden: back to its album page, or to its team's section when the
+ *        album has nothing public left (#227), each with ?removed for the
+ *        notice; to / when the album could not be read back
  *   403  {"error":"origin"}  no Origin, or another site's
  *   404  the photo is not public (pending, hidden already, deleted, unknown,
  *        or no id): one page for all of them, and nothing changes
@@ -32,6 +33,7 @@ import {
 import { readPhotoId } from '../../lib/queue.js';
 import { REMOVE_FORM_BYTES, readNote, requestRemoval } from '../../lib/removals.js';
 import { nowSeconds } from '../../lib/session.js';
+import { isTeam, sectionHref } from '../../lib/teams.js';
 
 const page = (body, status, headers = {}) => {
   const response = htmlResponse(body, status);
@@ -69,5 +71,6 @@ export async function onRequestPost({ request, env }) {
     return page(removeLimitedPage(result.retryAfter), 429, { 'Retry-After': String(result.retryAfter) });
   }
   if (result.outcome === 'gone') return page(removeGonePage(), 404);
-  return seeOther(result.shown ? `/albums/${result.address}/?removed` : '/?removed');
+  if (result.shown) return seeOther(`/albums/${result.address}/?removed`);
+  return seeOther(`${isTeam(result.team) ? sectionHref(result.team) : '/'}?removed`);
 }

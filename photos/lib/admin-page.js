@@ -25,6 +25,7 @@ import { inviteLink } from './invite.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
 import { CAPTION_MAX } from './photos.js';
 import { FREE_STORAGE_BYTES } from './queue.js';
+import { TEAMS, teamName } from './teams.js';
 
 const HEADER = String.raw`<header class="site-header">
   <div class="wrap header-inner">
@@ -34,7 +35,7 @@ const HEADER = String.raw`<header class="site-header">
     </a>
     <nav class="site-nav" aria-label="Primary">
       <ul>
-        <li><a href="/">All albums</a></li>
+        <li><a href="/">Team photos</a></li>
       </ul>
     </nav>
   </div>
@@ -54,7 +55,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=4578c5c5aa">
+<link rel="stylesheet" href="/css/site.css?v=0caea28e64">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -321,6 +322,7 @@ const DONE = {
 };
 
 const ERRORS = {
+  team: `Nothing was saved: choose ${TEAMS.map(({ name }) => name).join(' or ')}.`,
   title: `Nothing was saved: a title is 1 to ${TITLE_MAX} characters, on one line.`,
   kind: 'Nothing was saved: choose Regatta or Practice.',
   date: 'Nothing was saved: the date is not a real day.',
@@ -354,13 +356,24 @@ export function albumsNotice(params, albums) {
   return text ? `\n    <p role="status">${text}</p>` : '';
 }
 
-// The title, kind and date fields, for a new album or for editing one. `id`
-// keeps each form's labels pointing at its own inputs.
+// The team, title, kind and date fields, for a new album or for editing one.
+// `id` keeps each form's labels pointing at its own inputs. The team comes
+// first (#227): it decides which section of the site lists the album. A new
+// album preselects no team, as it preselects no kind, so each is a choice.
 function albumFields(id, album = null) {
+  const teams = TEAMS.map(({ team, name }) =>
+    `<label><input type="radio" name="team" value="${team}" required${album?.team === team ? ' checked' : ''}> ${name}</label>`)
+    .join('\n          ');
   const kinds = Object.entries(KINDS).map(([value, name]) =>
     `<label><input type="radio" name="kind" value="${value}" required${album?.kind === value ? ' checked' : ''}> ${name}</label>`)
     .join('\n          ');
-  return `<p class="field">
+  return `<fieldset class="field">
+        <legend>Team</legend>
+        <p class="choices">
+          ${teams}
+        </p>
+      </fieldset>
+      <p class="field">
         <label for="${id}-title">Title</label>
         <input id="${id}-title" name="title" type="text" required maxlength="${TITLE_MAX}" autocomplete="off"${album ? ` value="${escapeHtml(album.title)}"` : ''}>
       </p>
@@ -391,7 +404,7 @@ function albumItem(album) {
   const title = escapeHtml(album.title);
   return `<li class="album">
       <h3 id="${id}">${title}</h3>
-      <p class="album-facts">${KINDS[album.kind]} · ${dayElement(album.date)} · <code>${escapeHtml(album.address)}</code></p>
+      <p class="album-facts">${escapeHtml(teamName(album.team))} · ${KINDS[album.kind]} · ${dayElement(album.date)} · <code>${escapeHtml(album.address)}</code></p>
       <details>
         <summary aria-label="Edit ${title}">Edit</summary>
         <form method="post" action="/api/admin/albums/update" class="album-form">
@@ -426,14 +439,15 @@ export function adminAlbumsPage({ albums, notice = '' }) {
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Albums</h1>
-    <p class="lede">One album for each regatta and each practice day. Parents
+    <p class="lede">One album for each regatta and each practice day. Each
+      belongs to a team, and that team's section of the site lists it. Parents
       choose from the open albums when they send photos.</p>${notice}
   </section>
 
   <section class="wrap" aria-labelledby="add-album">
     <h2 id="add-album">Add an album</h2>
     <p>Its address, which links to it, is made from the date and the title,
-      and stays the same if either changes later.</p>
+      and stays the same if either changes later, or the team does.</p>
     <form method="post" action="/api/admin/albums/create" class="album-form">
       ${albumFields('new')}
       <p><button type="submit" class="button">Add album</button></p>
@@ -455,6 +469,36 @@ export function adminAlbumsPage({ albums, notice = '' }) {
 </main>`,
   });
 }
+
+// ---- The team filter on /admin/queue and /admin/removals (#227) ----------
+
+/**
+ * One row of links above a filtered list: every team together, then each
+ * team, the one showing marked aria-current. `path` is the page's own;
+ * `team` is lib/teams.js's readTeam() of its ?team=, null for every team.
+ */
+function teamFilter(path, team) {
+  const link = (href, name, current) =>
+    `<li><a href="${href}"${current ? ' aria-current="page"' : ''}>${escapeHtml(name)}</a></li>`;
+  const links = [
+    link(path, 'All teams', team === null),
+    ...TEAMS.map(({ team: key, name }) => link(`${path}?team=${key}`, name, team === key)),
+  ];
+  return `\n    <nav class="team-filter" aria-label="Show photos from">
+      <ul>
+        ${links.join('\n        ')}
+      </ul>
+    </nav>`;
+}
+
+// Where a press on a filtered page posts: its route with the page's ?team=,
+// so the press lands back on the same team's list (lib/queue.js,
+// queueLocation; lib/removals.js, removalsLocation). In the address rather
+// than a hidden field, so a press that arrives as a GET, after the Access
+// sign-in ran out, keeps it too (review-fanout at #227's review). Nothing is
+// added when the page shows every team. A team's key is lowercase letters
+// and hyphens (lib/teams.js), so it needs no escaping.
+const pressPath = (path, team) => (team === null ? path : `${path}?team=${team}`);
 
 // ---- /admin/queue (#156) -----------------------------------------------
 
@@ -518,7 +562,7 @@ function sizeImage(photo, size, lazy) {
 // to itself, to open alone. The owner's choice at #156's pickup: all three in
 // view, so a swapped picture shows without a tap. Not chosen: the grid and
 // full as links only, or all three at one size.
-function waitingPhoto(photo, formId, first) {
+function waitingPhoto(photo, formId, first, team) {
   const { id } = photo;
   const size = (name, label) => `<figure>
               <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
@@ -541,7 +585,7 @@ function waitingPhoto(photo, formId, first) {
             <input id="caption-${id}" name="caption-${id}" type="text" autocomplete="off" value="${escapeHtml(photo.caption ?? '')}">
           </p>
           <p class="actions">
-            <button type="submit" class="button" formaction="/api/admin/queue/approve" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>
+            <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>
             <button type="button" class="button button-quiet" data-reject="${id}" data-form="${formId}" aria-label="Reject photo ${id}">Reject</button>
           </p>
         </li>`;
@@ -553,7 +597,7 @@ function waitingPhoto(photo, formId, first) {
 // all" are left out of a batch of one, where they would repeat its photo's.
 // A batch over lib/queue.js's PART_PHOTOS comes in parts, each one of these,
 // and its "all" means the part.
-function batchSection(batch, total) {
+function batchSection(batch, total, team) {
   const index = batch.number;
   const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
   const n = batch.photos.length;
@@ -565,21 +609,21 @@ function batchSection(batch, total) {
   const formId = `${id}-form`;
   const title = escapeHtml(batch.album.title);
   const all = n > 1 ? `
-        <button type="submit" class="button" formaction="/api/admin/queue/approve" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>
+        <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>
         <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
   // Labelled by the facts as well as the title: two batches sent to one
   // album would otherwise be two regions with one name.
   return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
     <h2 id="${id}-title">${title}</h2>
-    <p class="batch-facts" id="${id}-facts">Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>
-    <form method="post" action="/api/admin/queue/captions" id="${formId}" class="batch-form">
+    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>
+    <form method="post" action="${pressPath('/api/admin/queue/captions', team)}" id="${formId}" class="batch-form">
       <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
       <input type="hidden" name="anchor" value="${id}">
       <p class="actions">
         <button type="submit" class="button button-quiet">Save captions</button>${all}
       </p>
       <ul class="queue">
-        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0)).join('\n        ')}
+        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0, team)).join('\n        ')}
       </ul>
     </form>
   </section>`;
@@ -587,7 +631,10 @@ function batchSection(batch, total) {
 
 /**
  * /admin/queue (#156). `batches` is lib/queue.js's waitingBatches(), oldest
- * first; `notice` is queueNotice()'s HTML.
+ * first; `notice` is queueNotice()'s HTML. `team` is the ?team= the page was
+ * opened with (#227), null for every team: the list shows that team's
+ * batches only, each batch names its team, and every press lands back on the
+ * same team's list.
  *
  * Its first line is the media-release reminder (epic #147, D5): the owner
  * knows the families who opted out, and checks every photo against them here.
@@ -599,14 +646,15 @@ function batchSection(batch, total) {
  * dialog cancels, and it takes the focus when the dialog opens. The dialog
  * sits after every batch, so no batch form's first button is its confirm.
  */
-export function adminQueuePage({ batches, notice = '' }) {
+export function adminQueuePage({ batches, notice = '', team = null }) {
   const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
   // A batch in parts is several entries with one number.
   const total = new Set(batches.map((batch) => batch.number)).size;
+  const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
   const summary = waiting
-    ? `${plural(waiting, 'photo', 'photos')} in ${plural(total, 'batch', 'batches')}, oldest first.`
-    : 'No photo is waiting. What parents send appears here, oldest first.';
-  const list = batches.map((batch) => batchSection(batch, total)).join('\n\n  ');
+    ? `${plural(waiting, 'photo', 'photos')}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
+    : `No photo${from} is waiting. What parents send appears here, oldest first.`;
+  const list = batches.map((batch) => batchSection(batch, total, team)).join('\n\n  ');
   return adminPage({
     title: 'Waiting for approval',
     head: QUEUE_SCRIPT,
@@ -615,7 +663,7 @@ export function adminQueuePage({ batches, notice = '' }) {
     <p class="eyebrow">Admin</p>
     <h1>Waiting for approval</h1>
     <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
-    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>${notice}
+    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>${notice}${teamFilter('/admin/queue', team)}
     <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
   </section>
 ${list ? `\n  ${list}\n` : ''}
@@ -625,7 +673,7 @@ ${list ? `\n  ${list}\n` : ''}
       <p>A rejected photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
       <p class="actions">
         <button type="submit" class="button" autofocus>Cancel</button>
-        <button type="submit" class="button button-accent" id="reject-confirm" formaction="/api/admin/queue/reject" formmethod="post" name="reject">Reject</button>
+        <button type="submit" class="button button-accent" id="reject-confirm" formaction="${pressPath('/api/admin/queue/reject', team)}" formmethod="post" name="reject">Reject</button>
       </p>
     </form>
   </dialog>
@@ -671,7 +719,7 @@ export function removalsNotice(params) {
 // presses. The note is kept as typed, so it is escaped, and its line breaks
 // are kept by the stylesheet (white-space: pre-line), never turned into
 // markup here.
-function removalItem(photo) {
+function removalItem(photo, team) {
   const { id } = photo;
   const note = photo.note === null
     ? '<p class="removal-note removal-note-none">No note was left.</p>'
@@ -679,12 +727,12 @@ function removalItem(photo) {
   const caption = photo.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(photo.caption)}</p>`;
   return `<li class="removal" id="photo-${id}">
       <h2>Photo ${id}</h2>
-      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · hidden ${timeElement(photo.hiddenAt)}</p>
+      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}</p>
       <a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${photo.grid.width}" height="${photo.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>${caption}
       <h3 class="removal-note-heading">The note</h3>
       ${note}
       <div class="actions">
-        <form method="post" action="/api/admin/removals/restore">
+        <form method="post" action="${pressPath('/api/admin/removals/restore', team)}">
           <button type="submit" class="button" name="photo" value="${id}" aria-label="Put it back: photo ${id}">Put it back</button>
         </form>
         <button type="button" class="button button-quiet" data-delete="${id}" aria-label="Delete permanently: photo ${id}">Delete permanently</button>
@@ -701,15 +749,20 @@ function removalItem(photo) {
  * page, as rejecting is on the queue: the button only opens it
  * (public/js/admin-removals.js) and gives its confirm button the photo's id,
  * so only the confirm posts. Cancel comes first and takes the focus.
+ *
+ * `team` is the ?team= the page was opened with (#227), null for every team:
+ * the list shows that team's hidden photos only, each names its team, and
+ * both presses land back on the same team's list.
  */
-export function adminRemovalsPage({ photos, notice = '' }) {
+export function adminRemovalsPage({ photos, notice = '', team = null }) {
+  const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
   const summary = photos.length
-    ? `${plural(photos.length, 'photo is', 'photos are')} hidden, the oldest takedown first.`
-    : 'No photo is hidden. A photo someone takes down with "Remove this photo" appears here.';
+    ? `${plural(photos.length, 'photo', 'photos')}${from} ${photos.length === 1 ? 'is' : 'are'} hidden, the oldest takedown first.`
+    : `No photo${from} is hidden. A photo someone takes down with "Remove this photo" appears here.`;
   const list = photos.length
     ? `\n  <section class="wrap" aria-label="Hidden photos">
     <ul class="removals">
-    ${photos.map(removalItem).join('\n    ')}
+    ${photos.map((photo) => removalItem(photo, team)).join('\n    ')}
     </ul>
   </section>\n`
     : '';
@@ -721,12 +774,12 @@ export function adminRemovalsPage({ photos, notice = '' }) {
     <p class="eyebrow">Admin</p>
     <h1>Removal requests</h1>
     <p class="lede">Anyone can take down an approved photo with "Remove this photo". It is hidden from everyone until an admin puts it back or deletes it.</p>
-    <p>${summary} Putting a photo back makes it public again. Deleting it removes it and all three of its sizes for good.</p>${notice}
+    <p>${summary} Putting a photo back makes it public again. Deleting it removes it and all three of its sizes for good.</p>${notice}${teamFilter('/admin/removals', team)}
     <noscript><p>Deleting needs JavaScript. Putting a photo back does not.</p></noscript>
   </section>
 ${list}
   <dialog id="delete-dialog" class="confirm" aria-labelledby="delete-title">
-    <form method="post" action="/api/admin/removals/delete">
+    <form method="post" action="${pressPath('/api/admin/removals/delete', team)}">
       <h2 id="delete-title">Delete this photo permanently?</h2>
       <p>The photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
       <p class="actions">

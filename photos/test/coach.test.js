@@ -48,7 +48,7 @@ const SITE = 'https://photos.madcowsailing.com';
 const KEY = 'test-session-signing-key-0123456789abcdef';
 const OTHER_KEY = 'another-session-signing-key-fedcba9876543210';
 const BATCH = '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b';
-const FALL = { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
+const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
 
 const team = await keyPair();
 const stranger = await keyPair();

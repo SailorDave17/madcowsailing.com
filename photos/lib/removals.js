@@ -122,9 +122,11 @@ async function recentTakedowns(db, address, since) {
  *                                        hidden, deleted, a clip or unknown):
  *                                        nothing changes, and nothing is
  *                                        written
- *   { outcome: 'hidden', address, shown } hidden; `address` is its album's,
- *                                        and `shown` whether the album still
- *                                        has an approved photo to show
+ *   { outcome: 'hidden', address, team, shown }
+ *                                        hidden; `address` and `team` are its
+ *                                        album's (#227), and `shown` whether
+ *                                        the album still has an approved
+ *                                        photo to show
  *
  * The limit is read first, so an address past it learns nothing about any
  * photo. The photo is read before anything is written, so the common refusal
@@ -141,8 +143,8 @@ async function recentTakedowns(db, address, since) {
  * Once the photo is hidden the answer is 'hidden', whatever follows. The
  * tidy-up and the album lookup after it may fail on their own, and a failure
  * there is logged, never turned into "nothing was changed" (the review's
- * other finding): the album lookup failing answers { address: null, shown:
- * false }, which sends the browser to the list.
+ * other finding): the album lookup failing answers { address: null, team:
+ * null, shown: false }, which sends the browser to /.
  */
 export async function requestRemoval(db, { id, note, address, now }) {
   const since = now - REMOVAL_WINDOW_SECONDS;
@@ -202,15 +204,15 @@ export async function requestRemoval(db, { id, note, address, now }) {
   try {
     const album = await db
       .prepare(
-        'SELECT a.address, EXISTS (SELECT 1 FROM photos AS p WHERE p.album_id = a.id AND ' +
+        'SELECT a.address, a.team, EXISTS (SELECT 1 FROM photos AS p WHERE p.album_id = a.id AND ' +
         `${APPROVED}) AS shown FROM albums AS a WHERE a.id = ?`,
       )
       .bind(albumId)
       .first();
-    return { outcome: 'hidden', address: album.address, shown: album.shown === 1 };
+    return { outcome: 'hidden', address: album.address, team: album.team, shown: album.shown === 1 };
   } catch (err) {
     console.error(`remove: photo ${id} is hidden, but its album could not be read:`, err instanceof Error ? err.message : String(err));
-    return { outcome: 'hidden', address: null, shown: false };
+    return { outcome: 'hidden', address: null, team: null, shown: false };
   }
 }
 
@@ -234,25 +236,27 @@ export async function clearExpiredTakedowns(db, now) {
 /**
  * Every hidden photo, the oldest takedown first, with its album, when it was
  * hidden and the note, for /admin/removals. One query, by the photos_by_state
- * index; the hidden rows are few, so the sort by hidden_at is cheap.
+ * index; the hidden rows are few, so the sort by hidden_at is cheap. `team`
+ * keeps only the photos in that team's albums (#227), for the page's team
+ * filter; null keeps every team's.
  */
-export async function hiddenPhotos(db) {
-  const { results } = await db
-    .prepare(
-      'SELECT p.id, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, ' +
-      'a.title AS album_title, a.address AS album_address ' +
-      'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
-      "WHERE p.state = 'hidden' AND p.kind = 'photo' " +
-      'ORDER BY p.hidden_at, p.id',
-    )
-    .all();
+export async function hiddenPhotos(db, team = null) {
+  const statement = db.prepare(
+    'SELECT p.id, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, ' +
+    'a.title AS album_title, a.address AS album_address, a.team AS album_team ' +
+    'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
+    "WHERE p.state = 'hidden' AND p.kind = 'photo' " +
+    (team === null ? '' : 'AND a.team = ? ') +
+    'ORDER BY p.hidden_at, p.id',
+  );
+  const { results } = await (team === null ? statement : statement.bind(team)).all();
   return results.map((row) => ({
     id: row.id,
     caption: row.caption,
     hiddenAt: row.hidden_at,
     note: row.hidden_note,
     grid: { width: row.grid_width, height: row.grid_height },
-    album: { title: row.album_title, address: row.album_address },
+    album: { title: row.album_title, address: row.album_address, team: row.album_team },
   }));
 }
 

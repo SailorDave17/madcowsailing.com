@@ -38,7 +38,7 @@ const RESET_MINUTES = RESET_SECONDS / 60;
 const GAP_MINUTES = RESET_GAP_SECONDS / 60;
 
 export const head = (heading, lede) => `  <section class="wrap page-head">
-    <p class="eyebrow"><a href="/">All albums</a></p>
+    <p class="eyebrow"><a href="/">Team photos</a></p>
     <h1>${heading}</h1>
     <p class="lede">${lede}</p>
   </section>`;

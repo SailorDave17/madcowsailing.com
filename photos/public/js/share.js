@@ -311,13 +311,25 @@
     listed = true;
     const kept = albumField.value;
     const chosen = albums.some((album) => album.address === kept) ? kept : pick ? preselect(albums, today()) : null;
-    const options = albums.map((album) => {
+    // Grouped under each team's name (#227), so a sender sees whose event
+    // each album is. The groups come in the order their teams first appear
+    // in the list, newest first, and each keeps that order inside it. The
+    // label is an attribute, never markup.
+    const groups = new Map();
+    for (const album of albums) {
       const option = element('option');
       option.value = album.address;
       // The title is exactly what the owner typed, markup and all: text only.
       option.textContent = `${album.title} (${heldOn(album.date)})`;
-      return option;
-    });
+      const team = String(album.teamName ?? '');
+      if (!groups.has(team)) {
+        const group = element('optgroup');
+        group.setAttribute('label', team);
+        groups.set(team, group);
+      }
+      groups.get(team).append(option);
+    }
+    const options = [...groups.values()];
     if (chosen === null) {
       const blank = element('option');
       blank.value = '';

@@ -58,18 +58,22 @@
 // the next run without anyone editing this file.
 //
 // The photo site is the exception (#161). Its pages are rendered by Functions,
-// so no .html file names them: the tool measures its home, `/`, and one album
-// page, the first album `/` lists unless --photos-album names one. Each is
-// keyed by the Function that renders it, which is what PERF_FLOORS reads. When
-// `/` lists no album, the album page is reported NOT MEASURED and the run exits
-// 1, because a page left out of the run would otherwise read as a page that
-// passed.
+// so no .html file names them: the tool measures its home, `/`, each team's
+// section (#227; the teams come from photos/lib/teams.js, so a third team is
+// measured without editing this file), and one album page, the first album
+// the sections list, in the teams' order, unless --photos-album names one.
+// Each is keyed by the Function that renders it, which is what PERF_FLOORS
+// reads. When no section lists an album, the album page is reported NOT
+// MEASURED and the run exits 1, because a page left out of the run would
+// otherwise read as a page that passed. (Until #227 `/` listed every album,
+// and the album came from its links.)
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
+import { TEAMS } from '../photos/lib/teams.js';
 
 const LH_VERSION = '13.4.1';
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -140,29 +144,33 @@ function walk(dir, out = []) {
   return out;
 }
 
-// The photo site's two pages (see the header). The album's address is read
-// from the home page's own links, so the run measures an album production
-// actually lists; a home page that does not answer stops the run, since
-// nothing about the site could then be said.
+// The photo site's pages (see the header). The album's address is read from
+// the sections' own links, so the run measures an album production actually
+// lists; a section that does not answer stops the run, since nothing about
+// the site could then be said.
 async function photoPages() {
   const home = { site: 'photos', file: 'photos/functions/index.js', url: BASES.photos + '/' };
+  const sections = TEAMS.map(({ team }) => ({ site: 'photos', file: `photos/functions/${team}/index.js`, url: `${BASES.photos}/${team}/` }));
   const album = { site: 'photos', file: 'photos/functions/albums/[address]/index.js' };
   let address = PHOTOS_ALBUM;
-  if (!address) {
-    const res = await fetch(home.url, { headers: { Accept: 'text/html' } }).catch((e) => {
-      throw new Error(`${home.url} could not be fetched (${e.cause?.code || e.message}), so its album list could not be read`);
+  for (const section of address ? [] : sections) {
+    const res = await fetch(section.url, { headers: { Accept: 'text/html' } }).catch((e) => {
+      throw new Error(`${section.url} could not be fetched (${e.cause?.code || e.message}), so its album list could not be read`);
     });
-    if (!res.ok) throw new Error(`${home.url} answered ${res.status}, so its album list could not be read`);
+    if (!res.ok) throw new Error(`${section.url} answered ${res.status}, so its album list could not be read`);
     const m = (await res.text()).match(/href="\/albums\/([^"/?#]+)\/"/);
-    address = m ? m[1] : null;
+    if (m) {
+      address = m[1];
+      break;
+    }
   }
   if (address) {
     album.url = `${BASES.photos}/albums/${address}/`;
   } else {
     album.url = `${BASES.photos}/albums/`;
-    album.missing = `${home.url} lists no album, so no album page could be measured; pass --photos-album <address> to name one`;
+    album.missing = `no section of ${home.url} lists an album, so no album page could be measured; pass --photos-album <address> to name one`;
   }
-  return [home, album];
+  return [home, ...sections, album];
 }
 
 async function pages() {
@@ -176,10 +184,12 @@ async function pages() {
   }
   // Read only when the run can include the photo site, so an --only run of the
   // other two sites never depends on the photo site answering. A filter that
-  // could match either photo URL counts: part of `<base>/albums/` (which holds
-  // the home URL too), a path under /albums/, or the photo site's host.
+  // could match a photo URL counts: part of `<base>/albums/` (which holds the
+  // home URL too), a path under /albums/, a team's section (#227), or the
+  // photo site's host.
   const wantPhotos = !ONLY || (BASES.photos + '/albums/').includes(ONLY) ||
-    ONLY.includes('/albums/') || ONLY.includes(new URL(BASES.photos).host);
+    ONLY.includes('/albums/') || ONLY.includes(new URL(BASES.photos).host) ||
+    TEAMS.some(({ team }) => ONLY.includes(`/${team}/`) || `${BASES.photos}/${team}/`.includes(ONLY));
   if (wantPhotos) list.push(...await photoPages());
   return ONLY ? list.filter((p) => p.url.includes(ONLY)) : list;
 }
