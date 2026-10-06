@@ -23,8 +23,10 @@
  * against D1 on the way (criterion 4). The email to the admins is the one
  * thing only a new request does, and it goes out after the page has
  * answered (functions/ask.js, waitUntil), so the answer's timing does not
- * carry it either. Whether a turned-down address may ask again is #221's
- * to decide, and a revoked one's is #225's (its criterion 4).
+ * carry it either. A turned-down address that asks again writes nothing
+ * too, and an admin who changes their mind approves it on /admin/people
+ * instead (the owner's choice at #221's pickup, 2026-10-05). A revoked
+ * address's is #225's to decide (its criterion 4).
  *
  * Nothing here logs a name, an email address, a note or a network address.
  */

@@ -58,7 +58,8 @@ and #218 chose the password hash every account will use: scrypt, in
 `photos/lib/password.js`. One hash takes far more than the free plan's 10 ms
 of CPU, so the account is on Workers Paid since 2026-10-05. #220 built the
 request form at `/ask`, behind Turnstile, which nothing links to yet
-(item 25). **Epic #191 makes COHSSA a section of the same
+(item 25), and #221 the page where admins approve each request per team,
+`/admin/people`, which emails a link to set a password (item 26). **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24).
 Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
@@ -132,9 +133,12 @@ story, this is the paragraph to check.*
 │   │                         admin/removals.js the removal requests, #158,
 │   │                         with api/admin/removals/; admin/mail.js the
 │   │                         test email, #217, with api/admin/mail/;
+│   │                         admin/people.js the requests for an account,
+│   │                         #221, with api/admin/people/;
 │   │                         share/receive.js answers a share that found no
 │   │                         worker on the phone, #193; ask.js is /ask, a
-│   │                         request for an account, #220)
+│   │                         request for an account, #220; set-password.js
+│   │                         is where an approval email's link lands, #221)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -153,8 +157,8 @@ story, this is the paragraph to check.*
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /remove, /ask, /api/*, /admin, /admin/*, /coach,
-│       │                     /coach/*, /share/receive
+│       │                     /remove, /ask, /set-password, /api/*, /admin,
+│       │                     /admin/*, /coach, /coach/*, /share/receive
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -2053,11 +2057,12 @@ before: one of them, the email's 50-name cap, narrows criterion 5.
   nothing about the account, and is answered with the same `303` to
   `/ask?sent` by the same statements as a new address (criterion 4). Only a
   new address emails the admins, and that runs after the answer
-  (`context.waitUntil`), so its timing does not carry it. Whether a
-  turned-down address may ask again is #221's, and a revoked one's #225's.
+  (`context.waitUntil`), so its timing does not carry it. A turned-down
+  address that asks again writes nothing too (#221's pickup, item 26), and a
+  revoked one's is #225's.
 - **The admins' email names a request by name, role and teams only**, never
-  the address or the note, as `/policy` says, and links `/admin/people`,
-  which #221 builds. Each address on `ADMIN_EMAILS` gets a send of its own,
+  the address or the note, as `/policy` says, and links `/admin/people`
+  (item 26). Each address on `ADMIN_EMAILS` gets a send of its own,
   until #224 makes admins accounts. Only a request that made an account sends
   it. If no admin's email goes through, the hour is given back and the
   requests stay unnamed for the next request.
@@ -2116,6 +2121,95 @@ spent writes nothing: it runs the budget read alone. The budget caps the
 route at 100 × 10 = 1,000 rows an hour, plus one email's marks (at most 50),
 about 25,000 a day: 25% of the free plan's daily 100,000 and a sliver of
 Workers Paid's 50 million a month.
+
+### 26. Approving requests for an account
+
+**Built in #221, 2026-10-06.** An admin decides each request at
+`/admin/people` (`functions/admin/people.js`), approving or turning down
+each team on its own (D16), and approving emails a link to set a password.
+`lib/people.js` holds the decisions and the admins' log, `lib/people-page.js`
+the page, `lib/password-link.js` the link, and migration 0008 the two
+tables. README.md, The photo site, Approving accounts, is the operating
+record. The owner's decisions at pickup, through the question tool:
+
+- **A link lasts 7 days** (`LINK_SECONDS`). A parent who reads email once a
+  week still gets in, and "Send a new link" covers anyone slower. Not
+  chosen: 72 hours, 24 hours, 14 days.
+- **Turning down sends nothing** (criterion 3's default). Anyone can type
+  any address into `/ask`, so a note could reach a stranger whose address
+  was used, and would confirm a live address to a spammer. Not chosen: a
+  short note.
+- **#221 checks the link and nothing more; setting the password is #222's.**
+  A valid link's page says the account is approved, when the link runs out,
+  and that setting a password is not open yet. It shows no form and spends
+  nothing. `spendLink` is built and tested here, and #222's form calls it.
+  **So approve no real person before #222 ships**: their link would have
+  nothing to set. Not chosen: a set-password form here under a stopgap
+  length rule, which would have decided the password rules twice.
+- **A turned-down address that asks again still writes nothing**, so #220's
+  criterion 4 stands as tested. `/admin/people` lists the turned-down, and
+  an admin can still approve them. Not chosen: turned down as final, with
+  only the log showing it; asking again putting them back in the waiting
+  list, which would let a spammer re-queue every hour.
+
+The rest are defaults, recorded on #221 at pickup or in its pull request:
+
+- **The token is 32 random bytes in the query string, and only its SHA-256
+  is kept** (`password_links`). The page answers without JavaScript. The
+  site's `Referrer-Policy: strict-origin-when-cross-origin` sends another
+  site the origin alone. Not chosen: the fragment, as the invite link uses
+  (item 11), which needs a script to read and an API to ask. A plain
+  SHA-256 suffices for a 256-bit random value, where a password needs
+  scrypt (item 23).
+- **Opening the link changes nothing.** `GET /set-password` reads one row, so
+  a mail scanner that fetches every link cannot use it up. A used, replaced,
+  expired, mistyped or missing link answers `404` with one page for all of
+  them, which offers no form and no sign-in, only who to ask for a new link.
+- **A new link replaces the account's last only once its email is sent**
+  (`replaceOthers`). A refused send deletes the new link instead
+  (`dropLink`), so the link a person already holds keeps working, and an
+  unconfirmed send keeps both, since Resend may have delivered it. Making a
+  link also deletes every expired one in the table, and so does each load of
+  `/admin/people`. Nothing else deletes one before #222 spends it. *Until
+  #221's review the new link deleted the old one before the send was known,
+  so a refused email (the day's quota, say) revoked a link that worked; four
+  of the review's six lenses found it.*
+- **The decision form**: a box per team still to decide (ticked when it
+  waits, unticked when it was turned down), the role the requester chose,
+  Approve, and Turn down when a team waits. The role changes, and is logged,
+  only when the same press approves a team. Each account is in one list,
+  Waiting, Approved or Turned down, by its teams' states, the oldest request
+  first. An account whose every team is revoked is in none; #225 shows it.
+- **Each decision is one D1 batch, every statement guarded by the same
+  condition**: a ticked team still open to that decision. So the log entries
+  and the change commit together or not at all, and of two admins pressing
+  at once only the first changes anything. The second is told another admin
+  may have got there first.
+- **The approval is the answer, whatever the email does.** It has committed
+  by the time the link is sent, so a refused, unconfirmed or unstored email
+  is reported beside it (`?mail=`), never instead of it (cairn:
+  `a-route-of-separate-writes-answers-from-its-last-commit`). `sendLink`
+  never throws: a D1 error reading the account answers `unsaved`, which
+  #221's review found answering 500 for a saved approval, and an account
+  that held no approved team by then answers `not-approved`.
+- **A link's log entry commits with the link** (owner, at #221's review), in
+  one D1 batch, so no link exists without an entry naming the admin who
+  issued it. The entry starts `unrecorded`, and the send's outcome is written
+  afterwards on a best-effort basis; if that write fails, the page says how the email went was
+  not recorded. Not chosen: logging first and refusing to send if that
+  write fails; keeping the entry best-effort and annotating criterion 5.
+- **The email names nobody**: the teams approved, when the link runs out,
+  and the link. Nothing the requester typed is sent back to the address they
+  gave.
+- **The admins' log copies the person's name and address into each entry,
+  with no foreign key to `accounts`**, so a delete neither removes nor is
+  refused by an entry, and the entry still names the person, as `/policy`
+  says. `test/policy.test.js` lists it as the one survivor of README's
+  by-hand delete and checks it still names them. Its actions are
+  `ACTIONS` in `lib/people.js`. 0008's CHECK holds their shape only, since
+  #224 and #225 add their own and SQLite cannot change a CHECK in place. The
+  page shows the newest 100 (`LOG_SHOWN`), and nothing deletes from the
+  table.
 
 ## The two-presentation rule
 

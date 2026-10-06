@@ -61,6 +61,11 @@ const PUBLIC = {
   // itself, the Origin, Turnstile and the limits, which test/ask.test.js
   // holds.
   'ask.js': 'takes a request for an account, from the site\'s own Origin, past Turnstile, 10 an hour per address (#220)',
+  // Where an approval email's link lands (#221). The person it is for has no
+  // sign-in yet, so the link is the only thing it can ask for. It reads one
+  // row and writes nothing, so opening it spends nothing, which
+  // test/people.test.js holds.
+  'set-password.js': 'says whether a link to set a password can be used, and changes nothing (#221)',
   // The share target's address (#193). The installed app's worker answers it
   // on the phone; this route answers only when no worker is there, sending
   // the browser to the share page. It reads no body and changes nothing,

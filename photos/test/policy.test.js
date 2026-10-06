@@ -20,6 +20,9 @@ import { createAlbum } from '../lib/albums.js';
 import { HTML_CACHE, albumListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
+import { LINK_SECONDS, clearExpiredLinks, tokenHash } from '../lib/password-link.js';
+import { approveTeams, rejectTeams, sendLink } from '../lib/people.js';
+import { RESEND_URL } from '../lib/mail.js';
 import { DAILY_UPLOADS, SIZES, insertPhoto } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
@@ -447,6 +450,8 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     'when you asked, which teams still wait for an admin\'s answer, and whether the admins have been emailed about your request;',
     'the note you left with your request, if any;',
     'your password, only as a hash, which can check a password typed in but cannot be turned back into it;', // D14
+    // #221, criteria 2 and 7: the link's token, kept as its SHA-256.
+    'a link to set your password, while it waits to be used, only as a hash, which can check the link but cannot be turned back into it;',
     'which photos you sent from it.', // D17
   ]);
   has(words(html), [
@@ -457,8 +462,14 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     'On the site, only its admins see any of it.',
     'Every admin sees every account, for both teams.', // D15's admin role has no team
     'No public page, photo or download shows who sent a photo.', // #223's criterion 3
-    // #221's log and #225's delete entry (owner, at #219's review).
-    'The admins also keep a log of what they do with each account: who approved it, changed it, revoked it or deleted it, and when. Each entry names the person whose account it was.',
+    // #221's link: 7 days (owner, at #221's pickup), once, replaced by a
+    // newer one only once that one's email is sent (#221's review), and
+    // deleted by /admin/people's load or the next link made.
+    'When an admin approves your account for a team, the site emails you a link to set your password. It can be used once, for 7 days, and a newer link replaces it once the newer one\'s email is sent. Once its 7 days are up, it is deleted the next time an admin opens the list of accounts or sends a link.',
+    // #221's log (criterion 5: who, what, whom, when), and #225's revoke and
+    // delete entries (owner, at #219's review). The name and address are
+    // copied into each entry (migration 0008).
+    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, revoked it or deleted it, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
     'The request asks for no sailor\'s name, so leave sailors\' names out of the note too.', // D18
     'An account, and a request for one, is kept until it is deleted. There is no set limit.', // owner, at #219's pickup
   ], '"What an account keeps"');
@@ -527,11 +538,16 @@ const ACCOUNT_ROWS = [
   ['A photo sent with the invite', ['insertPhoto', 'D17', '#223']],
   ['If you ask for an account, for', ['D13', 'D16', '#220', '#219\'s review', '#158\'s precedent']],
   ['What an account keeps: name,', ['#220\'s criteria 1 and 6', '#221']],
-  ['When you asked, which teams', ['requested_at', 'admins_emailed', 'account_teams', 'migrations/0007_accounts.sql', 'requestAccount', 'mailAdmins', '#220']],
+  ['When you asked, which teams', ['requested_at', 'admins_emailed', 'account_teams', 'migrations/0007_accounts.sql', 'requestAccount', 'mailAdmins', '#220', '/admin/people', 'peopleLists', '#221']],
   ['The password, only as a hash', ['hashPassword', 'verifyPassword', 'lib/password.js', '#222']],
+  // #221, criterion 7: the link's token kept as a hash, and how long it lasts.
+  ['A link to set a password, only', ['password_links', 'migrations/0008_admin_people.sql', 'tokenHash', 'newLink', 'lib/password-link.js', '#221\'s criterion 2']],
+  ['Approval emails it; once, 7', ['sendLink', 'lib/people.js', 'functions/api/admin/people/', 'LINK_SECONDS', 'spendLink', '#222', 'replaceOthers', 'dropLink', '#221\'s pickup', '#221\'s review']],
+  ['Deleted once its 7 days are up,', ['clearExpiredLinks', 'lib/password-link.js', 'functions/admin/people.js', 'newLink', '#221']],
   ['Which photos it sent', ['D17', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
-  ['The admins\' log names the person,', ['#221\'s criterion 5', '#225', '#219\'s review']],
+  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', '#225', '#219\'s review']],
+  ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
   ['No sailor\'s name', ['D18']],
   ['Kept until it is deleted', ['#219\'s pickup']],
   ['Turnstile, and what it sees', ['Turnstile Privacy Addendum', 'https://www.cloudflare.com/turnstile-privacy-policy/', '2025-06-18', 'form entries', 'verifyTurnstile', 'lib/turnstile.js', 'functions/ask.js']],
@@ -569,6 +585,16 @@ test('the head comment traces every account claim in its own row, and the code i
     mailAdmins: '../lib/accounts.js',
     clearExpiredRequests: '../lib/accounts.js',
     verifyTurnstile: '../lib/turnstile.js',
+    newLink: '../lib/password-link.js',
+    replaceOthers: '../lib/password-link.js',
+    dropLink: '../lib/password-link.js',
+    tokenHash: '../lib/password-link.js',
+    spendLink: '../lib/password-link.js',
+    clearExpiredLinks: '../lib/password-link.js',
+    approveTeams: '../lib/people.js',
+    rejectTeams: '../lib/people.js',
+    sendLink: '../lib/people.js',
+    peopleLists: '../lib/people.js',
   };
   for (const [name, module] of Object.entries(exported)) {
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
@@ -624,13 +650,56 @@ test('"the two could be matched" is true: a request that makes an account gives 
   assert.equal(logged, account);
 });
 
+// ---- #221: the link to set a password, and the admins' log ------------------
+
+test('the link\'s figures are the code\'s: 7 days, and /admin/people\'s load clears the expired ones (#221, criterion 7)', () => {
+  assert.equal(LINK_SECONDS, 7 * 24 * 60 * 60, 'the link\'s lifetime moved; the page says "7 days"');
+  const kept = words(section('What an account keeps'));
+  assert.equal([...kept.matchAll(/(\d+) days/g)].filter((m) => m[0] === '7 days').length, 2, 'the page names the 7 days twice');
+  // "the next time an admin opens the list of accounts" is that page's load.
+  assert.match(read('functions', 'admin', 'people.js'), /await clearExpiredLinks\(env\.DB, nowSeconds\(\)\);/);
+});
+
+test('"only as a hash" is what a link\'s row holds: the token\'s SHA-256, never the token, and a newer link replaces it once its email is sent (#221)', async (t) => {
+  const db = d1();
+  const now = 1_790_000_000;
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
+  // Two links emailed, the way /admin/people sends them, each send accepted.
+  const tokens = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(url, RESEND_URL);
+    tokens.push(JSON.parse(init.body).text.match(/token=([A-Za-z0-9_-]{43})/)[1]);
+    return Response.json({ id: 'msg-221' });
+  });
+  const send = (at) => sendLink({ DB: db, RESEND_API_KEY: 'test-key' }, { accountId: 1, admin: 'owner@example.com', now: at, site: 'https://photos.madcowsailing.com' });
+  assert.equal(await send(now), 'sent');
+  assert.equal(await send(now + 60), 'sent');
+  const [first, second] = tokens.map((token) => ({ token }));
+  const stored = db.sqlite.prepare('SELECT * FROM password_links').all().map((row) => ({ ...row }));
+  // One row: the newer link, once its email was sent, replaced the first.
+  assert.deepEqual(stored, [{ token_hash: await tokenHash(second.token), account_id: 1, made_at: now + 60, expires_at: now + 60 + LINK_SECONDS }]);
+  for (const { token } of [first, second]) {
+    for (const value of Object.values(stored[0])) {
+      if (typeof value === 'string') assert.ok(!value.includes(token.slice(0, 8)), 'a stored column holds part of the token');
+    }
+  }
+  // Expired links go on the next clear, and nothing else does.
+  await clearExpiredLinks(db, now + 60 + LINK_SECONDS - 1);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM password_links').get().n, 1);
+  await clearExpiredLinks(db, now + 60 + LINK_SECONDS);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM password_links').get().n, 0);
+});
+
 // Every table the schema holds, and what each can hold about an account. A
 // table this list does not know fails the test below: a later story adding
-// one (#221's log, #223's sender, #225's revoked addresses) seeds it there and
-// says whether it may keep naming an account after a delete.
+// one (#223's sender, #225's revoked addresses) seeds it there and says
+// whether it may keep naming an account after a delete.
 const TABLES = {
   accounts: 'the account itself',
   account_teams: 'its teams, deleted with it (ON DELETE CASCADE)',
+  password_links: 'its links to set a password, deleted with it (ON DELETE CASCADE) (#221)',
+  admin_log: 'the admins\' log, which copies the person\'s name and address into each entry and keeps them after a delete (#221)',
   teams: 'the two teams, which name no account',
   account_request_log: 'keyed network addresses, which name no account; a row\'s time matches its account\'s for the hour it is kept, and nothing once the account is gone',
   account_request_budget: 'a count per hour',
@@ -649,10 +718,10 @@ const TABLES = {
 
 // What may keep naming an account after README's delete, each by the story
 // that makes it: the admins' log entries (#221) and, for a revoked account,
-// its address as a keyed hash (#225). Neither exists yet, so nothing may.
-const SURVIVORS = new Set();
+// its address as a keyed hash (#225), which does not exist yet.
+const SURVIVORS = new Set(['admin_log']);
 
-test('README\'s by-hand account delete, run only once the account\'s own address confirms, leaves no row naming the account (#220, criterion 8)', async () => {
+test('README\'s by-hand account delete, run only once the account\'s own address confirms, leaves no row naming the account (#220, criterion 8)', async (t) => {
   const readme = read('..', 'README.md');
   const steps = readme.split('### Deleting an account by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
   assert.match(steps, /\*\*Only once a reply from the\s+account's own address confirms the request\*\*/);
@@ -681,6 +750,24 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at) ' +
     "VALUES (?, 'photo', 'approved', ?, 'b', 'parent', 1, 1, 1, 2, 4, 3, 4, 3, 4, 3, 10, 3)",
   ).run(album, 'a'.repeat(32));
+  // #221: both accounts approved through the admins' own functions, so the
+  // log and the links hold real rows about each: a role change, an approval,
+  // a turn-down and a link sent for the one to delete (the seeding cairn's
+  // a-timestamp-joins-to-the-log-that-names-it asks for, or the log would
+  // pass by never being seen).
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, RESEND_URL);
+    return Response.json({ id: 'msg-221' });
+  });
+  const env = { DB: db, RESEND_API_KEY: 'test-key' };
+  const admin = 'owner@example.com';
+  for (const accountId of [1, 2]) {
+    assert.deepEqual(await approveTeams(db, { accountId, teams: ['hoover-jrt'], role: 'coach', admin, now }), ['hoover-jrt']);
+    assert.equal(await sendLink(env, { accountId, admin, now, site: 'https://photos.madcowsailing.com' }), 'sent');
+  }
+  assert.deepEqual(await rejectTeams(db, { accountId: 1, teams: ['cohssa'], admin, now }), ['cohssa']);
+  const logged = db.sqlite.prepare('SELECT action, name, email FROM admin_log WHERE account_id = 1 ORDER BY id').all().map((r) => ({ ...r }));
+  assert.deepEqual(logged.map((r) => r.action), ['role', 'approve', 'link', 'reject']);
 
   const tables = db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
   assert.deepEqual(tables, Object.keys(TABLES).sort(), 'a table this test does not know: seed it here, and say whether it may name an account');
@@ -709,14 +796,21 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     }
     return [...new Set(found)].sort();
   };
-  // The control: before the delete, the check finds the account and its teams.
-  assert.deepEqual(naming(), ['account_teams.account_id', 'accounts.email', 'accounts.id']);
+  // The control: before the delete, the check finds the account, its teams
+  // and its link (#221).
+  assert.deepEqual(naming(), ['account_teams.account_id', 'accounts.email', 'accounts.id', 'password_links.account_id']);
 
   assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(target.id).changes, 1);
   assert.deepEqual(naming(), []);
-  // The other account is as it was, teams and all.
+  // The other account is as it was, teams, link and all.
   assert.deepEqual(db.sqlite.prepare('SELECT email FROM accounts').all().map((r) => r.email), ['stays@example.org']);
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM account_teams').get().n, 2);
+  assert.deepEqual(db.sqlite.prepare('SELECT account_id FROM password_links').all().map((r) => r.account_id), [2]);
+  // The admins' log, the one survivor, still names the person, as /policy
+  // promises: every entry, by name and address, and the delete changed none.
+  const after = db.sqlite.prepare('SELECT action, name, email FROM admin_log WHERE account_id = ? ORDER BY id').all(target.id).map((r) => ({ ...r }));
+  assert.deepEqual(after, logged);
+  assert.ok(after.every((r) => r.name === 'Delete.Me' && r.email === 'Delete.Me@Example.org'), 'a log entry no longer names the person');
   // And README's read-back finds nothing, as step 4 says.
   const lookup = steps.match(/--command "(SELECT id, name, email FROM accounts WHERE email = '<address>')"/)?.[1];
   assert.ok(lookup, 'README has no lookup statement');
