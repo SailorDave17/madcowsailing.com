@@ -220,8 +220,10 @@ test('nothing logged anywhere carries the code, the cookie or either key', async
   for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace']) {
     t.mock.method(console, method, (...args) => logged.push(args.map(String).join(' ')));
   }
-  const viaSite = (env, options) =>
-    rootMiddleware({ next: () => onRequestPost({ request: joinRequest(options), env }) });
+  const viaSite = (env, options) => {
+    const request = joinRequest(options);
+    return rootMiddleware({ request, next: () => onRequestPost({ request, env }) });
+  };
 
   const env = site();
   const ok = await viaSite(env);

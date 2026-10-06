@@ -78,10 +78,16 @@ dashboard shows them read-only.
 | Preview branches | `develop` only | `develop` only | `develop` only (Custom branches, include `develop`) |
 | Preview access policy | not enabled | not enabled | **enabled**: Access app `madcowphotos - Cloudflare Pages` on `*.madcowphotos.pages.dev`, policy `Allow Members - Cloudflare Pages` |
 | Fail open/closed | — (no Functions) | — (no Functions) | **Fail closed** |
+| Workers plan (one per account) | **Workers Paid since 2026-10-05** (#218) | same | same |
+| CPU time limit (Settings → General → Pages Functions billing) | — (no Functions) | — (no Functions) | blank (`—`), so the plan's default applies |
 | Framework preset | None | None | None |
 
 *The photos column was read back from the dashboard on 2026-09-27 (UTC), after
-the project was created for #149.* Two of its values are not what the create
+the project was created for #149.* The plan row was read on Workers plans at
+23:02 UTC on 2026-10-05, right after the owner moved the account to Workers
+Paid for #218, and the CPU time limit row the same evening. One password
+hash took 136.5 ms of CPU at the median on Workers Paid, against the free
+plan's 10 ms a request (`CLAUDE.md`, The photo site, item 8). Two of its values are not what the create
 form leaves behind, and both look set when they are not. **Custom branches
 pre-fills Include Preview branches with `*`**, which previews every branch, and
 **Build watch paths pre-fills `*`**, which builds on every commit. Adding
@@ -294,6 +300,16 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   the policy alone gets a PIN and then a `403`. A tag changes only if its application is
   deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
   refuses everyone.
+- **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC;
+  since #222 the reset form at `/forgot-password` uses it too),
+  in Managed mode with pre-clearance off, for the hostnames
+  `photos.madcowsailing.com` and `madcowphotos.pages.dev`. A hostname covers
+  its subdomains, so the second serves the `develop` preview too. Its site key
+  is `TURNSTILE_SITE_KEY` in `photos/wrangler.jsonc`, the same in every
+  environment. Its secret is the `TURNSTILE_SECRET_KEY` secret (below), which
+  the owner pasted from the widget's page into both environments, so it is in
+  no file, chat or issue. A widget's hostnames are edited under Turnstile →
+  the widget → Settings.
 
 ### Secrets
 
@@ -302,8 +318,9 @@ By name only; a value never goes in this repo.
 - **Pages secrets**, one value per environment, set in the dashboard under the
   project's Settings → Variables and Secrets, as type *Secret*:
   - `SESSION_SIGNING_KEY` (#150) signs the upload session cookie, a parent's
-    and a coach's. Changing it ends every session at once, a coach's
-    included; rotating the code ends only the parents' (#192).
+    and a coach's, and since #222 the account session cookie,
+    `__Host-account`. Changing it ends every session at once, a coach's and
+    an account's included; rotating the code ends only the parents' (#192).
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
     stores instead of a network address.
   - `ADMIN_EMAILS` (#151) is the comma-separated list of addresses the admin
@@ -342,12 +359,22 @@ By name only; a value never goes in this repo.
     secret by the owner's paste, so it is in no file, chat or issue; keep it
     that way. Unset, nothing is sent and `/admin/mail` says so. Email, below,
     says how to replace it.
+  - `TURNSTILE_SECRET_KEY` (#220) is the secret of the Turnstile widget on
+    `/ask` and, since #222, `/forgot-password`, which `photos/lib/turnstile.js`
+    sends to Cloudflare's siteverify with each request's token. One widget, so
+    the same value in both environments; its site key is public, and is
+    `TURNSTILE_SITE_KEY` in `photos/wrangler.jsonc`. Unset, `/ask` and
+    `/forgot-password` answer `503`, that they are closed, and keep nothing. Never set one of Cloudflare's test keys here:
+    the always-pass one passes every token, which production refuses to
+    trust, so requests there would close, and a preview would pass them all.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
-  different values. Without them, `POST /api/join` answers `503` and opens
-  nothing, and without `ADDRESS_HASH_KEY`, `POST /api/remove` answers `503`
-  and takes nothing down. Check that all five exist in both environments on the dashboard, which
-  shows a secret's name and never its value.
+  different values. Without them, `POST /api/join`, `/sign-in` and
+  `POST /set-password` answer `503` and open nothing, and without
+  `ADDRESS_HASH_KEY`, `POST /api/remove`, `POST /ask` and `/forgot-password`
+  answer `503` and change nothing. Check that all six exist in both
+  environments on the dashboard, which shows a secret's name and never its
+  value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
   `node -e "const k=()=>require('crypto').randomBytes(32).toString('base64url');require('fs').writeFileSync('.dev.vars','SESSION_SIGNING_KEY='+k()+'\nADDRESS_HASH_KEY='+k()+'\n')"`
@@ -413,6 +440,20 @@ Restart both, then open `http://127.0.0.1:8789/coach`. The stand-in signs
 browser lands on `/share/` able to send. Without the two lines it forwards
 `/coach` with no token, and the guard answers `403`.
 
+**The request form runs locally on Cloudflare's test keys** (#220). Add two
+lines to `photos/.dev.vars`, the always-pass pair from Turnstile's Testing
+page:
+
+```sh
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+```
+
+Then open `http://127.0.0.1:8788/ask`. The widget passes with no challenge, on
+any host, and siteverify passes the dummy token it makes. Without the two
+lines, `/ask` answers `503`. The admins' email needs `RESEND_API_KEY`, which
+`.dev.vars` must not hold, so locally it is logged as not configured.
+
 **After restarting the stand-in, the admin pages answer `403` for up to a
 minute.** It makes a new key each time it starts, and the guard fetches a
 team's keys at most once a minute (`REFETCH_GAP_SECONDS` in `lib/access.js`),
@@ -456,6 +497,11 @@ a new file is listed here.
 | `0004_albums.sql` | #153 | `albums`, one per regatta or practice day |
 | `0005_photos.sql` | #154 | `photos`, every photo and clip in every state, and `upload_counts`, each session's uploads per UTC day |
 | `0006_removal_requests.sql` | #158 | `removal_requests`, the hour's takedowns per address that rate-limit "Remove this photo" |
+| `0007_accounts.sql` | #220 | `teams`, `accounts` and `account_teams`, each request for an account and its teams; `account_request_log`, `account_request_budget` and `account_request_mail`, the request limits and the admins' email hour |
+| `0008_admin_people.sql` | #221 | `password_links`, each unused link to set a password, kept as a hash; `admin_log`, what the admins do with each account |
+| `0009_sign_in.sql` | #222 | Three columns on `accounts`: the password hash, the session version and the failed sign-ins in a row; `sign_in_failures` and `sign_in_budget`, the sign-in limits; `reset_request_log` and `reset_mail_budget`, the reset limits |
+| `0010_album_teams.sql` | #227 | `team` on `albums`, Hoover JRT for every album made before it; four triggers that hold it to a row in `teams`, in place of a reference SQLite will not add with a default |
+| `0011_teams_replace_guard.sql` | #227 | A fifth trigger: a `REPLACE` into `teams` cannot remove a team an album names, the one path 0010's four left open |
 
 ### The invite code
 
@@ -517,17 +563,23 @@ To read the current code without the page:
 Parents send photos into an album, one per regatta or practice day, kept on
 `/admin/albums` (#153) behind the same Access sign-in as the code.
 
-- **Add album** takes a title, Regatta or Practice, and the date. Its address,
-  which a link to it names, is made then from the date and title
-  (`2026-10-04-fall-regatta`) and never changes, so editing the title, kind or
-  date under **Edit** keeps every link working. A second album with the same
-  date and title gets `-2`.
+- **Add album** takes a team, Hoover JRT or COHSSA, a title, Regatta or
+  Practice, and the date. Nothing is preselected, so the team is a choice
+  every time. Its address, which a link to it names, is made then from the
+  date and title (`2026-10-04-fall-regatta`) and never changes, so editing the
+  team, title, kind or date under **Edit** keeps every link working. A second
+  album with the same date and title gets `-2`.
+- **The team decides which section lists the album** (#227): `/hoover-jrt/`
+  or `/cohssa/` (The public albums, below). Moving an album to the other team
+  under **Edit** moves it between the sections at the next load. Every album
+  made before #227 is Hoover JRT's (migration 0010).
 - **Close** stops uploads to an album and takes it off the share page's list;
   its approved photos stay public. **Reopen** undoes both.
 - **Delete** works only on an empty album. One holding any photo, waiting,
   approved or hidden, is refused and the page says how many it holds.
-- `GET /api/albums/open` is the list the share page reads, newest first. It
-  answers only to a live upload session.
+- `GET /api/albums/open` is the list the share page reads, newest first, each
+  album with its team's key and name, under which the page groups it (#227).
+  It answers only to a live upload session.
 
 ### Uploads
 
@@ -608,8 +660,11 @@ the same Access sign-in as the code and the albums. The admin home says how
 many photos are waiting and how much of R2's free 10 GB the stored photos take.
 `CLAUDE.md`, The photo site, item 16 has the decisions.
 
-- **Each batch is one press of Send**, oldest first, with its album, when it
-  was sent and how many photos it holds. A batch over 200 photos comes in parts
+- **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
+  team's batches, at `/admin/queue?team=<team>`, and every press lands back on
+  the same team.
+- **Each batch is one press of Send**, oldest first, with its team, its album,
+  when it was sent and how many photos it holds. A batch over 200 photos comes in parts
   of 200, and each part's Approve all and Reject all mean that part. Every
   photo shows its screen size large and its grid and full sizes beside it; each
   opens alone when tapped. Check each against the families who opted out of the
@@ -633,13 +688,21 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
 Anyone can browse them, with no code and no sign-in (#157; epic #147, D1).
 Nothing but an approved photo is ever listed, counted or served.
 
-- **`/`** lists every album holding at least one approved photo, latest date
-  first, each with its kind, day, count and first photo. An album whose photos
-  are all waiting is not listed, and a closed album still is.
+- **`/`** leads to each team's section (#227): a row for Hoover JRT and one
+  for COHSSA, each with how many albums and photos its section shows, under
+  its newest album's first photo. A team with nothing posted keeps its row,
+  saying so.
+- **`/hoover-jrt/`** and **`/cohssa/`** each list that team's albums holding at
+  least one approved photo, latest date first, each with its kind, day, count
+  and first photo. An album whose photos are all waiting is not listed, and a
+  closed album still is. A team's section is a file of its own under
+  `photos/functions/`, plus two lines in `_routes.json`; a third team needs
+  both, and the tests say so.
 - **`/albums/<address>/`** shows an album's approved photos in the order they
   were taken, in the trip logs' lightbox. The address is the one `/admin/albums`
-  shows, and it never changes, so a link sent to parents keeps working. An
-  album with nothing approved answers the site's 404 page.
+  shows, and it never changes, so a link sent to parents keeps working, a
+  link sent before #227 included. Its eyebrow leads back to its team's
+  section. An album with nothing approved answers the site's 404 page.
 - **`/photos/<id>/<size>`** serves one size of an approved photo: `grid` in the
   album, `screen` in the lightbox, and `full` from **Download**, saved as
   `<address>-<nnn>.jpg` by its place in the album. Anything else is 404: a
@@ -674,17 +737,26 @@ decisions.
   Resend) and what each sees, and how to have an account deleted: by email,
   confirmed by a reply to the account's address, with the person's photos
   staying and no longer recording the account, and the database's 30 days of
-  restore points named. It describes accounts before the request form (#220)
-  exists, worded as conditions so that it is true on any release. Most of it
-  is built by later stories, and the head comment names which. #220 to #224
-  each carry a criterion to add their own records to the page, and #223 the
-  lede and "Who can send a photo". The sentence about matching a coach's send
-  time to Cloudflare's sign-in record stays until the cutover (#226).
+  restore points named. It described accounts before the request form
+  existed, worded as conditions so that it was true on any release. Most of
+  it is built by later stories, and the head comment names which. #220 to
+  #224 each carry a criterion to add their own records to the page, and #223
+  the lede and "Who can send a photo". The sentence about matching a coach's
+  send time to Cloudflare's sign-in record stays until the cutover (#226).
+- **#220 added the request form's records**: when a request was made, which
+  teams still wait, whether the admins have been emailed, and the request
+  limit, with how long it keeps a scrambled address and that the address's
+  time matches the account's, to the second, for that hour (owner, at
+  #220's review). `npm test` holds its 10 and 100 an hour to the code, and
+  that the two times are equal.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
-  `photos/lib/admin-page.js`. The header's nav links the album list and
-  `/policy`, and marks no `aria-current`, so all five stay byte for byte the
-  same. The tests fail until they agree.
+  `photos/lib/admin-page.js`. The header's nav holds one link, **Team
+  photos**, to `/` (it read "All albums" until #227 made `/` the way into
+  each team's section; `/policy` left it on 2026-10-01 and the footer links
+  it). It marks no `aria-current`, so all five stay byte for byte the same.
+  Every other link to `/`, each eyebrow included, is named Team photos too.
+  The tests fail until they agree.
 
 ### Taking a photo down
 
@@ -739,9 +811,12 @@ stops taking it.
 ### Removal requests
 
 Every photo taken down waits on `/admin/removals` (#158), behind the same
-Access sign-in as the queue, the oldest takedown first, with its album, when
-it was hidden and the note. The admin home says how many wait.
+Access sign-in as the queue, the oldest takedown first, with its album, its
+team, when it was hidden and the note. The admin home says how many wait.
 
+- **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
+  team's hidden photos, at `/admin/removals?team=<team>`, and both presses
+  land back on the same team.
 - **Put it back** makes it approved and public again. When it was hidden and
   the note stay on its row as a record, and a later takedown writes over
   them.
@@ -814,8 +889,8 @@ delete the old key in Resend.
 
 Every password the accounts epic (#216) stores is hashed by
 `photos/lib/password.js`: scrypt from `node:crypto`, N=2^14, r=8, p=5
-(#218; `CLAUDE.md`, The photo site, item 23, for why). Nothing is stored yet;
-#222 is the first story that does.
+(#218; `CLAUDE.md`, The photo site, item 23, for why). Since #222 a password
+set at `/set-password` is stored this way (Signing in, below).
 
 - **Measuring its CPU** on the develop preview: sign in to
   `https://develop.madcowphotos.pages.dev/admin/` through Access, then drive
@@ -827,10 +902,17 @@ Every password the accounts epic (#216) stores is hashed by
   only if its request total is the 20 sent **and it has 0 errors**, and write
   its `avg { sampleInterval }` beside the quantiles. The request total is
   scaled up from a sample, so a sampled minute still reads 20 while its
-  quantiles come from fewer requests. On the free plan a request past 10 ms of
-  CPU fails with Error 1102, and its status reads `exceededCpu`, so a minute
-  with errors is not the hash's cost: it is the reading that the hash does not
-  fit, and item 8 records it as that.
+  quantiles come from fewer requests. A request cut for CPU answers `503`
+  with the page *Worker exceeded resource limits* (Error 1102), and **this
+  dataset's status reads `exceededResources`**, not the `exceededCpu` the
+  Workers limits page names (*measured* 2026-10-05). So a minute with errors
+  is not the hash's cost: it is the reading that the hash does not fit, and
+  item 8 records it as that. The cut is not applied to every request: on the
+  free plan 18 of 20 hashes ran at about 115 ms of CPU and 2 were cut.
+  **Measure only on a deployment made after the last plan change.** The
+  deployment that was live when the account moved to Workers Paid kept cutting
+  at 50 ms, the old Bundled model's limit, until it was redeployed (Deployments
+  → the row's *More actions* → *Retry deployment*).
   `CLAUDE.md` item 8 holds the readings.
 - **`?run=hash` answers the hash it made**, so the deployed runtime's output
   can be checked in Node: it verifies against the probe's fixed password.
@@ -839,6 +921,147 @@ Every password the accounts epic (#216) stores is hashed by
   read it on the preview.
 - **The probe answers 404 on production**, so nothing there can be made to
   spend CPU through it.
+
+### Account requests
+
+Anyone can ask for an account at `/ask` (#220, the first story of epic #216
+to keep anything about a person; `CLAUDE.md`, The photo site, item 25, has the
+decisions). Nothing links to it yet (owner, at #220's pickup): #226 points the
+old invite link there.
+
+- **The form** takes a name, an email address, parent, coach or other, Hoover
+  JRT, COHSSA or both, and an optional note of up to 500 characters. It asks
+  no sailor's name, and the note's hint says to leave one out (D18).
+- **Turnstile is checked on the server first.** A token siteverify does not
+  pass is answered `403`, and nothing is kept. Only `/ask`'s CSP admits
+  `https://challenges.cloudflare.com`; every other page keeps the site's.
+  `photos/public/js/ask.js` adds Turnstile's script the first time someone
+  focuses or touches the form, not with the page, which kept `/ask` over the
+  performance floor (owner, at #220's review). A page sent back with a reason
+  adds it at once.
+- **10 requests an hour from one network address, and 100 an hour from
+  everyone together**, then `429` with Retry-After. Only a request past
+  Turnstile counts, and once the site's hour is spent a request writes
+  nothing at all. `account_request_log` keeps each address as a keyed hash,
+  as the join and takedown limits do, and a row is deleted once it is over an
+  hour old, by the next request the site takes or the next load of `/admin`.
+- **One account per email address**, matched without regard to letter case.
+  A request from an address the site already has writes nothing, and is
+  answered with the same `303` to `/ask?sent` as a new one. That includes a
+  turned-down address (owner, at #221's pickup): an admin who changes their
+  mind approves it on `/admin/people` instead.
+- **The admins hear at most once an hour.** The first new request emails
+  every address on `ADMIN_EMAILS` at once and opens the hour; requests inside
+  it send nothing; the first after it sends one email naming everyone since,
+  by name, role and teams only, with a link to `/admin/people` (below). The
+  admin home says how many requests wait, which is how a request that no
+  later one follows is seen. If no admin's email goes through, the requests
+  stay unnamed and the next request tries again.
+
+### Approving accounts
+
+`/admin/people` (#221; `CLAUDE.md`, The photo site, item 26, has the
+decisions) lists every request for an account in three lists: **Waiting**,
+**Approved** and **Turned down**. The admins' log is under them.
+
+- **Each team is decided on its own** (D16). A waiting request's form has a
+  box per team, ticked, and the role the requester chose. **Approve** takes
+  the ticked teams and the role. **Turn down** takes the ticked teams and
+  sends nothing. A turned-down team keeps an unticked box under Approve, so a
+  mistake can be undone.
+- **Approving emails a link to set a password**, to the address on the
+  request, from `no-reply@photos.madcowsailing.com`. The link is
+  `/set-password?token=…`, and it works once, for 7 days. **"Send a new
+  link"** on an approved person sends another, and once that email is sent the
+  last one stops working. If Resend refuses the email, the page says why, the
+  new link is deleted and the last one keeps working; if Resend does not
+  answer, both work. The approval stands either way.
+- **The link opens the form to choose a password** (#222; Signing in, below).
+  Opening a link spends nothing, so a mail scanner fetching it cannot use it
+  up. A used, expired, replaced or mistyped link answers `404` with one page
+  for all of them.
+- **The log** records who did what to whom, and when: each approval and
+  turn-down per team, a role change, and each link sent, with how the email
+  went. A link's entry is written with the link itself, so no link exists
+  without one. It copies the person's name and address into every entry, so
+  it still names them after their account is deleted. The page shows the
+  newest 100, and nothing deletes from the table.
+- **A link's row holds only the token's SHA-256** (`password_links`). An
+  expired row is deleted by the next load of `/admin/people` or the next link
+  sent.
+
+### Signing in
+
+An approved person sets a password from their emailed link, signs in at
+`/sign-in`, and resets a forgotten password at `/forgot-password` (#222;
+`CLAUDE.md`, The photo site, item 27, has the decisions). Nothing public links
+to `/sign-in` or `/forgot-password` yet, as nothing links to `/ask`: the
+emails do, and #223 and #226 add the rest. Sending from an account is #223's.
+
+- **The password**: 15 to 256 characters, counted after NFC, with no rules
+  about mixing kinds. It is turned down when it is the person's own address
+  or name or the site's name, or when Have I Been Pwned's Pwned Passwords has
+  seen it in a breach. That check sends only the first 5 characters of the
+  password's SHA-1, and if the service does not answer within 3 s the
+  password is let through and the miss logged (owner, at #222's pickup).
+- **The session** is the `__Host-account` cookie, signed with
+  `SESSION_SIGNING_KEY`, for 90 days. It names the account and its session
+  version. Signing out and setting a password each add 1 to the version,
+  which ends every session the account holds at its next request, on every
+  device. A revoke ends them too, since the guard reads only an account
+  approved for a team; #225's revoke is to add 1 as well. `/account` is the
+  page behind it, with Sign out.
+- **Failed sign-ins**: 10 an hour per email address (counted for an address
+  with no account too), 20 an hour per network, and 100 an hour for the whole
+  site, after which nobody can sign in until the hour turns. Each try claims
+  its units before the password is checked, so tries sent at once cannot all
+  pass, and a sign-in that succeeds gives them back. Each failure is kept
+  for an hour as keyed hashes in `sign_in_failures`. After 100 failures in a
+  row an account's password stops working until a new one is set from a
+  reset link. Every failure answers with the same page, after the same
+  statements.
+- **A reset** emails a link to `/set-password` that works once, for an hour,
+  only to an account approved for a team, whether or not it had a password.
+  At most one every 15 minutes per account while an earlier link waits to be
+  used, 20 a day for the whole site, and 10 requests an hour per network. The form sits behind the `/ask` Turnstile
+  widget, and its answer is the same `303` whether or not the address has an
+  account; the email goes after the answer.
+- **A password that stopped working** comes back only through a new
+  password: from a reset, or from "Send a new link" on `/admin/people`.
+  Setting it puts the count of failures in a row back to 0.
+
+### Deleting an account by hand
+
+How an account is deleted until #225 builds the admin's button, and the
+fallback after it (#219; owner, 2026-10-05). **Only once a reply from the
+account's own address confirms the request**, since a delete cannot be undone
+and a request can come from anyone. From `photos/`, with the D1 token in
+`photos/.env` (above):
+
+1. Find the account, and check it is the one the email is about (write any `'`
+   in the address twice):
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "SELECT id, name, email FROM accounts WHERE email = '<address>'"
+   ```
+
+2. Write to that address asking for a reply to confirm, and wait for it.
+3. Delete it:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "DELETE FROM accounts WHERE id = <id>"
+   ```
+
+4. Read it back: step 1's statement must return no row.
+
+Its teams and any unused link to set a password go with it (`ON DELETE
+CASCADE`). `photos/test/policy.test.js` runs the step-3 statement against the
+real schema, with a row in every table, and fails if any row afterwards names
+the account's id or address. Only two may: the admins' log entries (#221),
+which keep naming the person, as the test also checks, and, for a revoked
+account, its address kept as a keyed hash (#225). #223 and #225 keep that test
+passing as they add tables. The database's restore points keep the account
+for up to 30 days, as `/policy` says.
 
 ## The push guard
 

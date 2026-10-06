@@ -17,16 +17,19 @@ import { readForm, seeOther } from '../../../../lib/form.js';
 import {
   QUEUE_FORM_BYTES, acted, queueLocation, readPress, rejectPhotos, saveCaptions, unsavedCaptions,
 } from '../../../../lib/queue.js';
+import { teamOf } from '../../../../lib/teams.js';
 
+// A press from a filtered page carries its ?team= (#227), as approve.js says.
 export async function onRequestPost({ request, env }) {
+  const team = teamOf(request);
   const press = readPress(await readForm(request, QUEUE_FORM_BYTES), 'reject');
-  if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo }));
+  if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
   const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
   await saveCaptions(env.DB, press.captions);
   const { rejected, kept } = await rejectPhotos(env.DB, env.MEDIA, press.targets);
-  if (!rejected.length) return seeOther(queueLocation({ error: 'gone', unsaved }, press.anchor));
-  return seeOther(queueLocation({ done: 'rejected', ...acted(rejected), kept: kept || null, unsaved }, press.anchor));
+  if (!rejected.length) return seeOther(queueLocation({ error: 'gone', unsaved, team }, press.anchor));
+  return seeOther(queueLocation({ done: 'rejected', ...acted(rejected), kept: kept || null, unsaved, team }, press.anchor));
 }
 
-/** GET changes nothing, as approve.js's GET says. */
-export const onRequestGet = () => seeOther(queueLocation({ error: 'unchanged' }));
+/** GET changes nothing, as approve.js's GET says, and keeps the press's ?team=. */
+export const onRequestGet = ({ request }) => seeOther(queueLocation({ error: 'unchanged', team: teamOf(request) }));

@@ -168,15 +168,31 @@ test('every database_id is a real one, written out', () => {
   }
 });
 
-test('the config carries no secret: vars hold SITE_ENV and the three Access settings, nothing else', () => {
+test('the config carries no secret: vars hold SITE_ENV, the three Access settings and Turnstile\'s site key, nothing else', () => {
   // Secrets are Pages secrets, set in the dashboard and named in README.md.
   // The admin and coach allow-lists are two of them (#151, owner's choice
-  // 2026-09-28; #192), so no address is in this public repo.
+  // 2026-09-28; #192), so no address is in this public repo. Turnstile's site
+  // key is public, on every /ask page; its secret is TURNSTILE_SECRET_KEY
+  // (#220).
   for (const env of [config, config.env.preview, config.env.production]) {
-    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ACCESS_COACH_AUD']);
+    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ACCESS_COACH_AUD', 'TURNSTILE_SITE_KEY']);
     assert.ok(!('ADMIN_EMAILS' in env.vars));
     assert.ok(!('COACH_EMAILS' in env.vars));
+    assert.ok(!('TURNSTILE_SECRET_KEY' in env.vars));
   }
+});
+
+test('one Turnstile widget serves both environments, and it is a real one, not one of Cloudflare\'s test keys', () => {
+  // #220: the widget "madcowphotos ask" lists photos.madcowsailing.com and
+  // madcowphotos.pages.dev, which covers the develop preview. A test key
+  // here would put Cloudflare's "for testing only" widget on the live page.
+  const keys = [config, config.env.preview, config.env.production].map((env) => env.vars.TURNSTILE_SITE_KEY);
+  assert.equal(new Set(keys).size, 1);
+  // A real site key starts 0x4; every test key starts 1x, 2x or 3x
+  // (Turnstile's Testing page). The control: a test key fails the pattern.
+  const real = /^0x4[A-Za-z0-9_-]{18,}$/;
+  assert.match(keys[0], real);
+  assert.doesNotMatch('1x00000000000000000000AA', real);
 });
 
 test('the admin guard trusts the madcowsailing team, with one Access application per environment', () => {
@@ -217,17 +233,24 @@ test('migrations are numbered NNNN_name.sql, in order, once each', () => {
 test('every migration is additive: nothing is dropped, renamed, rewritten or deleted', () => {
   // Item 6: running code must never meet a schema it does not know, so a
   // migration creates a table, adds a column or adds an index. A reference's
-  // ON DELETE / ON UPDATE clause is part of a new table, not a change to rows.
+  // ON DELETE / ON UPDATE clause is part of a new table, not a change to rows,
+  // and so is a trigger's event, BEFORE DELETE or BEFORE UPDATE OF (0010,
+  // #227): it names when the trigger runs. A statement in a trigger's body is
+  // still read, so a trigger that deleted or updated rows would fail here.
   const dir = join(ROOT, config.d1_databases[0].migrations_dir);
   const changes = /\b(DROP|RENAME|DELETE|UPDATE|REPLACE|TRUNCATE)\b/i;
+  const additive = (text) => text
+    .replace(/--[^\n]*/g, '')
+    .replace(/\bON\s+(DELETE|UPDATE)\b/gi, '')
+    .replace(/\b(BEFORE|AFTER|INSTEAD\s+OF)\s+(DELETE|UPDATE)\b/gi, '');
   for (const file of readdirSync(dir)) {
-    const sql = readFileSync(join(dir, file), 'utf8')
-      .replace(/--[^\n]*/g, '')
-      .replace(/\bON\s+(DELETE|UPDATE)\b/gi, '');
-    assert.doesNotMatch(sql, changes, `${file} changes what is already there`);
+    assert.doesNotMatch(additive(readFileSync(join(dir, file), 'utf8')), changes, `${file} changes what is already there`);
   }
-  // The control: the check reads a DROP when there is one.
+  // The controls: the check reads a DROP when there is one, and a trigger
+  // whose event is allowed still fails on what its body does.
   assert.match('DROP TABLE albums;', changes);
+  assert.doesNotMatch(additive('CREATE TRIGGER t BEFORE DELETE ON teams BEGIN SELECT 1; END;'), changes);
+  assert.match(additive('CREATE TRIGGER t AFTER INSERT ON albums BEGIN UPDATE albums SET title = 1; END;'), changes);
 });
 
 test('the README lists every migration, and nothing that is not one', () => {
@@ -270,4 +293,26 @@ test('every page carries the same header and the same footer', () => {
     assert.equal(block(html, 'header'), block(first.html, 'header'), `${page}'s header differs from ${first.page}'s`);
     assert.equal(block(html, 'footer'), block(first.html, 'footer'), `${page}'s footer differs from ${first.page}'s`);
   }
+});
+
+// Every nav link and eyebrow to / names it the way / names itself (owner, at
+// #227's review): "Team photos". Until #227, / listed every album and these
+// said "All albums"; since #227 it leads to each team's section, and the
+// sections' eyebrow briefly said "All teams". A link in a page's body says
+// where it goes in a sentence of its own (404.html's "Back to the team
+// photos") and is not one of these. Read from the sources, so a page any
+// route renders is covered without a list of routes to keep current.
+const linksToRoot = (text) => [...text.matchAll(/<(?:li|p class="eyebrow")><a href="\/">([^<]*)<\/a><\/(?:li|p)>/g)].map((m) => m[1]);
+
+test('every nav link and eyebrow to / is named Team photos, the page\'s own title (#227)', () => {
+  const sources = [
+    ...readdirSync(join(ROOT, 'lib')).filter((f) => f.endsWith('.js')).map((f) => `lib/${f}`),
+    'templates/page.html',
+    ...publicFiles().filter((f) => f.endsWith('.html')).map((f) => `public/${f}`),
+  ];
+  const named = sources.flatMap((file) => linksToRoot(read(...file.split('/'))).map((name) => `${file}: ${name}`));
+  assert.ok(named.length >= 9, `only ${named.length} links to / found: ${named.join(', ')}`);
+  assert.deepEqual(named.filter((entry) => !entry.endsWith(': Team photos')), []);
+  // The control: an old name is caught.
+  assert.deepEqual(linksToRoot('<p class="eyebrow"><a href="/">All albums</a></p>'), ['All albums']);
 });

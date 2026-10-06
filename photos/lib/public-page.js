@@ -1,6 +1,9 @@
 /**
  * The public pages (#157): the album list at / (functions/index.js) and each
- * album at /albums/<address>/ (functions/albums/[address]/index.js).
+ * album at /albums/<address>/ (functions/albums/[address]/index.js). Since
+ * #227 / leads to each team's section, /hoover-jrt/ and /cohssa/
+ * (functions/<team>/index.js, through lib/section-route.js), and each section
+ * lists its own team's albums.
  *
  * Both are rendered into templates/page.html, which Pages bundles as a text
  * module (developers.cloudflare.com/pages/functions/module-support, read
@@ -31,6 +34,7 @@ import { KINDS } from './albums.js';
 import { dayElement, escapeHtml } from './admin-page.js';
 import { downloadName } from './public.js';
 import { NOTE_MAX, REMOVAL_LIMIT } from './removals.js';
+import { TEAMS, sectionHref, teamName } from './teams.js';
 
 // The photos in the first row at every width: the grid's fewest columns,
 // a phone's 2 (public/css/site.css). They load at once; every photo after
@@ -102,35 +106,95 @@ export const REMOVED_NOTICE = 'The photo is hidden from everyone. One of the sit
 const notice = (removed) => (removed ? `\n    <p role="status">${REMOVED_NOTICE}</p>` : '');
 
 /**
- * The album list at /. `albums` is lib/public.js's publicAlbums(), newest
- * first. Each row is its cover beside its title, as on the sailing site's
- * logs index: the cover link is out of the tab order and hidden from a
- * screen reader, because the title beside it goes to the same page.
- * `removed` shows the takedown notice, for a takedown that left its album
- * with nothing public (#158).
+ * One row of a list: a cover beside a heading and a facts line, as on the
+ * sailing site's logs index. The cover link is out of the tab order and
+ * hidden from a screen reader, because the heading's link beside it goes to
+ * the same page. With no cover (a team on / with nothing posted), the cover's
+ * place holds an empty tile, so the words line up with every other row's.
+ * `eager` is true for the first cover in the list, the one that loads at once.
  */
-export function albumListPage(albums, { removed = false } = {}) {
-  const rows = albums.map((album, i) => {
-    const href = albumHref(album.address);
-    const { id, width, height } = album.cover;
-    const loading = i === 0 ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
-    return `      <li class="album-row">
-        <a class="album-cover" href="${href}" tabindex="-1" aria-hidden="true"><img src="${photoUrl(id, 'grid')}" width="${width}" height="${height}" ${loading} decoding="async" alt=""></a>
+function listRow({ href, heading, facts: line, cover }, eager) {
+  const loading = eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
+  const picture = cover
+    ? `<a class="album-cover" href="${href}" tabindex="-1" aria-hidden="true"><img src="${photoUrl(cover.id, 'grid')}" width="${cover.width}" height="${cover.height}" ${loading} decoding="async" alt=""></a>`
+    : '<span class="album-cover album-cover-none" aria-hidden="true"></span>';
+  return `      <li class="album-row">
+        ${picture}
         <div>
-          <h2><a href="${href}">${escapeHtml(album.title)}</a></h2>
-          <p class="meta">${facts(album, album.photos)}</p>
+          <h2><a href="${href}">${heading}</a></h2>
+          <p class="meta">${line}</p>
         </div>
       </li>`;
+}
+
+// The first row WITH a cover loads its cover at once, not the first row: on /
+// a first team with nothing posted would otherwise leave no picture eager
+// (review-fanout at #227's review).
+function rowList(rows) {
+  const first = rows.findIndex((row) => row.cover);
+  return `<ul class="album-rows">\n${rows.map((row, i) => listRow(row, i === first)).join('\n')}\n    </ul>`;
+}
+
+/**
+ * / (#227): one row per team, in lib/teams.js's order, each leading to that
+ * team's section, so a COHSSA parent never scrolls past Hoover JRT's albums
+ * (owner's choice at #227's pickup, over every album grouped by team). A row
+ * says how many albums and photos its section shows, under the cover of its
+ * newest album. A team with nothing posted keeps its row, saying so, since
+ * its section is a page all the same. `albums` is lib/public.js's
+ * publicAlbums() for every team, newest first. `removed` shows the takedown
+ * notice, which lands here only when the hidden photo's album could not be
+ * read back (functions/api/remove.js).
+ */
+export function teamListPage(albums, { removed = false } = {}) {
+  const rows = TEAMS.map(({ team, name }) => {
+    const own = albums.filter((album) => album.team === team);
+    const photos = own.reduce((sum, album) => sum + album.photos, 0);
+    return {
+      href: sectionHref(team),
+      heading: escapeHtml(name),
+      facts: own.length ? `${plural(own.length, 'album', 'albums')} · ${plural(photos, 'photo', 'photos')}` : 'Nothing posted yet',
+      cover: own[0]?.cover ?? null,
+    };
   });
-  const list = rows.length
-    ? `<ul class="album-rows">\n${rows.join('\n')}\n    </ul>`
-    : '<p>Nothing is posted yet. Photos appear here once they are approved.</p>';
+  const names = TEAMS.map(({ name }) => escapeHtml(name)).join(' and ');
   return renderPage({
     title: 'Team photos',
     main: `  <section class="wrap page-head">
     <p class="eyebrow">Photos</p>
     <h1>Team photos</h1>
-    <p class="lede">Photos from the team's regattas and practices, sent in by parents.</p>${notice(removed)}
+    <p class="lede">Photos from the regattas and practices of ${names}, sent in by parents and coaches. Choose a team to see its albums.</p>${notice(removed)}
+  </section>
+
+  <section class="wrap album-list" aria-label="Teams">
+    ${rowList(rows)}
+  </section>`,
+  });
+}
+
+/**
+ * A team's section, /<team>/ (#227): its albums holding an approved photo,
+ * newest first, each a row with its cover, as / listed every album before
+ * #227. `albums` is lib/public.js's publicAlbums(db, team). The eyebrow is
+ * the way back to /. `removed` shows the takedown notice, for a takedown that
+ * left its album with nothing public (#158).
+ */
+export function sectionPage(team, albums, { removed = false } = {}) {
+  const name = escapeHtml(teamName(team));
+  const list = albums.length
+    ? rowList(albums.map((album) => ({
+      href: albumHref(album.address),
+      heading: escapeHtml(album.title),
+      facts: facts(album, album.photos),
+      cover: album.cover,
+    })))
+    : '<p>Nothing is posted yet. Photos appear here once they are approved.</p>';
+  return renderPage({
+    title: teamName(team),
+    main: `  <section class="wrap page-head">
+    <p class="eyebrow"><a href="/">Team photos</a></p>
+    <h1>${name} photos</h1>
+    <p class="lede">Photos from ${name}'s regattas and practices, sent in by parents and coaches.</p>${notice(removed)}
   </section>
 
   <section class="wrap album-list" aria-label="Albums">
@@ -205,7 +269,10 @@ const removeDialog = `  <dialog id="remove-dialog" class="confirm" aria-labelled
 /**
  * An album's page. `album` is lib/public.js's publicAlbum(), its photos in
  * capture order. The eyebrow is the way back to the list (owner's choice at
- * #157's pickup, over a header nav). `removed` shows the takedown notice.
+ * #157's pickup, over a header nav), which since #227 is the album's own
+ * team's section, named for it ("COHSSA photos"), rather than /, so a parent
+ * goes back to their team's albums in one step. `removed` shows the takedown
+ * notice.
  */
 export function albumPage(album, { removed = false } = {}) {
   const total = album.photos.length;
@@ -213,7 +280,7 @@ export function albumPage(album, { removed = false } = {}) {
   return renderPage({
     title: album.title,
     main: `  <section class="wrap page-head">
-    <p class="eyebrow"><a href="/">All albums</a></p>
+    <p class="eyebrow"><a href="${sectionHref(album.team)}">${escapeHtml(teamName(album.team))} photos</a></p>
     <h1>${escapeHtml(album.title)}</h1>
     <p class="meta">${facts(album, total)}</p>${notice(removed)}
   </section>
@@ -264,7 +331,7 @@ export function removeConfirmPage(photo) {
 const refusal = (title, heading, lede) => renderPage({
   title,
   main: `  <section class="wrap page-head">
-    <p class="eyebrow"><a href="/">All albums</a></p>
+    <p class="eyebrow"><a href="/">Team photos</a></p>
     <h1>${heading}</h1>
     <p class="lede">${lede}</p>
   </section>`,

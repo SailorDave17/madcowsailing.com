@@ -34,6 +34,14 @@
 //     there it equals ACCESS_AUD.
 // The coaches' addresses are the COACH_EMAILS secret.
 //
+// The request form at /ask (#220) reads one more var:
+//   - TURNSTILE_SITE_KEY is the site key of the Turnstile widget
+//     "madcowphotos ask", which serves photos.madcowsailing.com and
+//     madcowphotos.pages.dev, so both environments name the same one. It is
+//     public: every /ask page carries it. Its secret is the
+//     TURNSTILE_SECRET_KEY secret. Locally, photos/.dev.vars sets Cloudflare's
+//     test keys in place of both (README, Running it locally).
+//
 // photos/test/config.test.mjs holds these rules, and it fails if preview and
 // production ever share a database or a bucket.
 //
@@ -55,7 +63,8 @@
     "SITE_ENV": "preview",
     "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
     "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
-    "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700"
+    "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
   },
   "d1_databases": [
     {
@@ -75,7 +84,8 @@
         "SITE_ENV": "preview",
         "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
         "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
-        "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700"
+        "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
       },
       "d1_databases": [
         {
@@ -94,7 +104,8 @@
         "SITE_ENV": "production",
         "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
         "ACCESS_AUD": "78d0a143ee4090db61bac7bf71d2d6a40055fcc1f99b6dfa82105175c33727f1",
-        "ACCESS_COACH_AUD": "3be126b61281628beeb5a8674c84d1741c0c5582a3071e52cde925cb26314946"
+        "ACCESS_COACH_AUD": "3be126b61281628beeb5a8674c84d1741c0c5582a3071e52cde925cb26314946",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
       },
       "d1_databases": [
         {

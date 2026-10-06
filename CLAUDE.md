@@ -55,9 +55,17 @@ coaches' Access sign-in** with email-and-password accounts the owner
 approves, and retires both at its cutover, #226. Its first story, #217, is
 the email the site sends through Resend, with a test send at `/admin/mail`,
 and #218 chose the password hash every account will use: scrypt, in
-`photos/lib/password.js`. **Epic #191 makes COHSSA a section of the same
+`photos/lib/password.js`. One hash takes far more than the free plan's 10 ms
+of CPU, so the account is on Workers Paid since 2026-10-05. #220 built the
+request form at `/ask`, behind Turnstile, which nothing links to yet
+(item 25), and #221 the page where admins approve each request per team,
+`/admin/people`, which emails a link to set a password (item 26). #222 made
+that link set a password, and added signing in at `/sign-in`, `/account`
+with Sign out, and a reset at `/forgot-password` (item 27); an account
+cannot send until #223. **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
-(The photo site, item 24).
+(The photo site, item 24), and #227 gave every album a team: `/` leads to
+`/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
 Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
@@ -129,8 +137,16 @@ story, this is the paragraph to check.*
 │   │                         admin/removals.js the removal requests, #158,
 │   │                         with api/admin/removals/; admin/mail.js the
 │   │                         test email, #217, with api/admin/mail/;
+│   │                         admin/people.js the requests for an account,
+│   │                         #221, with api/admin/people/;
 │   │                         share/receive.js answers a share that found no
-│   │                         worker on the phone, #193)
+│   │                         worker on the phone, #193; ask.js is /ask, a
+│   │                         request for an account, #220; set-password.js
+│   │                         is where an approval or reset email's link
+│   │                         lands, #221, and sets the password, #222;
+│   │                         sign-in.js, sign-out.js and forgot-password.js
+│   │                         sign in, out and reset, #222; and account/
+│   │                         behind the account guard, #222)
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
@@ -149,8 +165,9 @@ story, this is the paragraph to check.*
 │       ├── 404.html          Also what stops Pages treating the site as an SPA
 │       ├── _headers          Static files only; lib/headers.js holds the same
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
-│       │                     /remove, /api/*, /admin, /admin/*, /coach, /coach/*,
-│       │                     /share/receive
+│       │                     /remove, /ask, /set-password, /sign-in, /sign-out,
+│       │                     /forgot-password, /account, /account/*, /api/*,
+│       │                     /admin, /admin/*, /coach, /coach/*, /share/receive
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
@@ -159,7 +176,11 @@ story, this is the paragraph to check.*
 │       ├── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
 │       │                     in lib/admin-page.js (#152)
 │       ├── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
-│       └── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
+│       ├── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
+│       └── js/ask.js         /ask's Turnstile loader, on the form's first focus or
+│                             touch; stamped by hand in lib/ask-page.js (#220).
+│                             /forgot-password loads it too (#222,
+│                             lib/sign-in-page.js)
 ├── tools/
 │   ├── photos.py             Trip-log derivatives + trip.json + the log pages
 │   ├── templates/            trip.html, logs-index.html — photos.py fills these
@@ -543,10 +564,17 @@ resolves wrangler's own dependencies afresh on each run. The accepted cost is th
 
 ### 8. Free-tier headroom
 
+**The account is on Workers Paid since 2026-10-05** (#218; the owner's
+purchase, pre-approved by D14). One password hash takes about 137 ms of CPU
+on Cloudflare, and the free plan allows 10 ms a request (the CPU row). The
+plan is the account's, so the paid step below is now in force for requests,
+CPU and D1. R2, Zero Trust and Resend are billed on their own, and their rows
+are unchanged.
+
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. Clip parts: the video stories | Workers Paid: 30 million CPU ms a month, then $0.02 per million |
+| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. **The password hash does not fit** (#218, read on the develop preview on 2026-10-05 by the same method, `?run=hash` and `?run=none` each alone in its own minute). On the free plan 2 of the 20 hashes were cut, answering 503 with status `exceededResources` at 10.0 and 22.7 ms of CPU, and the 18 that ran read 114.6 / 118.7 / 124.3 ms (`sampleInterval` 1.38). On Workers Paid, from a deployment made after the upgrade: 136.5 / 149.5 / 155.0 ms, 0 errors (`sampleInterval` 1.11), against the control's 1.6 / 1.9 / 2.3 ms (2.5). **A deployment live at the upgrade kept a 50 ms cut**: the preview's cut 4 of 20 hashes at 50.0 to 104.2 ms until it was redeployed. Production's deployment then, release `d02da44`, was made before the upgrade too, so by the same reading it keeps that cut until the next release deploys (not measured on production; its routes read under 10 ms above, and nothing there hashes yet). Clip parts: the video stories | Workers Paid, **in force since 2026-10-05**: 30 million CPU ms a month, then $0.02 per million. The project's own CPU time limit (Settings → General) is blank, so the plan's default applies |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
@@ -868,6 +896,8 @@ applications and their policies.
   `openAlbum()` find nothing. That is the check #154's upload route makes, answering 409.
   Its approved photos stay public, so #157's public list must not filter on it.
   Reopening clears it.
+- **Every album belongs to a team since #227**, Hoover JRT or COHSSA, set on
+  this page and changed by an edit, and its team's section lists it (item 28).
 - **Deleting an album that holds a photo is refused by the database.** Owner's choice
   at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
   `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
@@ -1171,6 +1201,9 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
 `/albums/<address>/` shows one (`functions/albums/[address]/index.js`), and
 `/photos/<id>/<size>` serves a photo (`functions/photos/[id]/[size].js`).
 `lib/public.js` holds the queries and `lib/public-page.js` the markup.
+**Since #227 `/` leads to each team's section**, `/hoover-jrt/` and
+`/cohssa/`, and the album list described below is each section's, for its
+own team's albums (item 28).
 
 - **Only an approved photo is public.** Every public statement names
   `state = 'approved' AND kind = 'photo'`, so a waiting, hidden or rejected
@@ -1216,7 +1249,9 @@ one on its floor.** `/` lists the albums (`functions/index.js`),
   still saves it named. The grid and screen sizes open in the page.
 - **An album page links back with an "All albums" eyebrow link** (owner, at
   pickup). Not chosen: a one-item nav now. #159 added the second kind of page,
-  and with it a two-item nav (item 18); the eyebrow stays.
+  and with it a two-item nav (item 18); the eyebrow stays. **Since #227 it
+  leads to the album's team's section**, named for it ("COHSSA photos"),
+  rather than to `/` (item 28).
 - **Every page is `public, max-age=0, must-revalidate`** (#157, criterion 8),
   so an approval or a takedown shows on the next load. Every photo is
   `private, max-age=300` (item 3). A missing photo is a plain `404`,
@@ -1271,7 +1306,9 @@ it, and the share page links it beside the join step.
   the sailing site's hash check does. **Since 2026-10-01 the nav is All
   albums alone** (owner): the policy link sat in the header and the footer,
   and "it only needs to be in the footer". The nav stays, with its one link,
-  because the Quality floor names a real `<nav>`.
+  because the Quality floor names a real `<nav>`. **Since #227 that link
+  reads "Team photos"** (owner, at #227's review), since `/` lists teams now,
+  not albums (item 28).
 - **The check is described, not promised as an outcome** (owner, at the
   review). The page says an admin turns down any photo they recognize as a
   sailor whose family opted out, and that a check can miss one, with the
@@ -1374,6 +1411,12 @@ it, and the share page links it beside the join step.
   photo sent from an account names the account (D17). **The sentence about
   matching a coach's send time to Cloudflare's sign-in record stays until
   the cutover, #226**, which removes it with the coaches' sign-in.
+- **#220 put the request's own records on the page** (its criterion 9):
+  when it was asked, which teams still wait for an answer and whether the
+  admins have been emailed about it, and the request limit, with how long
+  its scrambled address is kept. Each has a row in the trace and a line in
+  `test/policy.test.js`, which also runs README's by-hand account delete
+  against the real schema (item 25).
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1395,7 +1438,8 @@ it, and the share page links it beside the join step.
   `public/policy.html`, `public/share/index.html`, `templates/page.html` and
   `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
   `test/public.test.js` fail until they agree, and `test/policy.test.js` until
-  each footer links `/policy` and each nav holds All albums alone.
+  each footer links `/policy` and each nav holds Team photos alone (All
+  albums until #227, item 28).
 
 ### 19. Remove this photo
 
@@ -1747,8 +1791,8 @@ hold a session (reasoned, from cairn's
 
 **Chosen in #218, 2026-10-02, before any story stores a password** (epic
 #216, D14). `lib/password.js` is the one place a password is hashed or
-checked. Nothing calls it yet: #222's sign-in and reset and #224's admin
-sign-in will.
+checked. #222's set-password and sign-in call it (item 27), and #224's
+admin sign-in will.
 
 **What a Pages Function can run without a library**, read 2026-10-02:
 
@@ -1780,9 +1824,11 @@ server overrides the iteration check (*"No limit on the number of iterations
 in workerd"*). *Measured* in workerd from wrangler 4.141.0 on 2026-10-02: one
 step past each limit, 100,001 iterations read `accepted` from both PBKDF2s,
 and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).` So a
-local run passes a PBKDF2 count that Cloudflare, by its source, refuses. The
-deployed reading is the probe's `?run=over-cap` (below), recorded here once
-taken.
+local run passes a PBKDF2 count that Cloudflare, by its source, refuses.
+**Cloudflare refuses it.** *Measured* on the develop preview on 2026-10-05
+with the probe's `?run=over-cap` (below): both PBKDF2s read `refused: Pbkdf2
+failed: iteration counts above 100000 are not supported (requested 100001).`,
+and scrypt read `refused: Scrypt failed: cost exceeds maximum (1048576).`
 
 - **scrypt, at N=2^14, r=8, p=5.** The [OWASP Password Storage Cheat
   Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
@@ -1824,7 +1870,7 @@ taken.
   string it could not have written. Nothing in it logs.
 - **The password goes in as the UTF-8 it arrives as.** Normalising it, its
   minimum and maximum length, and a breached-password check are #222's, under
-  NIST SP 800-63B (its first criterion).
+  NIST SP 800-63B (its first criterion): item 27 has them.
 - **Tests**: `test/password.test.js` runs RFC 7914's scrypt vectors 1–3
   (section 12, read 2026-10-02) through `derive()`; the fourth needs N·r·p of
   2^23 and 1 GiB, past the runtime's limit. OWASP's row is written out in the
@@ -1841,16 +1887,22 @@ taken.
   string it made. That string verifies in Node against the probe's fixed
   password, so the deployed scrypt can be checked against Node's in full.
   *Measured* against local workerd on 2026-10-03: a hash it made verified in
-  Node, all 32 bytes, and a wrong password did not. `?run=none` is the
+  Node, all 32 bytes, and a wrong password did not. *Measured* against
+  Cloudflare on 2026-10-05: a hash the develop preview made equalled Node's
+  `scryptSync` over its own salt, all 32 bytes, and verified, and a wrong
+  password did not. `?run=none` is the
   control, and `?run=over-cap` reports each function's answer one step
   past its limit. #161's method reads it (item 8), and a minute counts only
   with 0 errors and its `sampleInterval` written beside it (README). The
   preview builds from `develop` only, so the reading follows this item's
   merge, and item 8 holds it.
-- **Workers Paid if it does not fit** (D14, pre-approved): the free plan
-  allows 10 ms of CPU a request. The local figures above put one hash near
-  170 ms, which predicts it will not fit. Predicted, not yet measured on
-  Cloudflare.
+- **It did not fit, so the account is on Workers Paid since 2026-10-05**
+  (D14, pre-approved; the owner chose on 2026-10-02 to decide after the
+  free-plan reading). The free plan allows 10 ms of CPU a request. *Measured*
+  on the develop preview, the free plan cut 2 of 20 hashes, and on Workers
+  Paid one hash read 136.5 / 149.5 / 155.0 ms at p50 / p90 / p99, 0 errors.
+  Item 8 has both minutes, their controls, and the 50 ms cut that a
+  deployment made before the upgrade kept.
 
 ### 24. Accounts and the COHSSA section: the 2026-10-01 decisions
 
@@ -1912,7 +1964,7 @@ describe production until the cutover, #226.
 - **COHSSA is a section of this site** (the recommendation), superseding
   the copy D12 chose on 2026-09-28. With one sign-in and one admin area, the
   copy's reason, separate queues and codes, is gone. Each album belongs to a
-  team, and each team's section lists its own (#227). Not chosen: the copy as
+  team, and each team's section lists its own (#227, item 28). Not chosen: the copy as
   filed under #191; a separate address served by this site with shared
   accounts. #195 and #196 closed with it.
 - **COHSSA photos are public once approved, from the start, against the
@@ -1936,6 +1988,547 @@ describe production until the cutover, #226.
   confirmed on 2026-10-05). D15's admin role has no team, so every admin
   approves for both teams. Not chosen: a COHSSA person approving COHSSA's
   photos, which needs a team-scoped admin role that nothing has built.
+
+### 25. Requests for an account
+
+**Built in #220, 2026-10-05, the first story of epic #216 to keep anything
+about a person.** Anyone asks at `/ask` (`functions/ask.js`) with a name, an
+email address, parent, coach or other, Hoover JRT, COHSSA or both, and an
+optional note. `lib/accounts.js` holds the rules, `lib/ask-page.js` the page,
+`lib/turnstile.js` the check, and migration 0007 the tables. README.md, The
+photo site, Account requests and Deleting an account by hand, is the
+operating record. The owner's decisions, through the question tool:
+
+- **The admins' email is the lazy hour** (owner, at pickup, as criterion 5
+  proposed). The first new request emails every address on `ADMIN_EMAILS` at
+  once and opens an hour; requests inside it send nothing; the first after it
+  sends one email naming every request no email has named. The admin home
+  counts the waiting requests, which is how a request that no later one
+  follows is seen: Pages runs no scheduled job. Not chosen: a 3-hour window;
+  no email, the count alone.
+- **10 requests an hour from one network address, 100 an hour from
+  everyone** (owner, at pickup): the join limit's figure (item 11) and #177's
+  budget. Not chosen: 5 and 30, which an email to every COHSSA family could
+  hit; 20 and 200. A scrambled address is deleted after its hour by the next
+  request the site takes or the next load of the admin home, as #158's
+  takedown log is; a refused request deletes nothing.
+- **A spent hour writes nothing** (owner, at the review). The site's hour is
+  read before the address's unit is claimed, as #177's join budget is spent
+  before its failure is recorded. Then the unit is spent, and if another
+  request took the last one in between, or the spend fails, the address's
+  unit goes back. Not chosen: claiming first and recording the cost of a
+  spent hour's claim and give-back (about 4 rows a request, bounded only by
+  Turnstile); keeping the address's unit when the site is busy, which would
+  count a refused request against the person's own 10.
+- **The address log's time is the account's, to the second, and `/policy`
+  says so** (owner, at the review). A request that makes an account stores
+  one clock reading in both `accounts.requested_at` and its
+  `account_request_log` row, so for the hour that row is kept the scrambled
+  address can be matched to the account. `test/policy.test.js` holds the
+  sentence to the code: it fails if the two times ever differ. Not chosen:
+  a coarser time on the account, which would cost the admins the exact time;
+  recording it here alone, which would leave `/policy` claiming less than the
+  site keeps.
+- **The page is `/ask`** (owner, at pickup). Not chosen: `/account/request`,
+  `/request-access`.
+- **Nothing links to `/ask` yet** (owner, at pickup). An account cannot send
+  until #223, and #226 points the old invite link at it. Not chosen: a link
+  from `/policy`; links from the album list and the share page.
+- **Turnstile's script loads on the form's first focus or touch** (owner, at
+  the review). *Measured* through `tools/h2proxy.mjs` on a local serve,
+  Lighthouse 13.4.1, mobile, three runs each, accessibility 100 in every one:
+  loaded with the page, `/ask` read 86, 87 and 87 for performance, under
+  the photo site's floor of 95 (Quality floor); with Turnstile's origin
+  blocked 94, 94 and 97; the
+  album list on the same template 97, 97 and 99 (the control). Added on the
+  first focus or touch by `public/js/ask.js`, it read 96, 97 and 99, with no
+  Turnstile request during the run. A page sent back with a reason loads it
+  at once, since the person is part way through. Not chosen: loading it with
+  the page and holding `/ask` to 85; a preconnect hint (88, 87, 87); adding
+  it after the page's load event (84, 84, 83). The cost: someone who sends
+  within a second or two of starting meets the check unfinished, and the 403
+  page asks them to wait and send again, keeping what they typed (measured:
+  the token arrived 1.9 s after the first Tab, with the test keys).
+
+The rest are defaults. The first three were taken at pickup and recorded on
+#220 then. The rest were taken while building, and are recorded in #220's
+pull request and its story comment, which #220's review found they were not
+before: one of them, the email's 50-name cap, narrows criterion 5.
+
+- **Turnstile is checked on the server before any field is read.** A token
+  siteverify does not pass is a `403` and writes nothing, so neither limit is
+  spent by a request no person sent. Only `success` decides: Cloudflare's
+  always-pass test secret answered `"hostname":"example.com"` and no action,
+  for a token as well as for `not-a-token` (*measured* 2026-10-05), so a
+  hostname or action check would refuse every local run. In production a
+  response marked `result_with_testing_key` is refused as unavailable (`503`),
+  so a test secret set there by mistake cannot pass every request. Siteverify
+  answered a request with no `User-Agent`, unlike Resend (item 21); the
+  site sends one anyway. One widget, Managed, serves both environments: a
+  hostname covers its subdomains (Turnstile's Hostname management page, read
+  2026-10-05), so `madcowphotos.pages.dev` covers the `develop` preview.
+  Local runs use the test keys (README, Running it locally).
+- **The CSP widens on `/ask` alone**, by the two values Turnstile's CSP page
+  lists: `https://challenges.cloudflare.com` in `script-src`, and as the
+  whole of `frame-src`. `lib/headers.js`'s `headersFor` picks it by path, and
+  every other path keeps the site's policy. *Measured* in Chrome: no CSP
+  report and no console error on `/ask`, the widget's frame from that origin.
+  *Since #222 the reset form at `/forgot-password` gets it too
+  (`TURNSTILE_PATHS`, item 27), the one other page with the widget.*
+- **One account per email address**, unique without regard to letter case.
+  A request from an address the site already has, in any state, writes
+  nothing about the account, and is answered with the same `303` to
+  `/ask?sent` by the same statements as a new address (criterion 4). Only a
+  new address emails the admins, and that runs after the answer
+  (`context.waitUntil`), so its timing does not carry it. A turned-down
+  address that asks again writes nothing too (#221's pickup, item 26), and a
+  revoked one's is #225's.
+- **The admins' email names a request by name, role and teams only**, never
+  the address or the note, as `/policy` says, and links `/admin/people`
+  (item 26). Each address on `ADMIN_EMAILS` gets a send of its own,
+  until #224 makes admins accounts. Only a request that made an account sends
+  it. If no admin's email goes through, the hour is given back and the
+  requests stay unnamed for the next request.
+- **One email names at most 50 requests** (`LIST_MAX`) and says how many more
+  wait; those are named by the next email. That narrows criterion 5's "names
+  every requester since the last one" for a backlog alone: the budget counts
+  clock hours and the email's hour slides, so up to 200 requests can fall in
+  one email's hour, and the 200th's email names 50 and counts 150. 50 of the
+  widest lines stay inside `lib/mail.js`'s `TEXT_MAX`, which
+  `test/accounts.test.js` holds. Not chosen: no cap, which a full backlog
+  of the widest names would push past `TEXT_MAX`'s 20,000 characters, and
+  `sendMail` refuses a text that long, so no email would go at all.
+- **The form's limits**: a name of 100 characters, one line; a note of 500,
+  read as a takedown note is (`readNote`); one plain address by
+  `lib/mail.js`'s rule. 0007's CHECKs hold the same figures. A name drops
+  Unicode's bidirectional controls, which would reorder the rest of its line
+  in the admins' email, and a name of only format characters (a zero-width
+  space, say) is no name; other format characters stay, since a zero-width
+  non-joiner belongs in some names (#220's review).
+- **The teams are a table**, `teams`, so a third team is a row and #227 can
+  point albums at it. `account_teams`' CHECK already holds all four states
+  (requested, approved, rejected, revoked), since SQLite cannot change a CHECK
+  in place, which #223 meets on `photos`.
+- **The two team checkboxes share one name, `team`**, as an HTML checkbox
+  group does. html-validate's `form-dup-name` shares radio, button, reset and
+  submit names by default, and checkboxes by an option, which
+  `photos/.htmlvalidate.json` now sets. Not chosen: `team[]`, a framework's
+  convention the server would have to read back.
+
+**D1 rows written, measured** on `madcowphotos-preview` on 2026-10-06 (UTC)
+with `wrangler d1 execute --remote --json`, each statement the code runs
+with probe values, every probe row deleted after:
+
+| Statement | Rows written | Rows read |
+|---|---|---|
+| Read the site's hour first (`account_request_budget`) | 0 | 1 |
+| Claim the address's unit (`account_request_log`, two indexes) | 3 | 3 |
+| Spend the site's unit (`account_request_budget` upsert) | 1 | 2 |
+| The account, new (`accounts`: its UNIQUE email and its AUTOINCREMENT counter) | 3 | 3 |
+| Its two teams (`account_teams`, `WITHOUT ROWID`) | 2 | 13 |
+| The account, an address already there (`ON CONFLICT DO NOTHING`) | **1** | 4 |
+| Its teams, an address already there | 0 | 3 |
+| The admins' hour: claim it / inside it | 1 / 0 | 2 |
+| Mark the named requests | 1 a request | 5 |
+| Delete the address's row once over an hour old (a later request's tidy) | 1 | 1 |
+| README's by-hand delete (the account and two teams, by cascade) | 3 | 9 |
+
+The budget read and the one-row delete were measured at #220's review, the
+same way, on 2026-10-06 (UTC), with a probe row planted at time 1000 so the
+tidy's own statement could delete it and nothing else. So a new request
+costs 10 rows written (9 with one team), counting the delete of its own log
+row an hour on, and a repeat 6. A repeat's insert does nothing and still
+writes 1 row: SQLite moves an AUTOINCREMENT counter even for an insert that
+does nothing. So a repeat spends an id. A request once the site's hour is
+spent writes nothing: it runs the budget read alone. The budget caps the
+route at 100 × 10 = 1,000 rows an hour, plus one email's marks (at most 50),
+about 25,000 a day: 25% of the free plan's daily 100,000 and a sliver of
+Workers Paid's 50 million a month.
+
+### 26. Approving requests for an account
+
+**Built in #221, 2026-10-06.** An admin decides each request at
+`/admin/people` (`functions/admin/people.js`), approving or turning down
+each team on its own (D16), and approving emails a link to set a password.
+`lib/people.js` holds the decisions and the admins' log, `lib/people-page.js`
+the page, `lib/password-link.js` the link, and migration 0008 the two
+tables. README.md, The photo site, Approving accounts, is the operating
+record. The owner's decisions at pickup, through the question tool:
+
+- **A link lasts 7 days** (`LINK_SECONDS`). A parent who reads email once a
+  week still gets in, and "Send a new link" covers anyone slower. Not
+  chosen: 72 hours, 24 hours, 14 days.
+- **Turning down sends nothing** (criterion 3's default). Anyone can type
+  any address into `/ask`, so a note could reach a stranger whose address
+  was used, and would confirm a live address to a spammer. Not chosen: a
+  short note.
+- **#221 checks the link and nothing more; setting the password is #222's.**
+  A valid link's page said the account is approved, when the link runs out,
+  and that setting a password was not open yet, with no form. Not chosen: a
+  set-password form here under a stopgap length rule, which would have
+  decided the password rules twice. *Since #222 the link opens the form
+  (item 27), so a real person can be approved once a release carries #222.
+  This bullet said "`spendLink` is built and tested here, and #222's form
+  calls it" until #222 retired `spendLink` for a batch that stores the
+  password with the spend.*
+- **A turned-down address that asks again still writes nothing**, so #220's
+  criterion 4 stands as tested. `/admin/people` lists the turned-down, and
+  an admin can still approve them. Not chosen: turned down as final, with
+  only the log showing it; asking again putting them back in the waiting
+  list, which would let a spammer re-queue every hour.
+
+The rest are defaults, recorded on #221 at pickup or in its pull request:
+
+- **The token is 32 random bytes in the query string, and only its SHA-256
+  is kept** (`password_links`). The page answers without JavaScript. The
+  site's `Referrer-Policy: strict-origin-when-cross-origin` sends another
+  site the origin alone. Not chosen: the fragment, as the invite link uses
+  (item 11), which needs a script to read and an API to ask. A plain
+  SHA-256 suffices for a 256-bit random value, where a password needs
+  scrypt (item 23).
+- **Opening the link changes nothing.** `GET /set-password` reads one row, so
+  a mail scanner that fetches every link cannot use it up. A used, replaced,
+  expired, mistyped or missing link answers `404` with one page for all of
+  them, which offers no form and no sign-in, only how to get a new link.
+  *Since #222 that includes a link to the reset at `/forgot-password`
+  (item 27), and a usable link opens the form to choose a password. This
+  bullet said "only who to ask for a new link" until #222's review.*
+- **A new link replaces the account's last only once its email is sent**
+  (`replaceOthers`). A refused send deletes the new link instead
+  (`dropLink`), so the link a person already holds keeps working, and an
+  unconfirmed send keeps both, since Resend may have delivered it. Making a
+  link also deletes every expired one in the table, and so does each load of
+  `/admin/people`. Nothing else deletes one before #222 spends it. *Until
+  #221's review the new link deleted the old one before the send was known,
+  so a refused email (the day's quota, say) revoked a link that worked; four
+  of the review's six lenses found it.*
+- **The decision form**: a box per team still to decide (ticked when it
+  waits, unticked when it was turned down), the role the requester chose,
+  Approve, and Turn down when a team waits. The role changes, and is logged,
+  only when the same press approves a team. Each account is in one list,
+  Waiting, Approved or Turned down, by its teams' states, the oldest request
+  first. An account whose every team is revoked is in none; #225 shows it.
+- **Each decision is one D1 batch, every statement guarded by the same
+  condition**: a ticked team still open to that decision. So the log entries
+  and the change commit together or not at all, and of two admins pressing
+  at once only the first changes anything. The second is told another admin
+  may have got there first.
+- **The approval is the answer, whatever the email does.** It has committed
+  by the time the link is sent, so a refused, unconfirmed or unstored email
+  is reported beside it (`?mail=`), never instead of it (cairn:
+  `a-route-of-separate-writes-answers-from-its-last-commit`). `sendLink`
+  never throws: a D1 error reading the account answers `unsaved`, which
+  #221's review found answering 500 for a saved approval, and an account
+  that held no approved team by then answers `not-approved`.
+- **A link's log entry commits with the link** (owner, at #221's review), in
+  one D1 batch, so no link exists without an entry naming the admin who
+  issued it. The entry starts `unrecorded`, and the send's outcome is written
+  afterwards on a best-effort basis; if that write fails, the page says how the email went was
+  not recorded. Not chosen: logging first and refusing to send if that
+  write fails; keeping the entry best-effort and annotating criterion 5.
+- **The email names nobody**: the teams approved, when the link runs out,
+  and the link. Nothing the requester typed is sent back to the address they
+  gave.
+- **The admins' log copies the person's name and address into each entry,
+  with no foreign key to `accounts`**, so a delete neither removes nor is
+  refused by an entry, and the entry still names the person, as `/policy`
+  says. `test/policy.test.js` lists it as the one survivor of README's
+  by-hand delete and checks it still names them. Its actions are
+  `ACTIONS` in `lib/people.js`. 0008's CHECK holds their shape only, since
+  #224 and #225 add their own and SQLite cannot change a CHECK in place. The
+  page shows the newest 100 (`LOG_SHOWN`), and nothing deletes from the
+  table.
+
+### 27. Signing in, signing out, and a forgotten password
+
+**Built in #222, 2026-10-06.** An approved person sets a password from the
+emailed link at `/set-password`, signs in at `/sign-in`, lands on
+`/account`, signs out there, and resets a forgotten password at
+`/forgot-password`. `lib/sign-in.js` holds sign-in, sign-out and setting a
+password, `lib/account-session.js` the cookie and its guard,
+`lib/password-rules.js` the password's rules and the breach check,
+`lib/reset.js` the reset, `lib/sign-in-page.js` and `lib/password-page.js`
+the pages, and migration 0009 the columns and tables. README.md, The photo
+site, Signing in, is the operating record. Sending from an account is
+#223's, and the admin sign-in with its emailed code #224's.
+
+**The password follows NIST SP 800-63B-4**, section 3.1.1.2
+(pages.nist.gov/800-63-4/sp800-63b.html, last modified 2025-08-26, read
+2026-10-06; criterion 1):
+
+- *"Verifiers and CSPs SHALL require passwords that are used as a
+  single-factor authentication mechanism to be a minimum of 15 characters
+  in length."* A parent's or coach's password is their only factor, so 15
+  (`PASSWORD_MIN`). The 8 NIST allows inside multi-factor is not taken for
+  admins either: #224 adds the code on top of the same password.
+- *"Verifiers and CSPs SHOULD permit a maximum password length of at least
+  64 characters."* 256 (`PASSWORD_MAX`): any passphrase or password manager
+  fits, and scrypt's cost does not grow with it.
+- *"Each Unicode code point SHALL be counted as a single character"*, and
+  *"the verifier SHOULD apply the normalization process ... (NFC) ... before
+  hashing"*. The routes normalise to NFC before counting, hashing and
+  checking (`normalizePassword`), since #218's `hashPassword` hashes the
+  UTF-8 it is given.
+- *"Verifiers and CSPs SHALL NOT impose other composition rules"*. None.
+- *"verifiers SHALL compare the prospective secret against a blocklist that
+  contains known commonly used, expected, or compromised passwords. The
+  entire password SHALL be subject to comparison"*. Two halves: the whole
+  password, case and punctuation folded, against the person's own address,
+  the part before its @, their name and the site's and teams' names
+  (`SITE_WORDS`); and every password Have I Been Pwned has seen in a breach
+  (below).
+- *"Verifiers SHALL offer guidance"*: the field's hint, and the short and
+  breached messages, suggest a few unrelated words.
+- Section 3.2.2: *"the verifier SHALL limit consecutive failed
+  authentication attempts ... to no more than 100 by disabling that
+  authenticator"*, and *"When the subscriber successfully authenticates, the
+  verifier SHOULD disregard any previous failed attempts"*. `FAILED_IN_A_ROW`
+  is 100, on the account (`failed_sign_ins`); a password that reaches it
+  stops working until a new one is set from an emailed link, and a sign-in
+  that succeeds sets it back to 0 and forgets the address's failed tries.
+- Not built: a show-password toggle, which NIST says SHOULD be offered and
+  which needs a script. The form asks for the password twice instead.
+  Pasting and password managers work (`autocomplete` `new-password` and
+  `current-password`, the address as `username`).
+
+The owner's decisions at pickup (2026-10-06), through the question tool:
+
+- **The breach check is Pwned Passwords, failing open.** Setting a password
+  asks `https://api.pwnedpasswords.com/range/{first 5 SHA-1 chars}`, which
+  needs no key, with `Add-Padding: true` (haveibeenpwned.com/API/v3, read
+  2026-10-06), and refuses a password whose suffix it lists with a count. If
+  it does not answer within 3 s (`PWNED_TIMEOUT_MS`), the password is let
+  through and the miss logged. Only the 5 characters leave the site, and
+  `/policy` says so. It runs when a password is set, never at sign-in. Not
+  chosen: failing closed, which would stop every new account and reset while
+  the service is down; a local list only, which has to be sourced and kept
+  and misses most breached passwords. *Measured* on #222's local run: a
+  real call from workerd turned down `password12345678`.
+- **Signing out ends every session the account holds, on every device.** It
+  adds 1 to `session_version`, as setting a password does, so every cookie
+  naming the older version is refused at its next request. Nothing new is
+  stored, and a copied cookie dies too. Not chosen: a sessions table, one
+  row per device, which /policy would have to name. *A revoke ends sessions
+  today by another route: the guard reads only an account approved for a
+  team. That #225's revoke also adds 1, so a re-approval cannot bring a
+  pre-revoke cookie back, is #225's criterion; criterion 4's revoke half is
+  deferred there (owner, at #222's review).*
+- **Failed sign-ins: 10 an hour per email address, 20 an hour per network,
+  100 an hour for the whole site** (`EMAIL_FAILURE_LIMIT`,
+  `NETWORK_FAILURE_LIMIT`, `FAILURE_BUDGET_PER_HOUR`). The address is counted
+  by a keyed hash of what was typed, so one with no account is counted as
+  one with an account is, and a limit says nothing about which. Once the
+  site's hour is spent nobody can sign in until it turns, and nothing is
+  written; a session already open keeps working. The accepted cost: someone
+  on five or more networks can close sign-in for an hour at a time. Not
+  chosen: 10/10/100; 10/20/1,000; Turnstile on the sign-in form, which a
+  password manager's autofill-and-submit can beat.
+- **Every unit is claimed before the password is checked** (owner, at
+  #222's review). The first build read the counts before the hash and wrote
+  the failure after it, so tries sent at once all read the limits as free:
+  `review-fanout`'s refuters measured 12 tries at once against the limit of
+  10 all checked, and a burst of 150 checking 150 guesses and setting the
+  count in a row to 100 in seconds. Now each try claims, each in one guarded
+  statement, its address's and network's units together (an `INSERT …
+  SELECT` that counts both, as `claimResetRequest` and `/ask` claim theirs),
+  then the site's hour, then a step of the count in a row, and only then is
+  scrypt run. A sign-in that succeeds gives all three back. So a burst gets
+  10 checks per address and 20 per network, and every check spends a unit of
+  the hour before its CPU. Not chosen: saying the limits hold one try at a
+  time.
+- **A reset link lasts an hour** (`RESET_SECONDS`), works once and is kept
+  only as a hash, in `password_links` beside the approval links. The form
+  sits behind the `/ask` Turnstile widget (`lib/headers.js` widens the CSP
+  for `/forgot-password` too). 10 requests an hour per network
+  (`RESET_REQUEST_LIMIT`), at most one email per account every 15 minutes
+  (`RESET_GAP_SECONDS`), and 20 a day for the whole site
+  (`RESET_EMAILS_PER_DAY`), so resets can never spend more than a fifth of
+  Resend's 100 a day (item 21). Not chosen: 24 hours; no Turnstile. *The gap
+  is the link insert's own `NOT EXISTS` a link made in the last 15 minutes,
+  so resets sent at once get one link (#222's review: a read before the
+  insert let three at once all send). It counts the links the account still
+  holds, so a used link ends it, and `/policy` says "while an earlier one
+  waits to be used". The day's unit is spent only once the link is stored.*
+
+The rest are defaults, recorded on #222 at pickup:
+
+- **The session is its own cookie, `__Host-account`**:
+  `a1.<account>.<version>.<issued>.<signature>`, HMAC-SHA256 with
+  `SESSION_SIGNING_KEY`, 90 days, `Secure; HttpOnly; SameSite=Lax; Path=/`.
+  It is not a third shape of `__Host-upload`, so #223 reads it alongside the
+  invite link's and the coach's, and #226 retires those without touching it.
+  `requireAccount` (`functions/account/_middleware.js`, with the Origin
+  check) reads the account on every request: gone, approved for no team, or
+  on another version, and the page is sent to `/sign-in` with the dead cookie
+  deleted.
+- **One path for every failure** (criterion 2). An unknown address, a wrong
+  password, an account not approved, one with no password yet and one whose
+  password stopped all run the same statements in the same order, and check
+  the typed password against one scrypt hash: the account's, or
+  `STAND_IN_HASH`, made at `SCRYPT` from bytes nobody kept. They get one
+  page, which points at the reset. `test/sign-in.test.js` compares the
+  statements and counts the checks. *Measured* on #222's local run in
+  workerd, 8 of each alternating: an unknown address 252 ms median
+  (218–326), a wrong password 237 ms (223–312).
+- **Setting a password is one D1 batch**, every statement held by the link
+  still being the account's, unexpired, and the account approved: the hash,
+  the version up by 1, the count in a row back to 0, the address's failed
+  tries forgotten, and every link the account holds deleted. So of two posts
+  of one link only the first changes anything, and a failed store keeps the
+  link. #221's `spendLink`, a delete of its own, would have spent the link
+  before the password was stored; #222 retired it. Setting a password signs
+  that browser in.
+- **A reset is answered before its email is decided.** Every request past
+  the checks gets the same `303` to `/forgot-password?sent`, after the same
+  statements; `sendReset` runs in `waitUntil`, and emails only an account
+  approved for a team, whether or not it had a password. A reset link does
+  not replace the approval link the person may still hold; setting a
+  password with either ends both. Nothing is written to the admins' log,
+  which records what admins do.
+- **The pages**: `/sign-in`, `/sign-out` (POST only, so a link or a prefetch
+  never signs anyone out), `/forgot-password`, `/set-password` (GET shows the
+  form, POST sets the password) and `/account`. They take `/ask`'s form
+  classes, so the only CSS change was the password field's edge. Nothing
+  public links to `/sign-in` or `/forgot-password` yet, as nothing links to
+  `/ask` (owner, at #220's pickup); #223 and #226 decide where they are
+  linked.
+
+**D1 rows written, measured** on `madcowphotos-preview` on 2026-10-06 (UTC)
+with `wrangler d1 execute --remote --json`, each statement the code runs
+with probe values, every probe row deleted after:
+
+| Statement | Rows written | Rows read |
+|---|---|---|
+| Read the site's hour (`sign_in_budget`) | 0 | 1 |
+| Claim the try: address and network together (`sign_in_failures` guarded `INSERT … SELECT`, two indexes) | 3 | 4 |
+| Spend the site's unit (`sign_in_budget` upsert), a new hour or the same | 1 | 2 |
+| The account's count in a row, `+ 1 … RETURNING`: an account / no such account | 1 / 0 | 2 / 1 |
+| Delete the failure an hour on (no index on time) | 1 | 1 |
+| A sign-in that succeeds: forget the address's tries (one row) / the count back to 0 / the hour's unit back | 1 / 1 / 1 | 1 / 1 / 1 |
+| Reset: claim the network's unit (`reset_request_log`, one index) | 2 | 3 |
+| Reset: delete the claim an hour on | 1 | 1 |
+| Reset: the link, inserted under the gap / refused inside it | 2 / 0 | 5 / 4 |
+| Reset: the day's email unit (`reset_mail_budget` upsert) | 1 | 2 |
+
+Measured in two passes the same day: the first before #222's review moved
+the claims in front of the hash, the second, after it, for the claim, the
+`RETURNING` count, the success path and the guarded link insert. So a recorded
+failure costs 5 rows written, 6 where the address has an account, counting
+its own delete an hour on; a sign-in that succeeds costs about 8, since it
+claims like a failure and gives the units back; a limited or busy try
+writes nothing. The site's budget caps failed sign-ins at 600 rows an hour,
+14,400 a day, and their CPU at 100 hashes an hour, about 14 s (item 23's
+137 ms), about 10 million CPU-milliseconds a month against Workers Paid's
+30 million: every check now spends a unit of the hour before it runs. The
+delete with no time index read 1 row on a table holding only the probe; on
+a full table it reads at most the rows two hours of the budget leave, a few
+hundred.
+
+### 28. Albums belong to a team, and each team has its own section
+
+**Built in #227, 2026-10-06, the first story of epic #191 to change the
+site.** Four decisions were the owner's at pickup, each the recommendation;
+the rest were taken while building and are named as such.
+
+- **The sections are `/hoover-jrt/` and `/cohssa/`**, the keys `teams`
+  (0007) already held (owner, at pickup). Each is a two-line route file
+  under `functions/<team>/` calling `lib/section-route.js`, with both
+  spellings in `_routes.json`. Not a top-level `functions/[team]/` route,
+  which would sit beside `/ask`, `/admin` and every other top-level path. A
+  third team is a `teams` row, an entry in `lib/teams.js`'s `TEAMS`, a route
+  file and two `_routes.json` lines, and `test/public.test.js` fails on any
+  one missing. An album's address names no team, so every album link sent
+  before #227 keeps working, and so does one to an album moved to the other
+  team. Not chosen: `/teams/<team>/`, one dynamic route under its own prefix
+  but a longer link; shorter words such as `/hoover/`, a second naming of the
+  teams beside their keys.
+- **The migration is `team TEXT NOT NULL DEFAULT 'hoover-jrt'` plus four
+  triggers** (owner, at pickup). SQLite refuses `ADD COLUMN … REFERENCES`
+  with a non-NULL default while foreign keys are enforced (*"Cannot add a
+  REFERENCES column with non-NULL default value"*, measured on node:sqlite
+  3.53.3), and D1 enforces them in every query and migration, with only
+  `PRAGMA defer_foreign_keys` to relax them
+  ([foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/),
+  read 2026-10-06). So the triggers do the reference's work: an album's team
+  must be a `teams` row on insert and on update, and a team an album names
+  cannot be deleted or have its key changed. Every album made before 0010 is
+  Hoover JRT's by the default, with no UPDATE of a stored row. `teams` stays
+  the one list, as 0007 made it a table for. Not chosen: a CHECK naming the
+  two teams, a third copy of the list that needs a table rebuild for a third
+  team; a nullable REFERENCES column set by an UPDATE, which leaves NULL
+  allowed for good and is the destructive class. `test/site.test.js`'s
+  additive check now reads a trigger's event (`BEFORE DELETE`) as when it
+  runs, and still fails a trigger whose body changes rows.
+  **0010's four were not the whole reference, and 0011 adds the fifth**
+  (found by `review-fanout` at #227's review). `REPLACE INTO teams` whose
+  row clashes with another key's unique `name` deletes that row without
+  firing a delete trigger, since `recursive_triggers` is off on node:sqlite
+  and D1 (measured on both), and the albums naming it were left pointing at
+  nothing. 0011's `BEFORE INSERT` trigger runs before the clash is resolved
+  and refuses exactly that case. 0010 was already on the preview database,
+  and D1 records a migration by its filename, so 0010 was left as it was.
+  In the two update triggers, `OF team` only spares a title or name edit
+  the subquery; no behaviour tells it apart, and the tests say so.
+- **`/` is one row per team** (owner, at pickup): its name, how many albums
+  and photos its section shows, and its newest album's cover. A team with
+  nothing posted keeps its row, saying so, with an empty tile where the cover
+  goes, since its section is a page all the same. Not chosen: every album on
+  `/`, grouped under a heading per team, which still has a COHSSA parent
+  scroll past Hoover JRT's. `/` costs D1 what it did before: one read of every
+  approved photo's index entry, summed per team in the code. The first row
+  with a cover loads it at once, so a first team with nothing posted leaves
+  the other team's cover eager (the review's finding).
+- **A section reads only its own team's photos.** The team is applied inside
+  the window's scan (`album_id IN (SELECT id FROM albums WHERE team = ?)`),
+  which reaches the photos by `photos_by_album`.
+- **The share page groups its album choices under each team's name**
+  (owner, at pickup): an `<optgroup>` per team, in the order the teams first
+  appear in the newest-first list. `GET /api/albums/open` gives each album
+  `team` and `teamName`. Today's senders, the invite link and a coach's
+  sign-in, have no team, so they are offered every open album; #223 narrows
+  the list to an account's approved teams. Not chosen: a team picker before
+  the list, which #223 would mostly take away again; the API alone, which
+  shows nothing about teams until #223.
+- **An album page's eyebrow leads to its team's section** ("COHSSA photos"),
+  where it led to `/` as "All albums". Taken while building, which reversed
+  #157's recorded choice, so `review-fanout` raised it, and the owner kept it
+  at #227's review: #157's choice was the eyebrow as the way back to the
+  list, and an album's list is its section now.
+- **Every link to `/` is named "Team photos"**, the page's own title (owner,
+  at #227's review): the header nav in its five byte-identical copies (item
+  18), and the eyebrows on the sections, `/ask`, `/sign-in` and the refusal
+  pages. They said "All albums", and the sections briefly "All teams", for a
+  page that now lists teams. `test/site.test.js` reads every source for a
+  link to `/` named anything else. Not chosen: reverting the album eyebrow
+  to #157's "All albums"; shipping the mixed labels with a story to follow.
+- **A takedown that leaves its album with nothing public lands on the album's
+  team's section**, with `?removed`. It lands on `/` only when the album could
+  not be read back, which is why `/` still shows the notice.
+- **The queue and removals pages filter by `?team=`** (criterion 2): links to
+  all teams and to each, the one showing marked `aria-current`. Every press
+  on a filtered page posts to its route with the same `?team=`, so it lands
+  back on that team, and anything else in `?team=` shows every team. The
+  team travels in the address, never in a field, so a press that arrives as
+  a GET after the Access sign-in ran out keeps it too (`lib/teams.js`,
+  `teamOf`; the first build used a hidden field, and `review-fanout` found
+  the GET dropped it). Each batch and each hidden photo names its team; the
+  admin home's counts stay whole-site.
+  `/admin/albums` shows each album's team and sets it as the form's first
+  field, preselected on neither team for a new album, as the kind is not.
+- **`TEAMS` moved to `lib/teams.js`**, and `lib/accounts.js` re-exports it.
+  `lib/albums.js` needs it, and importing `accounts.js` there makes a cycle
+  through `removals.js` and `photos.js`, which import `albums.js`.
+- **The release that carries #227 waits for #238** (owner, at #227's review,
+  2026-10-06). #227 is the first release in which an admin can make a
+  COHSSA album and approve a COHSSA photo, and item 24 says no COHSSA photo
+  is approved until #238 has recorded the COHSSA release's wording and put
+  it on `/policy`; #238's criterion 4 says it reaches production no later
+  than #227. Nothing in code holds that order, so the promotion does: merging
+  #227 into `develop` is safe behind the preview's Access, and the
+  `develop` → `release` PR that would carry it waits until #238 is in
+  `develop` too. Not chosen: a code gate refusing COHSSA albums or approvals
+  until the wording is recorded, which #238 would then have to remove;
+  relying on the admins; rewording #238's criterion.
 
 ## The two-presentation rule
 

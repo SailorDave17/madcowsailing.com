@@ -18,6 +18,8 @@ import { FileSystemConfigLoader, HtmlValidate } from 'html-validate';
 import { onRequest as root } from '../functions/_middleware.js';
 import * as albumRoute from '../functions/albums/[address]/index.js';
 import * as listRoute from '../functions/index.js';
+import * as hooverRoute from '../functions/hoover-jrt/index.js';
+import * as cohssaRoute from '../functions/cohssa/index.js';
 import * as imageRoute from '../functions/photos/[id]/[size].js';
 import { onRequestPost as confirmRoute } from '../functions/remove.js';
 import { onRequestPost as removeRoute } from '../functions/api/remove.js';
@@ -58,8 +60,8 @@ process.env.TZ = 'Pacific/Chatham';
 
 const SITE = 'https://photos.madcowsailing.com';
 const T0 = 1_790_000_000; // 2026-09-21T14:13:20Z
-const FALL = { title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
-const PRACTICE = { title: 'Tuesday practice', kind: 'practice', date: '2026-10-06' };
+const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
+const PRACTICE = { team: 'hoover-jrt', title: 'Tuesday practice', kind: 'practice', date: '2026-10-06' };
 const ADDRESS_KEY = 'test-address-hash-key-fedcba9876543210';
 const IP = '203.0.113.7';
 
@@ -139,12 +141,14 @@ function chain(handlers, request, env, params = {}) {
 
 const STATIC_404 = () => new Response('the site\'s 404 page', { status: 404, headers: { 'Content-Type': 'text/html' } });
 
-/** A public GET through the chain: /, an album, or a photo. */
+/** A public GET through the chain: /, a team's section (#227), an album, or a photo. */
 function get(env, path) {
   const url = new URL(path, SITE);
   const request = new Request(url);
   let m;
   if (url.pathname === '/') return chain([root, listRoute.onRequestGet], request, env);
+  if (url.pathname === '/hoover-jrt/') return chain([root, hooverRoute.onRequestGet], request, env);
+  if (url.pathname === '/cohssa/') return chain([root, cohssaRoute.onRequestGet], request, env);
   if ((m = url.pathname.match(/^\/albums\/([^/]+)\/$/))) {
     return chain([root, albumRoute.onRequestGet, STATIC_404], request, env, { address: m[1] });
   }
@@ -440,17 +444,37 @@ test('the album page the takedown lands on says so; the same address without ?re
   assert.equal(REMOVED_NOTICE, 'The photo is hidden from everyone. One of the site\'s admins will review it.');
 });
 
-test('taking down an album\'s last public photo lands on the list, which says so and no longer lists the album', async () => {
+test('taking down an album\'s last public photo lands on its team\'s section, which says so and no longer lists the album', async () => {
   const { env, fall, practice } = await site();
   const id = seed(env, fall);
   seed(env, practice);
   const res = await takedown(env, id);
-  assert.equal(res.headers.get('Location'), '/?removed');
-  const html = await (await get(env, '/?removed')).text();
+  // The album's own team's list (#227), where the parent came from.
+  assert.equal(res.headers.get('Location'), '/hoover-jrt/?removed');
+  const html = await (await get(env, '/hoover-jrt/?removed')).text();
   assert.match(block(html, 'main'), new RegExp(`<p role="status">${REMOVED_NOTICE}</p>`));
   assert.doesNotMatch(html, new RegExp(`/albums/${fall}/`));
   assert.match(html, new RegExp(`/albums/${practice}/`));
   assert.equal((await get(env, `/albums/${fall}/`)).status, 404);
+});
+
+test('#227: a COHSSA album\'s last public photo lands on COHSSA\'s section, not on the first team\'s or the default\'s', async () => {
+  // Hoover JRT is TEAMS[0] and 0010's default, so only a COHSSA album shows
+  // that the redirect reads the album's own team (review-fanout at #227's
+  // review: a redirect hard-coding Hoover JRT read 0 red without this).
+  const { env, fall } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  const id = seed(env, districts);
+  seed(env, fall);
+  const res = await takedown(env, id);
+  assert.equal(res.headers.get('Location'), '/cohssa/?removed');
+  const html = await (await get(env, '/cohssa/?removed')).text();
+  assert.match(block(html, 'main'), new RegExp(`<p role="status">${REMOVED_NOTICE}</p>`));
+  assert.doesNotMatch(html, new RegExp(`/albums/${districts}/`));
+  // The control: Hoover JRT's section still lists its album, without the notice.
+  const hoover = await (await get(env, '/hoover-jrt/')).text();
+  assert.match(hoover, new RegExp(`/albums/${fall}/`));
+  assert.doesNotMatch(hoover, /role="status"/);
 });
 
 test('a note keeps its line breaks, turns other control characters into spaces, and stops at 500 characters', () => {
@@ -639,15 +663,16 @@ test('Retry-After counts from the oldest takedown in the hour, not the newest, n
   assert.match(words(block(await res.text(), 'main')), /Try again in a minute,/);
 });
 
-test('once the photo is hidden the answer is 303, even when reading its album fails: to the list, and the log says it is hidden', async (t) => {
+test('once the photo is hidden the answer is 303, even when reading its album fails: to /, and the log says it is hidden', async (t) => {
   // #158's review: this failure answered 503 "Nothing was changed" for a
-  // photo that was hidden, with its unit spent.
+  // photo that was hidden, with its unit spent. With no album read, there is
+  // no team to send the browser to, so it lands on / (#227).
   const logged = [];
   t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
   const { env, fall } = await site();
   const id = seed(env, fall);
   seed(env, fall, { captured: T0 + 1 });
-  const res = await takedown({ ...env, DB: failOn(env.DB, /^SELECT a\.address, EXISTS/) }, id);
+  const res = await takedown({ ...env, DB: failOn(env.DB, /^SELECT a\.address, a\.team, EXISTS/) }, id);
   assert.equal(res.status, 303);
   assert.equal(res.headers.get('Location'), '/?removed');
   assert.equal(photoRow(env, id).state, 'hidden');
@@ -749,7 +774,7 @@ test('/admin/removals lists the hidden photos, the oldest takedown first, each w
   const items = [...html.matchAll(/<li class="removal" id="photo-(\d+)">([\s\S]*?)<\/li>/g)];
   assert.deepEqual(items.map((m) => Number(m[1])), [first, second]);
   const [one, two] = items.map((m) => m[2]);
-  assert.match(one, /<p class="removal-facts">In Tuesday practice · hidden <time datetime="[^"]+">/);
+  assert.match(one, /<p class="removal-facts">In Tuesday practice · Hoover JRT · hidden <time datetime="[^"]+">/);
   const hiddenAt = photoRow(env, first).hidden_at;
   assert.match(one, new RegExp(`<time datetime="${new Date(hiddenAt * 1000).toISOString()}">`));
   assert.match(one, /<p class="removal-note">Taken at my request<\/p>/);
@@ -765,7 +790,7 @@ test('/admin/removals lists the hidden photos, the oldest takedown first, each w
 
 test('a note and an album title holding markup are shown as text, line breaks kept as text', async () => {
   const { env } = await site();
-  const address = await createAlbum(env.DB, { title: '<b>Bold</b> & "regatta"', kind: 'regatta', date: '2026-10-11' }, T0);
+  const address = await createAlbum(env.DB, { team: 'hoover-jrt', title: '<b>Bold</b> & "regatta"', kind: 'regatta', date: '2026-10-11' }, T0);
   seed(env, address, { state: 'hidden', note: '<img src=x onerror=alert(1)>\nsecond line' });
   const html = await removals(env);
   assert.match(html, /In &lt;b&gt;Bold&lt;\/b&gt; &amp; &quot;regatta&quot; ·/);
@@ -781,6 +806,82 @@ test('with nothing hidden, the page says so and lists nothing', async () => {
   const html = await removals(env);
   assert.match(html, /No photo is hidden\. A photo someone takes down with "Remove this photo" appears here\./);
   assert.doesNotMatch(html, /class="removal"/);
+});
+
+// ---- #227: the removals page filters by team --------------------------------
+
+/** The team filter's links: [href, name, current]. The site header has a nav of its own. */
+const filterLinks = (html) => [...html.match(/<nav class="team-filter"[\s\S]*?<\/nav>/)[0].matchAll(/<a href="([^"]+)"( aria-current="page")?>([^<]+)<\/a>/g)]
+  .map(([, href, current, name]) => [href, name, Boolean(current)]);
+const hiddenIds = (html) => [...html.matchAll(/<li class="removal" id="photo-(\d+)">/g)].map((m) => Number(m[1]));
+
+/**
+ * Submit the form holding `marker` on the page `html` as a browser does:
+ * every input in it, plus the pressed button's name and `value`.
+ */
+function submit(env, html, marker, value) {
+  const form = [...html.matchAll(/<form method="post" action="([^"]+)">([\s\S]*?)<\/form>/g)].find(([, , inner]) => inner.includes(marker));
+  assert.ok(form, `no form holding ${marker}`);
+  const fields = [...form[2].matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map(([, n, v]) => [n, v]);
+  fields.push(['photo', String(value)]);
+  return admin(env, 'POST', form[1], { body: new URLSearchParams(fields).toString() });
+}
+
+test('#227: ?team= shows that team\'s hidden photos only, the filter marks it, and an unknown team shows every team\'s', async () => {
+  const { env, fall } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  const h = seed(env, fall, { state: 'hidden', hiddenAt: T0 + 100 });
+  const c = seed(env, districts, { state: 'hidden', hiddenAt: T0 + 200 });
+  const at = async (query) => (await admin(env, 'GET', `/admin/removals${query}`, { origin: null })).text();
+  const all = await at('');
+  assert.deepEqual(hiddenIds(all), [h, c]);
+  assert.deepEqual(filterLinks(all), [
+    ['/admin/removals', 'All teams', true], ['/admin/removals?team=hoover-jrt', 'Hoover JRT', false], ['/admin/removals?team=cohssa', 'COHSSA', false],
+  ]);
+  const cohssa = await at('?team=cohssa');
+  assert.deepEqual(hiddenIds(cohssa), [c]);
+  assert.match(cohssa, /1 photo from COHSSA is hidden, the oldest takedown first\./);
+  assert.match(cohssa, /<p class="removal-facts">In Districts · COHSSA · hidden /);
+  assert.deepEqual(filterLinks(cohssa).map(([, name, current]) => [name, current]), [['All teams', false], ['Hoover JRT', false], ['COHSSA', true]]);
+  assert.deepEqual(hiddenIds(await at('?team=hoover-jrt')), [h]);
+  // Anything else in ?team= is every team, read while both teams have a
+  // photo hidden, so every team and one team cannot read alike
+  // (review-fanout at #227's review).
+  for (const query of ['?team=boston', '?team=Hoover%20JRT', '?team=']) {
+    const html = await at(query);
+    assert.deepEqual(hiddenIds(html), [h, c], query);
+    assert.equal(filterLinks(html)[0][2], true, query);
+    assert.doesNotMatch(html, /action="[^"]*\?team=/, query);
+  }
+  env.DB.sqlite.prepare("UPDATE photos SET state = 'approved' WHERE id = ?").run(h);
+  assert.match(await at('?team=hoover-jrt'), /No photo from Hoover JRT is hidden\./);
+});
+
+test('#227: "Put it back" and "Delete permanently" on a filtered page land back on the same team', async () => {
+  const { env } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  const [a, b] = [seed(env, districts, { state: 'hidden' }), seed(env, districts, { state: 'hidden' })];
+  const at = async (query) => (await admin(env, 'GET', `/admin/removals${query}`, { origin: null })).text();
+  const filtered = await at('?team=cohssa');
+  // Both forms post with the team in their address, and carry no field for it.
+  assert.deepEqual([...filtered.matchAll(/<form method="post" action="([^"]+)">/g)].map((m) => m[1]),
+    ['/api/admin/removals/restore?team=cohssa', '/api/admin/removals/restore?team=cohssa', '/api/admin/removals/delete?team=cohssa']);
+  assert.doesNotMatch(filtered, /name="team"/);
+  const back = await submit(env, filtered, `value="${a}" aria-label="Put it back`, a);
+  assert.equal(back.headers.get('Location'), `/admin/removals?done=restored&photo=${a}&team=cohssa`);
+  const del = await submit(env, block(await at('?team=cohssa'), 'dialog'), 'id="delete-confirm"', b);
+  assert.equal(del.headers.get('Location'), `/admin/removals?done=deleted&photo=${b}&team=cohssa`);
+  assert.equal(photoRow(env, b), undefined);
+  // A refused press keeps it; a team the site does not have is dropped, and
+  // one in the body is not read.
+  const refused = await admin(env, 'POST', '/api/admin/removals/restore?team=cohssa', { body: 'photo=x' });
+  assert.equal(refused.headers.get('Location'), '/admin/removals?error=form&team=cohssa');
+  const crafted = await admin(env, 'POST', `/api/admin/removals/delete?team=${encodeURIComponent('"><b>')}`, { body: 'photo=x&team=cohssa' });
+  assert.equal(crafted.headers.get('Location'), '/admin/removals?error=form');
+  // A press that arrives as a GET, after the sign-in ran out, keeps its team too.
+  for (const path of ['/api/admin/removals/restore', '/api/admin/removals/delete']) {
+    assert.equal((await admin(env, 'GET', `${path}?team=cohssa`, { origin: null })).headers.get('Location'), '/admin/removals?error=unchanged&team=cohssa', path);
+  }
 });
 
 /** The removals page's presses, as a browser submits them. */

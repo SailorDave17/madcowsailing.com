@@ -4,8 +4,8 @@
 where the floor is **measured**, on the production domains after a promotion,
 and where the numbers live — with the instrument, its version and the command that
 produced them, so the next measurement is comparable with this one. Story #13.
-Since #161 the run also measures two pages of the photo site,
-photos.madcowsailing.com.
+Since #161 the run also measures the photo site, photos.madcowsailing.com: two
+pages until #227, and since #227 four, each team's section added.
 
 The per-page stories checked what they could on their own page, usually served
 locally. This is different in two ways that matter: it measures the deployed sites
@@ -38,11 +38,15 @@ Pages are derived from the tree — every `.html` under `hq/` and `sailing/` —
 new page is measured on the next run without editing the script.
 
 The photo site is the exception (#161). Its pages are made by Functions, so no
-file names them. The run measures its home page, `/`, and one album page: the
-first album `/` lists, unless `--photos-album` names another. When `/` lists no
-album, the album page is reported **not measured**, under its own heading, and
-the run exits 1. A page left out of a run would otherwise read as one that
-passed.
+file names them. The run measures its home page, `/`, each team's section
+(`/hoover-jrt/` and `/cohssa/` since #227, read from `photos/lib/teams.js`), and
+one album page: the first album the sections list, in the teams' order, unless
+`--photos-album` names another. When no section lists an album, the album page
+is reported **not measured**, under its own heading, and the run exits 1. A page
+left out of a run would otherwise read as one that passed. Until #227 `/` listed
+every album and the album came from its links, so **a tree carrying #227 run
+against a production that predates it stops at the first section**, which
+answers 404 there. Run the tool from `release`'s own tree, as step 9 does.
 
 **It is deliberately not wired into CI.** `CLAUDE.md` says the only build step is
 the one-line copy in the Pages config and means it; `githooks/checks` and `ci.yml`

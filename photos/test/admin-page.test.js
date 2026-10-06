@@ -53,7 +53,7 @@ test('the email is escaped, so a token cannot put markup on the page', () => {
 
 test('it links to each section the later stories fill', () => {
   const hrefs = [...block(page, 'main').matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(hrefs, ['/admin/code', '/admin/albums', '/admin/queue', '/admin/removals', '/admin/mail']);
+  assert.deepEqual(hrefs, ['/admin/code', '/admin/albums', '/admin/queue', '/admin/removals', '/admin/people', '/admin/mail']);
   assert.deepEqual(hrefs, SECTIONS.map((s) => s.href));
 });
 

@@ -174,6 +174,27 @@
   font-size: var(--text-sm);
 }
 
+/* ---- Admin: the team filter (#227) ------------------------------------ */
+
+/* All teams, then each team, on the queue and removals pages: one row of
+   links that wraps on a phone, the one showing marked as the site nav marks
+   its page, in the nav's type. */
+.team-filter ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  list-style: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.team-filter a[aria-current="page"] {
+  color: var(--blue-deep);
+  font-weight: 700;
+  text-decoration: none;
+}
+
 /* ---- Admin: the approval queue (#156) ------------------------------- */
 
 .batch {
@@ -404,7 +425,8 @@
   padding-block-start: 0;
 }
 
-/* The list at /: the cover beside the words, as on the sailing logs index.
+/* The lists at / (a row per team) and in each team's section (a row per
+   album, #227): the cover beside the words, as on the sailing logs index.
    The cover is cropped to 4:3, a thumbnail for the row, not the photo. */
 .album-rows {
   list-style: none;
@@ -420,7 +442,8 @@
   padding-block: var(--space-4);
 }
 
-.album-cover img {
+.album-cover img,
+.album-cover-none {
   display: block;
   width: 100%;
   height: auto;
@@ -633,6 +656,190 @@
   white-space: pre-line;
   max-width: var(--measure);
   overflow-wrap: anywhere;
+}
+
+/* ---- Admin: people (#221) ------------------------------------------- */
+
+.people {
+  list-style: none;
+  padding: 0;
+}
+
+.people,
+.people-empty {
+  margin-block-start: var(--space-3);
+}
+
+.person {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.person > * + * {
+  margin-block-start: var(--space-2);
+}
+
+.person h3 {
+  font-size: var(--text-xl);
+}
+
+/* An email address is one unbroken word, which can be wider than a 360 px
+   screen; so is a name or a note with no spaces. A 40-character name made
+   the page 590 px wide at 320 until the heading was in this rule (#221's
+   ux-design audit, 1.4.10). */
+.person h3,
+.person-facts,
+.admin-log li {
+  overflow-wrap: anywhere;
+}
+
+/* A note keeps its line breaks, as a takedown's does. */
+.person-note {
+  white-space: pre-line;
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
+}
+
+/* Each team's box is its label as well, padded past 24 px as the request
+   form's are (WCAG 2.5.8). */
+.person-form .choices label {
+  padding-block: var(--space-1);
+}
+
+.person-form .choices input {
+  accent-color: var(--blue);
+  margin-inline-end: var(--space-1);
+}
+
+/* The same field edge as .album-form's inputs: --deep reads 3:1 and more
+   against the page (WCAG 1.4.11). */
+.person-form select {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.admin-log {
+  padding-inline-start: var(--space-4);
+  max-width: var(--measure);
+}
+
+.admin-log li + li {
+  margin-block-start: var(--space-2);
+}
+
+/* ---- Public: asking for an account (#220) --------------------------- */
+
+/* The form follows its head closely, as the album grid does, at the width
+   of the text above it. Since #222 the sign-in, reset and set-password
+   forms and the account page take the same classes (lib/sign-in-page.js). */
+.ask {
+  padding-block-start: 0;
+}
+
+.ask-form,
+.error-summary {
+  max-width: var(--measure);
+}
+
+.ask-form .field {
+  margin-block-end: var(--space-4);
+}
+
+.ask-form fieldset {
+  border: none;
+  padding: 0;
+}
+
+.ask-form label,
+.ask-form legend {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Each choice is its label as well as its box, so the whole line is the
+   target: the block padding takes it past 24 px (WCAG 2.5.8). */
+.ask-form .choices label {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  padding-block: var(--space-1);
+  margin-inline-end: var(--space-4);
+}
+
+.ask-form .choices input {
+  accent-color: var(--blue);
+  margin-inline-end: var(--space-1);
+}
+
+/* The same field edge as .album-form's: --deep reads 3:1 and more against
+   the page, where the --spray hairline does not (WCAG 1.4.11). */
+.ask-form input[type="text"],
+.ask-form input[type="email"],
+.ask-form input[type="password"],
+.ask-form textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+}
+
+.ask-form textarea {
+  resize: vertical;
+}
+
+/* A field with a reason beside it. The thicker edge is a second sign beside
+   the words, never the only one (WCAG 1.4.1), and it is --deep: the send
+   button is the page's one accent. */
+.ask-form input[aria-invalid="true"]:not([type="radio"]):not([type="checkbox"]) {
+  border-width: 3px;
+}
+
+.field-error {
+  display: block;
+  font-weight: 600;
+}
+
+/* The reasons above the form. It takes the focus when the page loads, so it
+   shows the ring it holds, from a script or a key. */
+.error-summary {
+  border: 3px solid var(--deep);
+  background: var(--chalk);
+  padding: var(--space-3) var(--space-4);
+  margin-block-end: var(--space-4);
+}
+
+.error-summary:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.error-summary h2 {
+  font-size: var(--text-xl);
+}
+
+.error-summary ul {
+  padding-inline-start: var(--space-4);
+  margin-block-start: var(--space-2);
+}
+
+/* Turnstile's widget is 65 px tall in its flexible size (its widget
+   configurations page). Its room is kept before the script draws it, so the
+   button below does not move when it arrives. */
+.cf-turnstile {
+  min-height: var(--space-7);
+  margin-block-end: var(--space-3);
+}
+
+.ask-policy {
+  margin-block-start: var(--space-4);
 }
 
 /* ---- Footer --------------------------------------------------------- */
