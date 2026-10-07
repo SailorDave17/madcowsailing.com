@@ -22,8 +22,11 @@ const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
 const block = (html, tag) => html.match(new RegExp(`<${tag}[\\s>][\\s\\S]*?</${tag}>`))?.[0];
 
 const EMAIL = 'owner@example.com';
+// What the admin guard leaves on context.data.admin (#224): signed in at
+// 2026-09-21T14:13:20Z, so the 12 hours end at 02:13 UTC the next day.
+const ADMIN = { id: 1, name: 'Owner', email: EMAIL, role: 'owner', issued: 1_790_000_000 };
 const EMPTY = { waiting: 0, removals: 0, bytes: 0 };
-const page = adminHome(EMAIL, EMPTY);
+const page = adminHome(ADMIN, EMPTY);
 
 // Where the gate would find the page if it were a file: photos/, so the
 // validator reads photos/.htmlvalidate.json and the root config above it.
@@ -41,14 +44,22 @@ function staticPages(dir = join(ROOT, 'public'), prefix = '') {
   return out;
 }
 
-test('the admin home says who is signed in', () => {
-  assert.match(page, /<p class="lede">Signed in as owner@example\.com\.<\/p>/);
+test('the admin home says who is signed in, as the owner or an admin, and when the 12 hours end (#224)', () => {
+  assert.match(page, /<p class="lede">Signed in as Owner, owner@example\.com, the owner\. The admin pages stay open until <time datetime="2026-09-22T02:13:20\.000Z">22 September 2026, 02:13 UTC<\/time>, then ask you to sign in again\.<\/p>/);
+  assert.match(adminHome({ ...ADMIN, role: 'admin' }, EMPTY), /owner@example\.com, an admin\. /);
 });
 
-test('the email is escaped, so a token cannot put markup on the page', () => {
-  const html = adminHome('a<b>"c\'&@example.com', EMPTY);
-  assert.match(html, /Signed in as a&lt;b&gt;&quot;c&#39;&amp;@example\.com\./);
-  assert.doesNotMatch(html, /a<b>/);
+test('the admin home has Sign out, a form posting to /sign-out that says it ends every session (#224)', () => {
+  const form = block(page, 'main').match(/<form method="post" action="\/sign-out">[\s\S]*?<\/form>/)?.[0];
+  assert.ok(form, 'no sign-out form');
+  assert.match(form, /<button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out<\/button>/);
+  assert.match(form, /<p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well\.<\/p>/);
+});
+
+test('the name and email are escaped, so an account cannot put markup on the page', () => {
+  const html = adminHome({ ...ADMIN, name: '<i>Jo</i>', email: 'a<b>"c\'&@example.com' }, EMPTY);
+  assert.match(html, /Signed in as &lt;i&gt;Jo&lt;\/i&gt;, a&lt;b&gt;&quot;c&#39;&amp;@example\.com, the owner\./);
+  assert.doesNotMatch(html, /a<b>|<i>Jo/);
 });
 
 test('it links to each section the later stories fill', () => {
@@ -113,7 +124,7 @@ test('its stylesheets, fonts and icon are the share page\'s, stamps included', (
 test('GET /admin answers the page, as HTML, never cached', async () => {
   // An empty database: nothing waiting, nothing stored (#156's counts are
   // held in test/queue.test.js).
-  const res = await home({ data: { owner: { email: EMAIL } }, env: { DB: d1() } });
+  const res = await home({ data: { admin: ADMIN }, env: { DB: d1() } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Type'), 'text/html; charset=utf-8');
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
@@ -121,7 +132,7 @@ test('GET /admin answers the page, as HTML, never cached', async () => {
 });
 
 test('GET /api/admin/session answers the signed-in email, never cached', async () => {
-  const res = session({ data: { owner: { email: EMAIL } } });
+  const res = session({ data: { admin: ADMIN } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
   assert.deepEqual(await res.json(), { email: EMAIL });

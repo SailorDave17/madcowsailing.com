@@ -1,7 +1,7 @@
 /**
  * GET /admin/removals: the photos taken down with "Remove this photo" (#158),
  * the oldest takedown first, each with its album, when it was hidden and the
- * note. The guards in _middleware.js have already checked the Access token.
+ * note. The guards in _middleware.js have already checked the admin session.
  *
  * Each has "Put it back", which posts to
  * functions/api/admin/removals/restore.js, and "Delete permanently",

@@ -63,7 +63,11 @@ request form at `/ask`, behind Turnstile, which nothing links to yet
 that link set a password, and added signing in at `/sign-in`, `/account`
 with Sign out, and a reset at `/forgot-password` (item 27), and #223 let an
 account send from the share page, to its approved teams' albums, each photo
-recording the account (item 29). **Epic #191 makes COHSSA a section of the same
+recording the account (item 29). #224 made the admin pages answer to
+accounts holding the admin role, signed in with the password and a code
+emailed for that sign-in, for 12 hours at a time; any admin makes another
+on `/admin/people`, only the owner removes one, and the one owner is made
+by hand (item 30). **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24), and #227 gave every album a team: `/` leads to
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
@@ -338,7 +342,8 @@ remains the only other copy of them; #149 added the column. Also, the project's
 protect your preview deployments … and not your `*.pages.dev` domain or custom domain"*
 ([preview deployments](https://developers.cloudflare.com/pages/configuration/preview-deployments/)).
 So on that address, the code's own check of the Access token is the only lock on
-`/admin`. #151 already requires that check.
+`/admin`. #151 already requires that check. *Since #224 that lock is the
+admin session instead (item 30), the same on every hostname.*
 
 **Kill condition.** Move to a Worker, by the route in Cloudflare's migration guide
 ([migrate from Pages](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/)),
@@ -796,6 +801,14 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
 Secrets, and where the code is created and rotated, are in README.md, The photo site.
 
 ### 12. The admin guard
+
+**Replaced in code by #224, 2026-10-06 (item 30).** Both admin directories
+now run `requireAdmin`, an account's 12-hour admin session opened by its
+password and an emailed code, and `requireOwner` is gone, with the admins'
+`ACCESS_AUD` and `ADMIN_EMAILS` it read (the owner's choice at #224's
+pickup: replace outright). The Access application in front of `/admin`
+stays until #226 removes it. What follows is #151's record as built: the
+token check it describes still guards `/coach` (item 20) until #226.
 
 **Built in #151, 2026-09-28.** Every `/admin` page and admin API passes
 `requireOwner` in `lib/access.js`. Since #192 the same check also guards
@@ -1446,7 +1459,8 @@ it, and the share page links it beside the join step.
   per phone (`upload_counts`). Leaving them out would make a list headed "what
   the site keeps" wrong.
 - **"One of the site's admins" checks a photo, not "the owner"**, since item
-  12 lets every address in `ADMIN_EMAILS` approve.
+  12 lets every address in `ADMIN_EMAILS` approve (since #224, every account
+  holding the admin role; item 30).
 - **A header or footer change is five copies**: `public/404.html`,
   `public/policy.html`, `public/share/index.html`, `templates/page.html` and
   `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
@@ -1550,7 +1564,8 @@ lands on the share page able to send, having typed and followed no code
 `lib/access.js` the guard, and `lib/session.js` the coach's session.
 
 - **The admin guard's check, run against a second list.** `requireCoach` is
-  `requireOwner`'s token check (item 12) with the coaches' AUD tag,
+  `requireOwner`'s token check (item 12; since #224 the one guard left
+  running it, item 30) with the coaches' AUD tag,
   `ACCESS_COACH_AUD`, and their list, `COACH_EMAILS`, so it refuses every
   token #151's list refuses, on every hostname, `*.pages.dev` included.
   `test/coach.test.js` runs that list at `/coach`, and `test/guard.test.js`
@@ -2016,7 +2031,8 @@ photo site, Account requests and Deleting an account by hand, is the
 operating record. The owner's decisions, through the question tool:
 
 - **The admins' email is the lazy hour** (owner, at pickup, as criterion 5
-  proposed). The first new request emails every address on `ADMIN_EMAILS` at
+  proposed). The first new request emails every admin (each address on
+  `ADMIN_EMAILS` until #224, each admin account since; item 30) at
   once and opens an hour; requests inside it send nothing; the first after it
   sends one email naming every request no email has named. The admin home
   counts the waiting requests, which is how a request that no later one
@@ -2103,9 +2119,10 @@ before: one of them, the email's 50-name cap, narrows criterion 5.
   revoked one's is #225's.
 - **The admins' email names a request by name, role and teams only**, never
   the address or the note, as `/policy` says, and links `/admin/people`
-  (item 26). Each address on `ADMIN_EMAILS` gets a send of its own,
-  until #224 makes admins accounts. Only a request that made an account sends
-  it. If no admin's email goes through, the hour is given back and the
+  (item 26). Each admin gets a send of its own: since #224 each account
+  holding the admin role, the owner's included (`adminAddresses`, item 30),
+  where until then it was each address on `ADMIN_EMAILS`. Only a request
+  that made an account sends it. If no admin's email goes through, the hour is given back and the
   requests stay unnamed for the next request.
 - **One email names at most 50 requests** (`LIST_MAX`) and says how many more
   wait; those are named by the next email. That narrows criterion 5's "names
@@ -2262,13 +2279,14 @@ The rest are defaults, recorded on #221 at pickup or in its pull request:
 **Built in #222, 2026-10-06.** An approved person sets a password from the
 emailed link at `/set-password`, signs in at `/sign-in`, lands on
 `/account`, signs out there, and resets a forgotten password at
-`/forgot-password`. `lib/sign-in.js` holds sign-in, sign-out and setting a
+`/forgot-password`. Since #224 an account with the admin role is also asked
+for an emailed code after its password (item 30). `lib/sign-in.js` holds sign-in, sign-out and setting a
 password, `lib/account-session.js` the cookie and its guard,
 `lib/password-rules.js` the password's rules and the breach check,
 `lib/reset.js` the reset, `lib/sign-in-page.js` and `lib/password-page.js`
 the pages, and migration 0009 the columns and tables. README.md, The photo
 site, Signing in, is the operating record. Sending from an account is
-#223's, and the admin sign-in with its emailed code #224's.
+#223's, and the admin sign-in with its emailed code #224's (item 30).
 
 **The password follows NIST SP 800-63B-4**, section 3.1.1.2
 (pages.nist.gov/800-63-4/sp800-63b.html, last modified 2025-08-26, read
@@ -2643,6 +2661,179 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   `ACCOUNT_SESSION_DAYS = SESSION_DAYS` would meet an unset constant
   whenever `session.js` loaded first. It states 90 itself, and
   `test/policy.test.js` still holds the two equal.
+
+### 30. Admins: the emailed code, the 12-hour session, the owner
+
+**Built in #224, 2026-10-06** (D15). An account holding the admin role
+signs in at `/sign-in` like anyone, and is then asked for a 6-digit code the
+site emails to the account's address. The code opens the account's 90-day
+session and a separate 12-hour admin session, which every admin page and
+admin API checks in place of #151's Access token (item 12).
+`lib/admin-code.js` holds the code, `lib/admin-session.js` the cookie and
+the guard (`requireAdmin`), `lib/people.js` making and removing admins,
+`functions/sign-in/code.js` the code's page, and migration 0013 the role,
+the codes and the triggers. README.md, The photo site, Signing in, Approving
+accounts and Making the owner, is the operating record. The owner's
+decisions at pickup, through the question tool:
+
+- **One sign-in, and the admin part lasts 12 hours** (the recommendation).
+  Everyone signs in at `/sign-in`; an account with the admin role meets the
+  code after its password, every time it signs in, and the right code sets
+  both `__Host-account` (90 days, for sending) and `__Host-admin` (12 hours,
+  for the admin pages). After 12 hours the admin pages send the browser to
+  `/sign-in?admin`, while the phone keeps sending. Not chosen: a separate
+  admin sign-in page, with `/sign-in` code-free for everyone; one 12-hour
+  session for everything an admin does, sending included.
+- **The owner role is granted by hand, once per database** (the
+  recommendation). No address may go into this public repo (item 12), so no
+  migration can name the owner: README's Making the owner runs one `UPDATE`
+  keyed by the account's id. Not chosen: an `OWNER_EMAIL` secret, which
+  would outlive #226 while `ADMIN_EMAILS` goes; the first address on
+  `ADMIN_EMAILS` claiming it at its first sign-in, a bootstrap path inside
+  the guard.
+- **Any admin adds an admin, only the owner removes one.** This changed
+  criterion 4's default, the owner alone, as that criterion allowed. Not
+  chosen: the default; any admin adding and removing.
+- **Replace outright** (the recommendation). Both admin directories run
+  `[requireAdmin, requireSameOrigin]`; `requireOwner` and the admins' pair
+  of names it read (`ACCESS_AUD`, `ADMIN_EMAILS`) are gone from the code.
+  The Access application still stands in front of `/admin` on
+  `photos.madcowsailing.com` until #226 (criterion 7), so there an admin
+  meets Access's PIN and then the site's sign-in, and an admin not on its
+  policy uses `madcowphotos.pages.dev/admin/` until #226. The accepted cost:
+  the second address on `ADMIN_EMAILS` cannot open `/admin` from the
+  release that carries #224 until it has an account and an admin makes it
+  one. Not chosen: either lock opening `/admin` until #226; both required.
+
+The rest are defaults, taken while building and recorded on #224's pull
+request:
+
+- **The code is bound to its sign-in.** The password step sets
+  `__Host-sign-in-code`, 32 random bytes for 10 minutes, and the code's row
+  is found by their SHA-256, so the code typed into another browser finds
+  nothing. The code itself is kept only as HMAC-SHA256 under
+  `SESSION_SIGNING_KEY`, over the token's hash and the code: a 6-digit code
+  has a million values, which a plain hash would give up to anyone holding
+  a copy of the table. `newCode` draws from `crypto.getRandomValues` and
+  draws again past the last whole million, so every code is equally likely.
+- **5 tries, claimed first.** Each try adds 1 to `tries` in one guarded
+  `UPDATE … WHERE tries < 5 RETURNING` before the code is checked (cairn:
+  `a-count-then-record-limit-is-not-a-limit`), and the right code is spent
+  by a second guarded statement (`useCode`) once the route has read who it
+  signs in, so of two right posts only one signs in.
+  A typed code that is not 6 digits (spaces and hyphens taken out) is a 400
+  and spends no try. 10 minutes is `expires_at`, checked in the same claim.
+- **At most 10 codes per admin in any 24 hours**, counted from the codes'
+  own rows, kept a day for it, by one `INSERT … SELECT … WHERE count < 10`.
+  So someone holding an admin's password cannot spend Resend's 100 emails
+  a day (item 21) on codes, and each code's email says what to do if it
+  was not asked for: set a new password, which ends every session and,
+  since the review below, deletes the account's codes. A code Resend
+  refused is deleted and does not count; one Resend did not confirm is
+  kept, and the code page says it may not arrive.
+- **The guard reads the account on every request**: it exists, holds the
+  session version the cookie names, is approved for a team, and holds the
+  admin role. So a removal closes the admin pages at the next request
+  (criterion 2), and a sign-out, a new password, being made an admin (the
+  review below) or #225's revoke, each a version bump, end them too. A
+  refused request, whatever its method, is a 303 to `/sign-in?admin`,
+  deleting a dead admin cookie: the admin pages are plain forms, and a
+  press made after the 12 hours lands on a page saying
+  nothing was changed. Nothing behind the guard answers a 303 there, which
+  is how `test/guard.test.js` tells the guard's refusal from a route's own.
+  The cookie's payload starts `m1.`, so no other session cookie's signature
+  (`v1.`, `c1.`, `a1.`) can be carried over.
+- **The database holds criterion 3 and the last admin itself** (migration
+  0013): a unique partial index for one owner, and seven triggers refusing
+  a second owner, the owner's demotion, deletion or any change to an
+  approved team of theirs, the last admin's demotion or deletion, and every
+  REPLACE path that removes such a row without firing a delete trigger
+  (cairn: `sqlite-append-only-needs-a-replace-trigger`). *Measured* on
+  node:sqlite 3.53.3 before the triggers: `UPDATE OR REPLACE accounts SET
+  admin_role = 'owner'` on a second account deleted the owner's whole row,
+  teams and all, because the unique index's clash resolves by deletion. A
+  `REPLACE` onto an admin's id or email is skipped (`RAISE(IGNORE)`), never
+  refused, because a `BEFORE INSERT` trigger runs before `/ask`'s `ON
+  CONFLICT DO NOTHING`: a refusal would answer `/ask` for an admin's address
+  with an error and so name it, where #220's criterion 4 holds every known
+  address to one answer. `test/admins.test.js` holds `/ask` for the owner's
+  address to the same statements as any known address's. The same seven
+  held on local D1 (`wrangler d1 execute --local`, 2026-10-06).
+- **Making an admin needs an approved team, and each press is one batch**:
+  the log entry and the change, both held by the same condition, the actor
+  re-read in it (the guard read them when the request began, and a removal
+  can land in between). Nothing is emailed: a new admin meets the code at
+  their next sign-in, and since the review below the change ends every
+  session they hold. The log's actions are `promote` and `demote`, with no
+  detail.
+- **The admins' email about new requests goes to the admin accounts**
+  (`adminAddresses` in `lib/accounts.js`), the owner's included, where it
+  went to `ADMIN_EMAILS` (item 25). So nothing reads `ADMIN_EMAILS` now, and
+  #226 deletes it with the Access application. `ACCESS_AUD` stays in
+  `wrangler.jsonc`, read by nothing, as the record of that application's
+  tag until #226.
+- **The admin home says who is signed in, as the owner or an admin, until
+  when, and has Sign out**, which ends every session the account holds, as
+  `/account`'s does (#222). `/sign-out` now ends a session from either
+  cookie and deletes both.
+- **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
+  so `scripts/access-dev.mjs` signs an admin session for the local account
+  `ADMIN_DEV_ACCOUNT` names, with the local key, on every request it
+  forwards; the guard runs unchanged. README.md, Running it locally.
+
+**#224's review, 2026-10-06.** `review-fanout` confirmed 11 findings, and the
+owner chose to fix all 11. The owner's choices on the three it escalated,
+and on its one escalation, through the question tool:
+
+- **The right code lands on `/account`, which links the admin pages** (the
+  recommendation). Until #226, Access stands in front of `/admin` on
+  `photos.madcowsailing.com` and answers a browser without its cookie with a
+  302 to its login on another origin. The code page's CSP says `form-action
+  'self'`, which Chromium and WebKit apply to every redirect of a form's
+  post, so the 303 to `/admin/` was stopped there with no error page, after
+  the code was spent; Firefox follows it. A link is not a form's post. #226
+  may go back to the direct redirect. Not chosen: allowing Access's origin
+  in `form-action` on `/sign-in/code`; documenting "open `/admin` first".
+- **Making an admin ends every session the account holds** (the
+  recommendation): `promoteAdmin` adds 1 to the session version, the
+  session renewal a grant of rights calls for, as #225's revoke will. Without
+  it a removal only suspended: made an admin again within 12 hours of their
+  last admin sign-in, someone found a cookie from before the removal open
+  again, with no new password and no code. A removal still ends nothing but
+  the admin pages. Not chosen: refusing admin cookies older than the
+  promotion's log entry; a grant-time column in a migration 0014; correcting
+  the docs only.
+- **A sign-in makes the browser one person** (the recommendation): the
+  password step at `/sign-in`, `/set-password` and a code step whose role
+  was taken away delete any `__Host-admin` the browser holds. So someone
+  signing in where an admin left theirs open is not that admin on `/admin`,
+  and their Sign out does not end the admin's sessions everywhere. Not
+  chosen: signing out only the account cookie's account; keeping it and
+  correcting the comment.
+- **0013 and the owner reach production at step 8, before the merge** (the
+  recommendation, on the review's escalation). From this story `signIn`
+  reads `admin_role`, so a release ahead of 0013 would answer every
+  `/sign-in` with a 503, for parents and coaches too (cairn's open fault
+  `promotion-ships-ahead-of-its-migrations`). Not chosen: also a story for a
+  release-PR check of `/api/health`'s migration; README alone.
+
+Defaults the other findings asked for, taken while fixing:
+
+- **A new password deletes the account's codes**, in `setPassword`'s batch,
+  so the reset the email and the limit's page advise lifts the day's limit
+  at once: someone who spent the codes with the old password cannot keep
+  the admin out for a day. *Measured* before the fix: the reset left the
+  limit standing for 86,000 seconds.
+- **The code is spent after the reads.** `checkCode` claims the try and
+  checks the code, the route reads who it signs in, and `useCode` spends it.
+  A read that fails now leaves the code to be sent again, where spending it
+  first answered "try again" for a code no longer there (cairn:
+  `a-route-of-separate-writes-answers-from-its-last-commit`, its third
+  instance after #158 and #221).
+- **Sign-out is one statement per account**, holding every version its
+  cookies carry, so its 503 always means nothing ended. Two calls, the
+  second a no-op that could still fail, answered 503 for sessions that had
+  ended.
 
 ## The two-presentation rule
 

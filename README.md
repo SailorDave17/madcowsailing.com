@@ -300,6 +300,12 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   the policy alone gets a PIN and then a `403`. A tag changes only if its application is
   deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
   refuses everyone.
+  **Since #224 that is true of `/coach` alone.** `/admin` answers to the
+  site's admin session (`photos/lib/admin-session.js`), and no code reads the
+  admin application's token, `ACCESS_AUD` or `ADMIN_EMAILS`. The admin
+  application stays in front of `/admin` on `photos.madcowsailing.com` until
+  #226 removes it, so there an admin passes its PIN and then the site's own
+  sign-in.
 - **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC;
   since #222 the reset form at `/forgot-password` uses it too),
   in Managed mode with pre-clearance off, for the hostnames
@@ -323,16 +329,18 @@ By name only; a value never goes in this repo.
     an account's included; rotating the code ends only the parents' (#192).
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
     stores instead of a network address.
-  - `ADMIN_EMAILS` (#151) is the comma-separated list of addresses the admin
-    guard lets in, compared without regard to letter case. It is a secret
-    only so the addresses stay out of this public repo (owner's choice,
-    2026-09-28). Unset or empty, every admin request is refused. A secret
-    cannot be read back or appended to, so changing the list means typing the
-    whole of it again, **in both environments**. Adding an admin is four
-    changes: `ADMIN_EMAILS` in production and in preview, the `Admins - photos
-    admin` policy, and the `Allow Members - Cloudflare Pages` policy, which
-    decides who can open a preview at all. Leave the last out only for an admin
-    meant to have no preview access; they then get Access's refusal there.
+  - `ADMIN_EMAILS` (#151) was the comma-separated list of addresses the
+    admin guard let in. **Since #224 nothing reads it**: the admin pages
+    answer to accounts holding the admin role, and the admins' email about
+    new requests goes to those accounts (`CLAUDE.md`, The photo site, item
+    30). It stays set until #226 deletes it with the Access application.
+    **Adding an admin is now "Make admin" on `/admin/people`**, for anyone
+    with an approved account (Approving accounts, below). Until #226 the
+    `Admins - photos admin` Access policy still stands in front of `/admin`
+    on `photos.madcowsailing.com`, so an admin not on it uses
+    `madcowphotos.pages.dev/admin/` (Making the owner, below). The `Allow
+    Members - Cloudflare Pages` policy still decides who can open a preview
+    at all.
   - `COACH_EMAILS` (#192) is the comma-separated list of coaches the coach
     sign-in at `/coach` lets in, kept as a secret for the same reason as
     `ADMIN_EMAILS`, and compared the same way. Unset or empty, `/coach`
@@ -378,8 +386,9 @@ By name only; a value never goes in this repo.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
   `node -e "const k=()=>require('crypto').randomBytes(32).toString('base64url');require('fs').writeFileSync('.dev.vars','SESSION_SIGNING_KEY='+k()+'\nADDRESS_HASH_KEY='+k()+'\n')"`
-  from `photos/`, which prints nothing. For the admin pages, add the three
-  lines under Running it locally.
+  from `photos/`, which prints nothing. For the admin pages, make the local
+  admin account and add `ADMIN_DEV_ACCOUNT`; for `/coach`, add the three
+  lines there. Both are under Running it locally.
 - **Local only, in `photos/.env`** (gitignored; wrangler reads it from
   `photos/`): `CLOUDFLARE_API_TOKEN`, an API token named
   `madcowphotos D1 migrations` with Account → D1 → Edit on this account only,
@@ -407,38 +416,52 @@ bindings reachable, and the newest migration's name. The local database and
 bucket are stand-ins under `photos/.wrangler/`, never the real ones.
 `--no-install` keeps `npx` on the wrangler pinned in the root `package.json`.
 
-**The admin pages run locally behind a stand-in for Access**, with the real
-token check and no way around it (#151). Add three lines to `photos/.dev.vars`,
-which `wrangler pages dev` reads in place of `wrangler.jsonc`'s values for
-those names:
+**The admin pages run locally behind a stand-in**, with the real check and no
+way around it (#151; since #224 the admin session). An admin signs in with
+the password and a code the site emails, and locally there is no Resend key
+to send it, so the stand-in signs the session the code would open, for a
+local admin account, with the local `SESSION_SIGNING_KEY`. Make the account
+once, from `photos/` (write your own address for `<address>`):
+
+```sh
+npx --no-install wrangler d1 execute madcowphotos-preview --local --command "INSERT INTO accounts (email, name, role, requested_at, admin_role) VALUES ('<address>', 'Local owner', 'parent', unixepoch(), 'owner'); INSERT INTO account_teams (account_id, team, state) SELECT id, 'hoover-jrt', 'approved' FROM accounts WHERE email = '<address>'"
+```
+
+Then add its id, `1` on a fresh database, to `photos/.dev.vars`, which
+`wrangler pages dev` reads in place of `wrangler.jsonc`'s values:
+
+```sh
+ADMIN_DEV_ACCOUNT=1
+```
+
+Beside `wrangler pages dev`, run `node scripts/access-dev.mjs` from `photos/`
+and open `http://127.0.0.1:8789/admin/`. It forwards each request to `:8788`
+with that account's admin session added. The guard runs unchanged: it checks
+the signature and reads the account's role, version and teams on every
+request, so an account that is no admin is still sent to `/sign-in?admin`.
+`/admin/` on `:8788` directly is sent there too, which is the other half
+worth seeing. After signing out through `:8789`, the account's session
+version is 2: add `ADMIN_DEV_VERSION=2` and restart the stand-in. It passes
+its own Origin on as the site's, as one host does on production, so the
+admin pages' forms get past the site's Origin check (#152); any other Origin
+goes on unchanged, and is refused. A sign-in at `/sign-in` as an admin stops
+at the code, which says it could not be sent.
+
+**The coach sign-in runs locally behind the same stand-in** (#192), on a
+generated key pair it publishes where the guard fetches a team's keys. Add
+three more lines:
 
 ```sh
 ACCESS_TEAM_DOMAIN=http://127.0.0.1:8789
-ACCESS_AUD=local
-ADMIN_EMAILS=<any address>
-```
-
-Then, beside `wrangler pages dev`, run `node scripts/access-dev.mjs` from
-`photos/` and open `http://127.0.0.1:8789/admin/`. It generates a key pair,
-publishes the public half where the guard fetches a team's keys, and forwards
-each request to `:8788` with a freshly signed token. `/admin/` on `:8788`
-directly answers `403`, which is the other half worth seeing. It passes its own
-Origin on as the site's, as one host does on production, so the admin pages'
-forms get past the site's Origin check (#152); any other Origin goes on
-unchanged, and is refused.
-
-**The coach sign-in runs locally the same way** (#192). Add two more lines:
-
-```sh
 ACCESS_COACH_AUD=local-coach
 COACH_EMAILS=<any address>
 ```
 
 Restart both, then open `http://127.0.0.1:8789/coach`. The stand-in signs
 `/coach` and anything under it for the first coach address and
-`ACCESS_COACH_AUD`, and every other path for the admin as before, so the
-browser lands on `/share/` able to send. Without the two lines it forwards
-`/coach` with no token, and the guard answers `403`.
+`ACCESS_COACH_AUD`, so the browser lands on `/share/` able to send. Without
+the three lines it forwards `/coach` with no token, and the guard answers
+`403`.
 
 **The request form runs locally on Cloudflare's test keys** (#220). Add two
 lines to `photos/.dev.vars`, the always-pass pair from Turnstile's Testing
@@ -454,11 +477,12 @@ any host, and siteverify passes the dummy token it makes. Without the two
 lines, `/ask` answers `503`. The admins' email needs `RESEND_API_KEY`, which
 `.dev.vars` must not hold, so locally it is logged as not configured.
 
-**After restarting the stand-in, the admin pages answer `403` for up to a
+**After restarting the stand-in, `/coach` answers `403` for up to a
 minute.** It makes a new key each time it starts, and the guard fetches a
 team's keys at most once a minute (`REFETCH_GAP_SECONDS` in `lib/access.js`),
-so the new key is unknown until then. On #152, two reads after a restart
-answered `403` and the next, 18 s after the second, `200`.
+so the new key is unknown until then. On #152, two reads of the admin pages,
+which ran this check until #224, answered `403` after a restart and the
+next, 18 s after the second, `200`. The admin pages need no key now.
 
 **`photos/package.json` is what makes that work.** Wrangler 4.141.0's
 `pages dev` reads `wrangler.jsonc` from the current directory to find the
@@ -503,6 +527,7 @@ a new file is listed here.
 | `0010_album_teams.sql` | #227 | `team` on `albums`, Hoover JRT for every album made before it; four triggers that hold it to a row in `teams`, in place of a reference SQLite will not add with a default |
 | `0011_teams_replace_guard.sql` | #227 | A fifth trigger: a `REPLACE` into `teams` cannot remove a team an album names, the one path 0010's four left open |
 | `0012_photos_account.sql` | #223 | `account_id` on `photos`, the account that sent each photo, set to NULL when the account is deleted; a CHECK holding an account's row to the placeholder code generation and session time 0; a partial index |
+| `0013_admins.sql` | #224 | `admin_role` on `accounts`, NULL, `admin` or `owner`, with at most one owner; seven triggers keeping the owner's role, account and approved teams and the last admin; `admin_codes`, each admin sign-in code kept as a keyed hash, and when it was sent, for a day |
 
 ### The invite code
 
@@ -554,7 +579,8 @@ photo site, item 20 has the decisions.
 - **On the preview** a coach opens `https://develop.madcowphotos.pages.dev/coach`,
   which needs the coach's address on the preview policy as well.
 - `/coach` on `madcowphotos.pages.dev`, which no Access application covers,
-  answers the site's own `403`, as `/admin` does there.
+  answers the site's own `403`. `/admin` there answers to the site's own
+  admin sign-in since #224 (Making the owner, below).
 
 To read the current code without the page:
 `npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
@@ -903,8 +929,11 @@ Every password the accounts epic (#216) stores is hashed by
 (#218; `CLAUDE.md`, The photo site, item 23, for why). Since #222 a password
 set at `/set-password` is stored this way (Signing in, below).
 
-- **Measuring its CPU** on the develop preview: sign in to
-  `https://develop.madcowphotos.pages.dev/admin/` through Access, then drive
+- **Measuring its CPU** on the develop preview: open
+  `https://develop.madcowphotos.pages.dev/admin/`, which takes the preview's
+  Access PIN and then, since #224, the site's admin sign-in: an admin account
+  on the preview database (Making the owner), its password and the emailed
+  code. Then drive
   `GET /api/admin/password-probe` 20 times from inside that page, alone in one
   UTC minute, and `?run=none` the same way in another minute as the control.
   Read both minutes from the GraphQL Analytics API's
@@ -962,7 +991,8 @@ old invite link there.
   turned-down address (owner, at #221's pickup): an admin who changes their
   mind approves it on `/admin/people` instead.
 - **The admins hear at most once an hour.** The first new request emails
-  every address on `ADMIN_EMAILS` at once and opens the hour; requests inside
+  every admin at once (since #224 each account holding the admin role, where
+  it was each address on `ADMIN_EMAILS`) and opens the hour; requests inside
   it send nothing; the first after it sends one email naming everyone since,
   by name, role and teams only, with a link to `/admin/people` (below). The
   admin home says how many requests wait, which is how a request that no
@@ -1000,6 +1030,58 @@ decisions) lists every request for an account in three lists: **Waiting**,
 - **A link's row holds only the token's SHA-256** (`password_links`). An
   expired row is deleted by the next load of `/admin/people` or the next link
   sent.
+- **Admins** (#224; `CLAUDE.md`, The photo site, item 30). Each person shows
+  whether they are the owner or an admin. **"Make admin"**, on anyone approved
+  for a team, is any admin's to press; **"Remove admin"**, on an admin, is
+  the owner's alone, and the owner's own role can never be taken (the owner's
+  choices at #224's pickup). Neither emails anyone. "Make admin" signs the
+  person out on every phone and computer, and they open the admin pages at
+  their next sign-in, which asks for an emailed code; so a cookie from before
+  a removal cannot open them again if they are made an admin again (the
+  owner's choice at #224's review). A removed one is refused from their next
+  request, and their account still sends. Both are in the log. The owner is
+  made once, by hand (Making the owner, below).
+
+### Making the owner
+
+The owner role goes to one account, once per database, by hand: no address
+may go into this public repo, so no migration can name the owner (owner, at
+#224's pickup). The database then refuses a second owner, and any change that
+would demote, revoke or delete the owner (migration 0013). From `photos/`,
+with the D1 token in `photos/.env` (above):
+
+1. The owner's own account must exist and be approved for a team: ask at
+   `/ask` with the owner's address, approve it on `/admin/people`, and set a
+   password from the emailed link. On production the approval happens on
+   today's admin pages, before the release that carries #224.
+2. Find its id (step 1 of Deleting an account by hand, below).
+3. Make it the owner, on the database the step is for (`madcowphotos-preview
+   --env preview`, or `madcowphotos --env production`):
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE accounts SET admin_role = 'owner' WHERE id = <id> AND EXISTS (SELECT 1 FROM account_teams AS t WHERE t.account_id = accounts.id AND t.state = 'approved')"
+   ```
+
+   It changes 1 row, or none for an account approved for no team. A second
+   run, or another account, is refused: `there is an owner already`.
+4. Read it back: `--command "SELECT id, email, admin_role FROM accounts WHERE
+   admin_role IS NOT NULL"` lists the one owner.
+
+**On production, do this before the release that carries #224 is promoted**,
+after migration 0013 is applied: from that release `/admin` answers only to an
+admin account, so until there is an owner it answers no one. The owner then
+signs in at `/sign-in` with the password and the emailed code, lands on
+`/account`, opens the admin pages from its link, and makes the other admins
+on `/admin/people`. `photos/test/policy.test.js` runs the step-3 statement
+against the real schema, on an approved account and on one approved for no
+team.
+
+**Until #226, Cloudflare Access still stands in front of `/admin` on
+`photos.madcowsailing.com`** (criterion 7), and its policy lists the addresses
+it always has. So an admin made on `/admin/people` who is not on that policy
+opens the admin pages at `https://madcowphotos.pages.dev/admin/`, where Access
+is not, or is added to the policy as well. Everyone on it meets both: Access's
+PIN, then the site's sign-in and its code.
 
 ### Signing in
 
@@ -1041,6 +1123,25 @@ until #226.
 - **A password that stopped working** comes back only through a new
   password: from a reset, or from "Send a new link" on `/admin/people`.
   Setting it puts the count of failures in a row back to 0.
+- **An admin's sign-in takes a code** (#224). Once an admin's password
+  passes, the site emails a 6-digit code to the account's address and sends
+  the browser to `/sign-in/code`. The code works once, for 10 minutes, with 5
+  tries, only in that browser (a `__Host-sign-in-code` cookie names the
+  sign-in), and is kept only as a keyed hash in `admin_codes`. The right code
+  opens the account's 90-day session and a 12-hour admin session,
+  `__Host-admin`, which every admin page and admin API checks on every
+  request: the role, the session version and an approved team. It lands on
+  `/account`, whose "Open the admin pages" link opens them: until #226,
+  Access stands in front of `/admin` on `photos.madcowsailing.com`, and
+  Chromium and WebKit stop a form's redirect into its login under the page's
+  `form-action 'self'`, where a link goes through (#224's review). An admin
+  is sent at most 10 codes in any 24 hours; a code whose email Resend
+  refused is deleted and does not count, and a new password deletes the
+  account's codes, so a reset lifts the limit at once. A password's step at
+  `/sign-in` and a new password delete any admin cookie the browser held,
+  and the code step replaces it, so the browser is one person. The admin
+  home's Sign out ends every session the account holds, as `/account`'s
+  does. A refused admin request lands on `/sign-in?admin`, which says so.
 
 ### Hiding every photo an account sent, by hand
 
@@ -1093,8 +1194,10 @@ come down too, hide them first (above). From `photos/`, with the D1 token in
 
 4. Read it back: step 1's statement must return no row.
 
-Its teams and any unused link to set a password go with it (`ON DELETE
-CASCADE`). The photos it sent stay as they are and stop naming it: their
+Its teams, any unused link to set a password and, for an admin, its sign-in
+codes go with it (`ON DELETE CASCADE`). The owner's account is never deleted,
+and nor is the last admin's: the database refuses the statement (`the owner
+account is kept`, migration 0013, #224). The photos it sent stay as they are and stop naming it: their
 `account_id` becomes NULL (`ON DELETE SET NULL`, migration 0012, #223), and
 each still says whether a coach's account sent it. `photos/test/policy.test.js`
 runs the step-3 statement against the real schema, with a row in every table,

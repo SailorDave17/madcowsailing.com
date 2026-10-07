@@ -2,8 +2,9 @@
 // the admins' image route and the admin home's counts. Every request runs
 // through the chain Pages runs in front of the route (the root middleware,
 // then the admin guards), against a real SQLite holding the real migrations
-// (test/d1.js), an R2 stand-in (test/r2.js) and Access tokens minted by
-// test/access.js. Photos are seeded as #154's upload route leaves them, a
+// (test/d1.js), an R2 stand-in (test/r2.js) and an admin's session minted by
+// test/admin.js (#224; Access tokens until then). Photos are seeded as #154's
+// upload route leaves them, a
 // pending row and three objects; test/upload.test.js holds that route.
 //
 // A press is built from the page's own markup: the batch form's fields, the
@@ -28,7 +29,7 @@ import { onRequestGet as approveGet, onRequestPost as approvePost } from '../fun
 import { onRequestGet as rejectGet, onRequestPost as rejectPost } from '../functions/api/admin/queue/reject.js';
 import { onRequestGet as captionsGet, onRequestPost as captionsPost } from '../functions/api/admin/queue/captions.js';
 import { onRequestGet as image } from '../functions/api/admin/photos/[id]/[size].js';
-import { TOKEN_HEADER, keyCache } from '../lib/access.js';
+import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import {
   QUEUE_SCRIPT, adminHome, adminQueuePage, queueNotice, storageText, waitingText,
 } from '../lib/admin-page.js';
@@ -38,7 +39,7 @@ import {
   FREE_STORAGE_BYTES, PART_PHOTOS, QUEUE_FORM_BYTES, readPress, rejectPhotos, waitingBatches,
 } from '../lib/queue.js';
 import { nowSeconds } from '../lib/session.js';
-import { accessEnv, certs, claims, keyPair, mint } from './access.js';
+import { ADMIN_KEY, adminCookieHeader, adminData, seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 import { jpeg } from './jpeg.js';
 import { r2 } from './r2.js';
@@ -59,16 +60,16 @@ const BATCH_A = '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b';
 const BATCH_B = '9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d';
 const T0 = 1_790_000_000; // 2026-09-21T14:13:20Z
 
-const team = await keyPair();
-beforeEach(() => {
-  keyCache.clear();
-  mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-});
 afterEach(() => mock.restoreAll());
 
-/** A site with two open albums and nothing sent. */
+// The admin guard's one read a request (lib/admin-session.js, sessionAdmin):
+// a test counting what a route asks D1 counts past it.
+const GUARD_READ = /^SELECT a\.id, a\.name, a\.email, a\.admin_role FROM accounts AS a /;
+
+/** A site with two open albums and nothing sent, and its owner, account 1, whose session admin() sends. */
 async function site({ bucket = r2() } = {}) {
-  const env = { DB: d1(), MEDIA: bucket, ...accessEnv() };
+  const env = { DB: d1(), MEDIA: bucket, SESSION_SIGNING_KEY: ADMIN_KEY };
+  seedAdmin(env.DB);
   const fall = await createAlbum(env.DB, FALL, T0);
   const practice = await createAlbum(env.DB, PRACTICE, T0);
   return { env, fall, practice };
@@ -141,11 +142,11 @@ const ROUTES = {
   },
 };
 
-/** A request through the whole chain. `token: null` sends none, `origin: null` no Origin. */
-async function admin(env, method, path, { token, origin = SITE, body } = {}) {
+/** A request through the whole chain. `cookie: null` sends no admin session, `origin: null` no Origin. */
+async function admin(env, method, path, { cookie, origin = SITE, body } = {}) {
   const headers = {};
   if (origin !== null) headers.Origin = origin;
-  if (token !== null) headers[TOKEN_HEADER] = token ?? await mint(team);
+  if (cookie !== null) headers.Cookie = cookie ?? await adminCookieHeader(1);
   if (body !== undefined) headers['Content-Type'] = 'application/x-www-form-urlencoded';
   const request = new Request(`${SITE}${path}`, { method, headers, body });
   const url = new URL(request.url);
@@ -366,19 +367,26 @@ test('each size comes through the admin route: the stored bytes, as a JPEG, cach
   }
 });
 
-const REFUSED_TOKENS = {
-  'no Access token': async () => null,
-  'a token for an email not on the list': () => mint(team, claims({ email: 'someone@example.com' })),
-  'a token for another Access application': () => mint(team, claims({ aud: ['b'.repeat(64)] })),
+// Since #224 the guard sends a refused request to the sign-in, 303, whatever
+// its method (lib/admin-session.js). Account 99 does not exist.
+const REFUSED_SESSIONS = {
+  'no admin session': async () => null,
+  'an admin session signed with another key': () => adminCookieHeader(1, { key: `${ADMIN_KEY}-other` }),
+  'an admin session for an account that does not exist': () => adminCookieHeader(99),
 };
 
-for (const [name, token] of Object.entries(REFUSED_TOKENS)) {
-  test(`the image route with ${name}: 403, and the bucket is never read`, async () => {
+const assertSentToSignIn = (res) => {
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get('Location'), ADMIN_SIGN_IN);
+};
+
+for (const [name, cookie] of Object.entries(REFUSED_SESSIONS)) {
+  test(`the image route with ${name}: sent to the sign-in, and the bucket is never read`, async () => {
     const { env, fall } = await site();
     const id = seedPhoto(env, fall);
     const get = mock.method(env.MEDIA, 'get');
-    const res = await admin(env, 'GET', `/api/admin/photos/${id}/full`, { token: await token(), origin: null });
-    assert.equal(res.status, 403);
+    const res = await admin(env, 'GET', `/api/admin/photos/${id}/full`, { cookie: await cookie(), origin: null });
+    assertSentToSignIn(res);
     assert.equal(get.mock.callCount(), 0);
   });
 }
@@ -396,13 +404,15 @@ test('the image route answers 404 for a photo or size that is not there, and nev
     assert.equal(res.status, 404, path);
     assert.equal(res.headers.get('Cache-Control'), 'no-store', path);
   }
-  // A size that is not one of the three is refused before anything is read.
+  // A size that is not one of the three is refused before anything is read,
+  // past the admin guard's own read of the admin (#224), one a request.
   const get = mock.method(env.MEDIA, 'get');
   env.DB.statements.length = 0;
   for (const size of ['thumb', 'constructor', '__proto__']) {
     assert.equal((await admin(env, 'GET', `/api/admin/photos/${id}/${size}`, { origin: null })).status, 404, size);
   }
-  assert.deepEqual([get.mock.callCount(), env.DB.statements.length], [0, 0]);
+  assert.equal(env.DB.statements.filter((sql) => GUARD_READ.test(sql)).length, 3);
+  assert.deepEqual([get.mock.callCount(), env.DB.statements.filter((sql) => !GUARD_READ.test(sql)).length], [0, 0]);
   get.mock.restore();
   // An approved photo, and a hidden one, still open from the queue's links
   // (criterion 11 opens the full size after the approval).
@@ -890,31 +900,32 @@ test('the counts read right at their edges', () => {
 // ---- Criterion 10: refused without an admin, or from another site -----------
 
 const REFUSALS = {
-  ...Object.fromEntries(Object.entries(REFUSED_TOKENS).map(([name, token]) => [name, { token }])),
-  'a foreign Origin': { origin: 'https://evil.example' },
-  'a sibling site\'s Origin': { origin: 'https://madcowsailing.com' },
-  'no Origin': { origin: null },
-  'the opaque Origin "null"': { origin: 'null' },
+  ...Object.fromEntries(Object.entries(REFUSED_SESSIONS).map(([name, cookie]) => [name, { cookie, status: 303 }])),
+  'a foreign Origin': { origin: 'https://evil.example', status: 403 },
+  'a sibling site\'s Origin': { origin: 'https://madcowsailing.com', status: 403 },
+  'no Origin': { origin: null, status: 403 },
+  'the opaque Origin "null"': { origin: 'null', status: 403 },
 };
 
 for (const route of ['approve', 'reject', 'captions']) {
-  for (const [name, options] of Object.entries(REFUSALS)) {
-    test(`POST /api/admin/queue/${route} with ${name}: 403, and no row or object changes`, async () => {
+  for (const [name, { status, ...options }] of Object.entries(REFUSALS)) {
+    test(`POST /api/admin/queue/${route} with ${name}: ${status}, and no row or object changes`, async () => {
       const { env, fall } = await site();
       const a = seedPhoto(env, fall, { caption: 'one' });
       const before = rows(env);
       const objects = [...env.MEDIA.objects.keys()];
-      const token = options.token ? await options.token() : undefined;
+      const cookie = options.cookie ? await options.cookie() : undefined;
       const res = await admin(env, 'POST', `/api/admin/queue/${route}`, {
-        ...options, token, body: `ids=${a}&caption-${a}=changed&${route}=${a}`,
+        ...options, cookie, body: `ids=${a}&caption-${a}=changed&${route}=${a}`,
       });
-      assert.equal(res.status, 403);
+      if (status === 303) assertSentToSignIn(res);
+      else assert.equal(res.status, 403);
       assert.deepEqual(rows(env), before);
       assert.deepEqual([...env.MEDIA.objects.keys()], objects);
     });
   }
 
-  test(`POST /api/admin/queue/${route} with an admin's token and the site's Origin goes through: the control`, async () => {
+  test(`POST /api/admin/queue/${route} with an admin's session and the site's Origin goes through: the control`, async () => {
     const { env, fall } = await site();
     const a = seedPhoto(env, fall, { caption: 'one' });
     const before = rows(env);
@@ -940,7 +951,7 @@ for (const route of ['approve', 'reject', 'captions']) {
 // (the first mutation round: an approve that skipped saving the captions
 // passed here, because a Save press before it had saved them).
 for (const which of ['save', { approve: 'all' }, { reject: 'all' }]) {
-  test(`${JSON.stringify(which)} on a batch of 60 with every caption at 200 characters: at most three statements, since D1 allows 50 a request on the free plan, and a form far past the albums' 4,096 bytes`, async () => {
+  test(`${JSON.stringify(which)} on a batch of 60 with every caption at 200 characters: at most three statements beside the guard's one, since D1 allows 50 a request on the free plan, and a form far past the albums' 4,096 bytes`, async () => {
     const { env, fall } = await site();
     for (let i = 0; i < 60; i++) seedPhoto(env, fall, { sentAt: T0 + i, caption: `photo ${i}` });
     const html = await page(env);
@@ -951,7 +962,12 @@ for (const which of ['save', { approve: 'all' }, { reject: 'all' }]) {
     env.DB.statements.length = 0;
     const res = await press(env, html, 0, which, edits);
     assert.equal(res.status, 303);
-    assert.ok(env.DB.statements.length <= 3, `made ${env.DB.statements.length} statements`);
+    // Since #224 the admin guard reads the admin once a request, so the whole
+    // request is at most four; the press's own stay at three, whatever the
+    // batch's size.
+    assert.equal(env.DB.statements.filter((sql) => GUARD_READ.test(sql)).length, 1);
+    const own = env.DB.statements.filter((sql) => !GUARD_READ.test(sql)).length;
+    assert.ok(own <= 3, `made ${own} statements`);
     if (which === 'save') assert.ok(rows(env).every((r) => r.state === 'pending' && r.caption === long(r.id)));
     if (which.approve) assert.ok(rows(env).every((r) => r.state === 'approved' && r.caption === long(r.id)));
     if (which.reject) assert.deepEqual([rows(env).length, env.MEDIA.objects.size], [0, 0]);
@@ -1065,7 +1081,7 @@ test('every state of the page passes the photo site\'s html-validate config, and
     // own heading order, so an h1 there is valid (measured: the plant passed).
     assert.equal((await validate(html.replace('<p class="lede">', '<h1>again</h1><p class="lede">'))).valid, false);
   }
-  const home = adminHome('owner@example.com', { waiting: 3, bytes: 1_234_567_890 });
+  const home = adminHome(adminData().admin, { waiting: 3, bytes: 1_234_567_890 });
   assert.equal((await validate(home)).valid, true);
 });
 
@@ -1089,7 +1105,7 @@ test('GET /admin/queue answers HTML that no cache may keep', async () => {
 });
 
 test('its chrome and stylesheets are the admin home\'s, and its one script is stamped with its own hash', () => {
-  const home = adminHome('owner@example.com', { waiting: 0, bytes: 0 });
+  const home = adminHome(adminData().admin, { waiting: 0, bytes: 0 });
   const html = adminQueuePage({ batches: [] });
   assert.equal(block(html, 'header'), block(home, 'header'));
   assert.equal(block(html, 'footer'), block(home, 'footer'));
@@ -1101,7 +1117,7 @@ test('its chrome and stylesheets are the admin home\'s, and its one script is st
 });
 
 test('the admin home links to the queue', () => {
-  assert.match(block(adminHome('owner@example.com', { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/queue">Waiting for approval<\/a>/);
+  assert.match(block(adminHome(adminData().admin, { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/queue">Waiting for approval<\/a>/);
 });
 
 // ---- The script (public/js/admin-queue.js) ------------------------------------

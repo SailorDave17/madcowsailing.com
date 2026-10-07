@@ -2,7 +2,7 @@
  * POST /api/admin/people/approve: Approve on /admin/people (#221). Approves
  * one account for the ticked teams, with the role chosen, then emails the
  * person a link to set a password. The guards in ../_middleware.js have
- * already required an admin's Access token and the site's own Origin.
+ * already required an admin's session and the site's own Origin.
  *
  * The press carries account=<id>, one or more team=<key> and role=<role>.
  * The approval is one transaction (lib/people.js, approveTeams); the email
@@ -25,7 +25,7 @@ export async function onRequestPost({ request, env, data }) {
   if (accountId === null || teams === null || !ROLES.includes(role)) return seeOther(peopleLocation({ error: 'form' }));
 
   const now = nowSeconds();
-  const admin = data.owner.email;
+  const admin = data.admin.email;
   if (!(await approveTeams(env.DB, { accountId, teams, role, admin, now }))) return seeOther(peopleLocation({ error: 'gone' }));
   // sendLink never throws. Its null means the account held no approved team
   // by the time it looked, which only a delete by hand in between can cause;

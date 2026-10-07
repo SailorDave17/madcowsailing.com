@@ -1,8 +1,11 @@
 /**
- * Every /admin page passes this guard first (#151): no valid Cloudflare
- * Access token for the owner, no page. lib/access.js says what valid means.
- * Then any method but GET and HEAD needs the site's own Origin (#152,
- * lib/origin.js), so a page elsewhere cannot post a form into the admin area.
+ * Every /admin page passes this guard first: no admin session, no page. Since
+ * #224 that is an account holding the admin role, signed in with its
+ * password and the code emailed for that sign-in, within its 12 hours
+ * (lib/admin-session.js says what passes). It replaced #151's Cloudflare
+ * Access token check. Then any method but GET and HEAD needs the site's own
+ * Origin (#152, lib/origin.js), so a page elsewhere cannot post a form into
+ * the admin area.
  *
  * Pages runs a directory's _middleware.js for /admin itself as well as for
  * everything under it, including a path no route answers. So an admin page
@@ -10,7 +13,7 @@
  * it calls under functions/api/admin/, which runs the same guards.
  * test/guard.test.js fails for any admin route that answers without them.
  */
-import { requireOwner } from '../../lib/access.js';
+import { requireAdmin } from '../../lib/admin-session.js';
 import { requireSameOrigin } from '../../lib/origin.js';
 
-export const onRequest = [requireOwner, requireSameOrigin];
+export const onRequest = [requireAdmin, requireSameOrigin];

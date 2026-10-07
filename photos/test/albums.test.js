@@ -2,8 +2,9 @@
 // /admin/albums, and the open list an upload session reads. Every request
 // runs through the chain Pages runs in front of the route (the root
 // middleware, then the directory's guards), against a real SQLite holding
-// the real migrations (test/d1.js), with Access tokens minted by
-// test/access.js. Each test names the criterion it holds.
+// the real migrations (test/d1.js), with an admin's session minted by
+// test/admin.js (#224; Access tokens until then). Each test names the
+// criterion it holds.
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -23,10 +24,9 @@ import * as reopen from '../functions/api/admin/albums/reopen.js';
 import * as remove from '../functions/api/admin/albums/delete.js';
 import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js';
 import { onRequestGet as openList } from '../functions/api/albums/open.js';
-import { TOKEN_HEADER, keyCache } from '../lib/access.js';
 import { MAX_SUFFIX, baseAddress, openAlbum, slugify } from '../lib/albums.js';
 import { COOKIE_NAME, nowSeconds, signSession } from '../lib/session.js';
-import { accessEnv, certs, keyPair, mint } from './access.js';
+import { adminCookieHeader, seedAdmin } from './admin.js';
 import { d1, seedCodes } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -35,18 +35,18 @@ const SITE = 'https://photos.madcowsailing.com';
 const KEY = 'test-session-signing-key-0123456789abcdef';
 const ROUTES = { create, update, close, reopen, delete: remove };
 
-const team = await keyPair();
-beforeEach(() => {
-  keyCache.clear();
-  mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-});
 afterEach(() => mock.restoreAll());
 
+// The owner is account 1, whose admin session every press and page load sends
+// (#224).
 function site() {
   const DB = d1();
   seedCodes(DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB'); // generation 2 is current
-  return { DB, SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY, ...accessEnv() };
+  seedAdmin(DB);
+  return { DB, SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY };
 }
+
+const adminSession = () => adminCookieHeader(1, { key: KEY });
 
 /** Run `handlers` in order, as Pages does, with one context.data. */
 function chain(handlers, request, env) {
@@ -61,7 +61,7 @@ const FORM = 'application/x-www-form-urlencoded';
 async function post(env, action, fields, { type = FORM, body } = {}) {
   const request = new Request(`${SITE}/api/admin/albums/${action}`, {
     method: 'POST',
-    headers: { Origin: SITE, [TOKEN_HEADER]: await mint(team), 'Content-Type': type },
+    headers: { Origin: SITE, Cookie: await adminSession(), 'Content-Type': type },
     body: body ?? new URLSearchParams(fields).toString(),
   });
   return chain([root, ...adminApi, ROUTES[action].onRequestPost], request, env);
@@ -77,7 +77,7 @@ const landing = (res) => {
 
 /** GET /admin/albums, with `query` as the landing a press sent. */
 async function page(env, query = '') {
-  const request = new Request(`${SITE}/admin/albums${query}`, { headers: { [TOKEN_HEADER]: await mint(team) } });
+  const request = new Request(`${SITE}/admin/albums${query}`, { headers: { Cookie: await adminSession() } });
   const res = await chain([root, ...adminPages, albumsPage], request, env);
   assert.equal(res.status, 200);
   return res.text();

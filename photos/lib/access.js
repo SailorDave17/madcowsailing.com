@@ -1,11 +1,17 @@
 /**
- * The admin guard (#151): every /admin page and admin API answers only to a
- * request carrying a valid Cloudflare Access token for an email on the
- * admins' list, whichever hostname it arrived on. The coach guard (#192) is
- * the same check run against a second list: /coach answers only to a token
- * for an email on the coaches' list, signed for the coaches' application.
+ * The coach guard (#192): /coach answers only to a request carrying a valid
+ * Cloudflare Access token for an email on the coaches' list, signed for the
+ * coaches' application, whichever hostname it arrived on.
  *
- * Access sits in front of /admin on photos.madcowsailing.com, and it signs
+ * This was the admin guard first (#151), run against the admins' list, and
+ * the coach guard the same check against a second list. #224 replaced the
+ * admin half with the admin session (lib/admin-session.js; owner, at #224's
+ * pickup: replace outright), so requireOwner and the admins' pair are gone.
+ * The admin application still stands in front of /admin on
+ * photos.madcowsailing.com until #226, which removes it with this file's
+ * coach half; nothing reads its token.
+ *
+ * Access sits in front of /coach on photos.madcowsailing.com, and it signs
  * every request it lets through with a token in the Cf-Access-Jwt-Assertion
  * header. But Access applies per hostname: the project's *.pages.dev address
  * cannot be switched off and is not behind it (CLAUDE.md, The photo site,
@@ -27,18 +33,16 @@
  * Config, never code (renaming the Zero Trust team changes both the issuer
  * and the key URL):
  *   ACCESS_TEAM_DOMAIN  https://<team>.cloudflareaccess.com, in wrangler.jsonc
- *   ACCESS_AUD          the admin application's AUD tag, in wrangler.jsonc
- *   ADMIN_EMAILS        comma-separated; a Pages secret, so the addresses are
- *                       not in this public repo (owner's choice, 2026-09-28)
  *   ACCESS_COACH_AUD    the coach application's AUD tag, in wrangler.jsonc
- *   COACH_EMAILS        comma-separated; a Pages secret, as ADMIN_EMAILS is
- * On photos.madcowsailing.com they are two applications, so a token signed
- * for one never passes the other's check, whoever it names. A preview
- * deployment signs every path for the Pages preview application, so there
- * the two tags are the same and the lists alone tell admin from coach.
+ *   COACH_EMAILS        comma-separated; a Pages secret, so the addresses are
+ *                       not in this public repo (owner's choice, 2026-09-28)
+ * On photos.madcowsailing.com the admin and coach applications were two, so
+ * a token signed for the admin one never passes this check, whoever it
+ * names. A preview deployment signs every path for the Pages preview
+ * application, so there the list alone decides.
  *
- * With a guard's tag or list unset, every request to it is refused. There is
- * no flag, header, cookie or hostname that turns the check off
+ * With the tag or the list unset, every request is refused. There is no
+ * flag, header, cookie or hostname that turns the check off
  * (test/access.test.js and test/coach.test.js try each);
  * local development runs it against generated keys (scripts/access-dev.mjs).
  *
@@ -160,17 +164,17 @@ function parse(token) {
 export const allowList = (value) =>
   (value ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 
-// Which env names each guard reads: the AUD tag of the application that signs
-// its requests, and its list of addresses.
-export const ADMINS = Object.freeze({ aud: 'ACCESS_AUD', list: 'ADMIN_EMAILS' });
+// Which env names the guard reads: the AUD tag of the application that signs
+// its requests, and its list of addresses. The admins' pair, ACCESS_AUD and
+// ADMIN_EMAILS, went with requireOwner (#224).
 export const COACHES = Object.freeze({ aud: 'ACCESS_COACH_AUD', list: 'COACH_EMAILS' });
 
 /**
  * The person a token names, as { email }, or null when the token does not
- * pass the check for `names` (ADMINS unless told otherwise). Throws
+ * pass the check for `names` (COACHES unless told otherwise). Throws
  * KeysUnavailable only when the team's keys cannot be read.
  */
-export async function verifyAccessToken(token, env, now = nowSeconds(), names = ADMINS) {
+export async function verifyAccessToken(token, env, now = nowSeconds(), names = COACHES) {
   const team = env.ACCESS_TEAM_DOMAIN;
   const aud = env[names.aud];
   const allowed = allowList(env[names.list]);
@@ -225,14 +229,6 @@ function accessGuard(names, key, label) {
     return context.next();
   };
 }
-
-/**
- * The one admin guard. functions/admin/_middleware.js and
- * functions/api/admin/_middleware.js run it in front of every admin route,
- * and test/guard.test.js fails for any admin route that answers without it.
- * On success the owner is on context.data.owner.
- */
-export const requireOwner = accessGuard(ADMINS, 'owner', 'admin guard');
 
 /**
  * The coach guard (#192). functions/coach/_middleware.js runs it in front of

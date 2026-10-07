@@ -339,7 +339,11 @@ test('the right password signs in: 303 to /account, and a __Host- cookie for 90 
   assert.equal(response.status, 303);
   assert.equal(response.headers.get('Location'), '/account');
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
-  assert.match(response.headers.get('Set-Cookie'), new RegExp(`^${ACCOUNT_COOKIE}=a1\\.${id}\\.1\\.\\d+\\.[A-Za-z0-9_-]{43}; Max-Age=7776000; Path=/; Secure; HttpOnly; SameSite=Lax$`));
+  const [set, admin, ...more] = response.headers.getSetCookie();
+  assert.match(set, new RegExp(`^${ACCOUNT_COOKIE}=a1\\.${id}\\.1\\.\\d+\\.[A-Za-z0-9_-]{43}; Max-Age=7776000; Path=/; Secure; HttpOnly; SameSite=Lax$`));
+  // Any admin cookie the browser held goes: a sign-in makes it one person (#224's review).
+  assert.equal(admin, '__Host-admin=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax');
+  assert.deepEqual(more, []);
   assert.equal(ACCOUNT_SESSION_SECONDS, 90 * 24 * 60 * 60);
   // The cookie opens /account.
   const page = await call(env, '/account', { cookie: cookieOf(response) });
@@ -534,7 +538,7 @@ test('a failure costs the budget\'s unit, one log row and the account\'s count; 
   const hour = Math.floor(nowSeconds() / 3600);
   const wrong = { email: 'jane@example.org', password: 'wrong password, long enough' };
   // Fails after the claim and the hour's unit, at the account's lookup.
-  const broken = failOn(env.DB, /^SELECT a\.id, a\.password_hash/);
+  const broken = failOn(env.DB, /^SELECT a\.id, a\.email, a\.password_hash/);
   const { response } = await call({ ...env, DB: broken }, '/sign-in', { method: 'POST', fields: wrong });
   assert.equal(response.status, 503);
   assert.deepEqual(rows(env.DB, 'SELECT hour, failed FROM sign_in_budget'), [{ hour, failed: 0 }]);
@@ -706,7 +710,11 @@ test('sign out deletes the cookie and ends that session, and every other one on 
   const { response } = await call(env, '/sign-out', { method: 'POST', cookie: phone });
   assert.equal(response.status, 303);
   assert.equal(response.headers.get('Location'), '/sign-in?signed-out');
-  assert.equal(response.headers.get('Set-Cookie'), `${ACCOUNT_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`);
+  // Both cookies an admin's sign-in sets go, the admin's too (#224).
+  assert.deepEqual(response.headers.getSetCookie(), [
+    `${ACCOUNT_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`,
+    '__Host-admin=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax',
+  ]);
   for (const cookie of [phone, laptop]) {
     const page = await call(env, '/account', { cookie });
     assert.equal(page.response.status, 303, 'a session survived the sign-out');
@@ -786,6 +794,9 @@ test('POST /set-password stores the hash, uses up every link the account holds, 
   const { response } = await call(env, '/set-password', { method: 'POST', fields: setFields(token) });
   assert.equal(response.status, 303);
   assert.equal(response.headers.get('Location'), '/account?password-set');
+  // The account's cookie, and any admin cookie the browser held deleted, as
+  // a sign-in does (#224's review): setting a password opens no admin session.
+  assert.deepEqual(response.headers.getSetCookie().map((line) => line.split(';')[0].replace(/=.+$/, '=…')), [`${ACCOUNT_COOKIE}=…`, '__Host-admin=']);
   const stored = env.DB.sqlite.prepare('SELECT password_hash, session_version FROM accounts WHERE id = ?').get(id);
   assert.match(stored.password_hash, /^\$scrypt\$ln=14,r=8,p=5\$/);
   assert.equal(await verifyPassword(PASSWORD, stored.password_hash), true);

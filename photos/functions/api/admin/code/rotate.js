@@ -3,7 +3,7 @@
  *
  * Posted by the confirm button in /admin/code's dialog, and by nothing else
  * on the page. The guards in ../_middleware.js have already required the
- * owner's Access token and the site's own Origin; anything else was answered
+ * admin's session and the site's own Origin; anything else was answered
  * 403 there, with the code unchanged.
  *
  * The new code is the next generation (lib/invite.js), so every upload session

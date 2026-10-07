@@ -4,7 +4,8 @@
 // An Access token is a JWT signed RS256 by the team's key, whose public half
 // the team publishes at <team domain>/cdn-cgi/access/certs as a JWK with a
 // kid. keyPair() makes one such pair; mint() signs any header and payload
-// with any pair, so a test can build every token the admin guard must refuse.
+// with any pair, so a test can build every token the coach guard must refuse
+// (the admin guard's too, until #224).
 import { base64url } from '../lib/crypto.js';
 
 const encoder = new TextEncoder();
@@ -18,11 +19,13 @@ export const OWNER = 'owner@example.com';
 export const COACH_AUD = 'c'.repeat(64);
 export const COACH = 'coach@example.com';
 
-// The env both guards read, as the Pages config and secrets supply it.
+// The env the coach guard reads, as the Pages config and secrets supply it.
+// The admin guard read ACCESS_AUD and ADMIN_EMAILS too, until #224 replaced
+// its Access check with the admin session; nothing reads them now, so a
+// token minted with claims() below, for AUD and OWNER, is the admin
+// application's, which a test offers the coach guard to see it refused.
 export const accessEnv = (extra = {}) => ({
   ACCESS_TEAM_DOMAIN: TEAM,
-  ACCESS_AUD: AUD,
-  ADMIN_EMAILS: OWNER,
   ACCESS_COACH_AUD: COACH_AUD,
   COACH_EMAILS: COACH,
   ...extra,

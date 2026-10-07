@@ -30,7 +30,6 @@ import { onRequest as adminApi } from '../functions/api/admin/_middleware.js';
 import { onRequestGet as adminImage } from '../functions/api/admin/photos/[id]/[size].js';
 import { onRequestGet as restoreGet, onRequestPost as restorePost } from '../functions/api/admin/removals/restore.js';
 import { onRequestGet as deleteGet, onRequestPost as deletePost } from '../functions/api/admin/removals/delete.js';
-import { TOKEN_HEADER, keyCache } from '../lib/access.js';
 import { addressBlock } from '../lib/address.js';
 import { REMOVALS_SCRIPT, removalsNotice } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
@@ -41,7 +40,7 @@ import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, REMOVE_FORM_BYTES, readNote, requestRemoval,
 } from '../lib/removals.js';
 import { nowSeconds } from '../lib/session.js';
-import { accessEnv, certs, keyPair, mint } from './access.js';
+import { ADMIN_KEY, adminCookieHeader, seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 import { jpeg } from './jpeg.js';
 import { r2 } from './r2.js';
@@ -65,16 +64,12 @@ const PRACTICE = { team: 'hoover-jrt', title: 'Tuesday practice', kind: 'practic
 const ADDRESS_KEY = 'test-address-hash-key-fedcba9876543210';
 const IP = '203.0.113.7';
 
-const team = await keyPair();
-beforeEach(() => {
-  keyCache.clear();
-  mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-});
 afterEach(() => mock.restoreAll());
 
-/** A site with two albums and nothing sent. */
+/** A site with two albums and nothing sent, and its owner, account 1, whose session admin() sends (#224). */
 async function site({ bucket = r2(), env: extra = {} } = {}) {
-  const env = { DB: d1(), MEDIA: bucket, ADDRESS_HASH_KEY: ADDRESS_KEY, ...accessEnv(), ...extra };
+  const env = { DB: d1(), MEDIA: bucket, ADDRESS_HASH_KEY: ADDRESS_KEY, SESSION_SIGNING_KEY: ADMIN_KEY, ...extra };
+  seedAdmin(env.DB);
   const fall = await createAlbum(env.DB, FALL, T0);
   const practice = await createAlbum(env.DB, PRACTICE, T0);
   return { env, fall, practice };
@@ -182,9 +177,9 @@ const ADMIN_ROUTES = {
   },
 };
 
-/** An admin request through the whole chain, with the owner's token. */
+/** An admin request through the whole chain, with the owner's session. */
 async function admin(env, method, path, { body, origin = SITE } = {}) {
-  const headers = { [TOKEN_HEADER]: await mint(team) };
+  const headers = { Cookie: await adminCookieHeader(1) };
   if (origin !== null) headers.Origin = origin;
   if (body !== undefined) headers['Content-Type'] = 'application/x-www-form-urlencoded';
   const request = new Request(`${SITE}${path}`, { method, headers, body });

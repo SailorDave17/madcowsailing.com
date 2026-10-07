@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/albums/create: add an album (#153), from the form at the
  * top of /admin/albums. The guards in ../_middleware.js have already required
- * the owner's Access token and the site's own Origin.
+ * an admin's session and the site's own Origin.
  *
  * The address is made from the date and the title (lib/albums.js) and never
  * changes after. Then 303 back to the page, which names the new album and

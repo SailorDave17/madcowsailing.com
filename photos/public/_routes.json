@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "include": ["/", "/hoover-jrt", "/hoover-jrt/", "/cohssa", "/cohssa/", "/albums/*", "/photos/*", "/remove", "/ask", "/set-password", "/sign-in", "/sign-out", "/forgot-password", "/account", "/account/*", "/api/*", "/admin", "/admin/*", "/coach", "/coach/*", "/share/receive"],
+  "include": ["/", "/hoover-jrt", "/hoover-jrt/", "/cohssa", "/cohssa/", "/albums/*", "/photos/*", "/remove", "/ask", "/set-password", "/sign-in", "/sign-in/code", "/sign-out", "/forgot-password", "/account", "/account/*", "/api/*", "/admin", "/admin/*", "/coach", "/coach/*", "/share/receive"],
   "exclude": []
 }

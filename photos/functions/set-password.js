@@ -18,7 +18,8 @@
  *   303  to /account?password-set, with a new session cookie: the password
  *        is stored as lib/password.js's hash, every link the account held is
  *        gone, and every other session it held has ended (lib/sign-in.js's
- *        setPassword)
+ *        setPassword). It deletes any admin cookie the browser held, as a
+ *        sign-in does (#224's review): it opens no admin session itself
  *   400  the form again, with the reason: too short or too long, the two
  *        not the same, the person's own address or name or the site's, or a
  *        password Pwned Passwords has seen in a breach (criterion 1)
@@ -32,6 +33,7 @@
  * test/guard.test.js lists it, and it checks the Origin itself.
  */
 import { accountCookie } from '../lib/account-session.js';
+import { clearAdminCookie } from '../lib/admin-session.js';
 import { readFormParams } from '../lib/form.js';
 import { hashPassword } from '../lib/password.js';
 import { isToken, linkAccount } from '../lib/password-link.js';
@@ -117,12 +119,8 @@ export async function onRequestPost({ request, env }) {
     return page(linkClosedPage(), 503);
   }
   if (version === null) return page(linkGonePage(), 404);
-  return new Response(null, {
-    status: 303,
-    headers: {
-      Location: '/account?password-set',
-      'Set-Cookie': await accountCookie(env.SESSION_SIGNING_KEY, { accountId: opened.id, version }, now),
-      'Cache-Control': 'no-store',
-    },
-  });
+  const headers = new Headers({ Location: '/account?password-set', 'Cache-Control': 'no-store' });
+  headers.append('Set-Cookie', await accountCookie(env.SESSION_SIGNING_KEY, { accountId: opened.id, version }, now));
+  headers.append('Set-Cookie', clearAdminCookie());
+  return new Response(null, { status: 303, headers });
 }
