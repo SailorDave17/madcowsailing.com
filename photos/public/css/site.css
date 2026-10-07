@@ -555,6 +555,14 @@
   margin-block-start: var(--space-1);
 }
 
+/* A release quoted word for word (#253): set off by a rule at its start edge,
+   so it reads as the release's words and not the site's. --blue on --hull
+   clears the 3:1 a non-text mark needs. */
+.policy blockquote {
+  border-inline-start: 4px solid var(--blue);
+  padding-inline-start: var(--space-3);
+}
+
 /* ---- Public: "Remove this photo" (#158) ----------------------------- */
 
 /* Under each photo, below Download. It is a button, because it posts (to
