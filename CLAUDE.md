@@ -74,7 +74,9 @@ request, and hold a revoked address back from asking again (item 31).
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24), and #227 gave every album a team: `/` leads to
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
-Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
+#228 gave each team a "Not sure / other event" for photos from an event
+nobody has added yet, which an admin moves into its event on `/admin/queue`
+before approving them (item 32). Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -915,6 +917,9 @@ applications and their policies.
   Reopening clears it.
 - **Every album belongs to a team since #227**, Hoover JRT or COHSSA, set on
   this page and changed by an edit, and its team's section lists it (item 28).
+- **Each team also has a "Not sure / other event" since #228**, which is no
+  event: this page only closes and reopens it, in a section of its own, and
+  none of its photos is ever approved (item 32).
 - **Deleting an album that holds a photo is refused by the database.** Owner's choice
   at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
   `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
@@ -1122,7 +1127,8 @@ image decoder, and sends through the real routes into SQLite, so the page and
 
 **Built in #156, 2026-09-30, with three owner decisions taken at its pickup.**
 `/admin/queue` (`functions/admin/queue.js`) shows every waiting photo, and its
-forms post to `functions/api/admin/queue/`: `approve`, `reject` and `captions`.
+forms post to `functions/api/admin/queue/`: `approve`, `reject` and `captions`,
+and since #228 `move` (item 32).
 `lib/queue.js` holds the rules. Only a pending photo is approved or rejected
 here; an approved one leaves the public page through #158.
 
@@ -1204,6 +1210,9 @@ here; an approved one leaves the public page through #158.
   against D1's 5 million a day. It counts rows, so objects a refused reject
   left in the bucket, which R2 still bills, are in the log and not in the
   figure.
+- **Since #228 a batch also has Move**, which moves one waiting photo, or
+  the batch, into one of its team's events or a new one, and a batch in a
+  team's "Not sure / other event" has no Approve (item 32).
 - **Clips are not in the queue yet.** Every statement names `kind = 'photo'`,
   so a clip's id posted to a press changes nothing; the clip story, #198, adds
   them.
@@ -3044,6 +3053,108 @@ no row for the `SELECT` to insert, so the AUTOINCREMENT counter does not
 move. Both new statement shapes ran on D1 as they do on node:sqlite. The rest
 of each revoke, hide, delete and lift is one batch of two to four guarded
 statements, not measured.
+
+### 32. "Not sure / other event", and moving a photo into its event
+
+**Built in #228, 2026-10-07** (epic #147). A sender with photos from an
+event nobody has added yet chooses its team's "Not sure / other event", and
+an admin moves the photos into an event on `/admin/queue` before approving
+them. Migration 0015, `lib/albums.js`, `lib/queue.js` (`movePhotos`) and
+`functions/api/admin/queue/move.js` hold it. README.md, The photo site,
+Albums and Approving, is the operating record. Four decisions were the
+owner's at pickup, through the question tool:
+
+- **A marked album per team, with the database's guard** (the
+  recommendation). Criterion 5 keeps `photos.album_id` NOT NULL and
+  referencing `albums (id)`, so a Not sure photo names a real album row.
+  0015 adds `albums.holding` (0 or 1), one Not sure album per team by a
+  unique index, and makes the two rows; six triggers refuse a photo in one
+  being approved, or hidden other than while waiting (on insert, on a change
+  of state or `approved_at`, and on a move in), `holding` changing either
+  way, a Not sure album's delete, and a REPLACE INTO or UPDATE OR REPLACE
+  that would make, remove or take over one (the hole #227's 0011 closed for
+  `teams`; the UPDATE half was review-fanout's at #228's review, where the
+  insert trigger alone let an event's approved photo end up in a Not sure
+  album). Every path to a second Not sure album meets a trigger first, so
+  the index states the invariant and is a spare. Not chosen: the same column
+  with the app's check alone, which a statement typed by hand or a later
+  route could pass; two ordinary album rows known by a reserved address,
+  which every query would recognise by convention and `/admin/albums` would
+  let an admin edit or delete.
+- **"Hide all their photos" hides a waiting Not sure photo too** (owner, at
+  #228's review, the recommendation). #225's Hide all hides waiting photos
+  with `approved_at` 0, and the first build of 0015 refused any hidden photo
+  in a Not sure album, so Hide all on an account with a waiting Not sure
+  photo rolled back whole and answered 500, leaving the person's public
+  photos up. The triggers now allow `hidden` with `approved_at` 0, which
+  "Put it back" returns to the queue, never to the site. Not chosen: Hide
+  all skipping Not sure photos, which leaves part of what the person sent
+  in the queue; Hide all rejecting them, which cannot be undone.
+- **Move works on any waiting photo** (against the recommendation of Not
+  sure photos only): one a parent sent to the wrong event moves the same
+  way, within its team. Not chosen: Move on Not sure batches only.
+- **An admin can close a team's Not sure album**, and only close and reopen
+  it (the recommendation): `/admin/albums` lists each team's in a section of
+  its own, with no Edit and no Delete. Closing every album still stops every
+  upload, as it did before #228. Not chosen: always open, which would leave
+  no way to stop uploads from the admin pages short of rotating the code.
+- **A Not sure batch has no Approve, and says why** (the recommendation): a
+  photo there has no event to be public in, so it is moved first and
+  approved in its event. A press naming one anyway (an old or forged page)
+  leaves it waiting, approves any event photo beside it, and the notice says
+  so (`?error=not-sure`, `&not-sure=<n>`). Not chosen: Approve shown and
+  refused on every press, buttons on every Not sure batch that never work.
+
+The rest were taken while building:
+
+- **0015 is applied to each database just before the code that reads it
+  reaches it**: the preview just before the merge into `develop`, and
+  production just before the promotion that carries #228, not at the
+  commit gate as 0004 to 0014 were. Its rows are what the older code
+  cannot read: to it each is an ordinary open event dated year 1, offered
+  on the share page (preselected when every event is in the future), with
+  Edit and a Delete that answers 500 on `/admin/albums`, and an Approve that
+  answers 500 on the queue (review-fanout at #228's review). The other order
+  is worse: #228's code reads `holding` on every album read, uploads
+  included. The migration's header says the same.
+- **The rows are dated 0001-01-01**, at `0001-01-01-not-sure-<team>`, kind
+  `regatta` (a placeholder 0004's CHECK needs; nothing shows it). No admin
+  form can give an event that date, since `isDate` reads a year under 100 as
+  19xx and refuses it, so no event's address can clash with one. A third
+  team needs its own row in the migration that adds it, and
+  `test/not-sure.test.js` fails until every `TEAMS` entry has exactly one.
+- **The open list gives them apart**: `GET /api/albums/open` answers
+  `{ albums, other }`, the Not sure albums in `other`, in the teams' order,
+  with no title, so nothing that preselects or counts events can take one
+  for an event (they sort last as "the latest past album", which the
+  preselect would otherwise pick when every event is in the future). The
+  share page writes their words itself and puts each last in its team's
+  group, a team with no event open getting a group of its own after the
+  teams with events. The "no album is taking photos" note shows only when
+  neither list holds anything.
+- **Move's choices are the batch's team's events**, newest first, open or
+  closed (marked so), never another team's, a Not sure album or the batch's
+  own album, then "A new event, below", whose title, kind and date sit under
+  the list and make an event for the batch's team as **Add album** would.
+  One select per batch, shared by Move all and each photo's Move: a select
+  per photo is 200 in a full part. The new event's fields are not
+  `required`, since every button in the batch posts the same form; the route
+  checks them, and a wrong field adds nothing and moves nothing.
+- **A move is one statement**: `UPDATE … FROM` the chosen album, held to
+  `holding = 0` and to the photo's own team in the same statement, so an
+  album moved to the other team meanwhile takes nothing. It moves waiting
+  photos only and keeps their batch, so the queue shows them as a batch of
+  the event they are in now, and the press lands there (on its first part,
+  when the batch now holds more than 200 there). The captions typed are
+  saved first, as every press saves them, and before the choice is checked,
+  so a press with no event chosen loses nothing typed. A press whose photos
+  now sit in two teams' events, from a stale page, moves nothing and says so
+  in its own words (`?error=teams`), since its captions were saved.
+- **The photos are read before a new event is made**, so a press for photos
+  no longer waiting makes no empty event. If they go between that read and
+  the move, the event is kept and the notice says both.
+- **`/policy` says the album a photo was sent to, "or the event an admin
+  moved it into"**: a move changes `album_id`, and the row keeps no other.
 
 ## The two-presentation rule
 

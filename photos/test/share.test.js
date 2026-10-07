@@ -268,10 +268,15 @@ function canvasMaker(encoder, canvases) {
  * `accountTeams`, #223), `register` how the browser answers the worker's registration
  * ('ok', 'refused', or 'absent' for a browser with no service workers at
  * all), and `holdJoin` holds POST /api/join until page.releaseJoin().
+ *
+ * Every database holds each team's "Not sure / other event" album, open
+ * (migration 0015, #228); `made.notSure` names them by team. `notSure: false`
+ * closes both before the page opens, for a site with nothing open at all.
  */
 async function load({
   hash = `#code=${CODE}`, albums = null, turns = true, encoder = {}, hold = false, slow = false,
   search = '', db = null, session = null, register = 'ok', holdJoin = false, accountTeams = ['hoover-jrt'],
+  notSure = true,
 } = {}) {
   const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', COACH_EMAILS: COACH, ...KEYS };
   seedCodes(env.DB, OLD, CODE);
@@ -281,6 +286,8 @@ async function load({
   for (const album of albums ?? [{ key: 'today', title: 'Tuesday practice', kind: 'practice', date: dayOffset(0) }]) {
     made[album.key] = await createAlbum(env.DB, { team: 'hoover-jrt', ...album }, now);
   }
+  made.notSure = Object.fromEntries(env.DB.sqlite.prepare('SELECT team, address FROM albums WHERE holding = 1').all().map((r) => [r.team, r.address]));
+  if (!notSure) env.DB.sqlite.prepare('UPDATE albums SET closed_at = 1 WHERE holding = 1').run();
 
   const document = { activeElement: null, byId: new Map() };
   document.body = new Element(document, 'body');
@@ -603,7 +610,9 @@ test('the preselect: an album held today, else the latest past one, never a futu
     } else {
       assert.equal(select.value, page.made[expected]);
     }
-    assert.equal(select.options.filter((o) => o.value).length, albums.length, 'every open album stays in the list');
+    // Each team's Not sure album too (#228), never preselected.
+    assert.equal(select.options.filter((o) => o.value).length, albums.length + 2, 'every open album stays in the list');
+    assert.notEqual(select.value, page.made.notSure['hoover-jrt']);
   }
 });
 
@@ -647,9 +656,10 @@ test('#227: the albums are grouped under each team\'s name, in the order the tea
   const select = page.$('album');
   const groups = select.children.filter((c) => c.tagName === 'OPTGROUP');
   assert.deepEqual(groups.map((g) => g.getAttribute('label')), ['COHSSA', 'Hoover JRT']);
+  // Each group ends with its team's "Not sure / other event" (#228).
   assert.deepEqual(groups.map((g) => g.children.map((o) => o.value)), [
-    [page.made.districts, page.made.league],
-    [page.made.today, page.made.past],
+    [page.made.districts, page.made.league, page.made.notSure.cohssa],
+    [page.made.today, page.made.past, page.made.notSure['hoover-jrt']],
   ]);
   // Every option sits in a group, and the preselect still finds today's album inside one.
   assert.deepEqual(select.children.map((c) => c.tagName), ['OPTGROUP', 'OPTGROUP']);
@@ -682,13 +692,49 @@ test('#227: with nothing preselected, the blank choice comes before the groups, 
   const page = await load({ albums: [{ key: 'future', team: 'cohssa', title: 'Next week', kind: 'regatta', date: dayOffset(3) }] });
   await joined(page);
   const select = page.$('album');
+  // Hoover JRT has no event open, so its group holds only its Not sure
+  // choice (#228), after the teams with events.
   assert.deepEqual(select.children.map((c) => [c.tagName, c.tagName === 'OPTION' ? c.textContent : c.getAttribute('label')]),
-    [['OPTION', 'Choose an album'], ['OPTGROUP', 'COHSSA']]);
+    [['OPTION', 'Choose an album'], ['OPTGROUP', 'COHSSA'], ['OPTGROUP', 'Hoover JRT']]);
   assert.equal(select.value, '');
 });
 
+test('#228 criterion 1: each team\'s "Not sure / other event" comes after its events, is never preselected, and a photo sent there waits in it', async () => {
+  // Only a future event: nothing is preselected, although the Not sure
+  // albums are dated 0001-01-01, before any "latest past" album.
+  const page = await load({ albums: [{ key: 'future', title: 'Next week', kind: 'regatta', date: dayOffset(3) }] });
+  await joined(page);
+  const select = page.$('album');
+  const groups = select.children.filter((c) => c.tagName === 'OPTGROUP');
+  assert.deepEqual(groups.map((g) => [g.getAttribute('label'), g.children.map((o) => o.value)]), [
+    ['Hoover JRT', [page.made.future, page.made.notSure['hoover-jrt']]],
+    ['COHSSA', [page.made.notSure.cohssa]],
+  ]);
+  assert.deepEqual(select.options.filter((o) => Object.values(page.made.notSure).includes(o.value)).map((o) => o.textContent),
+    ['Not sure / other event', 'Not sure / other event']);
+  assert.equal(select.value, '');
+  select.value = page.made.notSure['hoover-jrt'];
+  page.choose(photoFile());
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  const [row] = page.rows();
+  assert.deepEqual({ address: row.address, state: row.state }, { address: page.made.notSure['hoover-jrt'], state: 'pending' });
+  // With no event open at all, the Not sure choices are a list, not "no album".
+  const none = await load({ albums: [] });
+  await joined(none);
+  assert.equal(none.$('album-note').hidden, true);
+  assert.deepEqual(none.$('album').options.map((o) => o.value), ['', none.made.notSure['hoover-jrt'], none.made.notSure.cohssa]);
+  assert.equal(none.$('album').options[0].textContent, 'Choose an album');
+  // The control: with both closed, neither is offered.
+  const closed = await load({ notSure: false });
+  await joined(closed);
+  assert.deepEqual(closed.$('album').options.map((o) => o.value), [closed.made.today]);
+});
+
 test('with no album open, the page says so and offers to check again, which lists one opened since', async () => {
-  const page = await load({ albums: [] });
+  // Nothing at all: no event, and each team's Not sure album closed (#228).
+  const page = await load({ albums: [], notSure: false });
   await until(() => !page.$('album-note').hidden, 'note shown');
   assert.match(page.$('album-note').textContent, /^No album is taking photos right now/);
   assert.equal(page.$('album-again').hidden, false);
@@ -1106,6 +1152,22 @@ test('an album closed while sending: every photo queued for it stops at once, an
   assert.equal(page.$('album').value, page.made.past, 'a choice still open stays chosen');
 });
 
+test('#228: a choice of "Not sure / other event" stays chosen when the list reloads after another album closes mid-send', async () => {
+  const page = await load({ hold: true, albums: TWO_ALBUMS });
+  await joined(page);
+  page.choose(photoFile());
+  page.click(page.$('send'));
+  await until(() => page.net.waiting.length === 1, 'held');
+  // While the first photo is on its way to today's album, the parent picks Not sure for the next.
+  page.$('album').value = page.made.notSure['hoover-jrt'];
+  page.env.DB.sqlite.prepare('UPDATE albums SET closed_at = 1 WHERE address = ?').run(page.made.today);
+  page.net.hold = false;
+  page.release();
+  await until(() => page.items()[0].state === 'failed', 'failed');
+  await until(() => !page.$('album').options.some((o) => o.value === page.made.today), 'the list reloaded without the closed album');
+  assert.equal(page.$('album').value, page.made.notSure['hoover-jrt']);
+});
+
 test('after an album closes mid-send, nothing is preselected: Try again asks for an album first', async () => {
   const page = await load({ hold: true, albums: TWO_ALBUMS });
   await joined(page);
@@ -1118,7 +1180,8 @@ test('after an album closes mid-send, nothing is preselected: Try again asks for
   await until(() => page.items()[0].state === 'failed', 'failed');
   assert.equal(page.items()[0].text, CLOSED);
   await until(() => !page.$('album').options.some((o) => o.value === page.made.today), 'the list reloaded without the closed album');
-  assert.equal(page.$('album').options.length, 2);
+  // The blank, the past album, and each team's Not sure choice (#228).
+  assert.equal(page.$('album').options.length, 4);
   // Not quietly the past album: the parent picks where these photos go.
   assert.equal(page.$('album').value, '');
   assert.equal(page.$('album').options[0].textContent, 'Choose an album');
@@ -1146,7 +1209,8 @@ test('signed in to an account, the page lists only its approved teams\' albums, 
   const page = await load({ hash: '', session: 'account', albums: BOTH_TEAMS });
   await signedIn(page);
   assert.equal(page.$('join-status').textContent, "You're set to send photos from this phone.");
-  assert.deepEqual(page.$('album').options.map((o) => o.value), [page.made.hoover], 'COHSSA is not this account\'s');
+  // Its own team's Not sure choice too (#228), and not COHSSA's.
+  assert.deepEqual(page.$('album').options.map((o) => o.value), [page.made.hoover, page.made.notSure['hoover-jrt']], 'COHSSA is not this account\'s');
   page.choose(photoFile());
   await until(() => page.items()[0]?.state === 'ready', 'made ready');
   page.click(page.$('send'));
@@ -1158,7 +1222,8 @@ test('signed in to an account, the page lists only its approved teams\' albums, 
   // The control: an account approved for both teams is offered both.
   const both = await load({ hash: '', session: 'account', albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'] });
   await signedIn(both);
-  assert.deepEqual(both.$('album').options.map((o) => o.value).filter(Boolean).sort(), [both.made.cohssa, both.made.hoover].sort());
+  assert.deepEqual(both.$('album').options.map((o) => o.value).filter(Boolean).sort(),
+    [both.made.cohssa, both.made.hoover, ...Object.values(both.made.notSure)].sort());
 });
 
 test('a team taken off the account while sending: every photo queued for its album stops with the team\'s words, and the list reloads without it (#223)', async () => {

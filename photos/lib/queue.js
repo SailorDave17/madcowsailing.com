@@ -31,6 +31,10 @@
  * The queue shows photos only. A clip (#198) is a pending row too, and every
  * statement here names kind = 'photo', so a clip's id posted to a press
  * changes nothing; #198 adds clips to the queue.
+ *
+ * Since #228 a press can also move waiting photos into one of their team's
+ * events (movePhotos), and a photo in a team's "Not sure / other event" is
+ * never approved here (approvePhotos), until it is moved.
  */
 import { CONTROL } from './albums.js';
 import { photoObjectKeys, readCaption } from './photos.js';
@@ -73,6 +77,32 @@ export const readPhotoId = (text) => (typeof text === 'string' && ID.test(text) 
 // when the batch is shown in parts.
 const BATCH_ID = /^batch-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[1-9][0-9]{0,14}(?:-part-[1-9][0-9]{0,3})?$/;
 export const batchId = ({ batch, albumId }) => `batch-${batch}-${albumId}`;
+
+/** The batch a section id names (#228): its UUID, or null. */
+export const anchorBatch = (anchor) => anchor?.match(/^batch-([0-9a-f-]{36})-/)?.[1] ?? null;
+
+/**
+ * Where photos moved from the batch at `anchor` into the album `albumId`
+ * show now (#228): the same batch, in that album's section of the queue.
+ * `waiting` is how many of the batch wait in that album after the move
+ * (batchWaiting): past PART_PHOTOS the queue shows it in parts, and the move
+ * lands on the first (review-fanout at #228's review: the unsplit id named
+ * no section). Null when there is no anchor or album to go to.
+ */
+export function movedAnchor(anchor, albumId, waiting) {
+  const batch = anchorBatch(anchor);
+  if (!batch || !albumId) return null;
+  const id = batchId({ batch, albumId });
+  return waiting > PART_PHOTOS ? `${id}-part-1` : id;
+}
+
+/** How many photos of `batch` wait in the album `albumId` (#228). */
+export async function batchWaiting(db, batch, albumId) {
+  return db
+    .prepare("SELECT COUNT(*) AS n FROM photos WHERE batch = ? AND album_id = ? AND kind = 'photo' AND state = 'pending'")
+    .bind(batch, albumId)
+    .first('n');
+}
 
 /**
  * A press's fields: { ids, captions, targets, anchor }, or { error } with
@@ -164,15 +194,81 @@ export async function unsavedCaptions(db, captions) {
 /**
  * Approve the photos among `ids` that are still waiting, recording `now`, and
  * return the ids approved. Nothing else about any row changes.
+ *
+ * A photo still in a team's "Not sure / other event" (#228) is left waiting:
+ * it has no event to be public in until an admin moves it into one
+ * (movePhotos). Migration 0015 refuses the change too, but it would refuse
+ * the whole statement, so the photos beside it in a press would not be
+ * approved either; here they are, and notSureWaiting() says why the rest
+ * were not.
  */
 export async function approvePhotos(db, ids, now) {
   const { results } = await db
     .prepare(
       "UPDATE photos SET state = 'approved', approved_at = ? " +
       "WHERE kind = 'photo' AND state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
+      'AND album_id NOT IN (SELECT id FROM albums WHERE holding = 1) ' +
       'RETURNING id',
     )
     .bind(now, JSON.stringify(ids))
+    .all();
+  return results.map((row) => row.id);
+}
+
+/**
+ * How many of `ids` are photos waiting in a team's Not sure album (#228):
+ * what an approval left alone, so the queue can say why.
+ */
+export async function notSureWaiting(db, ids) {
+  return db
+    .prepare(
+      'SELECT COUNT(*) AS n FROM photos ' +
+      "WHERE kind = 'photo' AND state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
+      'AND album_id IN (SELECT id FROM albums WHERE holding = 1)',
+    )
+    .bind(JSON.stringify(ids))
+    .first('n');
+}
+
+/**
+ * The teams of the albums the waiting photos among `ids` are in: one team
+ * for any press the page made, since a batch is one album. A press naming
+ * none still waiting gets [], and one naming two teams was not made by the
+ * page.
+ */
+export async function waitingTeams(db, ids) {
+  const { results } = await db
+    .prepare(
+      'SELECT DISTINCT a.team FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
+      "WHERE p.kind = 'photo' AND p.state = 'pending' AND p.id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(JSON.stringify(ids))
+    .all();
+  return results.map((row) => row.team);
+}
+
+/**
+ * Move the photos among `ids` that are still waiting into the event at
+ * `address` (#228), and return the ids moved. Any waiting photo moves, from
+ * an event or from a Not sure album (owner, at #228's pickup), but only
+ * within its team, and only into an event, open or closed, never into a Not
+ * sure album. One statement, so the album's team is read as the photos move:
+ * an album moved to the other team meanwhile takes nothing. A photo already
+ * in that event is left as it is. Its batch stays, so the queue shows the
+ * moved photos as a batch of the event they are in now (waitingBatches).
+ */
+export async function movePhotos(db, ids, address) {
+  const { results } = await db
+    .prepare(
+      'UPDATE photos SET album_id = t.id ' +
+      'FROM (SELECT id, team FROM albums WHERE address = ? AND holding = 0) AS t ' +
+      "WHERE photos.kind = 'photo' AND photos.state = 'pending' " +
+      'AND photos.id IN (SELECT value FROM json_each(?)) ' +
+      'AND photos.album_id <> t.id ' +
+      'AND photos.album_id IN (SELECT id FROM albums WHERE team = t.team) ' +
+      'RETURNING photos.id',
+    )
+    .bind(address, JSON.stringify(ids))
     .all();
   return results.map((row) => row.id);
 }
@@ -250,13 +346,16 @@ export const acted = (ids) => (ids.length === 1 ? { photo: ids[0] } : { n: ids.l
  * Each photo sent from an account carries the account's name (#223,
  * criterion 3, D17), for the admins alone: `accountName`, null for the
  * invite link, a coach's Access sign-in, or an account since deleted.
+ *
+ * A batch sent to a team's "Not sure / other event" says so (`album.holding`,
+ * #228), so the page offers no approval for it.
  */
 export async function waitingBatches(db, team = null) {
   const statement = db.prepare(
     'SELECT p.id, p.batch, p.sender, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
     'p.grid_width, p.grid_height, p.screen_width, p.screen_height, ' +
     'a.id AS album_id, a.title AS album_title, a.address AS album_address, a.team AS album_team, ' +
-    'acc.name AS account_name ' +
+    'a.holding AS album_holding, acc.name AS account_name ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
     'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
     "WHERE p.state = 'pending' AND p.kind = 'photo' " +
@@ -270,7 +369,13 @@ export async function waitingBatches(db, team = null) {
     if (!batches.has(key)) {
       batches.set(key, {
         id: key,
-        album: { id: row.album_id, title: row.album_title, address: row.album_address, team: row.album_team },
+        album: {
+          id: row.album_id,
+          title: row.album_title,
+          address: row.album_address,
+          team: row.album_team,
+          holding: row.album_holding === 1,
+        },
         sentAt: row.sent_at,
         photos: [],
       });

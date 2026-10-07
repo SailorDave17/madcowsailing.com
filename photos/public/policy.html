@@ -93,6 +93,9 @@
                                          its next read (#193; owner, at
                                          #193's review)
        What is kept for a photo          migrations/0005_photos.sql
+       Its album, or the event an admin  photos.album_id, which movePhotos in
+       moved it into                     lib/queue.js changes and nothing
+                                         keeps the old one (#228)
        A daily count per phone           upload_counts in 0005; DAILY_UPLOADS
                                          in lib/photos.js (#154)
        Failed joins, up to a set number  FAILURE_BUDGET_PER_HOUR in
@@ -469,7 +472,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=014521fb1c">
+<link rel="stylesheet" href="/css/site.css?v=ac1e9e37fb">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -616,7 +619,7 @@
       <li>three copies of it, sized for the album page, the screen and
         download;</li>
       <li>its caption, if it has one;</li>
-      <li>the album it was sent to;</li>
+      <li>the album it was sent to, or the event an admin moved it into;</li>
       <li>when it was taken, and when it was sent;</li>
       <li>which invite link it was sent with, and when that phone opened
         it, or for a coach's photo, only that a coach sent it;</li>

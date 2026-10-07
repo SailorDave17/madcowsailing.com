@@ -535,6 +535,7 @@ a new file is listed here.
 | `0012_photos_account.sql` | #223 | `account_id` on `photos`, the account that sent each photo, set to NULL when the account is deleted; a CHECK holding an account's row to the placeholder code generation and session time 0; a partial index |
 | `0013_admins.sql` | #224 | `admin_role` on `accounts`, NULL, `admin` or `owner`, with at most one owner; seven triggers keeping the owner's role, account and approved teams and the last admin; `admin_codes`, each admin sign-in code kept as a keyed hash, and when it was sent, for a day |
 | `0014_revoked_addresses.sql` | #225 | `revoked_addresses`, each revoked account's address as a keyed hash, naming the account until it is deleted (`ON DELETE SET NULL`), so a new request from it is held back; a partial index |
+| `0015_not_sure_albums.sql` | #228 | `holding` on `albums`, 0 for every album made before it; one "Not sure / other event" album per team, the one row a team may have with `holding` 1; six triggers: no photo in one is approved, or hidden other than while waiting, `holding` never changes, and one is never deleted, replaced, or moved to another team. **Apply it just before the code that reads it**, not at the commit gate: the older code reads its rows as events (`CLAUDE.md` item 32) |
 
 ### The invite code
 
@@ -614,6 +615,19 @@ Parents send photos into an album, one per regatta or practice day, kept on
 - `GET /api/albums/open` is the list the share page reads, newest first, each
   album with its team's key and name, under which the page groups it (#227).
   It answers only to a live upload session.
+- **Each team has a "Not sure / other event"** (#228; `CLAUDE.md`, The photo
+  site, item 32): an album made by migration 0015, marked `holding`, dated
+  0001-01-01, at `0001-01-01-not-sure-<team>`. The share page offers it after
+  the team's events, for photos from an event nobody has added yet, and never
+  preselects it. It is listed in its own section at the foot of
+  `/admin/albums` with **Close** and **Reopen** only: closing it stops parents
+  choosing it, and its waiting photos stay in the queue. It is never edited
+  or deleted: the page has no Edit or Delete for it, the routes refuse a post
+  naming it, and the database refuses a delete, even one typed by hand. None
+  of its photos is ever approved (Approving, below), so
+  no public page lists or links it, and its address answers 404 like any
+  album with nothing approved. The open list gives these in `other`, apart
+  from `albums`, with no title.
 
 ### Uploads
 
@@ -724,6 +738,19 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
   for good. Rejecting needs JavaScript.
 - **Approve all and Reject all act on the photos the page showed.** A photo
   sent into the batch after the page loaded keeps waiting.
+- **Move a photo into its event** (#228). Choose the event under **Move to
+  event** in the batch, then **Move** under a photo or **Move all** at the
+  top. The list is the batch's team's events, newest first, open or closed;
+  **A new event, below** makes one from the title, kind and date under it,
+  for the same team, as **Add album** would. Any waiting photo moves: one in a
+  team's **Not sure / other event**, or one a parent sent to the wrong event.
+  A moved photo keeps waiting, with its captions and its batch, and shows as a
+  batch of the event it is in now. A photo moves only within its team.
+- **A batch in Not sure / other event has no Approve**, and says why: a photo
+  there has no event to be public in, so it is moved first and approved in
+  its event. A press naming one anyway (an old or forged page) approves
+  nothing for it and says so, and migration 0015 refuses the change in the
+  database too. Reject works on it as on any batch.
 - The pictures come from `GET /api/admin/photos/<id>/<size>` (`grid`, `screen`
   or `full`), which answers only to an admin.
 

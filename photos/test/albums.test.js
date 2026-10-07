@@ -93,8 +93,12 @@ async function openCall(env, cookie) {
 const session = () => signSession(KEY, 2, nowSeconds());
 const openAddresses = async (env) => (await (await openCall(env, await session())).json()).albums.map((a) => a.address);
 
-const rows = (env) => env.DB.sqlite.prepare('SELECT address, title, kind, held_on, closed_at FROM albums ORDER BY id').all().map((r) => ({ ...r }));
-const teams = (env) => env.DB.sqlite.prepare('SELECT address, team FROM albums ORDER BY id').all().map((r) => ({ ...r }));
+// The events: every database also holds one Not sure album per team from
+// migration 0015 (#228), which the tests under "#228" hold on their own.
+const rows = (env) => env.DB.sqlite.prepare('SELECT address, title, kind, held_on, closed_at FROM albums WHERE holding = 0 ORDER BY id').all().map((r) => ({ ...r }));
+const teams = (env) => env.DB.sqlite.prepare('SELECT address, team FROM albums WHERE holding = 0 ORDER BY id').all().map((r) => ({ ...r }));
+// The id the first album a test adds is given: the next after 0015's rows.
+const firstId = (env) => env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM albums WHERE holding = 1').get().n + 1;
 
 const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
 
@@ -140,7 +144,7 @@ test('the page then names the new album and its address, and lists it with its k
   await add(env);
   const html = await page(env, '?done=created&album=2026-10-04-fall-regatta');
   assert.match(html, /<p role="status">Added Fall Regatta\. Its address is <code>2026-10-04-fall-regatta<\/code>\.<\/p>/);
-  assert.match(html, /<h3 id="album-1">Fall Regatta<\/h3>/);
+  assert.match(html, new RegExp(`<h3 id="album-${firstId(env)}">Fall Regatta</h3>`));
   assert.match(html, /<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-04">4 October 2026<\/time> · <code>2026-10-04-fall-regatta<\/code><\/p>/);
 });
 
@@ -412,7 +416,7 @@ test('a title holding markup is stored as typed, and shown as text everywhere th
   assert.equal(address, '2026-10-04-script-alert-1-script-co-s-img-src-x-onerror-alert-2');
   assert.equal(rows(env)[0].title, HOSTILE);
   const html = await page(env, `?done=created&album=${address}`);
-  assert.ok(html.includes(`<h3 id="album-1">${ESCAPED}</h3>`), 'the heading');
+  assert.ok(html.includes(`<h3 id="album-${firstId(env)}">${ESCAPED}</h3>`), 'the heading');
   assert.ok(html.includes(`value="${ESCAPED}"`), 'the edit field');
   assert.ok(html.includes(`aria-label="Close ${ESCAPED}"`), 'a button\'s name');
   assert.ok(html.includes(`<p role="status">Added ${ESCAPED}.`), 'the notice');
@@ -455,12 +459,17 @@ test('GET /api/albums/open with a session: the open albums, newest first, and no
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
   assert.equal(res.headers.get('X-Robots-Tag'), 'noindex');
   // Each names its team by key and by name (#227), for the share page's
-  // groups and #223's narrowing.
+  // groups and #223's narrowing. The teams' Not sure albums (#228) come
+  // apart, in the teams' order, with no title: the page writes their words.
   assert.deepEqual(await res.json(), {
     albums: [
       { address: later, title: 'Afternoon practice', kind: 'practice', date: '2026-10-04', team: 'hoover-jrt', teamName: 'Hoover JRT' },
       { address: earlier, title: 'Morning practice', kind: 'practice', date: '2026-10-04', team: 'cohssa', teamName: 'COHSSA' },
       { address: september, title: 'Harvest Moon', kind: 'regatta', date: '2026-09-20', team: 'hoover-jrt', teamName: 'Hoover JRT' },
+    ],
+    other: [
+      { address: '0001-01-01-not-sure-hoover-jrt', team: 'hoover-jrt', teamName: 'Hoover JRT' },
+      { address: '0001-01-01-not-sure-cohssa', team: 'cohssa', teamName: 'COHSSA' },
     ],
   });
 });
@@ -477,7 +486,11 @@ test('GET /api/albums/open without a live session: 401, and no album in the answ
 
 test('an open list with nothing open is empty, not an error', async () => {
   const env = site();
-  assert.deepEqual(await (await openCall(env, await session())).json(), { albums: [] });
+  // With no event, each team's Not sure album is still offered (#228)...
+  assert.deepEqual((await (await openCall(env, await session())).json()).albums, []);
+  // ...and with those closed too, both lists are empty.
+  for (const team of ['hoover-jrt', 'cohssa']) await post(env, 'close', { address: `0001-01-01-not-sure-${team}` });
+  assert.deepEqual(await (await openCall(env, await session())).json(), { albums: [], other: [] });
 });
 
 // ---- The page itself ------------------------------------------------------
@@ -501,7 +514,12 @@ test('it has one h1, no inline script or style, and every form posts to an album
   assert.equal(html.match(/<h1[\s>]/g).length, 1);
   assert.doesNotMatch(html, /<script|<style|\sstyle="|\son[a-z]+="/i);
   const actions = [...html.matchAll(/<form method="post" action="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(actions, ['/api/admin/albums/create', '/api/admin/albums/update', '/api/admin/albums/close', '/api/admin/albums/delete']);
+  // The last two close each team's Not sure album (#228), which has no Edit
+  // and no Delete.
+  assert.deepEqual(actions, [
+    '/api/admin/albums/create', '/api/admin/albums/update', '/api/admin/albums/close', '/api/admin/albums/delete',
+    '/api/admin/albums/close', '/api/admin/albums/close',
+  ]);
   assert.equal((html.match(/<form /g) ?? []).length, actions.length);
 });
 
@@ -532,7 +550,7 @@ test('#227: adding an album names its team, and the page lists it with that team
   assert.match(html, /<p class="album-facts">COHSSA · Regatta · <time datetime="2026-10-04">4 October 2026<\/time> · <code>2026-10-04-districts<\/code><\/p>/);
   assert.match(html, /<p class="album-facts">Hoover JRT · Regatta · /);
   // Each edit form starts on the album's own team.
-  const [, districts] = html.split('<h3 id="album-1">');
+  const [, districts] = html.split(`<h3 id="album-${firstId(env)}">`);
   assert.match(districts.split('</li>')[0], /<input type="radio" name="team" value="cohssa" required checked> COHSSA/);
   assert.doesNotMatch(districts.split('</li>')[0], /value="hoover-jrt" required checked/);
 });
@@ -578,7 +596,7 @@ test('#227: the database refuses an album whose team is not in teams, on insert 
   // whose team is a row, which every album's is, so no behaviour pins it
   // (review-fanout at #227's review; an equivalent mutant, kept for cost).
   sqlite.prepare("UPDATE albums SET title = 'y' WHERE address = '2026-10-04-cohssa'").run();
-  assert.deepEqual(sqlite.prepare('SELECT team FROM albums ORDER BY id').all().map((r) => r.team), ['hoover-jrt', 'hoover-jrt']);
+  assert.deepEqual(sqlite.prepare('SELECT team FROM albums WHERE holding = 0 ORDER BY id').all().map((r) => r.team), ['hoover-jrt', 'hoover-jrt']);
 });
 
 test('#227: a team an album names cannot be deleted or have its key changed; one no album names can', () => {
@@ -653,7 +671,13 @@ test('#227: migration 0010 makes every album already made a Hoover JRT album, wi
 });
 
 test('an empty site says no album is open', async () => {
-  assert.match(await page(site()), /No album is open, so parents have nowhere to send photos\./);
+  // Each team's Not sure album is open from the start (#228), so parents can
+  // still send there.
+  const env = site();
+  assert.match(await page(env), /No event is open, so parents can send only to "Not sure \/ other event"\./);
+  // With both closed, nowhere.
+  for (const team of ['hoover-jrt', 'cohssa']) await post(env, 'close', { address: `0001-01-01-not-sure-${team}` });
+  assert.match(await page(env), /No album is open, so parents have nowhere to send photos\./);
 });
 
 test('a press that arrives as a GET changes nothing, and the page says so', async () => {
