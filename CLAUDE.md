@@ -76,14 +76,16 @@ site**, on those accounts; #194 recorded the decisions behind both epics
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
 #228 gave each team a "Not sure / other event" for photos from an event
 nobody has added yet, which an admin moves into its event on `/admin/queue`
-before approving them (item 32). Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
-Access. The domain has served the site since release `50992c3` (2026-09-27),
-and each story reaches it with the next promotion, so read `release`, not this
+before approving them (item 32). The `develop` preview sits behind
+Access. The domain has served a holding page since release `50992c3`
+(2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
+Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
-The remaining open work is refinement rather than construction — self-hosted
-fonts, a second app's pages, copy sharpening — and it is
-tracked on the board, not here.
+The open work is still construction: epics #147 (the photo site), #216
+(accounts) and #191 (the COHSSA section) have stories open. Beside them, #163
+keeps the app pages true to the apps and #175 carries the plumbing the three
+sites share. All of it is tracked on the board, not here.
 
 *This section read "Greenfield … No page of either site is built yet" until
 2026-09-04, by which point eleven stories had shipped and both domains were
