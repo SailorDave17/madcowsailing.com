@@ -59,10 +59,14 @@
        Hoover JRT: the release families  D5. Worded as the whole check read
        sign, and their opt-outs          before #238 (#238's criterion 3)
        COHSSA: its season-registration   CLAUDE.md, The photo site, item 24:
-       release, which COHSSA issues,     the owner, 2026-10-05 (#194). Its
-       with no opt-out                   wording is not recorded yet, and
-                                         #253 quotes it here (owner, at
-                                         #238's gate)
+       release, which COHSSA issues;     the owner, 2026-10-05 (#194). The
+       each family gives permission or   choice to give or withhold it, and
+       not, and can take it back         to take it back, is in the release
+                                         the owner gave on 2026-10-07 (#253),
+                                         which corrected #238's "no opt-out"
+       Its item 2, quoted word for word  item 24's record, 2026-10-07 (#253);
+                                         test/policy.test.js holds the two
+                                         equal
        Turned down means deleted         rejectPhotos in lib/queue.js (#156)
        "Remove this photo" hides it      requestRemoval in lib/removals.js and
        from everyone at once             functions/api/remove.js (#158; D7);
@@ -395,6 +399,11 @@
      team in lib/teams.js needs its own sentence here, which
      test/policy.test.js holds.
 
+     #253 (COHSSA's wording) quoted item 2 of COHSSA's release straight after
+     its paragraph, and corrected #238's "no opt-out": the release lets a
+     family withhold permission or take it back, so a COHSSA photo is checked
+     against those families as Hoover JRT's is against its opt-outs.
+
      #222 (signing in) added the session cookie and what ends it, the count
      of failed sign-ins in a row, the failed sign-in limits and their
      scrambled addresses, the reset link, its limits and its scrambled
@@ -438,7 +447,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=0caea28e64">
+<link rel="stylesheet" href="/css/site.css?v=cf2d09e55b">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -543,8 +552,23 @@
       register with the team. The admin turns down any photo they recognize
       as showing a sailor whose family opted out.</p>
     <p>For COHSSA, it is COHSSA's season-registration release, which COHSSA
-      issues as part of registering for its season. It has no opt-out, so
-      there is no list of families to check a COHSSA photo against.</p>
+      issues as part of registering for its season. Each family chooses on it
+      whether to give permission, and can take it back at any time. The admin
+      turns down any photo they recognize as showing a sailor whose family
+      said no, or took it back. On photos published online, the release
+      says:</p>
+    <blockquote class="release">
+      <p>2. Post and publish those images and recordings, along with my
+        sailor's full name, school, and team results, on:</p>
+      <ul>
+        <li>COHSSA and member team websites</li>
+        <li>Social media accounts run by COHSSA or its member teams (e.g.,
+          Instagram, Facebook)</li>
+        <li>Fundraising and promotional materials, including sponsor
+          presentations, donor appeals, recruiting flyers, and event
+          programs</li>
+      </ul>
+    </blockquote>
     <p>A check can miss one. If a photo is up that should not be, press
       "Remove this photo" under it, or email the address above, and it comes
       down.</p>

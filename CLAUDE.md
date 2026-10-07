@@ -1439,10 +1439,23 @@ it, and the share page links it beside the join step.
   opt-out (item 24). `test/policy.test.js` fails if Hoover JRT's sentences
   change, if COHSSA's paragraph stops naming its release or its lack of an
   opt-out, and if a team in `lib/teams.js` has no sentence of its own, so a
-  third team needs its release named here before it ships. **The page does
-  not quote COHSSA's release yet**: the wording was not to hand, and the
-  owner chose at #238's gate to ship without the quote rather than hold for
-  it. #253 records the wording in item 24 and quotes it here.
+  third team needs its release named here before it ships. The wording was
+  not to hand, and the owner chose at #238's gate to ship without the quote
+  rather than hold for it. *The "no opt-out" was wrong, and #253 corrected
+  it (next bullet).*
+- **#253 quoted COHSSA's release and corrected its opt-out** (2026-10-07).
+  The release the owner gave lets a family give or withhold permission and
+  take it back, so COHSSA's paragraph now says an admin turns down a photo
+  of a sailor whose family said no or took it back (a family that never
+  returned the form is not on that list; item 24). Item 2 of the
+  release, the part on photos published online, follows it word for word in
+  a `blockquote class="release"`, set off by a `--blue` rule at its start
+  edge. `test/policy.test.js` fails if that quote and item 24's record
+  differ by a word or a list item, if the quote stops following COHSSA's
+  paragraph straight away, or if COHSSA's paragraph stops saying how a family
+  withholds permission. The admin queue's lede, README → Approving and the
+  hq case study, which check every photo against "the families who opted
+  out", read true for both teams again and are unchanged.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -2005,13 +2018,50 @@ describe production until the cutover, #226.
   its wording is recorded here and on `/policy` (#191's end state).
   **Confirmed by the owner on 2026-10-05 (#194):** the release is part of
   COHSSA's season registration, COHSSA issues it, and it covers photos
-  published online. It has no opt-out, so unlike Hoover's (item 18) there is
-  no per-family list for an admin to check a COHSSA photo against.
-  `/policy` has said so since #238 (2026-10-06), naming the release.
-  **Its exact wording is not recorded yet.** #253 records it here word
-  for word and quotes it on `/policy`, and no COHSSA photo is approved until
-  then. #238 shipped without the quote rather than wait for the wording
-  (owner, at #238's gate, 2026-10-06).
+  published online. *This item then said the release has no opt-out, so
+  that unlike Hoover's (item 18) no per-family list applied, and `/policy`
+  said so from #238 (2026-10-06). #253 corrected both on 2026-10-07, below.*
+  #238 shipped without the quote rather than wait for the wording (owner, at
+  #238's gate, 2026-10-06).
+  **Its wording, recorded on 2026-10-07 (#253)** from the owner's copy of the
+  release, pasted at #253's pickup, which the owner confirmed that day is the
+  form COHSSA families have signed. The form has no title, and it covers the
+  2026–27 school year and any later seasons. A family ticks "I GIVE
+  permission" or "I DO NOT give permission", and can withdraw it at any time
+  by emailing the coaching staff. So **COHSSA's release has an opt-out after
+  all**: an admin turns down any COHSSA photo they recognize as showing a
+  sailor whose family said no or took it back, as for Hoover's opt-outs. A
+  family that never returned the form is not on that list (owner,
+  2026-10-07). Not chosen: checking against every family that has not given
+  permission, non-returners included, which the form's opt-in wording
+  supports and which needs the list of families who ticked GIVE. On photos
+  published online, item 2 of its "What you're allowing" reads, word for
+  word:
+
+  > 2. Post and publish those images and recordings, along with my sailor's
+  >    full name, school, and team results, on:
+  >
+  >    - COHSSA and member team websites
+  >    - Social media accounts run by COHSSA or its member teams (e.g.,
+  >      Instagram, Facebook)
+  >    - Fundraising and promotional materials, including sponsor
+  >      presentations, donor appeals, recruiting flyers, and event programs
+
+  `/policy` quotes it straight after COHSSA's paragraph, and
+  `test/policy.test.js` fails if the two differ. Edit both together, and only
+  from the release itself. The owner chose item 2 alone (2026-10-07). Not
+  chosen: item 2 plus the withdrawal term, which carries a personal email
+  address; all of "What you're allowing". **The quoted text does not name
+  photos.madcowsailing.com.** Asked at #253's pickup, the owner said the
+  issued release names it, then chose to proceed on the assumption that the
+  text given is the issued one and covers the site among "COHSSA and member
+  team websites". If the issued form reads differently, item 2 is recorded
+  again from it. **Open (owner, 2026-10-07):** item 2 permits posting "those
+  images and recordings", the ones its item 1 lets COHSSA, its member school
+  teams, and its coaches and volunteers take. Whether a parent's photo sent
+  to the site is one of them, or one the form's "Third-party photos" term
+  describes, the release does not settle. No COHSSA photo is approved until #253 is released (item
+  28).
 - **The section shows COHSSA's name as text, with no COHSSA logo** unless
   COHSSA's permission is recorded here (a default, confirmed on 2026-10-05).
   None was recorded that day.

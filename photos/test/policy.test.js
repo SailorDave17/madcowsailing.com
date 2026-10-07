@@ -200,8 +200,9 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     assert.ok(MAIN.includes(claim), `the policy no longer says "${claim}"`);
   }
   // What a photo's row keeps, item by item (migration 0005). A list, so a
-  // phrase repeated elsewhere on the page cannot stand in for an item.
-  const kept = [...block(block(POLICY, 'main'), 'ul').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => words(m[1]));
+  // phrase repeated elsewhere on the page cannot stand in for an item. Read
+  // from its own section: since #253 the release quote's list comes first.
+  const kept = [...block(section('What the site keeps'), 'ul').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => words(m[1]));
   assert.deepEqual(kept, [
     'three copies of it, sized for the album page, the screen and download;',
     'its caption, if it has one;',
@@ -1102,9 +1103,9 @@ test('README\'s by-hand account delete, run only once the account\'s own address
 // ---- #238: which release covers which team's photos -------------------------
 //
 // Hoover JRT's photos are checked against the families who opted out of its
-// release, and COHSSA's release has none (CLAUDE.md, The photo site, item
-// 24). COHSSA's wording is not recorded yet, so the page names the release
-// and does not quote it (owner, at #238's gate).
+// release, and COHSSA's against the families who said no on its release or
+// took it back (CLAUDE.md, The photo site, item 24). #238 said COHSSA's had
+// no opt-out, and #253 corrected it from the release's own text.
 
 // One paragraph of the check, whole: the capture stops at its own </p>, so a
 // claim in the paragraph after it cannot stand in for one in it.
@@ -1114,14 +1115,18 @@ const checkParagraph = (lead) => {
   return words(found[1]);
 };
 
-test('/policy names COHSSA\'s season-registration release and says it has no opt-out (#238, criterion 2)', () => {
+test('/policy names COHSSA\'s season-registration release and checks a COHSSA photo against the families who said no (#238, #253)', () => {
   const cohssa = checkParagraph('For COHSSA,');
   has(cohssa, [
     'COHSSA\'s season-registration release',
     'which COHSSA issues as part of registering for its season', // item 24, #194
-    'It has no opt-out, so there is no list of families to check a COHSSA photo against.',
+    // The release's "I DO NOT give permission" and its withdrawal (#253).
+    'Each family chooses on it whether to give permission, and can take it back at any time.',
+    'The admin turns down any photo they recognize as showing a sailor whose family said no, or took it back.',
   ], 'COHSSA\'s paragraph');
-  assert.doesNotMatch(cohssa, /opted out/);
+  assert.doesNotMatch(cohssa, /no opt-out/);
+  // The paragraph ends by introducing the quote that follows it.
+  assert.match(cohssa, /On photos published online, the release says:$/);
 });
 
 test('the check says which release covers each team\'s photos, and Hoover JRT\'s reads as it did (#238, criterion 3)', () => {
@@ -1145,7 +1150,8 @@ test('the check says which release covers each team\'s photos, and Hoover JRT\'s
 const RELEASE_ROWS = [
   ['Every photo and caption checked', ['D5', '#159\'s review', 'albums.team', 'migrations/0010_album_teams.sql', '#227']],
   ['Hoover JRT: the release families', ['D5', '#238\'s criterion 3']],
-  ['COHSSA: its season-registration', ['item 24', '2026-10-05 (#194)', 'not recorded yet', '#238\'s gate']],
+  ['COHSSA: its season-registration', ['item 24', '2026-10-05 (#194)', '2026-10-07 (#253)', '"no opt-out"']],
+  ['Its item 2, quoted word for word', ['item 24\'s record', '(#253)', 'test/policy.test.js']],
   ['Turned down means deleted', []],
 ];
 
@@ -1160,6 +1166,103 @@ test('the head comment traces which release covers which team, each in its own r
     const cell = lines.slice(starts[i], starts[i + 1]).map((line) => line.slice(41).trim()).join(' ');
     for (const source of sources) assert.ok(cell.includes(source), `the "${head}" row does not name ${source}`);
   });
+});
+
+// ---- #253: COHSSA's release, quoted word for word -----------------------------
+//
+// Item 24 records item 2 of COHSSA's release, and /policy quotes it straight
+// after COHSSA's paragraph. The two are compared unit by unit, a paragraph or
+// a list item each, so a word changed, a list item dropped or two items run
+// together is a difference, while a re-wrapped line is not.
+
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', ndash: '–', mdash: '—', hellip: '…',
+};
+
+// What a reader sees of a quote: tags out, entities decoded, whitespace folded.
+const shown = (html) => html
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, name) => {
+    if (name[0] === '#') return String.fromCodePoint(/^#x/i.test(name) ? parseInt(name.slice(2), 16) : Number(name.slice(1)));
+    assert.ok(name in ENTITIES, `no reading for ${entity}`);
+    return ENTITIES[name];
+  })
+  .replace(/\s+/g, ' ')
+  .trim();
+
+// The page's one release quote, as its paragraphs and list items in order.
+const policyQuote = (html) => {
+  const quotes = [...html.matchAll(/<blockquote class="release">([\s\S]*?)<\/blockquote>/g)];
+  assert.equal(quotes.length, 1, `the page holds ${quotes.length} release quotes`);
+  return quotes[0][1].split(/<\/?(?:p|ul|ol|li)\b[^>]*>/).map(shown).filter((unit) => unit.length > 0);
+};
+
+// CLAUDE.md's item 24, from its heading to item 25's.
+const item24 = () => {
+  const claude = read('..', 'CLAUDE.md');
+  const start = claude.indexOf('\n### 24. ');
+  const end = claude.indexOf('\n### 25. ', start);
+  assert.ok(start > 0 && end > start, 'CLAUDE.md has no item 24');
+  return claude.slice(start, end);
+};
+
+// Item 24's quote: its one run of ">" lines. A unit is a paragraph or a "- "
+// list item, ended by a ">" alone or by the next item's marker.
+const recordedQuote = (markdown) => {
+  const lines = markdown.split(/\r?\n/);
+  const at = lines.flatMap((line, i) => (/^\s*>/.test(line) ? [i] : []));
+  assert.ok(at.length > 0, 'item 24 records no wording');
+  assert.equal(at.at(-1) - at[0] + 1, at.length, 'item 24 holds more than one quote');
+  const units = [];
+  let open = false;
+  for (const line of lines.slice(at[0], at.at(-1) + 1).map((text) => text.replace(/^\s*> ?/, ''))) {
+    const item = line.match(/^\s*- (.*)$/);
+    if (line.trim() === '') open = false;
+    else if (item) { units.push(item[1]); open = true; }
+    else if (open) units[units.length - 1] += ` ${line}`;
+    else { units.push(line); open = true; }
+  }
+  return units.map((unit) => unit.replace(/\s+/g, ' ').trim());
+};
+
+test('item 24 records item 2 of COHSSA\'s release, dated, and /policy quotes it word for word (#253, criteria 1 and 2)', () => {
+  const recorded = recordedQuote(item24());
+  // Item 2's sentence, then the three places it names.
+  assert.equal(recorded.length, 4, JSON.stringify(recorded));
+  assert.match(recorded[0], /^2\. Post and publish those images and recordings, /);
+  assert.deepEqual(policyQuote(POLICY), recorded);
+  // Dated, in place of the line #238 left.
+  assert.match(item24(), /\*\*Its wording, recorded on \d{4}-\d{2}-\d{2} \(#253\)\*\*/);
+  assert.doesNotMatch(item24(), /not recorded yet/);
+
+  // The controls. Every change below is a difference except the re-wraps.
+  const inner = POLICY.match(/<blockquote class="release">([\s\S]*?)<\/blockquote>/)[1];
+  const page = (change) => POLICY.split(inner).join(change(inner));
+  // A word added to the page's quote, and one taken out of item 24's.
+  assert.notDeepEqual(policyQuote(page((q) => q.split('</p>').join(' planted</p>'))), recorded);
+  assert.notDeepEqual(recordedQuote(item24().split('Post and publish').join('Post publish')), recorded);
+  // Two list items run together on the page; one dropped from item 24's.
+  assert.notDeepEqual(policyQuote(page((q) => q.replace(/websites<\/li>\s*<li>/, () => 'websites '))), recorded);
+  assert.notDeepEqual(recordedQuote(item24().replace(/\n\s*>\s*- COHSSA and member team websites/, () => '')), recorded);
+  // A re-wrapped line is the same quote, on either side.
+  assert.deepEqual(policyQuote(page((q) => q.split(' ').join('\n          '))), recorded);
+  assert.deepEqual(recordedQuote(item24().replace(/along with my /, () => 'along with\n  >    my ')), recorded);
+});
+
+test('the quote follows COHSSA\'s paragraph straight away, inside the check (#253, criterion 2)', () => {
+  const check = section('Every photo is checked first');
+  // COHSSA's paragraph, whole and stopping at its own </p>, then the quote
+  // with nothing between them.
+  const follows = (html) => /<p>For COHSSA,(?:(?!<\/p>)[\s\S])*<\/p>\s*<blockquote class="release">/.test(html);
+  assert.ok(follows(check), 'the quote does not follow COHSSA\'s paragraph inside the check');
+  // The controls: the quote moved past the paragraph after COHSSA's, and a
+  // paragraph planted between them.
+  const quote = check.match(/\s*<blockquote class="release">[\s\S]*?<\/blockquote>/)[0];
+  const moved = check.split(quote).join('').replace(/<p>A check can miss one\.(?:(?!<\/p>)[\s\S])*<\/p>/, (p) => p + quote);
+  assert.ok(moved.includes('<blockquote class="release">') && moved !== check, 'the control did not move the quote');
+  assert.equal(follows(moved), false);
+  assert.equal(follows(check.split(quote).join(`<p>planted</p>${quote}`)), false);
 });
 
 // ---- #223: accounts send ------------------------------------------------------
