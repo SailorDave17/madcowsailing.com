@@ -19,9 +19,11 @@
  * the home's count of them. #217 added the test email, adminMailPage(). #220
  * added the home's count of requests for an account. #221's page for them,
  * /admin/people, is lib/people-page.js, which takes adminPage() from here.
+ * #228 added the queue's Move to event and the albums page's section for
+ * each team's "Not sure / other event".
  */
 import { ADMIN_SESSION_SECONDS } from './admin-session.js';
-import { KINDS, MAX_SUFFIX, TITLE_MAX, isAddress } from './albums.js';
+import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
 import { CAPTION_MAX } from './photos.js';
@@ -56,7 +58,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=014521fb1c">
+<link rel="stylesheet" href="/css/site.css?v=ac1e9e37fb">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -215,8 +217,13 @@ export function timeElement(seconds) {
  * day, not a moment, so no time zone can move it and no script rewrites it.
  */
 export function dayElement(date) {
+  return `<time datetime="${date}">${dayText(date)}</time>`;
+}
+
+/** A day written YYYY-MM-DD as text, "4 October 2026", where markup cannot go. */
+export function dayText(date) {
   const [year, month, day] = date.split('-').map(Number);
-  return `<time datetime="${date}">${day} ${MONTHS[month - 1]} ${year}</time>`;
+  return `${day} ${MONTHS[month - 1]} ${year}`;
 }
 
 // What the page says when a press arrived as a GET and changed nothing
@@ -326,8 +333,12 @@ export function adminCodePage({ current, site, unchanged = null }) {
 const DONE = {
   created: (a) => `Added ${a.title}. Its address is <code>${a.address}</code>.`,
   saved: (a) => `Saved ${a.title}. Its address stays <code>${a.address}</code>.`,
-  closed: (a) => `Closed ${a.title}. Parents can no longer send photos to it, and its approved photos stay public.`,
-  reopened: (a) => `Reopened ${a.title}. Parents can send photos to it again.`,
+  closed: (a) => (a.holding
+    ? `Closed ${a.title}. Parents can no longer choose it; its waiting photos stay in the queue.`
+    : `Closed ${a.title}. Parents can no longer send photos to it, and its approved photos stay public.`),
+  reopened: (a) => (a.holding
+    ? `Reopened ${a.title}. Parents can choose it again.`
+    : `Reopened ${a.title}. Parents can send photos to it again.`),
 };
 
 const ERRORS = {
@@ -338,16 +349,23 @@ const ERRORS = {
   full: `Nothing was saved: ${MAX_SUFFIX} albums already hold every address this date and title can have. Change the title.`,
   missing: 'Nothing was changed: that album does not exist, or was deleted.',
   unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+  'not-sure': `Nothing was changed: a team's "${NOT_SURE_TITLE}" is only closed and reopened, never edited or deleted.`,
 };
 
 /**
  * The notice for the page's query string, as HTML, or '' for none. `albums`
- * is the list the page shows, which the named album is looked up in.
+ * is the list the page shows, which the named album is looked up in. A
+ * team's Not sure album (#228) is named with its team, since every team's
+ * has the same title.
  */
 export function albumsNotice(params, albums) {
   const address = params.get('album');
   const found = isAddress(address) ? albums.find((a) => a.address === address) : undefined;
-  const album = found && { title: escapeHtml(found.title), address: escapeHtml(found.address) };
+  const album = found && {
+    title: found.holding ? `${escapeHtml(found.title)} for ${escapeHtml(teamName(found.team))}` : escapeHtml(found.title),
+    address: escapeHtml(found.address),
+    holding: found.holding,
+  };
   const done = params.get('done');
   const error = params.get('error');
   let text = null;
@@ -433,15 +451,34 @@ const albumList = (albums, empty) => (albums.length
   ? `<ul class="albums">\n    ${albums.map(albumItem).join('\n    ')}\n    </ul>`
   : `<p class="albums-empty">${empty}</p>`);
 
+// A team's "Not sure / other event" (#228): its team, whether parents can
+// choose it, and Close or Reopen. No Edit and no Delete: its title is the
+// share page's words, and migration 0015 keeps it. Named with its team, since
+// every team's has the same title.
+function notSureItem(album) {
+  const id = `album-${album.id}`;
+  const named = { ...album, title: `${album.title} for ${teamName(album.team)}` };
+  return `<li class="album">
+      <h3 id="${id}">${escapeHtml(teamName(album.team))}</h3>
+      <p class="album-facts">${album.open ? 'Open: parents can choose it' : 'Closed: parents cannot choose it'}</p>
+      <div class="actions">
+        ${pressForm(album.open ? 'close' : 'reopen', album.open ? 'Close' : 'Reopen', named)}
+      </div>
+    </li>`;
+}
+
 /**
  * /admin/albums (#153). `albums` is lib/albums.js's allAlbums(), newest
  * first; `notice` is albumsNotice()'s HTML. Every press is a plain form post
  * answered 303 back here, so a reload cannot post again, and the page needs
- * no script. Editing sits in a <details> under each album.
+ * no script. Editing sits in a <details> under each album. The teams' Not
+ * sure albums (#228) have a section of their own, after the events.
  */
 export function adminAlbumsPage({ albums, notice = '' }) {
-  const open = albums.filter((a) => a.open);
-  const closed = albums.filter((a) => !a.open);
+  const events = albums.filter((a) => !a.holding);
+  const open = events.filter((a) => a.open);
+  const closed = events.filter((a) => !a.open);
+  const notSure = albums.filter((a) => a.holding);
   return adminPage({
     title: 'Albums',
     main: `<main id="main">
@@ -467,13 +504,24 @@ export function adminAlbumsPage({ albums, notice = '' }) {
     <h2 id="open-albums">Open albums</h2>
     <p>Parents can send photos to these. Close an album to stop that; its
       approved photos stay public. Only an empty album can be deleted.</p>
-    ${albumList(open, 'No album is open, so parents have nowhere to send photos.')}
+    ${albumList(open, notSure.some((a) => a.open)
+    ? `No event is open, so parents can send only to "${NOT_SURE_TITLE}".`
+    : 'No album is open, so parents have nowhere to send photos.')}
   </section>
 
   <section class="wrap" aria-labelledby="closed-albums">
     <h2 id="closed-albums">Closed albums</h2>
     <p>These take no photos. Their approved photos stay public.</p>
     ${albumList(closed, 'No album is closed.')}
+  </section>
+
+  <section class="wrap" aria-labelledby="not-sure-albums">
+    <h2 id="not-sure-albums">${NOT_SURE_TITLE}</h2>
+    <p>Parents choose this when they cannot find their event. It is no event:
+      its photos wait in the queue until an admin moves them into one, and
+      nothing in it is ever public. Close a team's to stop parents choosing
+      it.</p>
+    ${notSure.length ? `<ul class="albums">\n    ${notSure.map(notSureItem).join('\n    ')}\n    </ul>` : '<p class="albums-empty">No team has one.</p>'}
   </section>
 </main>`,
   });
@@ -521,22 +569,51 @@ export const QUEUE_SCRIPT = '<script src="/js/admin-queue.js?v=d888c4fa39" defer
 // crafted link can show only a known sentence and a number.
 const QUEUE_ERRORS = {
   form: 'Nothing was changed: the press did not say which photos it was for. Reload the page and press again.',
-  gone: 'No photo was approved or rejected: those photos are no longer waiting, so another admin may have got to them first.',
+  gone: 'No photo was approved, rejected or moved: those photos are no longer waiting, so another admin may have got to them first.',
   unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+  // #228: "Move to event".
+  target: 'No photo was moved: choose one of the team\'s events under "Move to event", or "A new event" and its title, kind and date.',
+  'new-title': `No photo was moved and no event was added: a new event's title is 1 to ${TITLE_MAX} characters, on one line.`,
+  'new-kind': 'No photo was moved and no event was added: choose Regatta or Practice for the new event.',
+  'new-date': 'No photo was moved and no event was added: the new event\'s date is not a real day.',
+  'new-full': `No photo was moved and no event was added: ${MAX_SUFFIX} albums already hold every address that date and title can have. Change the title.`,
+  teams: 'No photo was moved: those photos are in two teams\' events now, since this page was loaded. Reload the page and move each batch from there. The captions typed were saved.',
 };
 
-/** The notice for the queue's query string, as HTML, or '' for none. */
-export function queueNotice(params) {
+// Why a photo in a team's "Not sure / other event" is not approved (#228,
+// criterion 4): said on each such batch, and in the notice after a press
+// that named one anyway.
+const NOT_SURE_WHY = `A photo in "${NOT_SURE_TITLE}" has no event to be public in, so it cannot be approved. Move it into its event below, then approve it there.`;
+
+/**
+ * The notice for the queue's query string, as HTML, or '' for none. `albums`
+ * is the list the page shows in its "Move to event" choices (#228), which a
+ * moved-to album's title is looked up in, so the title comes from the
+ * database, never from the address bar.
+ */
+export function queueNotice(params, albums = []) {
   const count = (name) => (/^[1-9][0-9]{0,14}$/.test(params.get(name) ?? '') ? Number(params.get(name)) : null);
   const photo = count('photo');
   const n = count('n');
   const kept = count('kept');
   const unsaved = count('unsaved');
+  const notSure = count('not-sure');
   const done = params.get('done');
   const error = params.get('error');
+  const address = params.get('album');
+  const album = isAddress(address) ? albums.find((a) => a.address === address && !a.holding) : undefined;
+  const event = album && `${escapeHtml(album.title)} (${escapeHtml(teamName(album.team))}, ${dayText(album.date)})`;
+  const made = params.get('made') === '1' && event ? `Added ${event} to the events. ` : '';
   let text = null;
   if (done === 'approved' && (photo || n)) {
     text = photo ? `Approved photo ${photo}.` : `Approved ${plural(n, 'photo', 'photos')}.`;
+    if (notSure) text += ` ${plural(notSure, 'photo was', 'photos were')} left waiting. ${NOT_SURE_WHY}`;
+  } else if (done === 'moved' && (photo || n) && event) {
+    text = `${made}${photo ? `Moved photo ${photo}` : `Moved ${plural(n, 'photo', 'photos')}`} to ${event}. ${photo ? 'It waits' : 'They wait'} there, ready to approve.`;
+  } else if (error === 'not-sure') {
+    text = `Nothing was approved. ${NOT_SURE_WHY}`;
+  } else if (error === 'gone' && made) {
+    text = `${made}No photo was moved into it: those photos are no longer waiting, so another admin may have got to them first.`;
   } else if (done === 'rejected' && (photo || n)) {
     text = photo
       ? `Rejected photo ${photo}. It is deleted, with its three sizes.`
@@ -551,7 +628,11 @@ export function queueNotice(params) {
   } else if (Object.hasOwn(QUEUE_ERRORS, error)) {
     text = QUEUE_ERRORS[error];
   }
-  if (text && unsaved && (done || error === 'gone')) {
+  // Every press that got past reading its form saved the batch's captions,
+  // whatever it then refused (#228's move saves them before checking its
+  // choice).
+  const saved = done || ['gone', 'not-sure', 'target', 'teams'].includes(error) || /^new-/.test(error ?? '');
+  if (text && unsaved && saved) {
     // Approved, or since #225 hidden by "Hide all their photos": a waiting
     // photo leaves the queue either way, and only approving makes it public.
     text += ` ${plural(unsaved, 'caption was', 'captions were')} not saved: ${unsaved === 1 ? 'its photo was' : 'their photos were'} approved or hidden after this page was loaded.`;
@@ -583,13 +664,17 @@ const sentBy = (photo) => {
 // to itself, to open alone. The owner's choice at #156's pickup: all three in
 // view, so a swapped picture shows without a tap. Not chosen: the grid and
 // full as links only, or all three at one size.
-function waitingPhoto(photo, formId, first, team) {
+function waitingPhoto(photo, formId, first, team, notSure) {
   const { id } = photo;
   const size = (name, label) => `<figure>
               <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
               <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
             </figure>`;
   const from = sentBy(photo);
+  // No Approve for a photo in "Not sure / other event" (#228, criterion 4):
+  // its batch says why, and a press naming it anyway is refused.
+  const approve = notSure ? '' : `
+            <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>`;
   return `<li class="waiting" id="photo-${id}">
           <h3>Photo ${id}</h3>
           <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}${from}</p>
@@ -602,23 +687,67 @@ function waitingPhoto(photo, formId, first, team) {
             <label for="caption-${id}">Caption for photo ${id}</label>
             <input id="caption-${id}" name="caption-${id}" type="text" autocomplete="off" value="${escapeHtml(photo.caption ?? '')}">
           </p>
-          <p class="actions">
-            <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>
+          <p class="actions">${approve}
+            <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="${id}" aria-label="Move photo ${id} to the event chosen above">Move</button>
             <button type="button" class="button button-quiet" data-reject="${id}" data-form="${formId}" aria-label="Reject photo ${id}">Reject</button>
           </p>
         </li>`;
 }
 
+/**
+ * The batch's "Move to event" choices (#228): its team's events, newest
+ * first, open or closed, never a Not sure album and never the album the
+ * batch is in, then a new event, whose fields sit below. Nothing is chosen,
+ * so a Move press with no choice moves nothing and the notice says so. The
+ * new event's fields are not required, since Save captions and the other
+ * buttons post the same form; the move route checks them.
+ */
+function moveFields(batch, formId, albums) {
+  const events = albums.filter((a) => !a.holding && a.team === batch.album.team && a.id !== batch.album.id);
+  const options = events.map((a) =>
+    `<option value="${escapeHtml(a.address)}">${escapeHtml(a.title)} (${dayText(a.date)}${a.open ? '' : ', closed'})</option>`);
+  const kinds = Object.entries(KINDS).map(([value, name]) =>
+    `<label><input type="radio" name="new-kind" value="${value}"> ${name}</label>`).join('\n            ');
+  return `<div class="move album-form">
+        <p class="field">
+          <label for="${formId}-to">Move to event</label>
+          <select id="${formId}-to" name="to">
+            <option value="">Choose an event</option>
+            ${[...options, '<option value="new">A new event, below</option>'].join('\n            ')}
+          </select>
+        </p>
+        <fieldset class="field new-event">
+          <legend>A new event for ${escapeHtml(teamName(batch.album.team))}</legend>
+          <p class="field">
+            <label for="${formId}-new-title">Title</label>
+            <input id="${formId}-new-title" name="new-title" type="text" maxlength="${TITLE_MAX}" autocomplete="off">
+          </p>
+          <p class="choices">
+            ${kinds}
+          </p>
+          <p class="field">
+            <label for="${formId}-new-date">Date</label>
+            <input id="${formId}-new-date" name="new-date" type="date">
+          </p>
+        </fieldset>
+      </div>`;
+}
+
 // A batch: one form, whose action and first button save its captions, so
 // Enter in a caption field saves rather than approving the first photo. Every
-// other button in it saves them too (lib/queue.js). "Approve all" and "Reject
-// all" are left out of a batch of one, where they would repeat its photo's.
-// A batch over lib/queue.js's PART_PHOTOS comes in parts, each one of these,
-// and its "all" means the part.
-function batchSection(batch, total, team) {
+// other button in it saves them too (lib/queue.js). "Approve all", "Move all"
+// and "Reject all" are left out of a batch of one, where they would repeat
+// its photo's. A batch over lib/queue.js's PART_PHOTOS comes in parts, each
+// one of these, and its "all" means the part.
+//
+// A batch sent to a team's "Not sure / other event" (#228) has no Approve at
+// all, and says why: its photos are moved into their event first, and
+// approved there. `albums` is every album, for the Move choices.
+function batchSection(batch, total, team, albums) {
   const index = batch.number;
   const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
   const n = batch.photos.length;
+  const notSure = batch.album.holding;
   // The batch is a UUID wherever the upload route wrote it (lib/photos.js,
   // isBatch), but the column has no CHECK and later stories add writers
   // (#192, #198), so it is escaped here like any stored text (security-audit
@@ -626,22 +755,26 @@ function batchSection(batch, total, team) {
   const id = escapeHtml(batch.id);
   const formId = `${id}-form`;
   const title = escapeHtml(batch.album.title);
-  const all = n > 1 ? `
-        <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>
+  const approveAll = notSure ? '' : `
+        <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>`;
+  const all = n > 1 ? `${approveAll}
+        <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="all" aria-label="Move all ${n} in batch ${index}${part}, ${title}, to the event chosen below">Move all ${n}</button>
         <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
+  const why = notSure ? `\n    <p class="batch-why">${NOT_SURE_WHY}</p>` : '';
   // Labelled by the facts as well as the title: two batches sent to one
   // album would otherwise be two regions with one name.
   return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
     <h2 id="${id}-title">${title}</h2>
-    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>
+    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}
     <form method="post" action="${pressPath('/api/admin/queue/captions', team)}" id="${formId}" class="batch-form">
       <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
       <input type="hidden" name="anchor" value="${id}">
       <p class="actions">
         <button type="submit" class="button button-quiet">Save captions</button>${all}
       </p>
+      ${moveFields(batch, formId, albums)}
       <ul class="queue">
-        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0, team)).join('\n        ')}
+        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0, team, notSure)).join('\n        ')}
       </ul>
     </form>
   </section>`;
@@ -663,8 +796,12 @@ function batchSection(batch, total, team) {
  * form, so only the confirm button posts. Cancel comes first, so Enter in the
  * dialog cancels, and it takes the focus when the dialog opens. The dialog
  * sits after every batch, so no batch form's first button is its confirm.
+ *
+ * `albums` is lib/albums.js's allAlbums(), for each batch's "Move to event"
+ * choices (#228): a photo sent to the wrong event, or to its team's "Not
+ * sure / other event", moves into one of the team's events here.
  */
-export function adminQueuePage({ batches, notice = '', team = null }) {
+export function adminQueuePage({ batches, notice = '', team = null, albums = [] }) {
   const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
   // A batch in parts is several entries with one number.
   const total = new Set(batches.map((batch) => batch.number)).size;
@@ -672,7 +809,7 @@ export function adminQueuePage({ batches, notice = '', team = null }) {
   const summary = waiting
     ? `${plural(waiting, 'photo', 'photos')}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
     : `No photo${from} is waiting. What parents send appears here, oldest first.`;
-  const list = batches.map((batch) => batchSection(batch, total, team)).join('\n\n  ');
+  const list = batches.map((batch) => batchSection(batch, total, team, albums)).join('\n\n  ');
   return adminPage({
     title: 'Waiting for approval',
     head: QUEUE_SCRIPT,
@@ -681,7 +818,8 @@ export function adminQueuePage({ batches, notice = '', team = null }) {
     <p class="eyebrow">Admin</p>
     <h1>Waiting for approval</h1>
     <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
-    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>${notice}${teamFilter('/admin/queue', team)}
+    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>
+    <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${notice}${teamFilter('/admin/queue', team)}
     <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
   </section>
 ${list ? `\n  ${list}\n` : ''}

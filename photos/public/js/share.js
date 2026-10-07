@@ -25,6 +25,8 @@
  * more than three at once, each showing where it stands, and a running
  * summary goes to a live region. The re-encode is also what leaves the
  * photo's GPS and camera data behind on the phone; the server strips again.
+ * Each team's list ends with "Not sure / other event" (#228), for photos
+ * from an event nobody has added yet, which the page never preselects.
  *
  * Shared photos (#193). The installed site is in an Android phone's Share
  * menu. share/sw.js keeps the photos a gallery shares to it in this phone's
@@ -281,15 +283,20 @@
       return;
     }
     let albums = null;
+    let other = [];
     if (response.ok) {
       try {
-        ({ albums } = await response.json());
+        ({ albums, other = [] } = await response.json());
       } catch {
         albums = null;
       }
     }
-    showAlbums(Array.isArray(albums) ? albums : null, 'listed', pick);
+    showAlbums(Array.isArray(albums) ? albums : null, 'listed', pick, Array.isArray(other) ? other : []);
   }
+
+  // A team's "Not sure / other event" (#228): its words, as migration 0015
+  // titles the album and lib/albums.js's NOT_SURE_TITLE says them.
+  const NOT_SURE = 'Not sure / other event';
 
   let listed = false;
 
@@ -298,11 +305,17 @@
   // parent made stays chosen while its album is still open. A list that
   // could not be read keeps the one already shown; with none shown yet, the
   // select stops saying it is loading.
-  function showAlbums(albums, why = 'listed', pick = true) {
+  //
+  // `other` is each team's Not sure album (#228), listed last in its team's
+  // group, after the events, and never preselected: a parent who can see
+  // their event should pick it. A team with no event open still gets a group
+  // holding only that choice, after the teams with events.
+  function showAlbums(albums, why = 'listed', pick = true, other = []) {
     // Read before anything is hidden, as set() does: Chrome blurs a focused
     // element the moment it is hidden.
     const focused = document.activeElement;
-    albumNote.hidden = why === 'ended' || (albums !== null && albums.length > 0);
+    const any = albums !== null && albums.length + other.length > 0;
+    albumNote.hidden = why === 'ended' || any;
     albumAgain.hidden = albumNote.hidden;
     albumNote.textContent = albums === null
       ? "Couldn't load the albums. Check your signal, then press Check again."
@@ -321,30 +334,39 @@
     }
     listed = true;
     const kept = albumField.value;
-    const chosen = albums.some((album) => album.address === kept) ? kept : pick ? preselect(albums, today()) : null;
+    const listedNow = [...albums, ...other];
+    const chosen = listedNow.some((album) => album.address === kept) ? kept : pick ? preselect(albums, today()) : null;
     // Grouped under each team's name (#227), so a sender sees whose event
     // each album is. The groups come in the order their teams first appear
     // in the list, newest first, and each keeps that order inside it. The
     // label is an attribute, never markup.
     const groups = new Map();
-    for (const album of albums) {
-      const option = element('option');
-      option.value = album.address;
-      // The title is exactly what the owner typed, markup and all: text only.
-      option.textContent = `${album.title} (${heldOn(album.date)})`;
-      const team = String(album.teamName ?? '');
+    const add = (team, option) => {
       if (!groups.has(team)) {
         const group = element('optgroup');
         group.setAttribute('label', team);
         groups.set(team, group);
       }
       groups.get(team).append(option);
+    };
+    for (const album of albums) {
+      const option = element('option');
+      option.value = album.address;
+      // The title is exactly what the owner typed, markup and all: text only.
+      option.textContent = `${album.title} (${heldOn(album.date)})`;
+      add(String(album.teamName ?? ''), option);
+    }
+    for (const album of other) {
+      const option = element('option');
+      option.value = album.address;
+      option.textContent = NOT_SURE;
+      add(String(album.teamName ?? ''), option);
     }
     const options = [...groups.values()];
     if (chosen === null) {
       const blank = element('option');
       blank.value = '';
-      blank.textContent = albums.length ? 'Choose an album' : 'No album open';
+      blank.textContent = any ? 'Choose an album' : 'No album open';
       options.unshift(blank);
     }
     albumField.replaceChildren(...options);

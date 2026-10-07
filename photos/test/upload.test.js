@@ -791,15 +791,17 @@ const touchesPhotos = (sql) => {
   return TOUCHES_PHOTOS.some((pattern) => pattern.test(code));
 };
 
-test('one migration makes the photos table, and only #223\'s column touches it after', () => {
+test('one migration makes the photos table, and only #223\'s column and #228\'s guard touch it after', () => {
   // 0005 carries every state the epic needs, so the stories after it add no
   // migration to it (#154, criterion 7). 0012 is the one owner-chosen
-  // exception: the column naming the account that sent a photo, which
-  // 0005's sender CHECK has no room for (owner, at #223's pickup). It is
-  // additive, which test/site.test.js holds of every migration.
+  // column: the account that sent a photo, which 0005's sender CHECK has no
+  // room for (owner, at #223's pickup). 0015 adds no column and changes no
+  // row: its two triggers refuse approving a photo in a Not sure album
+  // (owner, at #228's pickup). Both are additive, which test/site.test.js
+  // holds of every migration.
   const files = readdirSync(MIGRATIONS).sort();
   const touching = files.filter((file) => touchesPhotos(readFileSync(new URL(file, MIGRATIONS), 'utf8')));
-  assert.deepEqual(touching, ['0005_photos.sql', '0012_photos_account.sql']);
+  assert.deepEqual(touching, ['0005_photos.sql', '0012_photos_account.sql', '0015_not_sure_albums.sql']);
 });
 
 test('the check above sees every way a later migration could change the table', () => {
@@ -820,9 +822,12 @@ test('the check above sees every way a later migration could change the table', 
   }
 });
 
-/** A photos row with every required column, and `changes` on top. */
+/**
+ * A photos row with every required column, and `changes` on top, in the
+ * first event: never a Not sure album (#228), which refuses an approved row.
+ */
 function insertRow(sqlite, changes = {}) {
-  const albumId = sqlite.prepare('SELECT id FROM albums').get().id;
+  const albumId = sqlite.prepare('SELECT id FROM albums WHERE holding = 0 ORDER BY id').get().id;
   const row = {
     album_id: albumId, kind: 'photo', state: 'pending', media_key: `k${Math.random()}`, batch: BATCH,
     sender: 'parent', code_generation: 2, session_issued: 1, captured_at: 1, sent_at: 1, width: 2560, height: 1920,
@@ -927,7 +932,7 @@ test('an album holding a photo sent through this route is not deleted, and the a
   env.DB.sqlite.prepare("UPDATE photos SET state = 'hidden', approved_at = 5, hidden_at = 6 WHERE id = (SELECT MAX(id) FROM photos)").run();
   assert.deepEqual(photoRows(env).map((r) => r.state), ['approved', 'pending', 'hidden']);
   assert.deepEqual(await press(), { error: 'not-empty', album: address, photos: '3' });
-  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM albums').get().n, 1);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM albums WHERE holding = 0').get().n, 1);
 
   const request = new Request(`${SITE}/admin/albums?error=not-empty&album=${address}&photos=3`, { headers: { Cookie: adminSession } });
   const html = await (await chain([root, ...adminPages, albumsPage], request, env)).text();

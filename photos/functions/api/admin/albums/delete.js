@@ -7,6 +7,9 @@
  * refuses, because each photo references its album (lib/albums.js), and the
  * page then says how many photos it holds. Close the album instead to stop
  * uploads to it.
+ *
+ * A team's Not sure album (#228) is never deleted, empty or not: migration
+ * 0015 refuses, and the page says it can only be closed.
  */
 import { deleteAlbum } from '../../../../lib/albums.js';
 import { readForm, seeOther } from '../../../../lib/form.js';
@@ -15,6 +18,7 @@ export async function onRequestPost({ request, env }) {
   const { address } = await readForm(request);
   const result = await deleteAlbum(env.DB, address);
   if (result.missing) return seeOther('/admin/albums?error=missing');
+  if (result.notSure) return seeOther('/admin/albums?error=not-sure');
   const album = encodeURIComponent(address);
   if (!result.deleted) return seeOther(`/admin/albums?error=not-empty&album=${album}&photos=${result.photos}`);
   return seeOther(`/admin/albums?done=deleted&album=${album}`);

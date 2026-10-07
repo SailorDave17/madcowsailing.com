@@ -272,6 +272,20 @@
   width: 100%;
 }
 
+/* ---- Admin: Move to event (#228) ------------------------------------ */
+
+/* A batch's Move choices and a new event's fields are .album-form's fields
+   (the block carries both classes). The list of events is the one select
+   there, with the same --deep edge (WCAG 1.4.11). */
+.move select {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
 /* ---- Share: sending photos (#155) ----------------------------------- */
 
 .sender {

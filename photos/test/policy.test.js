@@ -207,7 +207,8 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
   assert.deepEqual(kept, [
     'three copies of it, sized for the album page, the screen and download;',
     'its caption, if it has one;',
-    'the album it was sent to;',
+    // #228: an admin's move changes album_id, and the row keeps no other.
+    'the album it was sent to, or the event an admin moved it into;',
     'when it was taken, and when it was sent;',
     'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it;',
     // D17; #219. #223: the row's sender is the account's role, which stays
