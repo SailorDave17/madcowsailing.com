@@ -26,7 +26,11 @@
  * carry it either. A turned-down address that asks again writes nothing
  * too, and an admin who changes their mind approves it on /admin/people
  * instead (the owner's choice at #221's pickup, 2026-10-05). A revoked
- * address's is #225's to decide (its criterion 4).
+ * address writes nothing either, while its account exists and after an admin
+ * deletes it: its keyed hash stays in revoked_addresses (migration 0014), and
+ * the account's insert reads it, so the same two statements run for it too
+ * (#225's criterion 5). An admin lets one ask again by re-approving it, or,
+ * once it is deleted, with "Let an address ask again" (lib/people.js).
  *
  * Nothing here logs a name, an email address, a note or a network address.
  */
@@ -184,7 +188,9 @@ async function spendBudget(db, now) {
 
 /**
  * Take the request `request` (readRequest's) from the network address whose
- * keyed hash is `address`, at `now`. Returns one of:
+ * keyed hash is `address`, at `now`. `emailKey` is lib/sign-in.js's
+ * emailHash(ADDRESS_HASH_KEY, request.email), which revoked_addresses holds
+ * for an address an admin revoked (#225). Returns one of:
  *
  *   { outcome: 'limited', retryAfter }  REQUEST_LIMIT requests from this
  *                                       address in the last hour; nothing
@@ -204,15 +210,20 @@ async function spendBudget(db, now) {
  * goes back, so a busy site costs nobody their own limit.
  *
  * The request itself is one D1 batch, which D1 runs as a transaction: the
- * account if its address is new, and its teams if the account was made just
- * now. A known address makes both statements match nothing, so a new
- * address and a known one run the same two statements. If the batch fails,
+ * account if its address is new and not held back, and its teams if the
+ * account was made just now. A known address, or one whose hash is in
+ * revoked_addresses, makes both statements match nothing, so a new address, a
+ * known one and a held-back one run the same two statements. If the batch fails,
  * both units go back and the error is thrown, and nothing of the request is
  * kept. Last, the address log's rows more than an hour old are deleted, by a
  * request that counted, never by a refusal; the admin home deletes them too
  * (clearExpiredRequests).
  */
-export async function requestAccount(db, { request, address, now }) {
+export async function requestAccount(db, { request, address, emailKey, now }) {
+  // Without the key no request could be held back, so a caller that forgot it
+  // would let a revoked address ask again: refused, as approveTeams refuses a
+  // role it does not know.
+  if (typeof emailKey !== 'string' || emailKey === '') throw new Error('requestAccount: no emailKey');
   const hour = Math.floor(now / HOUR_SECONDS);
   const busy = { outcome: 'busy', retryAfter: Math.max(1, (hour + 1) * HOUR_SECONDS - now) };
   if (await budgetSpent(db, hour)) return busy;
@@ -256,10 +267,13 @@ export async function requestAccount(db, { request, address, now }) {
   let created;
   try {
     const [account] = await db.batch([
+      // SQLite reads the ON CONFLICT as the upsert's only because the SELECT
+      // has a WHERE clause, which this one always has.
       db.prepare(
-        'INSERT INTO accounts (email, name, role, note, requested_at) VALUES (?, ?, ?, ?, ?) ' +
+        'INSERT INTO accounts (email, name, role, note, requested_at) SELECT ?, ?, ?, ?, ? ' +
+        'WHERE NOT EXISTS (SELECT 1 FROM revoked_addresses WHERE email_hash = ?) ' +
         'ON CONFLICT (email) DO NOTHING RETURNING id',
-      ).bind(email, name, role, note, now),
+      ).bind(email, name, role, note, now, emailKey),
       db.prepare(
         "INSERT INTO account_teams (account_id, team, state) SELECT a.id, t.team, 'requested' " +
         'FROM accounts AS a, teams AS t WHERE a.email = ? AND a.requested_at = ? ' +

@@ -212,15 +212,14 @@
                                          migrations/0009_sign_in.sql, and
                                          requireAccount refuses an older one;
                                          every device (owner, at #222's
-                                         pickup, 2026-10-06). A revoke ends
-                                         sessions today because
+                                         pickup, 2026-10-06). revokeTeams in
+                                         lib/people.js adds 1 for a revoke of
+                                         any team, so a re-approval cannot
+                                         bring an old cookie back (#225's
+                                         criterion 2; #222's review), and
                                          sessionAccount reads only an account
-                                         approved for a team; that #225's
-                                         revoke will add 1 too, so a
-                                         re-approval cannot bring an old
-                                         cookie back, is #225's criterion
-                                         (#222's review). promoteAdmin in
-                                         lib/people.js adds 1 too, so a
+                                         approved for a team besides.
+                                         promoteAdmin adds 1 too, so a
                                          re-promotion cannot bring back an
                                          admin cookie from before a
                                          demotion (owner, at #224's review)
@@ -315,8 +314,10 @@
                                          entry in the same batch as the link
                                          (owner, at #221's review);
                                          promoteAdmin and demoteAdmin
-                                         (#224's criterion 6). #225's
-                                         delete entry (owner, at #219's
+                                         (#224's criterion 6); revokeTeams,
+                                         hidePhotos, deleteAccount and
+                                         allowAddress (#225's criterion 6;
+                                         the delete entry, owner, at #219's
                                          review, 2026-10-05)
        Approved or turned down per       D16; approveTeams and rejectTeams in
        team, the role, the link; no      lib/people.js (#221). The log keeps
@@ -365,16 +366,37 @@
        Deleted on request, by email,     owner, at #219's pickup (by email) and
        once the account's address        at #219's review (confirmed by reply),
        confirms                          2026-10-05; README's by-hand delete
-                                         (#220) and the admin's delete (#225)
-       A revoked address stays, as a     owner, at #219's review, 2026-10-05;
-       keyed hash                        #225 keeps it, so that its criterion
-                                         4 holds after a delete
+                                         (#220) and deleteAccount in
+                                         lib/people.js, whose route
+                                         functions/api/admin/people/delete.js
+                                         needs the admin's tick that the
+                                         reply came (#225; owner, at #225's
+                                         pickup, 2026-10-07)
+       A revoked address stays, as a     owner, at #219's review, 2026-10-05:
+       keyed hash, until an admin lets   revoked_addresses in
+       it ask again                      migrations/0014_revoked_addresses.sql,
+                                         written by revokeTeams in
+                                         lib/people.js with emailHash under
+                                         ADDRESS_HASH_KEY; ON DELETE SET NULL
+                                         keeps it after a delete, naming no
+                                         account, and requestAccount in
+                                         lib/accounts.js writes nothing for
+                                         it (#225's criterion 5). Lifted by a
+                                         re-approval (approveTeams) or "Let it
+                                         ask again" (allowAddress; owner, at
+                                         #225's pickup, 2026-10-07)
        The photos stay, and no longer    owner, at #219's pickup, 2026-10-05:
-       record the account                D17's rule for revoking, applied to
-                                         a delete; ON DELETE SET NULL on
+       record the account; one taken     D17's rule for revoking, applied to
+       down keeps only the day           a delete; ON DELETE SET NULL on
                                          account_id in
                                          migrations/0012_photos_account.sql
-                                         does it (#223)
+                                         does it (#223). deleteAccount in
+                                         lib/people.js, and README's step by
+                                         hand, cut hidden_at to its UTC day
+                                         (HIDDEN_DAY_SECONDS), so no photo's
+                                         time matches the log's hide entry
+                                         (owner, at #225's review,
+                                         2026-10-07)
        Restore points, up to 30 days     D1 Time Travel, always on: "30 days
                                          (Workers Paid) / 7 days (Free)" at
                                          https://developers.cloudflare.com/d1/platform/limits/
@@ -447,7 +469,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=cf2d09e55b">
+<link rel="stylesheet" href="/css/site.css?v=014521fb1c">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -688,8 +710,8 @@
       a session number and when you signed in, signed with a secret key so it
       cannot be changed, and no password, name or email address. Signing out,
       setting a new password, being made one of the site's admins, or an
-      admin revoking the account ends every session the account has, on
-      every phone and computer, the next time each is used.</p>
+      admin revoking the account for any team ends every session the account
+      has, on every phone and computer, the next time each is used.</p>
     <p>An admin's sign-in takes one more step. Once the password is right, the
       site emails a 6-digit code to the account's address. The code works
       once, for 10 minutes and 5 tries, and only in the browser where the
@@ -730,7 +752,8 @@
     <p>The admins also keep a log of what they do with each account: who
       approved it or turned it down for each team, changed its role, sent it a
       link to set a password, made it an admin or removed it as one, revoked
-      it or deleted it, and when. Each entry
+      it for a team, hid every photo it sent, deleted it, or let its address
+      ask again after a delete, and when. Each entry
       names the person whose account it was, by name and email address. The
       log has no set limit.</p>
     <p>The request asks for no sailor's name, so leave sailors' names out of
@@ -788,13 +811,15 @@
       name, email address, role, teams, note and password hash all go.</p>
     <p>The photos you sent stay, approved or still waiting, and are checked
       as usual, but they no longer record which account sent them, only
-      whether it was a coach's. To have
+      whether it was a coach's. One that had been taken down keeps only the
+      day it was taken down, not the time. To have
       them taken down as well, press "Remove this photo" under each, or say
       so in the same email.</p>
     <p>Some things stay. The admins' log keeps its entries about your
       account, and they still name you. If an admin had revoked the account,
       the site keeps its email address in a scrambled form, made with a
-      secret key, so that a new request from it is still held back. The
+      secret key, so that a new request from it is still held back, until an
+      admin lets it ask again. The
       count of photos the account sent that day stays, under the account's
       number, until the next day anyone sends a photo. Emails
       already sent are not deleted with it: Resend keeps each for its 30

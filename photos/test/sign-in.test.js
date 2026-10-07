@@ -47,6 +47,7 @@ import {
 } from '../lib/sign-in.js';
 import { nowSeconds } from '../lib/session.js';
 import { SITEVERIFY_URL, TOKEN_FIELD } from '../lib/turnstile.js';
+import { emailKeyOf } from './address-key.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -116,7 +117,7 @@ async function account(db, {
   email = 'jane@example.org', name = 'Jane Rivers', teams = ['cohssa'], approved = true, hash = KNOWN_HASH, failed = 0, now = nowSeconds(),
 } = {}) {
   asked += 1;
-  await requestAccount(db, { request: { name, email, role: 'parent', teams, note: null }, address: `address-${asked}`, now });
+  await requestAccount(db, { request: { name, email, role: 'parent', teams, note: null }, address: `address-${asked}`, emailKey: await emailKeyOf(email), now });
   const { id } = db.sqlite.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
   if (approved) db.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = ?").run(id);
   db.sqlite.prepare('UPDATE accounts SET password_hash = ?, failed_sign_ins = ? WHERE id = ?').run(hash, failed, id);
@@ -404,7 +405,8 @@ test('setting a password and signing out each add 1 to the version, and every se
   // A second sign-out of the same session finds nothing to end.
   assert.equal(await signOut(db, fresh), false);
   assert.equal(db.sqlite.prepare('SELECT session_version FROM accounts WHERE id = ?').get(id).session_version, 3);
-  // A revoke (#225) ends sessions the same way: the version moves on.
+  // A revoke (#225) ends sessions the same way, the version moving on:
+  // test/revoke.test.js holds it.
 });
 
 test('the guard reads the account every request: an account approved for no team, or gone, is signed out at its next request', async () => {
