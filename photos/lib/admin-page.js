@@ -56,7 +56,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=0caea28e64">
+<link rel="stylesheet" href="/css/site.css?v=cf2d09e55b">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
