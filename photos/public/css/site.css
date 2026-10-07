@@ -124,6 +124,7 @@
 }
 
 .album-form input[type="text"],
+.album-form input[type="email"],
 .album-form input[type="date"] {
   font: inherit;
   color: var(--deep);
@@ -133,7 +134,8 @@
   max-width: 100%;
 }
 
-.album-form input[type="text"] {
+.album-form input[type="text"],
+.album-form input[type="email"] {
   width: var(--measure);
 }
 
@@ -268,6 +270,20 @@
   border: 1px solid var(--deep);
   padding: var(--space-1) var(--space-2);
   width: 100%;
+}
+
+/* ---- Admin: Move to event (#228) ------------------------------------ */
+
+/* A batch's Move choices and a new event's fields are .album-form's fields
+   (the block carries both classes). The list of events is the one select
+   there, with the same --deep edge (WCAG 1.4.11). */
+.move select {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
 }
 
 /* ---- Share: sending photos (#155) ----------------------------------- */
@@ -709,9 +725,13 @@
 }
 
 /* Each team's box is its label as well, padded past 24 px as the request
-   form's are (WCAG 2.5.8). */
+   form's are (WCAG 2.5.8). Since #225 a box's label can carry the person's
+   name or address ("… replied to confirm"), one unbroken word that made
+   /admin/people 485 px wide at 320 until it could wrap (#225's ux-design
+   audit, 1.4.10). */
 .person-form .choices label {
   padding-block: var(--space-1);
+  overflow-wrap: anywhere;
 }
 
 .person-form .choices input {
@@ -728,6 +748,21 @@
   border: 1px solid var(--deep);
   padding: var(--space-1) var(--space-2);
   max-width: 100%;
+}
+
+/* "Revoke, hide their photos or delete" (#225): a native <details> under
+   each person, in the type of an album's "Change" disclosure, padded so its
+   summary is a target past 24 px (WCAG 2.5.8). */
+.person-more summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding-block: var(--space-1);
+}
+
+.person-more > * + * {
+  margin-block-start: var(--space-3);
 }
 
 .admin-log {

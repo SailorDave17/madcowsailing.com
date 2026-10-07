@@ -67,11 +67,16 @@ recording the account (item 29). #224 made the admin pages answer to
 accounts holding the admin role, signed in with the password and a code
 emailed for that sign-in, for 12 hours at a time; any admin makes another
 on `/admin/people`, only the owner removes one, and the one owner is made
-by hand (item 30). **Epic #191 makes COHSSA a section of the same
+by hand (item 30). #225 let an admin revoke a person for a team, ending
+their sessions, hide every photo an account sent, delete an account on
+request, and hold a revoked address back from asking again (item 31).
+**Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24), and #227 gave every album a team: `/` leads to
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
-Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
+#228 gave each team a "Not sure / other event" for photos from an event
+nobody has added yet, which an admin moves into its event on `/admin/queue`
+before approving them (item 32). Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
 Access. The domain has served the site since release `50992c3` (2026-09-27),
 and each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -912,6 +917,9 @@ applications and their policies.
   Reopening clears it.
 - **Every album belongs to a team since #227**, Hoover JRT or COHSSA, set on
   this page and changed by an edit, and its team's section lists it (item 28).
+- **Each team also has a "Not sure / other event" since #228**, which is no
+  event: this page only closes and reopens it, in a section of its own, and
+  none of its photos is ever approved (item 32).
 - **Deleting an album that holds a photo is refused by the database.** Owner's choice
   at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
   `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
@@ -1119,7 +1127,8 @@ image decoder, and sends through the real routes into SQLite, so the page and
 
 **Built in #156, 2026-09-30, with three owner decisions taken at its pickup.**
 `/admin/queue` (`functions/admin/queue.js`) shows every waiting photo, and its
-forms post to `functions/api/admin/queue/`: `approve`, `reject` and `captions`.
+forms post to `functions/api/admin/queue/`: `approve`, `reject` and `captions`,
+and since #228 `move` (item 32).
 `lib/queue.js` holds the rules. Only a pending photo is approved or rejected
 here; an approved one leaves the public page through #158.
 
@@ -1201,6 +1210,9 @@ here; an approved one leaves the public page through #158.
   against D1's 5 million a day. It counts rows, so objects a refused reject
   left in the bucket, which R2 still bills, are in the log and not in the
   figure.
+- **Since #228 a batch also has Move**, which moves one waiting photo, or
+  the batch, into one of its team's events or a new one, and a batch in a
+  team's "Not sure / other event" has no Approve (item 32).
 - **Clips are not in the queue yet.** Every statement names `kind = 'photo'`,
   so a clip's id posted to a press changes nothing; the clip story, #198, adds
   them.
@@ -2165,8 +2177,9 @@ before: one of them, the email's 50-name cap, narrows criterion 5.
   `/ask?sent` by the same statements as a new address (criterion 4). Only a
   new address emails the admins, and that runs after the answer
   (`context.waitUntil`), so its timing does not carry it. A turned-down
-  address that asks again writes nothing too (#221's pickup, item 26), and a
-  revoked one's is #225's.
+  address that asks again writes nothing too (#221's pickup, item 26), and
+  since #225 so does a revoked one, after its account is deleted as well,
+  by the same statements (item 31).
 - **The admins' email names a request by name, role and teams only**, never
   the address or the note, as `/policy` says, and links `/admin/people`
   (item 26). Each admin gets a send of its own: since #224 each account
@@ -2292,7 +2305,8 @@ The rest are defaults, recorded on #221 at pickup or in its pull request:
   Approve, and Turn down when a team waits. The role changes, and is logged,
   only when the same press approves a team. Each account is in one list,
   Waiting, Approved or Turned down, by its teams' states, the oldest request
-  first. An account whose every team is revoked is in none; #225 shows it.
+  first. *Since #225 an account whose every team is revoked is in a fourth,
+  Revoked (item 31); this said it was in none until then.*
 - **Each decision is one D1 batch, every statement guarded by the same
   condition**: a ticked team still open to that decision. So the log entries
   and the change commit together or not at all, and of two admins pressing
@@ -2394,11 +2408,11 @@ The owner's decisions at pickup (2026-10-06), through the question tool:
   adds 1 to `session_version`, as setting a password does, so every cookie
   naming the older version is refused at its next request. Nothing new is
   stored, and a copied cookie dies too. Not chosen: a sessions table, one
-  row per device, which /policy would have to name. *A revoke ends sessions
-  today by another route: the guard reads only an account approved for a
-  team. That #225's revoke also adds 1, so a re-approval cannot bring a
-  pre-revoke cookie back, is #225's criterion; criterion 4's revoke half is
-  deferred there (owner, at #222's review).*
+  row per device, which /policy would have to name. *Since #225 an admin's
+  revoke of any team adds 1 too (item 31), so a re-approval cannot bring a
+  pre-revoke cookie back; criterion 4's revoke half was deferred there
+  (owner, at #222's review). Until then a revoke ended sessions only because
+  the guard reads only an account approved for a team.*
 - **Failed sign-ins: 10 an hour per email address, 20 an hour per network,
   100 an hour for the whole site** (`EMAIL_FAILURE_LIMIT`,
   `NETWORK_FAILURE_LIMIT`, `FAILURE_BUDGET_PER_HOUR`). The address is counted
@@ -2846,7 +2860,7 @@ and on its one escalation, through the question tool:
   in `form-action` on `/sign-in/code`; documenting "open `/admin` first".
 - **Making an admin ends every session the account holds** (the
   recommendation): `promoteAdmin` adds 1 to the session version, the
-  session renewal a grant of rights calls for, as #225's revoke will. Without
+  session renewal a grant of rights calls for, as #225's revoke does. Without
   it a removal only suspended: made an admin again within 12 hours of their
   last admin sign-in, someone found a cookie from before the removal open
   again, with no new password and no code. A removal still ends nothing but
@@ -2884,6 +2898,263 @@ Defaults the other findings asked for, taken while fixing:
   cookies carry, so its 503 always means nothing ended. Two calls, the
   second a no-op that could still fail, answered 503 for sessions that had
   ended.
+
+### 31. Revoking a person, hiding what they sent, deleting an account
+
+**Built in #225, 2026-10-07** (D17). On `/admin/people` an admin revokes an
+approved person for a team or every team, hides every photo an account sent,
+deletes an account a person asked by email to have deleted, and lets a
+deleted revoked account's address ask again. `lib/people.js` holds the four
+(`revokeTeams`, `hidePhotos`, `deleteAccount`, `allowAddress`),
+`lib/people-page.js` the forms, `functions/api/admin/people/` the presses, and
+migration 0014 the revoked addresses. README.md, The photo site, Approving
+accounts, is the operating record. The owner's decisions at pickup, through
+the question tool, each the recommendation:
+
+- **Revoke and Delete refuse an account holding the admin role.** The owner
+  presses "Remove admin" first (item 30), and then any admin acts on that
+  person as on anyone. So taking an admin's access away stays the owner's
+  alone, as #224 made removing one, with no second authority path to build.
+  Every statement of both carries the condition, and 0013's triggers stand
+  under it for the owner. Not chosen: the owner revoking or deleting an
+  admin in one press, with a full revoke also taking the role; any admin
+  acting on anyone but the owner.
+- **"Unless the owner allows it" works two ways** (criterion 5). While the
+  account exists, approving a revoked team takes the person back, and once
+  no team is left revoked the address's hold is lifted in the same batch.
+  After a delete, an admin types the address into "Let it ask again", which
+  deletes its keyed hash. Both are logged, and nothing is emailed. Not
+  chosen: re-approval only, which would hold a deleted revoked address back
+  for good; both ways for the owner alone.
+- **The delete is held to the reply by a box that must be ticked**
+  (criterion 7): "<address> replied to confirm they asked for this", and the
+  route refuses a press without it. It is the admin's word, as #219 chose a
+  reply over trusting a From address, since the site cannot read mail
+  (Resend receiving stays off, item 21). README's procedure, write to the
+  address and wait, is unchanged. Not chosen: the site emailing a one-time
+  link that deletes when opened; the box plus typing the address out.
+- **"Hide all their photos" needs its box ticked**, a box naming the count
+  ("Hide the 3 photos … sent (2 public, 1 waiting)"), so a mis-press changes
+  nothing. Not chosen: one press; a native dialog, which needs JavaScript on
+  a page of plain forms.
+
+The rest are defaults, recorded on #225 at pickup or taken while building:
+
+- **The revoked address's keyed hash is written when the revoke happens**,
+  into `revoked_addresses` (0014): `emailHash` under `ADDRESS_HASH_KEY`, the
+  key failed sign-ins count an address by (item 27), and `account_id
+  REFERENCES accounts ON DELETE SET NULL`. So README's delete by hand keeps
+  the hold too, a re-approval lifts it in its own batch with no key, and
+  after a delete the row names no account, as `/policy` says. `/ask` makes
+  the address's key for every request, and `requestAccount`'s account insert
+  is now an `INSERT … SELECT … WHERE NOT EXISTS` that hash, so a new, a known
+  and a held-back address run the same two statements (#220's criterion 4).
+  `requestAccount` refuses a call with no key, so no caller can skip the
+  hold by forgetting it. Not chosen: writing the hash only at the delete,
+  which no statement typed by hand can do; a hash kept on the account and
+  copied out by a delete trigger, whose body inserts, which
+  `test/site.test.js`'s additive check refuses. **Rotating `ADDRESS_HASH_KEY`
+  lifts every hold at once** (README, Secrets).
+- **Every revoke adds 1 to `session_version`, a single team's included**
+  (criterion 2), so the person signs in again to the teams they keep, and a
+  re-approval later cannot bring a cookie from before the revoke back. The
+  revoke's batch is the log entries, the hash, the bump and the teams'
+  change, every statement held by the same condition. Nothing is emailed,
+  and the photos are untouched: the approved ones stay public (criterion 3).
+- **A waiting photo is hidden too, and "Put it back" returns it to the
+  queue, never onto the site** (criterion 4; `/policy` says every photo is
+  checked first). 0005's CHECK requires `approved_at` on a hidden row, so
+  such a photo carries 0 (`WAITING_WHEN_HIDDEN` in `lib/removals.js`), which
+  no approval is ever made at, after 0012's placeholder zeros. `restorePhoto`
+  sends it back `pending` with `approved_at` NULL, and `/admin/removals`
+  marks it "was waiting for approval". Until #225 `restorePhoto` made every
+  hidden photo public. Not chosen: a migration column saying where a hidden
+  photo came from, which would still need the placeholder; leaving waiting
+  photos out, which criterion 4 names; turning them down, which deletes
+  them, where criterion 4 asks that each can be restored.
+- **A hide writes no note**, as README's statement by hand writes none. A
+  note naming the account would put the person's name on photo rows that
+  outlive a delete. `/admin/removals` names the account through its join
+  while the account exists. A photo already hidden keeps its own time and
+  note.
+- **The three forms sit in one native `<details>` per person**, "Revoke,
+  hide their photos or delete", its summary naming only what applies (an
+  admin's says only "Hide their photos"). People revoked from every team
+  have a list of their own, Revoked, between Approved and Turned down; a
+  partly revoked person stays under Approved, with the revoked team's
+  unticked box under Approve. `peopleLists` reads each account's waiting and
+  public photo counts in one grouped statement for the hide box.
+- **A re-approval emails the usual set-password link**, as every approval
+  does; someone who already has a password can ignore it.
+- **"Let it ask again" logs the person by the newest log entry naming the
+  address**, and changes nothing (`unmatched`) when none names it as typed:
+  `COLLATE NOCASE` folds A to Z only, where `emailHash` lowercases every
+  letter. An address whose account still exists answers that it does, since
+  re-approving is the way back there.
+- **Until #226, a revoked person who also holds an invite cookie can still
+  send through the invite link**: an upload falls back to that cookie when
+  the account's session no longer holds (item 29's stated cost).
+- **0014 reaches production before the release that carries #225.** From
+  this story `/ask`'s account insert reads `revoked_addresses`, so a release
+  ahead of 0014 would answer every request with a 503, the class item 30's
+  last decision names. Production's `/api/health` names the newest
+  migration it holds.
+
+**#225's review, 2026-10-07.** `review-fanout` confirmed 8 findings and
+dropped 3 more over its cap; the owner chose to fix all 11, each with a test.
+Its one escalation, and the ux-design audit's pre-existing failure, were the
+owner's:
+
+- **A delete cuts its photos' takedown time to the day** (the
+  recommendation, on the escalation). "Hide all their photos" stamps one
+  second on every photo and on the log's `hide` entry, which names the
+  person and outlives the account, so matching the two would still say which
+  photos a deleted person sent, against `/policy`'s "no longer record which
+  account sent them" (cairn: `a-timestamp-joins-to-the-log-that-names-it`).
+  `deleteAccount` moves `hidden_at` on the account's photos to the start of
+  its UTC day (`HIDDEN_DAY_SECONDS`), put-back photos included, and README's
+  delete by hand gained the same statement as its step 3. `/policy` says a
+  photo that had been taken down keeps only the day. `test/policy.test.js`
+  and `test/revoke.test.js` test the join itself, with its control. The day
+  still narrows it where few photos were hidden that day. Not chosen: saying
+  so on `/policy`, as was chosen for the request log's time (item 25), since
+  that log row lasts an hour and the admins' log lasts for good; a README
+  step alone.
+- **#224's "Make admin" and "Remove admin" are named from their own words**
+  ("Make admin: <name>"), against the recommendation of a story under #216.
+  axe's `label-content-name-mismatch` (WCAG 2.5.3) flagged them beside #225's
+  own "Hide all their photos", and a test now holds every named button on
+  `/admin/people` to a name that starts with its visible text.
+- Among the fixes: **the Revoked section no longer says revoked people
+  "cannot sign in or send"**. Until #226 the invite link (held, or joined
+  again) and a coach's sign-in still send, and the page and README say so
+  with the way to end it (rotate the code; take them off `COACH_EMAILS`). The
+  `has-account` notice points at the person's own form, since a partly
+  revoked person is not under Revoked. The queue's caption notice says
+  "approved or hidden", since Hide all is the first way a waiting photo leaves
+  the queue unapproved.
+
+**D1 rows written, measured** on `madcowphotos-preview` on 2026-10-07 with
+`wrangler d1 execute --remote --json`, the statements with probe values, a
+planted hold and a probe account, every probe row deleted after (the probe
+spent preview's account id 6):
+
+| Statement | Rows written | Rows read |
+|---|---|---|
+| `/ask`'s account insert, new address (`INSERT … SELECT … WHERE NOT EXISTS` the hold) | 3 | 6 |
+| The same, an address already there | 1 | 7 |
+| The same, a held-back address | **0** | 5 |
+| A revoke's hold, new or already there (`ON CONFLICT … DO UPDATE`) | 2 | 6 |
+| Deleting an account whose hold stays (one team, the hold set NULL) | 3 | 14 |
+
+So the new insert costs what item 25's `VALUES` form did for a new and a
+known address, and a held-back address costs nothing written: SQLite makes
+no row for the `SELECT` to insert, so the AUTOINCREMENT counter does not
+move. Both new statement shapes ran on D1 as they do on node:sqlite. The rest
+of each revoke, hide, delete and lift is one batch of two to four guarded
+statements, not measured.
+
+### 32. "Not sure / other event", and moving a photo into its event
+
+**Built in #228, 2026-10-07** (epic #147). A sender with photos from an
+event nobody has added yet chooses its team's "Not sure / other event", and
+an admin moves the photos into an event on `/admin/queue` before approving
+them. Migration 0015, `lib/albums.js`, `lib/queue.js` (`movePhotos`) and
+`functions/api/admin/queue/move.js` hold it. README.md, The photo site,
+Albums and Approving, is the operating record. Four decisions were the
+owner's at pickup, through the question tool:
+
+- **A marked album per team, with the database's guard** (the
+  recommendation). Criterion 5 keeps `photos.album_id` NOT NULL and
+  referencing `albums (id)`, so a Not sure photo names a real album row.
+  0015 adds `albums.holding` (0 or 1), one Not sure album per team by a
+  unique index, and makes the two rows; six triggers refuse a photo in one
+  being approved, or hidden other than while waiting (on insert, on a change
+  of state or `approved_at`, and on a move in), `holding` changing either
+  way, a Not sure album's delete, and a REPLACE INTO or UPDATE OR REPLACE
+  that would make, remove or take over one (the hole #227's 0011 closed for
+  `teams`; the UPDATE half was review-fanout's at #228's review, where the
+  insert trigger alone let an event's approved photo end up in a Not sure
+  album). Every path to a second Not sure album meets a trigger first, so
+  the index states the invariant and is a spare. Not chosen: the same column
+  with the app's check alone, which a statement typed by hand or a later
+  route could pass; two ordinary album rows known by a reserved address,
+  which every query would recognise by convention and `/admin/albums` would
+  let an admin edit or delete.
+- **"Hide all their photos" hides a waiting Not sure photo too** (owner, at
+  #228's review, the recommendation). #225's Hide all hides waiting photos
+  with `approved_at` 0, and the first build of 0015 refused any hidden photo
+  in a Not sure album, so Hide all on an account with a waiting Not sure
+  photo rolled back whole and answered 500, leaving the person's public
+  photos up. The triggers now allow `hidden` with `approved_at` 0, which
+  "Put it back" returns to the queue, never to the site. Not chosen: Hide
+  all skipping Not sure photos, which leaves part of what the person sent
+  in the queue; Hide all rejecting them, which cannot be undone.
+- **Move works on any waiting photo** (against the recommendation of Not
+  sure photos only): one a parent sent to the wrong event moves the same
+  way, within its team. Not chosen: Move on Not sure batches only.
+- **An admin can close a team's Not sure album**, and only close and reopen
+  it (the recommendation): `/admin/albums` lists each team's in a section of
+  its own, with no Edit and no Delete. Closing every album still stops every
+  upload, as it did before #228. Not chosen: always open, which would leave
+  no way to stop uploads from the admin pages short of rotating the code.
+- **A Not sure batch has no Approve, and says why** (the recommendation): a
+  photo there has no event to be public in, so it is moved first and
+  approved in its event. A press naming one anyway (an old or forged page)
+  leaves it waiting, approves any event photo beside it, and the notice says
+  so (`?error=not-sure`, `&not-sure=<n>`). Not chosen: Approve shown and
+  refused on every press, buttons on every Not sure batch that never work.
+
+The rest were taken while building:
+
+- **0015 is applied to each database just before the code that reads it
+  reaches it**: the preview just before the merge into `develop`, and
+  production just before the promotion that carries #228, not at the
+  commit gate as 0004 to 0014 were. Its rows are what the older code
+  cannot read: to it each is an ordinary open event dated year 1, offered
+  on the share page (preselected when every event is in the future), with
+  Edit and a Delete that answers 500 on `/admin/albums`, and an Approve that
+  answers 500 on the queue (review-fanout at #228's review). The other order
+  is worse: #228's code reads `holding` on every album read, uploads
+  included. The migration's header says the same.
+- **The rows are dated 0001-01-01**, at `0001-01-01-not-sure-<team>`, kind
+  `regatta` (a placeholder 0004's CHECK needs; nothing shows it). No admin
+  form can give an event that date, since `isDate` reads a year under 100 as
+  19xx and refuses it, so no event's address can clash with one. A third
+  team needs its own row in the migration that adds it, and
+  `test/not-sure.test.js` fails until every `TEAMS` entry has exactly one.
+- **The open list gives them apart**: `GET /api/albums/open` answers
+  `{ albums, other }`, the Not sure albums in `other`, in the teams' order,
+  with no title, so nothing that preselects or counts events can take one
+  for an event (they sort last as "the latest past album", which the
+  preselect would otherwise pick when every event is in the future). The
+  share page writes their words itself and puts each last in its team's
+  group, a team with no event open getting a group of its own after the
+  teams with events. The "no album is taking photos" note shows only when
+  neither list holds anything.
+- **Move's choices are the batch's team's events**, newest first, open or
+  closed (marked so), never another team's, a Not sure album or the batch's
+  own album, then "A new event, below", whose title, kind and date sit under
+  the list and make an event for the batch's team as **Add album** would.
+  One select per batch, shared by Move all and each photo's Move: a select
+  per photo is 200 in a full part. The new event's fields are not
+  `required`, since every button in the batch posts the same form; the route
+  checks them, and a wrong field adds nothing and moves nothing.
+- **A move is one statement**: `UPDATE … FROM` the chosen album, held to
+  `holding = 0` and to the photo's own team in the same statement, so an
+  album moved to the other team meanwhile takes nothing. It moves waiting
+  photos only and keeps their batch, so the queue shows them as a batch of
+  the event they are in now, and the press lands there (on its first part,
+  when the batch now holds more than 200 there). The captions typed are
+  saved first, as every press saves them, and before the choice is checked,
+  so a press with no event chosen loses nothing typed. A press whose photos
+  now sit in two teams' events, from a stale page, moves nothing and says so
+  in its own words (`?error=teams`), since its captions were saved.
+- **The photos are read before a new event is made**, so a press for photos
+  no longer waiting makes no empty event. If they go between that read and
+  the move, the event is kept and the notice says both.
+- **`/policy` says the album a photo was sent to, "or the event an admin
+  moved it into"**: a move changes `album_id`, and the row keeps no other.
 
 ## The two-presentation rule
 

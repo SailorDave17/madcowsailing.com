@@ -21,7 +21,7 @@ import { HTML_CACHE, sectionPage, teamListPage } from '../lib/public-page.js';
 import { approvedPhoto } from '../lib/public.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { LINK_SECONDS, clearExpiredLinks, tokenHash } from '../lib/password-link.js';
-import { approveTeams, promoteAdmin, rejectTeams, sendLink } from '../lib/people.js';
+import { approveTeams, hidePhotos, promoteAdmin, rejectTeams, revokeTeams, sendLink } from '../lib/people.js';
 import {
   CODES_PER_DAY, CODE_COOKIE, CODE_DIGITS, CODE_SECONDS, CODE_TRIES, clearExpiredCodes, codeCookie, startCode,
 } from '../lib/admin-code.js';
@@ -49,6 +49,7 @@ import {
   NETWORK_FAILURE_LIMIT, signOut,
 } from '../lib/sign-in.js';
 import { adminData } from './admin.js';
+import { ADDRESS_KEY, emailKeyOf } from './address-key.js';
 import { d1, seedCodes } from './d1.js';
 import { r2 } from './r2.js';
 
@@ -206,7 +207,8 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
   assert.deepEqual(kept, [
     'three copies of it, sized for the album page, the screen and download;',
     'its caption, if it has one;',
-    'the album it was sent to;',
+    // #228: an admin's move changes album_id, and the row keeps no other.
+    'the album it was sent to, or the event an admin moved it into;',
     'when it was taken, and when it was sent;',
     'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it;',
     // D17; #219. #223: the row's sender is the account's role, which stays
@@ -315,7 +317,7 @@ test('the page\'s promises about a takedown are what the code does', async () =>
   assert.equal(await approvedPhoto(db, target), null, 'the photo is still public');
   assert.equal(await approvedPhoto(db, other), 'b'.repeat(32), 'another photo was taken down');
   assert.deepEqual({ ...row() }, { state: 'hidden', hidden_at: 1_790_000_500, hidden_note: 'My daughter' });
-  assert.equal(await restorePhoto(db, target), true);
+  assert.equal(await restorePhoto(db, target), 'approved');
   assert.deepEqual({ ...row() }, { state: 'approved', hidden_at: 1_790_000_500, hidden_note: 'My daughter' });
   // A later takedown writes its own time and note over the kept ones.
   await requestRemoval(db, { id: target, note: null, address: 'h', now: 1_790_000_600 });
@@ -507,10 +509,10 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     // holds (setPassword).
     'When an admin approves your account for a team, the site emails you a link to set your password. It can be used once, for 7 days, and a newer link replaces it once the newer one\'s email is sent. Once its 7 days are up, it is deleted the next time an admin opens the list of accounts or any link is sent. Setting a password with a link uses up every link the account holds.',
     // #221's log (criterion 5: who, what, whom, when), #224's promote and
-    // demote (criterion 6), and #225's revoke and delete entries (owner, at
-    // #219's review). The name and address are copied into each entry
-    // (migration 0008).
-    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, made it an admin or removed it as one, revoked it or deleted it, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
+    // demote (criterion 6), and #225's revoke, hide, delete and allow
+    // entries (its criterion 6; the delete's, owner, at #219's review). The
+    // name and address are copied into each entry (migration 0008).
+    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, made it an admin or removed it as one, revoked it for a team, hid every photo it sent, deleted it, or let its address ask again after a delete, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
     'The request asks for no sailor\'s name, so leave sailors\' names out of the note too.', // D18
     'An account, and a request for one, is kept until it is deleted. There is no set limit.', // owner, at #219's pickup
   ], '"What an account keeps"');
@@ -550,11 +552,15 @@ test('"Having an account deleted" gives the email and the check, says the photos
     // Owner, at #219's pickup: D17's rule for revoking, applied to a delete.
     // #223: the sender column keeps the account's role (senderColumns).
     'The photos you sent stay, approved or still waiting, and are checked as usual, but they no longer record which account sent them, only whether it was a coach\'s.',
+    // #225's review: the takedown time is cut to the day (deleteAccount,
+    // README's step by hand), so it matches no log entry naming the person.
+    'One that had been taken down keeps only the day it was taken down, not the time.',
     'To have them taken down as well, press "Remove this photo" under each, or say so in the same email.',
     // Owner, at #219's review: the log keeps its entries, and a revoked
-    // address stays scrambled so a revoke survives a delete.
+    // address stays scrambled so a revoke survives a delete. Lifted only by
+    // an admin's "Let it ask again" (owner, at #225's pickup).
     'Some things stay. The admins\' log keeps its entries about your account, and they still name you.',
-    'If an admin had revoked the account, the site keeps its email address in a scrambled form, made with a secret key, so that a new request from it is still held back.',
+    'If an admin had revoked the account, the site keeps its email address in a scrambled form, made with a secret key, so that a new request from it is still held back, until an admin lets it ask again.',
     // #223: the account's daily count, keyed by its id (sessionKey), which the
     // by-hand delete below leaves until anyone's first upload of a later day.
     'The count of photos the account sent that day stays, under the account\'s number, until the next day anyone sends a photo.',
@@ -598,7 +604,7 @@ const ACCOUNT_ROWS = [
   ['Approval emails it; once, 7', ['sendLink', 'lib/people.js', 'functions/api/admin/people/', 'LINK_SECONDS', 'setPassword', 'lib/sign-in.js', '#222', 'replaceOthers', 'dropLink', '#221\'s pickup', '#221\'s review']],
   ['Deleted once its 7 days are up,', ['clearExpiredLinks', 'lib/password-link.js', 'functions/admin/people.js', 'newLink', '#221', 'sendReset', 'lib/reset.js', '#222']],
   ['Signing in: one cookie, 90', ['ACCOUNT_COOKIE', 'ACCOUNT_SESSION_DAYS', 'signAccountSession', 'lib/account-session.js', '#222\'s criterion 4']],
-  ['Signing out, a new password or', ['signOut', 'setPassword', 'lib/sign-in.js', 'session_version', 'migrations/0009_sign_in.sql', 'requireAccount', '#222\'s pickup', 'sessionAccount', '#225\'s criterion', 'promoteAdmin', 'lib/people.js', '#224\'s review']],
+  ['Signing out, a new password or', ['signOut', 'setPassword', 'lib/sign-in.js', 'session_version', 'migrations/0009_sign_in.sql', 'requireAccount', '#222\'s pickup', 'sessionAccount', 'revokeTeams', '#225\'s criterion 2', 'promoteAdmin', 'lib/people.js', '#224\'s review']],
   // #224's records, its criterion 8 (#219's review asked each story to add
   // its own).
   ['An admin, or the owner: the', ['admin_role', 'migrations/0013_admins.sql', 'D15', 'Making the owner', '#224\'s pickup']],
@@ -614,7 +620,7 @@ const ACCOUNT_ROWS = [
   ['Pwned Passwords sees 5', ['pwned', 'PWNED_RANGE_URL', 'lib/password-rules.js', 'https://api.pwnedpasswords.com/range/', 'https://haveibeenpwned.com/API/v3', '2026-10-06', '#222\'s pickup']],
   ['Which photos it sent', ['D17', 'account_id', 'migrations/0012_photos_account.sql', 'insertPhoto', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
-  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', 'promoteAdmin', 'demoteAdmin', '#224\'s criterion 6', '#225', '#219\'s review']],
+  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', 'promoteAdmin', 'demoteAdmin', '#224\'s criterion 6', 'revokeTeams', 'hidePhotos', 'deleteAccount', 'allowAddress', '#225\'s criterion 6', '#219\'s review']],
   ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
   ['No sailor\'s name', ['D18']],
   ['Kept until it is deleted', ['#219\'s pickup']],
@@ -626,9 +632,9 @@ const ACCOUNT_ROWS = [
   ['Its time is the account\'s, to', ['requested_at', 'account_request_log', 'requestAccount', 'migrations/0007_accounts.sql', '#220\'s review']],
   ['Resend sends the site\'s email,', ['sendMail', 'lib/mail.js', '#220\'s criterion 5', 'mailAdmins']],
   ['Resend keeps each 30 days', ['https://resend.com/pricing', '"30-day data retention"']],
-  ['Deleted on request, by email,', ['#219\'s pickup', '#219\'s review', 'confirmed by reply', '#220', '#225']],
-  ['A revoked address stays, as a', ['#219\'s review', '#225']],
-  ['The photos stay, and no longer', ['#219\'s pickup', 'D17', 'ON DELETE SET NULL', 'migrations/0012_photos_account.sql', '#223']],
+  ['Deleted on request, by email,', ['#219\'s pickup', '#219\'s review', 'confirmed by reply', '#220', 'deleteAccount', 'functions/api/admin/people/delete.js', '#225\'s pickup']],
+  ['A revoked address stays, as a', ['#219\'s review', 'revoked_addresses', 'migrations/0014_revoked_addresses.sql', 'revokeTeams', 'emailHash', 'ADDRESS_HASH_KEY', 'ON DELETE SET NULL', 'requestAccount', '#225\'s criterion 5', 'approveTeams', 'allowAddress', '#225\'s pickup']],
+  ['The photos stay, and no longer', ['#219\'s pickup', 'D17', 'ON DELETE SET NULL', 'migrations/0012_photos_account.sql', '#223', 'deleteAccount', 'hidden_at', 'HIDDEN_DAY_SECONDS', '#225\'s review']],
   ['Restore points, up to 30 days', ['"30 days (Workers Paid) / 7 days (Free)"', 'https://developers.cloudflare.com/d1/platform/limits/']],
 ];
 
@@ -740,7 +746,7 @@ test('"the two could be matched" is true: a request that makes an account gives 
   const db = d1();
   const now = 1_790_000_123;
   const request = { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null };
-  assert.deepEqual(await requestAccount(db, { request, address: 'address-a', now }), { outcome: 'taken', created: true });
+  assert.deepEqual(await requestAccount(db, { request, address: 'address-a', emailKey: await emailKeyOf(request.email), now }), { outcome: 'taken', created: true });
   const account = db.sqlite.prepare('SELECT requested_at FROM accounts').get().requested_at;
   const logged = db.sqlite.prepare('SELECT requested_at FROM account_request_log').get().requested_at;
   assert.equal(account, now);
@@ -760,7 +766,7 @@ test('the link\'s figures are the code\'s: 7 days, and /admin/people\'s load cle
 test('"only as a hash" is what a link\'s row holds: the token\'s SHA-256, never the token, and a newer link replaces it once its email is sent (#221)', async (t) => {
   const db = d1();
   const now = 1_790_000_000;
-  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', emailKey: await emailKeyOf('jane@example.org'), now });
   await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
   // Two links emailed, the way /admin/people sends them, each send accepted.
   const tokens = [];
@@ -797,11 +803,11 @@ test('the sign-in figures are the code\'s: 90 days, 10 an hour per address, 20 p
   assert.match(kept, new RegExp(`Signing in leaves one small cookie on that phone or computer, which keeps it signed in for ${ACCOUNT_SESSION_DAYS} days\\.`));
   has(kept, [
     'The cookie holds your account\'s number, a session number and when you signed in, signed with a secret key so it cannot be changed, and no password, name or email address.',
-    // Every device: the owner's choice at #222's pickup. A revoke ends every
-    // session today through sessionAccount's approved-team read
-    // (test/sign-in.test.js); #225 is to add 1 to the version as well. Being
-    // made an admin does since #224's review (promoteAdmin, test/admins.test.js).
-    'Signing out, setting a new password, being made one of the site\'s admins, or an admin revoking the account ends every session the account has, on every phone and computer, the next time each is used.',
+    // Every device: the owner's choice at #222's pickup. A revoke of any team
+    // adds 1 to the version since #225 (revokeTeams, test/revoke.test.js).
+    // Being made an admin does since #224's review (promoteAdmin,
+    // test/admins.test.js).
+    'Signing out, setting a new password, being made one of the site\'s admins, or an admin revoking the account for any team ends every session the account has, on every phone and computer, the next time each is used.',
   ], '"What an account keeps"');
   assert.match(kept, new RegExp(`at most ${EMAIL_FAILURE_LIMIT} an hour for one email address, whether or not it has an account, and ${NETWORK_FAILURE_LIMIT} an hour from one network\\.`));
   assert.match(kept, new RegExp(`The site takes at most ${FAILURE_BUDGET_PER_HOUR} failed sign-ins an hour from everyone together, and after that nobody can sign in until the hour is up\\.`));
@@ -847,7 +853,7 @@ test('the reset figures are the code\'s: an hour, once, a hash, one every 15 min
 test('"no password, name or email address" is what the cookie holds, and a changed byte is refused (#222)', async () => {
   const db = d1();
   const now = 1_790_000_000;
-  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane.rivers@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane.rivers@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', emailKey: await emailKeyOf('jane.rivers@example.org'), now });
   await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
   const key = 'test-session-signing-key-0123456789abcdef';
   const line = await accountCookie(key, { accountId: 1, version: 1 }, now);
@@ -863,7 +869,7 @@ test('"no password, name or email address" is what the cookie holds, and a chang
 test('"ends every session the account has, on every phone and computer" is what signing out does (#222, criterion 7)', async () => {
   const db = d1();
   const now = 1_790_000_000;
-  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', emailKey: await emailKeyOf('jane@example.org'), now });
   await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
   // Two devices, both signed in at version 1.
   const phone = { accountId: 1, version: 1, issued: now };
@@ -897,7 +903,7 @@ test('"only the first 5 characters of the password\'s SHA-1 hash, never the pass
 test('"kept only as a hash" is what a reset link\'s row holds, and it lasts an hour (#222, criterion 5)', async (t) => {
   const db = d1();
   const now = 1_790_000_000;
-  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', now });
+  await requestAccount(db, { request: { name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'a', emailKey: await emailKeyOf('jane@example.org'), now });
   await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'parent', admin: 'owner@example.com', now });
   let token = null;
   t.mock.method(globalThis, 'fetch', async (url, init) => {
@@ -943,16 +949,21 @@ const TABLES = {
   // #224. An admin's emailed sign-in code, kept as a keyed hash, and the time
   // each was sent, kept a day; deleted with the account.
   admin_codes: 'an admin\'s sign-in codes, deleted with it (ON DELETE CASCADE) (#224)',
+  // #225. A revoked account's address as a keyed hash, which holds no
+  // address, naming the account only until it is deleted (ON DELETE SET NULL).
+  revoked_addresses: 'a revoked account\'s address as a keyed hash, which stays after a delete and stops naming the account (#225)',
   // A counter, not a reference: the highest id each AUTOINCREMENT table has
   // given, which can equal a deleted account's.
   sqlite_sequence: 'the highest id each AUTOINCREMENT table has given',
 };
 
 // What may keep naming an account after README's delete, each by the story
-// that makes it: the admins' log entries (#221), the day's upload count under
-// the account's id until anyone's first upload of a later day (#223), and,
-// for a revoked account, its address as a keyed hash (#225), which does not
-// exist yet. /policy names each.
+// that makes it: the admins' log entries (#221), and the day's upload count
+// under the account's id until anyone's first upload of a later day (#223).
+// /policy names each. A revoked account's address stays too (#225), as a
+// keyed hash in revoked_addresses, but it names the account by neither its id
+// nor its address once the account is gone, so it is not a survivor here: the
+// test below checks it stays, holding nothing that names the account.
 const SURVIVORS = new Set(['admin_log', 'upload_counts']);
 
 test('README\'s by-hand account delete, run only once the account\'s own address confirms, leaves no row naming the account (#220, criterion 8)', async (t) => {
@@ -966,8 +977,8 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   // that must stay.
   const db = d1();
   const now = 1_790_000_000;
-  const ask = (email, address) => requestAccount(db, {
-    request: { name: email.split('@')[0], email, role: 'parent', teams: ['hoover-jrt', 'cohssa'], note: 'a note' }, address, now,
+  const ask = async (email, address) => requestAccount(db, {
+    request: { name: email.split('@')[0], email, role: 'parent', teams: ['hoover-jrt', 'cohssa'], note: 'a note' }, address, emailKey: await emailKeyOf(email), now,
   });
   await ask('Delete.Me@Example.org', 'address-one');
   await ask('stays@example.org', 'address-two');
@@ -1017,6 +1028,10 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     assert.equal(await sendLink(env, { accountId, admin, now, site: 'https://photos.madcowsailing.com' }), 'sent');
   }
   assert.deepEqual(await rejectTeams(db, { accountId: 1, teams: ['cohssa'], admin, now }), ['cohssa']);
+  // #225: COHSSA approved after all, then revoked, so the delete meets a
+  // revoked account's keyed address, which must stay and stop naming it.
+  assert.deepEqual(await approveTeams(db, { accountId: 1, teams: ['cohssa'], role: 'coach', admin, now }), ['cohssa']);
+  assert.deepEqual(await revokeTeams(db, { accountId: 1, teams: ['cohssa'], hashKey: ADDRESS_KEY, admin, now }), ['cohssa']);
   // #224: the one that stays is the owner, by README's by-hand statement, and
   // the owner makes the one to delete an admin, who is then sent a sign-in
   // code, so the delete has an admin's role, log entry and code to meet.
@@ -1028,7 +1043,7 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   });
   assert.equal(code.outcome, 'sent');
   const logged = db.sqlite.prepare('SELECT action, name, email FROM admin_log WHERE account_id = 1 ORDER BY id').all().map((r) => ({ ...r }));
-  assert.deepEqual(logged.map((r) => r.action), ['role', 'approve', 'link', 'reject', 'promote']);
+  assert.deepEqual(logged.map((r) => r.action), ['role', 'approve', 'link', 'reject', 'approve', 'revoke', 'promote']);
 
   const tables = db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
   assert.deepEqual(tables, Object.keys(TABLES).sort(), 'a table this test does not know: seed it here, and say whether it may name an account');
@@ -1058,9 +1073,11 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     return [...new Set(found)].sort();
   };
   // The control: before the delete, the check finds the account, its teams,
-  // its link (#221), the photo it sent (#223) and its sign-in code (#224).
+  // its link (#221), the photo it sent (#223), its sign-in code (#224) and
+  // its revoked address's row (#225).
   assert.deepEqual(naming(), [
     'account_teams.account_id', 'accounts.email', 'accounts.id', 'admin_codes.account_id', 'password_links.account_id', 'photos.account_id',
+    'revoked_addresses.account_id',
   ]);
 
   // The owner's account is never deleted, by this statement or any other
@@ -1071,6 +1088,17 @@ test('README\'s by-hand account delete, run only once the account\'s own address
 
   assert.equal(deleteOne.run(target.id).changes, 1);
   assert.deepEqual(naming(), []);
+  // #225: the revoked address stays, as its keyed hash alone, so a new
+  // request from it, in any letter case, still writes nothing (criterion 5),
+  // as /policy says.
+  assert.deepEqual(db.sqlite.prepare('SELECT email_hash, account_id FROM revoked_addresses').all().map((r) => ({ ...r })),
+    [{ email_hash: await emailKeyOf('delete.me@example.org'), account_id: null }]);
+  const again = await requestAccount(db, {
+    request: { name: 'Again', email: 'DELETE.ME@example.org', role: 'parent', teams: ['cohssa'], note: null },
+    address: 'address-three', emailKey: await emailKeyOf('DELETE.ME@example.org'), now: now + 7200,
+  });
+  assert.deepEqual(again, { outcome: 'taken', created: false });
+  assert.deepEqual(db.sqlite.prepare('SELECT email FROM accounts').all().map((r) => r.email), ['stays@example.org']);
   // The photo stays, waiting as it was, and says only that a coach's account
   // sent it: "no longer record which account sent them, only whether it was
   // a coach's" (#223).
@@ -1098,6 +1126,54 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   assert.deepEqual(find.all('Delete.Me@Example.org'), []);
   // The lookup matches whatever letter case the address is written in.
   assert.equal(find.all('STAYS@example.org').length, 1);
+});
+
+test('README\'s by-hand delete cuts its photos\' takedown time to the day first, so none matches the log\'s hide entry naming the person (#225\'s review)', async () => {
+  // Test the join, not the row (cairn: a-timestamp-joins-to-the-log-that-
+  // names-it): "Hide all their photos" stamps one second on the photos and on
+  // the log's 'hide' entry, which keeps naming the person after the delete.
+  const steps = read('..', 'README.md').split('### Deleting an account by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
+  const cut = steps.match(/--command "(UPDATE photos SET hidden_at [^"]+)"/)?.[1];
+  const del = steps.match(/--command "(DELETE FROM accounts [^"]+)"/)?.[1];
+  assert.ok(cut && cut.includes('<id>'), 'README has no statement cutting the takedown time, naming <id>');
+  assert.ok(del && steps.indexOf(cut) < steps.indexOf(del), 'the cut comes after the delete, when no row names the photos any more');
+
+  const db = d1();
+  const now = 1_790_012_345; // not the start of a day
+  const admin = 'owner@example.com';
+  for (const [email, address] of [['hide.me@example.org', 'a'], ['stays@example.org', 'b']]) {
+    await requestAccount(db, { request: { name: email.split('@')[0], email, role: 'parent', teams: ['hoover-jrt'], note: null }, address, emailKey: await emailKeyOf(email), now });
+  }
+  for (const accountId of [1, 2]) await approveTeams(db, { accountId, teams: ['hoover-jrt'], role: 'parent', admin, now });
+  const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?')
+    .get(await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, now)).id;
+  const insert = db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    "captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at) VALUES (?, 'photo', ?, ?, 'b', 'parent', 0, 0, ?, 1, 2, 4, 3, 4, 3, 4, 3, 10, ?)",
+  );
+  insert.run(album, 'approved', 'c'.repeat(32), 1, now - 10);
+  insert.run(album, 'pending', 'd'.repeat(32), 1, null);
+  insert.run(album, 'approved', 'e'.repeat(32), 2, now - 10);
+  // The other account's photos hidden a second later, so the cut must keep to
+  // the account it names, and each log entry matches only its own photos.
+  assert.deepEqual(await hidePhotos(db, { accountId: 1, admin, now }), { hidden: 2, waiting: 1 });
+  assert.deepEqual(await hidePhotos(db, { accountId: 2, admin, now: now + 1 }), { hidden: 1, waiting: 0 });
+  const matched = (name) => db.sqlite.prepare(
+    "SELECT COUNT(*) AS n FROM photos AS p JOIN admin_log AS l ON l.action = 'hide' AND l.at = p.hidden_at WHERE l.name = ?",
+  ).get(name).n;
+  // The control: before the cut, the log's entry finds exactly her two photos.
+  assert.equal(matched('hide.me'), 2);
+
+  db.sqlite.prepare(cut.replace('<id>', '?')).run(1);
+  db.sqlite.prepare(del.replace('<id>', '?')).run(1);
+  assert.equal(matched('hide.me'), 0, 'a photo\'s takedown time still names the deleted person');
+  const day = now - (now % 86400);
+  assert.deepEqual(db.sqlite.prepare('SELECT media_key, account_id, hidden_at FROM photos ORDER BY id').all().map((r) => ({ ...r })), [
+    { media_key: 'c'.repeat(32), account_id: null, hidden_at: day },
+    { media_key: 'd'.repeat(32), account_id: null, hidden_at: day },
+    { media_key: 'e'.repeat(32), account_id: 2, hidden_at: now + 1 },
+  ]);
+  assert.equal(matched('stays'), 1, 'the cut reached an account it does not name');
 });
 
 // ---- #238: which release covers which team's photos -------------------------
@@ -1395,7 +1471,7 @@ test('the admin figures are the code\'s: 6 digits, once, 10 minutes, 5 tries, 10
 test('"kept only as a hash, made with a secret key" and "kept for a day" are what a code\'s row is, and the admin home\'s load deletes it after its day (#224, criterion 8)', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => Response.json({ id: 'msg-224' }));
   const db = d1();
-  await requestAccount(db, { request: { name: 'Ann Admin', email: 'ann@example.org', role: 'coach', teams: ['cohssa'], note: null }, address: 'a', now: 1 });
+  await requestAccount(db, { request: { name: 'Ann Admin', email: 'ann@example.org', role: 'coach', teams: ['cohssa'], note: null }, address: 'a', emailKey: await emailKeyOf('ann@example.org'), now: 1 });
   db.sqlite.prepare("UPDATE account_teams SET state = 'approved'").run();
   const key = 'test-session-signing-key-0123456789abcdef';
   const env = { DB: db, RESEND_API_KEY: 'test-key', SESSION_SIGNING_KEY: key };
@@ -1446,7 +1522,7 @@ test('README\'s owner statement makes nobody the owner who is approved for no te
   const readme = read('..', 'README.md');
   assert.match(readme, /changes 1 row, or none for an account approved for no team/);
   const db = d1();
-  await requestAccount(db, { request: { name: 'Una Waiting', email: 'una@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'u', now: 1 });
+  await requestAccount(db, { request: { name: 'Una Waiting', email: 'una@example.org', role: 'parent', teams: ['cohssa'], note: null }, address: 'u', emailKey: await emailKeyOf('una@example.org'), now: 1 });
   const owner = db.sqlite.prepare(readme.split('### Making the owner\n')[1]?.match(/--command "(UPDATE accounts SET admin_role = 'owner' [^"]+)"/)?.[1].replace('<id>', '?') ?? 'missing');
   const role = () => db.sqlite.prepare('SELECT admin_role FROM accounts WHERE id = 1').get().admin_role;
   // Waiting, then turned down: no row changes, and nobody is the owner.

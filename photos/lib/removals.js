@@ -25,6 +25,13 @@
  * at #158's pickup, 2026-09-30). Not chosen: clearing both. A later takedown
  * of the same photo writes its own time and note over them.
  *
+ * Since #225 an admin's "Hide all their photos" (lib/people.js, hidePhotos)
+ * hides an account's waiting photos here too, so a hidden photo may never
+ * have been approved. 0005's CHECK requires approved_at on every hidden row,
+ * so such a photo carries approved_at 0, which no approval is ever made at
+ * (WAITING_WHEN_HIDDEN), and "Put it back" sends it back to the queue rather
+ * than making it public: /policy says every photo is checked first.
+ *
  * Clips wait for #198, as everywhere else: every statement here names kind =
  * 'photo'.
  */
@@ -78,6 +85,13 @@ export function readNote(value, max = NOTE_MAX) {
 }
 
 const APPROVED = "p.state = 'approved' AND p.kind = 'photo'";
+
+/**
+ * The approved_at a hidden photo carries when it was hidden while still
+ * waiting for approval (#225): a placeholder, as 0012's code generation 0 is,
+ * since no photo is ever approved at Unix time 0.
+ */
+export const WAITING_WHEN_HIDDEN = 0;
 
 /**
  * An approved photo and its album, for the no-JavaScript confirmation page,
@@ -240,10 +254,12 @@ export async function clearExpiredTakedowns(db, now) {
  * keeps only the photos in that team's albums (#227), for the page's team
  * filter; null keeps every team's. `accountName` is the name of the account
  * that sent it (#223, criterion 3, D17), for the admins alone, or null.
+ * `waiting` says it was hidden while still waiting for approval (#225), so
+ * "Put it back" returns it to the queue.
  */
 export async function hiddenPhotos(db, team = null) {
   const statement = db.prepare(
-    'SELECT p.id, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, ' +
+    'SELECT p.id, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, p.approved_at, ' +
     'a.title AS album_title, a.address AS album_address, a.team AS album_team, acc.name AS account_name ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
     'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
@@ -257,6 +273,7 @@ export async function hiddenPhotos(db, team = null) {
     caption: row.caption,
     hiddenAt: row.hidden_at,
     note: row.hidden_note,
+    waiting: row.approved_at === WAITING_WHEN_HIDDEN,
     accountName: row.account_name,
     grid: { width: row.grid_width, height: row.grid_height },
     album: { title: row.album_title, address: row.album_address, team: row.album_team },
@@ -264,17 +281,24 @@ export async function hiddenPhotos(db, team = null) {
 }
 
 /**
- * "Put it back": make the hidden photo `id` approved again, and say whether
- * it was hidden. hidden_at and the note stay on the row (owner, at pickup).
- * approved_at is the photo's first approval and is not moved.
+ * "Put it back": make the hidden photo `id` approved again, or, for one hidden
+ * while it was still waiting (#225), waiting again, back in the queue with no
+ * approval time. Answers the state it went back to, 'approved' or 'pending',
+ * or null when it was not hidden. hidden_at and the note stay on the row
+ * (owner, at pickup). An approved photo's approved_at is its first approval
+ * and is not moved.
  */
 export async function restorePhoto(db, id) {
-  if (id === null) return false;
+  if (id === null) return null;
   const row = await db
-    .prepare("UPDATE photos SET state = 'approved' WHERE id = ? AND kind = 'photo' AND state = 'hidden' RETURNING id")
+    .prepare(
+      `UPDATE photos SET state = CASE WHEN approved_at = ${WAITING_WHEN_HIDDEN} THEN 'pending' ELSE 'approved' END, ` +
+      `approved_at = CASE WHEN approved_at = ${WAITING_WHEN_HIDDEN} THEN NULL ELSE approved_at END ` +
+      "WHERE id = ? AND kind = 'photo' AND state = 'hidden' RETURNING state",
+    )
     .bind(id)
     .first();
-  return row !== null;
+  return row === null ? null : row.state;
 }
 
 /**

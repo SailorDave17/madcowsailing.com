@@ -25,9 +25,10 @@
  * holds exactly the version the cookie names. Setting a password and signing
  * out each add 1 to the version (migration 0009), so every session the
  * account holds ends at its next request, with nothing to look up but the
- * account's own row (criterion 4). A revoke ends them today because only an
- * account approved for a team is read; #225's revoke is to add 1 as well, so
- * that re-approving a team cannot bring an old cookie back (#222's review). Signing out ends every session
+ * account's own row (criterion 4). An admin's revoke (#225, lib/people.js's
+ * revokeTeams) adds 1 too, a single team's included, so re-approving a team
+ * cannot bring an old cookie back (#222's review); only an account approved
+ * for a team is read besides. Signing out ends every session
  * the account holds, on every device (the owner's choice at #222's pickup,
  * 2026-10-06), and so does a cookie someone copied. The __Host- prefix makes
  * the browser refuse the cookie unless it is Secure, Path=/ and set with no

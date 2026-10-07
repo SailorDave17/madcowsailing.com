@@ -25,6 +25,7 @@ import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import { adminLog, demoteAdmin, peopleLists, promoteAdmin } from '../lib/people.js';
 import { adminPeoplePage, peopleNotice } from '../lib/people-page.js';
 import { ADMIN_KEY, adminCookieHeader } from './admin.js';
+import { emailKeyOf } from './address-key.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -41,7 +42,7 @@ const snapshot = (db) => Object.fromEntries(tables(db).map((t) => [t, rows(db, `
 let asked = 0;
 async function account(db, { email, name = email.split('@')[0], teams = ['hoover-jrt'], approved = true, adminRole = null } = {}) {
   asked += 1;
-  await requestAccount(db, { request: { name, email, role: 'parent', teams, note: null }, address: `address-${asked}`, now: NOW + asked });
+  await requestAccount(db, { request: { name, email, role: 'parent', teams, note: null }, address: `address-${asked}`, emailKey: await emailKeyOf(email), now: NOW + asked });
   const { id } = db.sqlite.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
   if (approved) db.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = ?").run(id);
   if (adminRole) db.sqlite.prepare('UPDATE accounts SET admin_role = ? WHERE id = ?').run(adminRole, id);
@@ -151,7 +152,7 @@ test('/ask for the owner\'s address answers as for any known address: the same s
   const { db } = await site();
   const ask = async (email, address) => {
     const start = db.statements.length;
-    const outcome = await requestAccount(db, { request: { name: 'Someone', email, role: 'coach', teams: ['cohssa'], note: null }, address, now: NOW + 500 });
+    const outcome = await requestAccount(db, { request: { name: 'Someone', email, role: 'coach', teams: ['cohssa'], note: null }, address, emailKey: await emailKeyOf(email), now: NOW + 500 });
     return { outcome, statements: db.statements.slice(start) };
   };
   const ownerRow = snapshot(db).accounts.find((a) => a.email === 'owner@example.org');
@@ -366,7 +367,9 @@ test('the page marks the owner and each admin, offers Make admin to any admin, a
     // Make admin: on the approved parent only, never the waiting one or an admin.
     const make = formsOf(html, 'promote');
     assert.deepEqual(make.map((f) => f.match(/value="(\d+)"/)[1]), [String(parent)]);
-    assert.match(make[0], /aria-label="Make Pat Parent an admin">Make admin<\/button>/);
+    // Since #225's ux-design audit the name starts with the button's words
+    // (WCAG 2.5.3); test/revoke.test.js holds the rule for every such button.
+    assert.match(make[0], /aria-label="Make admin: Pat Parent">Make admin<\/button>/);
     assert.ok(!html.includes(`value="${waiting}" aria-label="Make`));
   }
   // Remove admin: drawn for the owner, on the admin and not the owner.

@@ -328,7 +328,12 @@ By name only; a value never goes in this repo.
     `__Host-account`. Changing it ends every session at once, a coach's and
     an account's included; rotating the code ends only the parents' (#192).
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
-    stores instead of a network address.
+    stores instead of a network address. Since #222 it keys a failed
+    sign-in's email address too, and since #225 a revoked account's address
+    in `revoked_addresses`, which is kept with no time limit. **Changing it
+    lifts every revoked address's hold at once**, since no new request's
+    hash would match an old one, so a revoked person could ask again. Before
+    rotating it, note who was revoked from the admins' log.
   - `ADMIN_EMAILS` (#151) was the comma-separated list of addresses the
     admin guard let in. **Since #224 nothing reads it**: the admin pages
     answer to accounts holding the admin role, and the admins' email about
@@ -380,7 +385,8 @@ By name only; a value never goes in this repo.
   different values. Without them, `POST /api/join`, `/sign-in` and
   `POST /set-password` answer `503` and open nothing, and without
   `ADDRESS_HASH_KEY`, `POST /api/remove`, `POST /ask` and `/forgot-password`
-  answer `503` and change nothing. Check that all six exist in both
+  answer `503` and change nothing, and Revoke and "Let it ask again" on
+  `/admin/people` change nothing and say why. Check that all six exist in both
   environments on the dashboard, which shows a secret's name and never its
   value.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
@@ -528,6 +534,8 @@ a new file is listed here.
 | `0011_teams_replace_guard.sql` | #227 | A fifth trigger: a `REPLACE` into `teams` cannot remove a team an album names, the one path 0010's four left open |
 | `0012_photos_account.sql` | #223 | `account_id` on `photos`, the account that sent each photo, set to NULL when the account is deleted; a CHECK holding an account's row to the placeholder code generation and session time 0; a partial index |
 | `0013_admins.sql` | #224 | `admin_role` on `accounts`, NULL, `admin` or `owner`, with at most one owner; seven triggers keeping the owner's role, account and approved teams and the last admin; `admin_codes`, each admin sign-in code kept as a keyed hash, and when it was sent, for a day |
+| `0014_revoked_addresses.sql` | #225 | `revoked_addresses`, each revoked account's address as a keyed hash, naming the account until it is deleted (`ON DELETE SET NULL`), so a new request from it is held back; a partial index |
+| `0015_not_sure_albums.sql` | #228 | `holding` on `albums`, 0 for every album made before it; one "Not sure / other event" album per team, the one row a team may have with `holding` 1; six triggers: no photo in one is approved, or hidden other than while waiting, `holding` never changes, and one is never deleted, replaced, or moved to another team. **Apply it just before the code that reads it**, not at the commit gate: the older code reads its rows as events (`CLAUDE.md` item 32) |
 
 ### The invite code
 
@@ -607,6 +615,19 @@ Parents send photos into an album, one per regatta or practice day, kept on
 - `GET /api/albums/open` is the list the share page reads, newest first, each
   album with its team's key and name, under which the page groups it (#227).
   It answers only to a live upload session.
+- **Each team has a "Not sure / other event"** (#228; `CLAUDE.md`, The photo
+  site, item 32): an album made by migration 0015, marked `holding`, dated
+  0001-01-01, at `0001-01-01-not-sure-<team>`. The share page offers it after
+  the team's events, for photos from an event nobody has added yet, and never
+  preselects it. It is listed in its own section at the foot of
+  `/admin/albums` with **Close** and **Reopen** only: closing it stops parents
+  choosing it, and its waiting photos stay in the queue. It is never edited
+  or deleted: the page has no Edit or Delete for it, the routes refuse a post
+  naming it, and the database refuses a delete, even one typed by hand. None
+  of its photos is ever approved (Approving, below), so
+  no public page lists or links it, and its address answers 404 like any
+  album with nothing approved. The open list gives these in `other`, apart
+  from `albums`, with no title.
 
 ### Uploads
 
@@ -717,6 +738,19 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
   for good. Rejecting needs JavaScript.
 - **Approve all and Reject all act on the photos the page showed.** A photo
   sent into the batch after the page loaded keeps waiting.
+- **Move a photo into its event** (#228). Choose the event under **Move to
+  event** in the batch, then **Move** under a photo or **Move all** at the
+  top. The list is the batch's team's events, newest first, open or closed;
+  **A new event, below** makes one from the title, kind and date under it,
+  for the same team, as **Add album** would. Any waiting photo moves: one in a
+  team's **Not sure / other event**, or one a parent sent to the wrong event.
+  A moved photo keeps waiting, with its captions and its batch, and shows as a
+  batch of the event it is in now. A photo moves only within its team.
+- **A batch in Not sure / other event has no Approve**, and says why: a photo
+  there has no event to be public in, so it is moved first and approved in
+  its event. A press naming one anyway (an old or forged page) approves
+  nothing for it and says so, and migration 0015 refuses the change in the
+  database too. Reject works on it as on any batch.
 - The pictures come from `GET /api/admin/photos/<id>/<size>` (`grid`, `screen`
   or `full`), which answers only to an admin.
 
@@ -856,7 +890,10 @@ team, when it was hidden and the note. The admin home says how many wait.
   land back on the same team.
 - **Put it back** makes it approved and public again. When it was hidden and
   the note stay on its row as a record, and a later takedown writes over
-  them.
+  them. A photo an admin hid with **Hide all their photos** while it was
+  still waiting (#225) is marked "was waiting for approval", and putting it
+  back returns it to the queue, never onto the site: it carries
+  `approved_at` 0, the placeholder 0005's CHECK needs on a hidden row.
 - **Delete permanently** asks first, in a dialog, then deletes its row and
   its three files for good. It needs JavaScript.
 - A hidden photo keeps its row and its three files until one of those, so
@@ -989,7 +1026,11 @@ old invite link there.
   A request from an address the site already has writes nothing, and is
   answered with the same `303` to `/ask?sent` as a new one. That includes a
   turned-down address (owner, at #221's pickup): an admin who changes their
-  mind approves it on `/admin/people` instead.
+  mind approves it on `/admin/people` instead. **A revoked address writes
+  nothing either** (#225), while its account exists and after it is
+  deleted: its keyed hash stays in `revoked_addresses`, by the same
+  statements, until an admin re-approves the account or, once it is
+  deleted, lets the address ask again (Approving accounts, below).
 - **The admins hear at most once an hour.** The first new request emails
   every admin at once (since #224 each account holding the admin role, where
   it was each address on `ADMIN_EMAILS`) and opens the hour; requests inside
@@ -1002,8 +1043,9 @@ old invite link there.
 ### Approving accounts
 
 `/admin/people` (#221; `CLAUDE.md`, The photo site, item 26, has the
-decisions) lists every request for an account in three lists: **Waiting**,
-**Approved** and **Turned down**. The admins' log is under them.
+decisions) lists every request for an account in four lists: **Waiting**,
+**Approved**, **Revoked** (since #225) and **Turned down**. The admins' log
+is under them.
 
 - **Each team is decided on its own** (D16). A waiting request's form has a
   box per team, ticked, and the role the requester chose. **Approve** takes
@@ -1023,7 +1065,9 @@ decisions) lists every request for an account in three lists: **Waiting**,
   for all of them.
 - **The log** records who did what to whom, and when: each approval and
   turn-down per team, a role change, and each link sent, with how the email
-  went. A link's entry is written with the link itself, so no link exists
+  went; since #224 each admin made or removed, and since #225 each revoke per
+  team, each set of photos hidden with how many, each delete, and each
+  address let ask again. A link's entry is written with the link itself, so no link exists
   without one. It copies the person's name and address into every entry, so
   it still names them after their account is deleted. The page shows the
   newest 100, and nothing deletes from the table.
@@ -1041,6 +1085,51 @@ decisions) lists every request for an account in three lists: **Waiting**,
   owner's choice at #224's review). A removed one is refused from their next
   request, and their account still sends. Both are in the log. The owner is
   made once, by hand (Making the owner, below).
+- **"Revoke, hide their photos or delete"** (#225; `CLAUDE.md`, The photo
+  site, item 31) opens under each person, holding whichever of the three
+  apply. Revoke and Delete are not there for anyone holding the admin role:
+  the owner presses "Remove admin" first (the owner's choice at #225's
+  pickup), which keeps removing an admin the owner's alone.
+  - **Revoke** takes the ticked teams away, none ticked to start with;
+    ticking every one revokes the account. It signs the person out on every
+    phone and computer at their next request, a single team's revoke
+    included, and they sign in again only to the teams they keep. Their
+    approved photos stay up, nothing is emailed, and their address is kept
+    as a keyed hash (`revoked_addresses`), so a new request from it changes
+    nothing. Someone revoked from every team moves to the **Revoked** list.
+    **Until #226 a revoke does not stop the invite link or a coach's
+    sign-in**: someone revoked can still send with the invite link they hold,
+    or join again from it, or through `/coach` if their address is on
+    `COACH_EMAILS`. Those photos wait for approval and name no account, so
+    Hide all their photos cannot find them. Rotate the code on `/admin/code`,
+    or take them off the coaches' list (Coaches, above), to end that.
+  - **Taking a revoked person back** is Approve, on the revoked team's
+    unticked box. It emails the usual link to set a password, which someone
+    who already has one can ignore. Once no team is left revoked, their
+    address's hold is lifted in the same press. A session from before the
+    revoke stays ended.
+  - **Hide all their photos** takes down every photo the account sent,
+    waiting or public, its box naming the count, which must be ticked. Each
+    then waits on `/admin/removals` naming the account, with no note, and no
+    takedown is counted against anyone's limit. A photo that was waiting is
+    marked so there, and **"Put it back" returns it to the queue**, not onto
+    the site.
+  - **Delete the account** is for someone who asked by email. Write to the
+    account's address and wait for a reply from it, as Deleting an account
+    by hand (below) says; the box "… replied to confirm they asked for this"
+    must be ticked, and is the admin's word for it, since the site cannot
+    read the reply. The delete takes what README's statement by hand takes,
+    and the log keeps naming the person. Each of the account's photos keeps
+    only the day it was taken down, not the second, which would otherwise
+    match the log's "hid every photo" entry and name the person (the owner's
+    choice at #225's review). If they asked for their photos to come down
+    too, press Hide all their photos first: afterwards nothing finds them as
+    a group.
+- **A deleted account's address**, under Revoked: when a revoked account is
+  deleted its address stays held back, kept only as its keyed hash, so a new
+  request from it changes nothing. Type the address and press **Let it ask
+  again** to lift that. It needs a log entry naming the address as typed,
+  and it is logged itself; nothing is emailed.
 
 ### Making the owner
 
@@ -1100,11 +1189,11 @@ until #226.
   password is let through and the miss logged (owner, at #222's pickup).
 - **The session** is the `__Host-account` cookie, signed with
   `SESSION_SIGNING_KEY`, for 90 days. It names the account and its session
-  version. Signing out and setting a password each add 1 to the version,
-  which ends every session the account holds at its next request, on every
-  device. A revoke ends them too, since the guard reads only an account
-  approved for a team; #225's revoke is to add 1 as well. `/account` is the
-  page behind it, with Sign out.
+  version. Signing out, setting a password and an admin's revoke of any team
+  (#225) each add 1 to the version, which ends every session the account
+  holds at its next request, on every device, so a re-approval brings no
+  old cookie back. The guard also reads only an account approved for a
+  team. `/account` is the page behind it, with Sign out.
 - **Failed sign-ins**: 10 an hour per email address (counted for an address
   with no account too), 20 an hour per network, and 100 an hour for the whole
   site, after which nobody can sign in until the hour turns. Each try claims
@@ -1145,11 +1234,12 @@ until #226.
 
 ### Hiding every photo an account sent, by hand
 
-For a deletion request that asks for the photos to come down too, until #225
-builds "Hide all their photos" (#223, criterion 6; #219's review). Do it
-**before** the delete below: deleting the account stops its photos naming it,
-so afterwards nothing finds them as a group. From `photos/`, with the D1 token
-in `photos/.env` (above):
+The fallback for **Hide all their photos** on `/admin/people` (#225; Approving
+accounts, above), for when the page cannot be reached (#223, criterion 6;
+#219's review). Unlike the button, it hides only the public photos, and
+turns the waiting ones down in step 4. Do it **before** the delete below:
+deleting the account stops its photos naming it, so afterwards nothing finds
+them as a group. From `photos/`, with the D1 token in `photos/.env` (above):
 
 1. Find the account's id with step 1 of the delete below.
 2. Hide every public photo it sent:
@@ -1171,12 +1261,16 @@ waiting, hidden already, or sent by anyone else.
 
 ### Deleting an account by hand
 
-How an account is deleted until #225 builds the admin's button, and the
-fallback after it (#219; owner, 2026-10-05). **Only once a reply from the
+The fallback for **Delete the account** on `/admin/people` (#225; Approving
+accounts, above), for when the page cannot be reached (#219; owner,
+2026-10-05). **Only once a reply from the
 account's own address confirms the request**, since a delete cannot be undone
-and a request can come from anyone. If the request asks for the photos to
-come down too, hide them first (above). From `photos/`, with the D1 token in
-`photos/.env` (above):
+and a request can come from anyone. If the request asks for the photos to come down too,
+hide them first (above). The button refuses an admin's account until the
+owner removes the role; this statement refuses only the owner's and the last
+admin's, so for an admin, have the owner press "Remove admin" on
+`/admin/people` first. From `photos/`, with the D1 token in `photos/.env`
+(above):
 
 1. Find the account, and check it is the one the email is about (write any `'`
    in the address twice):
@@ -1186,13 +1280,20 @@ come down too, hide them first (above). From `photos/`, with the D1 token in
    ```
 
 2. Write to that address asking for a reply to confirm, and wait for it.
-3. Delete it:
+3. Cut each of its photos' takedown time to the day, as the button does, so
+   no photo's time matches a log entry naming the person (#225):
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET hidden_at = hidden_at - hidden_at % 86400 WHERE account_id = <id> AND hidden_at IS NOT NULL"
+   ```
+
+4. Delete it:
 
    ```
    npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "DELETE FROM accounts WHERE id = <id>"
    ```
 
-4. Read it back: step 1's statement must return no row.
+5. Read it back: step 1's statement must return no row.
 
 Its teams, any unused link to set a password and, for an admin, its sign-in
 codes go with it (`ON DELETE CASCADE`). The owner's account is never deleted,
@@ -1200,14 +1301,18 @@ and nor is the last admin's: the database refuses the statement (`the owner
 account is kept`, migration 0013, #224). The photos it sent stay as they are and stop naming it: their
 `account_id` becomes NULL (`ON DELETE SET NULL`, migration 0012, #223), and
 each still says whether a coach's account sent it. `photos/test/policy.test.js`
-runs the step-3 statement against the real schema, with a row in every table,
-and fails if any row afterwards names the account's id or address. Only these
+runs the step-3 and step-4 statements against the real schema, with a row in
+every table, and fails if any row afterwards names the account's id or
+address, or if a photo's takedown time still matches a log entry naming the
+person. Only these
 may: the admins' log entries (#221), which keep naming the person, as the test
-also checks; the day's upload count under `account.<id>`, until anyone's
-first upload of a later day clears it (#223); and, for a revoked account, its
-address kept as a keyed hash (#225). #225 keeps that test passing as it adds
-tables. The database's restore points keep the account for up to 30 days, as
-`/policy` says.
+also checks; and the day's upload count under `account.<id>`, until anyone's
+first upload of a later day clears it (#223). A revoked account's address
+stays too, as its keyed hash in `revoked_addresses` (#225), but that row stops
+naming the account (`ON DELETE SET NULL`, migration 0014), and the test checks
+it stays and that a new request from the address still changes nothing. The
+database's restore points keep the account for up to 30 days, as `/policy`
+says.
 
 ## The push guard
 

@@ -24,8 +24,25 @@
  * the address does not name the team, so moving an album to the other team
  * keeps every link to it working. Migration 0010's triggers refuse a team the
  * `teams` table does not hold.
+ *
+ * Each team also has one "Not sure / other event" album since #228
+ * (migration 0015), marked `holding`: a sender chooses it for photos from an
+ * event the owner has not set up. It is no event. The share page lists it
+ * after its team's events, /admin/albums only closes and reopens it, and its
+ * photos wait in the queue until an admin moves them into an event
+ * (lib/queue.js, movePhotos). 0015's triggers refuse approving a photo in it
+ * (hiding one is allowed only while it waits, as "Hide all their photos"
+ * does), deleting it, replacing it, and changing whether an album is one, so
+ * none of its photos is ever public, and no public page lists or links it
+ * (lib/public.js reads approved photos only, and an album page with none is
+ * a 404).
  */
 import { isTeam } from './teams.js';
+
+// What a sender and an admin read for a team's Not sure album: its title in
+// migration 0015, which the share page writes itself (public/js/share.js).
+// test/not-sure.test.js holds the three equal.
+export const NOT_SURE_TITLE = 'Not sure / other event';
 
 export const KINDS = { regatta: 'Regatta', practice: 'Practice' };
 
@@ -106,7 +123,7 @@ export function readAlbumFields(fields) {
 /** Whether `text` could be an album's address, before asking the database. */
 export const isAddress = (text) => typeof text === 'string' && text.length <= ADDRESS_MAX && ADDRESS.test(text);
 
-const COLUMNS = 'id, address, team, title, kind, held_on, created_at, closed_at';
+const COLUMNS = 'id, address, team, title, kind, held_on, created_at, closed_at, holding';
 
 const fromRow = (row) => row && {
   id: row.id,
@@ -118,6 +135,8 @@ const fromRow = (row) => row && {
   createdAt: row.created_at,
   closedAt: row.closed_at,
   open: row.closed_at === null,
+  // A team's Not sure album (#228), never an event.
+  holding: row.holding === 1,
 };
 
 /**
@@ -143,13 +162,20 @@ export async function createAlbum(db, { team, title, kind, date }, now) {
   return null;
 }
 
-/** Every album, newest first: by its date, then the later made. */
+/**
+ * Every album, newest first: by its date, then the later made. The teams'
+ * Not sure albums (#228) come last, since they are dated 0001-01-01, and each
+ * says it is one (`holding`), for the page to set apart.
+ */
 export async function allAlbums(db) {
   const { results } = await db.prepare(`SELECT ${COLUMNS} FROM albums ORDER BY held_on DESC, id DESC`).all();
   return results.map(fromRow);
 }
 
-/** The open albums, newest first, as the share page lists them. */
+/**
+ * The open albums, newest first, as the share page lists them. A team's Not
+ * sure album is among them while it is open (#228), last, saying it is one.
+ */
 export async function openAlbums(db) {
   const { results } = await db
     .prepare(`SELECT ${COLUMNS} FROM albums WHERE closed_at IS NULL ORDER BY held_on DESC, id DESC`)
@@ -160,7 +186,7 @@ export async function openAlbums(db) {
 /**
  * The album at `address` if it is open, or null: unknown, closed, or not an
  * address at all. An upload naming anything but an open album answers 409
- * (#154).
+ * (#154). A team's Not sure album takes uploads while it is open (#228).
  */
 export async function openAlbum(db, address) {
   if (!isAddress(address)) return null;
@@ -172,17 +198,39 @@ export async function openAlbum(db, address) {
 }
 
 /**
+ * The album at `address`, open or closed, or null: unknown, or not an address
+ * at all. What the queue's "Move to event" checks its choice against (#228).
+ */
+export async function albumAt(db, address) {
+  if (!isAddress(address)) return null;
+  const row = await db.prepare(`SELECT ${COLUMNS} FROM albums WHERE address = ?`).bind(address).first();
+  return fromRow(row);
+}
+
+/**
  * Change an album's team, title, kind and date. Its address stays as it was
  * made, so a link to it keeps working when it moves to the other team's
- * section. True when an album was there to change.
+ * section. True when an event was there to change. A team's Not sure album
+ * (#228) is never changed here: it is only closed and reopened, so this
+ * answers false for it, and notSureAlbum() says why.
  */
 export async function updateAlbum(db, address, { team, title, kind, date }) {
   if (!isAddress(address)) return false;
   const { meta } = await db
-    .prepare('UPDATE albums SET team = ?, title = ?, kind = ?, held_on = ? WHERE address = ?')
+    .prepare('UPDATE albums SET team = ?, title = ?, kind = ?, held_on = ? WHERE address = ? AND holding = 0')
     .bind(team, title, kind, date, address)
     .run();
   return meta.changes > 0;
+}
+
+/**
+ * Whether `address` is a team's Not sure album (#228), for a route to say why
+ * an edit or a delete of it changed nothing.
+ */
+export async function notSureAlbum(db, address) {
+  if (!isAddress(address)) return false;
+  const row = await db.prepare('SELECT holding FROM albums WHERE address = ?').bind(address).first();
+  return row?.holding === 1;
 }
 
 /**
@@ -206,8 +254,9 @@ export async function setAlbumOpen(db, address, open, now) {
 
 /**
  * Delete an empty album. Answers { deleted: true }, { missing: true } when
- * there was no album there, or { photos: n } when the database refused
- * because n photos still name it.
+ * there was no album there, { notSure: true } when it is a team's Not sure
+ * album, which migration 0015 never lets go (#228), or { photos: n } when the
+ * database refused because n photos still name it.
  */
 export async function deleteAlbum(db, address) {
   if (!isAddress(address)) return { missing: true };
@@ -215,7 +264,10 @@ export async function deleteAlbum(db, address) {
     const { meta } = await db.prepare('DELETE FROM albums WHERE address = ?').bind(address).run();
     return meta.changes > 0 ? { deleted: true } : { missing: true };
   } catch (err) {
-    if (!/FOREIGN KEY constraint failed/.test(String(err?.message))) throw err;
+    const message = String(err?.message);
+    // 0015's trigger, raised before the reference is checked.
+    if (/a Not sure album cannot be deleted/.test(message)) return { notSure: true };
+    if (!/FOREIGN KEY constraint failed/.test(message)) throw err;
   }
   // Only reached when a photos table exists and a row in it names this album.
   const photos = await db

@@ -12,10 +12,16 @@
  *
  * A press from a page filtered to one team posts here with that ?team=
  * (#227), and lands back on the same team's list, as a GET does.
+ *
+ * A photo still in a team's "Not sure / other event" is not approved
+ * (#228, criterion 4): it waits until an admin moves it into an event. The
+ * page offers no Approve for one, so a press naming one is a page from
+ * elsewhere or one replayed; the queue then says why it was left
+ * (?error=not-sure, or &not-sure=n beside photos that were approved).
  */
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
-  QUEUE_FORM_BYTES, acted, approvePhotos, queueLocation, readPress, saveCaptions, unsavedCaptions,
+  QUEUE_FORM_BYTES, acted, approvePhotos, notSureWaiting, queueLocation, readPress, saveCaptions, unsavedCaptions,
 } from '../../../../lib/queue.js';
 import { nowSeconds } from '../../../../lib/session.js';
 import { teamOf } from '../../../../lib/teams.js';
@@ -28,8 +34,11 @@ export async function onRequestPost({ request, env }) {
   const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
   await saveCaptions(env.DB, press.captions);
   const approved = await approvePhotos(env.DB, press.targets, nowSeconds());
-  if (!approved.length) return seeOther(queueLocation({ error: 'gone', unsaved, team }, press.anchor));
-  return seeOther(queueLocation({ done: 'approved', ...acted(approved), unsaved, team }, press.anchor));
+  const notSure = approved.length === press.targets.length ? null : (await notSureWaiting(env.DB, press.targets)) || null;
+  if (!approved.length) {
+    return seeOther(queueLocation({ error: notSure ? 'not-sure' : 'gone', n: notSure, unsaved, team }, press.anchor));
+  }
+  return seeOther(queueLocation({ done: 'approved', ...acted(approved), 'not-sure': notSure, unsaved, team }, press.anchor));
 }
 
 /**

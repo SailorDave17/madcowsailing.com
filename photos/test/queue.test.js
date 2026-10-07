@@ -610,14 +610,14 @@ test('"Approve all" approves the photos the page showed, and one that joined the
   assert.deepEqual([two, twoB, lateB].map((id) => row(env, id).state), ['approved', 'approved', 'pending']);
 });
 
-test('a batch of one offers no "Approve all" or "Reject all"; a batch of two offers both, naming the count', async () => {
+test('a batch of one offers no "Approve all", "Move all" or "Reject all"; a batch of two offers all three, naming the count', async () => {
   const { env, fall } = await site();
   seedPhoto(env, fall);
   seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 1 });
   seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 2 });
   const [one, two] = forms(await page(env));
   assert.equal(one.buttons.filter((b) => b.value === 'all' || b.reject === 'all').length, 0);
-  assert.deepEqual(two.buttons.filter((b) => b.value === 'all' || b.reject === 'all').map((b) => b.text), ['Approve all 2', 'Reject all 2']);
+  assert.deepEqual(two.buttons.filter((b) => b.value === 'all' || b.reject === 'all').map((b) => b.text), ['Approve all 2', 'Move all 2', 'Reject all 2']);
 });
 
 test('a press naming a photo outside its batch, or no batch at all, changes nothing', async () => {
@@ -685,7 +685,7 @@ test('a caption typed for a photo approved since the page loaded is not saved, a
   assert.match(res.location, /^\/admin\/queue\?done=saved&n=1&unsaved=2#batch-/);
   assert.deepEqual([a, b, c].map((id) => row(env, id).caption), ['one', 'two', 'tres']);
   const notice = queueNotice(new URLSearchParams(res.location.split('?')[1].split('#')[0]));
-  assert.match(notice, /Saved 1 caption\. 2 captions were not saved: their photos were approved after this page was loaded\./);
+  assert.match(notice, /Saved 1 caption\. 2 captions were not saved: their photos were approved or hidden after this page was loaded\./);
   // An approve counts before its own approval: approving a photo with its
   // caption changed is not an unsaved caption.
   const d = seedPhoto(env, fall, { caption: 'four', sentAt: T0 + 3 });
@@ -1039,12 +1039,12 @@ test('each notice is a known sentence, and anything else in the address bar show
   assert.equal(say('done=saved&n=1'), 'Saved 1 caption.');
   assert.equal(say('done=saved&n=0'), 'No caption had changed.');
   assert.equal(say('error=caption&photo=7'), 'Nothing was changed: the caption typed for photo 7 was over 200 characters. The captions typed in that batch were not saved, so type them again, keeping that one to 200.');
-  assert.equal(say('done=saved&n=1&unsaved=1'), 'Saved 1 caption. 1 caption was not saved: its photo was approved after this page was loaded.');
-  assert.equal(say('done=approved&photo=3&unsaved=2'), 'Approved photo 3. 2 captions were not saved: their photos were approved after this page was loaded.');
-  assert.match(say('error=gone&unsaved=1'), /^No photo was approved or rejected.* 1 caption was not saved: its photo was approved after this page was loaded\.$/);
+  assert.equal(say('done=saved&n=1&unsaved=1'), 'Saved 1 caption. 1 caption was not saved: its photo was approved or hidden after this page was loaded.');
+  assert.equal(say('done=approved&photo=3&unsaved=2'), 'Approved photo 3. 2 captions were not saved: their photos were approved or hidden after this page was loaded.');
+  assert.match(say('error=gone&unsaved=1'), /^No photo was approved, rejected or moved.* 1 caption was not saved: its photo was approved or hidden after this page was loaded\.$/);
   // Beside an error that saved nothing, unsaved says nothing.
   assert.equal(say('error=form&unsaved=1'), say('error=form'));
-  assert.match(say('error=gone'), /^No photo was approved or rejected/);
+  assert.match(say('error=gone'), /^No photo was approved, rejected or moved/);
   assert.match(say('error=form'), /^Nothing was changed: the press did not say which photos/);
   assert.match(say('error=unchanged'), /^Nothing was changed\. The press reached the site as a page load/);
   for (const query of ['', 'done=approved', 'done=approved&photo=<b>', 'error=caption&photo=x', 'error=constructor', 'done=__proto__&n=1', 'error=caption']) {
