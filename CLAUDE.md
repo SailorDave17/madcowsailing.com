@@ -67,7 +67,10 @@ recording the account (item 29). #224 made the admin pages answer to
 accounts holding the admin role, signed in with the password and a code
 emailed for that sign-in, for 12 hours at a time; any admin makes another
 on `/admin/people`, only the owner removes one, and the one owner is made
-by hand (item 30). **Epic #191 makes COHSSA a section of the same
+by hand (item 30). #225 let an admin revoke a person for a team, ending
+their sessions, hide every photo an account sent, delete an account on
+request, and hold a revoked address back from asking again (item 31).
+**Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24), and #227 gave every album a team: `/` leads to
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
@@ -2165,8 +2168,9 @@ before: one of them, the email's 50-name cap, narrows criterion 5.
   `/ask?sent` by the same statements as a new address (criterion 4). Only a
   new address emails the admins, and that runs after the answer
   (`context.waitUntil`), so its timing does not carry it. A turned-down
-  address that asks again writes nothing too (#221's pickup, item 26), and a
-  revoked one's is #225's.
+  address that asks again writes nothing too (#221's pickup, item 26), and
+  since #225 so does a revoked one, after its account is deleted as well,
+  by the same statements (item 31).
 - **The admins' email names a request by name, role and teams only**, never
   the address or the note, as `/policy` says, and links `/admin/people`
   (item 26). Each admin gets a send of its own: since #224 each account
@@ -2292,7 +2296,8 @@ The rest are defaults, recorded on #221 at pickup or in its pull request:
   Approve, and Turn down when a team waits. The role changes, and is logged,
   only when the same press approves a team. Each account is in one list,
   Waiting, Approved or Turned down, by its teams' states, the oldest request
-  first. An account whose every team is revoked is in none; #225 shows it.
+  first. *Since #225 an account whose every team is revoked is in a fourth,
+  Revoked (item 31); this said it was in none until then.*
 - **Each decision is one D1 batch, every statement guarded by the same
   condition**: a ticked team still open to that decision. So the log entries
   and the change commit together or not at all, and of two admins pressing
@@ -2394,11 +2399,11 @@ The owner's decisions at pickup (2026-10-06), through the question tool:
   adds 1 to `session_version`, as setting a password does, so every cookie
   naming the older version is refused at its next request. Nothing new is
   stored, and a copied cookie dies too. Not chosen: a sessions table, one
-  row per device, which /policy would have to name. *A revoke ends sessions
-  today by another route: the guard reads only an account approved for a
-  team. That #225's revoke also adds 1, so a re-approval cannot bring a
-  pre-revoke cookie back, is #225's criterion; criterion 4's revoke half is
-  deferred there (owner, at #222's review).*
+  row per device, which /policy would have to name. *Since #225 an admin's
+  revoke of any team adds 1 too (item 31), so a re-approval cannot bring a
+  pre-revoke cookie back; criterion 4's revoke half was deferred there
+  (owner, at #222's review). Until then a revoke ended sessions only because
+  the guard reads only an account approved for a team.*
 - **Failed sign-ins: 10 an hour per email address, 20 an hour per network,
   100 an hour for the whole site** (`EMAIL_FAILURE_LIMIT`,
   `NETWORK_FAILURE_LIMIT`, `FAILURE_BUDGET_PER_HOUR`). The address is counted
@@ -2846,7 +2851,7 @@ and on its one escalation, through the question tool:
   in `form-action` on `/sign-in/code`; documenting "open `/admin` first".
 - **Making an admin ends every session the account holds** (the
   recommendation): `promoteAdmin` adds 1 to the session version, the
-  session renewal a grant of rights calls for, as #225's revoke will. Without
+  session renewal a grant of rights calls for, as #225's revoke does. Without
   it a removal only suspended: made an admin again within 12 hours of their
   last admin sign-in, someone found a cookie from before the removal open
   again, with no new password and no code. A removal still ends nothing but
@@ -2884,6 +2889,161 @@ Defaults the other findings asked for, taken while fixing:
   cookies carry, so its 503 always means nothing ended. Two calls, the
   second a no-op that could still fail, answered 503 for sessions that had
   ended.
+
+### 31. Revoking a person, hiding what they sent, deleting an account
+
+**Built in #225, 2026-10-07** (D17). On `/admin/people` an admin revokes an
+approved person for a team or every team, hides every photo an account sent,
+deletes an account a person asked by email to have deleted, and lets a
+deleted revoked account's address ask again. `lib/people.js` holds the four
+(`revokeTeams`, `hidePhotos`, `deleteAccount`, `allowAddress`),
+`lib/people-page.js` the forms, `functions/api/admin/people/` the presses, and
+migration 0014 the revoked addresses. README.md, The photo site, Approving
+accounts, is the operating record. The owner's decisions at pickup, through
+the question tool, each the recommendation:
+
+- **Revoke and Delete refuse an account holding the admin role.** The owner
+  presses "Remove admin" first (item 30), and then any admin acts on that
+  person as on anyone. So taking an admin's access away stays the owner's
+  alone, as #224 made removing one, with no second authority path to build.
+  Every statement of both carries the condition, and 0013's triggers stand
+  under it for the owner. Not chosen: the owner revoking or deleting an
+  admin in one press, with a full revoke also taking the role; any admin
+  acting on anyone but the owner.
+- **"Unless the owner allows it" works two ways** (criterion 5). While the
+  account exists, approving a revoked team takes the person back, and once
+  no team is left revoked the address's hold is lifted in the same batch.
+  After a delete, an admin types the address into "Let it ask again", which
+  deletes its keyed hash. Both are logged, and nothing is emailed. Not
+  chosen: re-approval only, which would hold a deleted revoked address back
+  for good; both ways for the owner alone.
+- **The delete is held to the reply by a box that must be ticked**
+  (criterion 7): "<address> replied to confirm they asked for this", and the
+  route refuses a press without it. It is the admin's word, as #219 chose a
+  reply over trusting a From address, since the site cannot read mail
+  (Resend receiving stays off, item 21). README's procedure, write to the
+  address and wait, is unchanged. Not chosen: the site emailing a one-time
+  link that deletes when opened; the box plus typing the address out.
+- **"Hide all their photos" needs its box ticked**, a box naming the count
+  ("Hide the 3 photos … sent (2 public, 1 waiting)"), so a mis-press changes
+  nothing. Not chosen: one press; a native dialog, which needs JavaScript on
+  a page of plain forms.
+
+The rest are defaults, recorded on #225 at pickup or taken while building:
+
+- **The revoked address's keyed hash is written when the revoke happens**,
+  into `revoked_addresses` (0014): `emailHash` under `ADDRESS_HASH_KEY`, the
+  key failed sign-ins count an address by (item 27), and `account_id
+  REFERENCES accounts ON DELETE SET NULL`. So README's delete by hand keeps
+  the hold too, a re-approval lifts it in its own batch with no key, and
+  after a delete the row names no account, as `/policy` says. `/ask` makes
+  the address's key for every request, and `requestAccount`'s account insert
+  is now an `INSERT … SELECT … WHERE NOT EXISTS` that hash, so a new, a known
+  and a held-back address run the same two statements (#220's criterion 4).
+  `requestAccount` refuses a call with no key, so no caller can skip the
+  hold by forgetting it. Not chosen: writing the hash only at the delete,
+  which no statement typed by hand can do; a hash kept on the account and
+  copied out by a delete trigger, whose body inserts, which
+  `test/site.test.js`'s additive check refuses. **Rotating `ADDRESS_HASH_KEY`
+  lifts every hold at once** (README, Secrets).
+- **Every revoke adds 1 to `session_version`, a single team's included**
+  (criterion 2), so the person signs in again to the teams they keep, and a
+  re-approval later cannot bring a cookie from before the revoke back. The
+  revoke's batch is the log entries, the hash, the bump and the teams'
+  change, every statement held by the same condition. Nothing is emailed,
+  and the photos are untouched: the approved ones stay public (criterion 3).
+- **A waiting photo is hidden too, and "Put it back" returns it to the
+  queue, never onto the site** (criterion 4; `/policy` says every photo is
+  checked first). 0005's CHECK requires `approved_at` on a hidden row, so
+  such a photo carries 0 (`WAITING_WHEN_HIDDEN` in `lib/removals.js`), which
+  no approval is ever made at, after 0012's placeholder zeros. `restorePhoto`
+  sends it back `pending` with `approved_at` NULL, and `/admin/removals`
+  marks it "was waiting for approval". Until #225 `restorePhoto` made every
+  hidden photo public. Not chosen: a migration column saying where a hidden
+  photo came from, which would still need the placeholder; leaving waiting
+  photos out, which criterion 4 names; turning them down, which deletes
+  them, where criterion 4 asks that each can be restored.
+- **A hide writes no note**, as README's statement by hand writes none. A
+  note naming the account would put the person's name on photo rows that
+  outlive a delete. `/admin/removals` names the account through its join
+  while the account exists. A photo already hidden keeps its own time and
+  note.
+- **The three forms sit in one native `<details>` per person**, "Revoke,
+  hide their photos or delete", its summary naming only what applies (an
+  admin's says only "Hide their photos"). People revoked from every team
+  have a list of their own, Revoked, between Approved and Turned down; a
+  partly revoked person stays under Approved, with the revoked team's
+  unticked box under Approve. `peopleLists` reads each account's waiting and
+  public photo counts in one grouped statement for the hide box.
+- **A re-approval emails the usual set-password link**, as every approval
+  does; someone who already has a password can ignore it.
+- **"Let it ask again" logs the person by the newest log entry naming the
+  address**, and changes nothing (`unmatched`) when none names it as typed:
+  `COLLATE NOCASE` folds A to Z only, where `emailHash` lowercases every
+  letter. An address whose account still exists answers that it does, since
+  re-approving is the way back there.
+- **Until #226, a revoked person who also holds an invite cookie can still
+  send through the invite link**: an upload falls back to that cookie when
+  the account's session no longer holds (item 29's stated cost).
+- **0014 reaches production before the release that carries #225.** From
+  this story `/ask`'s account insert reads `revoked_addresses`, so a release
+  ahead of 0014 would answer every request with a 503, the class item 30's
+  last decision names. Production's `/api/health` names the newest
+  migration it holds.
+
+**#225's review, 2026-10-07.** `review-fanout` confirmed 8 findings and
+dropped 3 more over its cap; the owner chose to fix all 11, each with a test.
+Its one escalation, and the ux-design audit's pre-existing failure, were the
+owner's:
+
+- **A delete cuts its photos' takedown time to the day** (the
+  recommendation, on the escalation). "Hide all their photos" stamps one
+  second on every photo and on the log's `hide` entry, which names the
+  person and outlives the account, so matching the two would still say which
+  photos a deleted person sent, against `/policy`'s "no longer record which
+  account sent them" (cairn: `a-timestamp-joins-to-the-log-that-names-it`).
+  `deleteAccount` moves `hidden_at` on the account's photos to the start of
+  its UTC day (`HIDDEN_DAY_SECONDS`), put-back photos included, and README's
+  delete by hand gained the same statement as its step 3. `/policy` says a
+  photo that had been taken down keeps only the day. `test/policy.test.js`
+  and `test/revoke.test.js` test the join itself, with its control. The day
+  still narrows it where few photos were hidden that day. Not chosen: saying
+  so on `/policy`, as was chosen for the request log's time (item 25), since
+  that log row lasts an hour and the admins' log lasts for good; a README
+  step alone.
+- **#224's "Make admin" and "Remove admin" are named from their own words**
+  ("Make admin: <name>"), against the recommendation of a story under #216.
+  axe's `label-content-name-mismatch` (WCAG 2.5.3) flagged them beside #225's
+  own "Hide all their photos", and a test now holds every named button on
+  `/admin/people` to a name that starts with its visible text.
+- Among the fixes: **the Revoked section no longer says revoked people
+  "cannot sign in or send"**. Until #226 the invite link (held, or joined
+  again) and a coach's sign-in still send, and the page and README say so
+  with the way to end it (rotate the code; take them off `COACH_EMAILS`). The
+  `has-account` notice points at the person's own form, since a partly
+  revoked person is not under Revoked. The queue's caption notice says
+  "approved or hidden", since Hide all is the first way a waiting photo leaves
+  the queue unapproved.
+
+**D1 rows written, measured** on `madcowphotos-preview` on 2026-10-07 with
+`wrangler d1 execute --remote --json`, the statements with probe values, a
+planted hold and a probe account, every probe row deleted after (the probe
+spent preview's account id 6):
+
+| Statement | Rows written | Rows read |
+|---|---|---|
+| `/ask`'s account insert, new address (`INSERT … SELECT … WHERE NOT EXISTS` the hold) | 3 | 6 |
+| The same, an address already there | 1 | 7 |
+| The same, a held-back address | **0** | 5 |
+| A revoke's hold, new or already there (`ON CONFLICT … DO UPDATE`) | 2 | 6 |
+| Deleting an account whose hold stays (one team, the hold set NULL) | 3 | 14 |
+
+So the new insert costs what item 25's `VALUES` form did for a new and a
+known address, and a held-back address costs nothing written: SQLite makes
+no row for the `SELECT` to insert, so the AUTOINCREMENT counter does not
+move. Both new statement shapes ran on D1 as they do on node:sqlite. The rest
+of each revoke, hide, delete and lift is one batch of two to four guarded
+statements, not measured.
 
 ## The two-presentation rule
 

@@ -7,8 +7,9 @@
  * POST's answers, each a page a person sees, except the forged one:
  *
  *   303  to /ask?sent, for a request taken: a new address, or one the site
- *        already has, asking, approved or revoked. The two are answered
- *        alike, by the same statements (criterion 4)
+ *        already has, asking, approved or revoked, or one held back after
+ *        its revoked account was deleted (#225). All are answered alike, by
+ *        the same statements (criterion 4)
  *   400  the form again, with each field's reason
  *   403  the form again: Turnstile did not pass, and nothing was written
  *   403  {"error":"origin"}: no Origin, or another site's
@@ -39,6 +40,7 @@ import { inviteSite } from '../lib/invite.js';
 import { sameOrigin } from '../lib/origin.js';
 import { htmlResponse } from '../lib/public-page.js';
 import { nowSeconds } from '../lib/session.js';
+import { emailHash } from '../lib/sign-in.js';
 import { TOKEN_FIELD, verifyTurnstile } from '../lib/turnstile.js';
 
 // What a request needs, by name. GET checks them too, so a page that could
@@ -96,7 +98,14 @@ export async function onRequestPost(context) {
   const now = nowSeconds();
   let result;
   try {
-    result = await requestAccount(env.DB, { request: asked, address: await addressHash(env.ADDRESS_HASH_KEY, request), now });
+    result = await requestAccount(env.DB, {
+      request: asked,
+      address: await addressHash(env.ADDRESS_HASH_KEY, request),
+      // The key a revoke keeps for an address (#225), made for every request,
+      // held back or not, so the statements and the work are the same.
+      emailKey: await emailHash(env.ADDRESS_HASH_KEY, asked.email),
+      now,
+    });
   } catch (err) {
     console.error('ask: the database did not answer, so the request was not taken:', err instanceof Error ? err.message : String(err));
     return again(503, { problem: 'closed' });

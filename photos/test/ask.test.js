@@ -24,6 +24,7 @@ import { SITE_HEADERS, TURNSTILE_CSP } from '../lib/headers.js';
 import { RESEND_URL } from '../lib/mail.js';
 import { HTML_CACHE } from '../lib/public-page.js';
 import { SITEVERIFY_URL, TOKEN_FIELD } from '../lib/turnstile.js';
+import { approveTeams, deleteAccount, revokeTeams } from '../lib/people.js';
 import { seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 
@@ -330,6 +331,27 @@ test('a second request from the address, in another letter case, is answered exa
   assert.equal(count(env.DB, 'account_teams'), 2, 'the known address added a team');
   assert.equal(known.later.length, 0, 'the known address emailed the admins');
   assert.equal(fresh.later.length, 1);
+});
+
+test('a revoked address that asks through /ask after its account is deleted is held back: the key /ask makes is the one the revoke kept (#225, criterion 5)', async () => {
+  const env = site();
+  await Promise.all((await post(env)).later);
+  const { id } = env.DB.sqlite.prepare("SELECT id FROM accounts WHERE email = 'jane@example.org'").get();
+  const admin = 'owner@example.com';
+  const now = Math.floor(Date.now() / 1000);
+  await approveTeams(env.DB, { accountId: id, teams: ['hoover-jrt'], role: 'parent', admin, now });
+  // Revoked with the route's own key, then deleted: only the hash stays.
+  assert.deepEqual(await revokeTeams(env.DB, { accountId: id, teams: ['hoover-jrt'], hashKey: KEYS.ADDRESS_HASH_KEY, admin, now }), ['hoover-jrt']);
+  assert.equal(await deleteAccount(env.DB, { accountId: id, admin, now }), true);
+  assert.equal(count(env.DB, 'accounts'), 0);
+  const held = await post(env, { ...GOOD, email: 'JANE@Example.org', name: 'Jane Again' }, { ip: '198.51.100.20' });
+  const fresh = await post(env, { ...GOOD, email: 'sam@example.org', name: 'Sam Lee' }, { ip: '198.51.100.21' });
+  assert.equal(held.response.status, 303);
+  assert.equal(held.html, fresh.html);
+  assert.deepEqual([...held.response.headers], [...fresh.response.headers]);
+  // The control is the fresh address: the same route made its account.
+  assert.deepEqual(env.DB.sqlite.prepare('SELECT email FROM accounts').all().map((r) => r.email), ['sam@example.org']);
+  assert.equal(held.later.length, 0, 'the held-back address emailed the admins');
 });
 
 test(`the request after ${REQUEST_LIMIT} in an hour from one network is refused 429 with when to retry, keeps the form, and writes nothing`, async () => {

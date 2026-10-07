@@ -19,6 +19,7 @@ import { RESEND_URL, TEXT_MAX } from '../lib/mail.js';
 import { NOTE_MAX as REMOVAL_NOTE_MAX, readNote } from '../lib/removals.js';
 import { onRequestGet as adminIndex } from '../functions/admin/index.js';
 import { adminData, seedAdmin } from './admin.js';
+import { emailKeyOf } from './address-key.js';
 import { d1 } from './d1.js';
 
 const HOUR = 497_222;
@@ -26,8 +27,10 @@ const NOW = HOUR * 3600 + 1800;
 const SITE = 'https://photos.madcowsailing.com';
 
 const REQUEST = Object.freeze({ name: 'Jane Rivers', email: 'jane@example.org', role: 'parent', teams: ['hoover-jrt'], note: null });
-const take = (db, change = {}, { address = 'address-a', now = NOW } = {}) =>
-  requestAccount(db, { request: { ...REQUEST, ...change }, address, now });
+const take = async (db, change = {}, { address = 'address-a', now = NOW } = {}) => {
+  const request = { ...REQUEST, ...change };
+  return requestAccount(db, { request, address, emailKey: await emailKeyOf(request.email), now });
+};
 
 const rows = (db, sql, ...args) => db.sqlite.prepare(sql).all(...args).map((row) => ({ ...row }));
 const count = (db, table) => db.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;

@@ -18,6 +18,14 @@
  *     what, whom and when (criterion 5). An entry copies the person's name
  *     and address, so it still names them after their account is deleted, as
  *     /policy says.
+ *   - Since #225 an admin revokes an approved person for a team or every team
+ *     (revokeTeams), hides every photo an account sent (hidePhotos), deletes
+ *     an account once a reply from its own address confirms the request
+ *     (deleteAccount), and lets a deleted revoked account's address ask again
+ *     (allowAddress). Re-approving a revoked team is approveTeams'. Revoke and
+ *     delete refuse an account holding the admin role: the owner removes the
+ *     role first (the owner's choice at #225's pickup, 2026-10-07), which
+ *     keeps #224's rule that only the owner removes an admin.
  *
  * Each decision is one D1 batch, which D1 runs as a transaction, and every
  * statement in it is guarded by the same condition, a team still waiting to
@@ -34,14 +42,17 @@ import { ROLES, TEAMS } from './accounts.js';
 import { utcText } from './admin-page.js';
 import { sendMail } from './mail.js';
 import { LINK_SECONDS, dropLink, newLink, passwordLink, replaceOthers } from './password-link.js';
+import { WAITING_WHEN_HIDDEN } from './removals.js';
+import { emailHash } from './sign-in.js';
 
 const TEAM_KEYS = TEAMS.map(({ team }) => team);
 const TEAM_NAMES = Object.fromEntries(TEAMS.map(({ team, name }) => [team, name]));
 
 // What the log records, and what each word means on the page
-// (lib/people-page.js). #224 added promote and demote, and #225 adds its own;
-// 0008's CHECK holds only the shape, so adding one needs no migration.
-export const ACTIONS = Object.freeze(['approve', 'reject', 'role', 'link', 'promote', 'demote']);
+// (lib/people-page.js). #224 added promote and demote, and #225 revoke, hide,
+// delete and allow; 0008's CHECK holds only the shape, so adding one needs no
+// migration.
+export const ACTIONS = Object.freeze(['approve', 'reject', 'role', 'link', 'promote', 'demote', 'revoke', 'hide', 'delete', 'allow']);
 
 // How many log entries the page shows, newest first. The table keeps every
 // one; the page says how many more there are.
@@ -69,23 +80,30 @@ export const teamsText = (teams) => teams.map((team) => TEAM_NAMES[team]).join('
 
 /**
  * Every account, as the page lists it: { id, name, email, role, adminRole,
- * note, requestedAt, teams: [{ team, name, state }] in TEAMS order }, sorted
- * into the three lists the page shows, each in the order the requests
- * arrived. adminRole is 'admin', 'owner' or null (#224).
+ * note, requestedAt, teams: [{ team, name, state }] in TEAMS order, photos:
+ * { waiting, approved } }, sorted into the four lists the page shows, each in
+ * the order the requests arrived. adminRole is 'admin', 'owner' or null
+ * (#224). photos counts the photos the account sent that are waiting or
+ * public, the ones "Hide all their photos" would hide (#225).
  *
  *   waiting     a team still waits for an admin
  *   approved    nothing waits, and a team is approved
- *   turnedDown  nothing waits or is approved, and a team was turned down
- *
- * An account whose every team is revoked is in none of them; #225 shows it.
+ *   revoked     nothing waits or is approved, and a team was revoked (#225)
+ *   turnedDown  nothing waits or is approved, none is revoked, and a team
+ *               was turned down
  */
 export async function peopleLists(db) {
-  const { results } = await db
-    .prepare(
+  const [{ results }, { results: sent }] = await Promise.all([
+    db.prepare(
       'SELECT a.id, a.name, a.email, a.role, a.admin_role, a.note, a.requested_at, t.team, t.state ' +
       'FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ORDER BY a.requested_at, a.id',
-    )
-    .all();
+    ).all(),
+    db.prepare(
+      "SELECT account_id, SUM(state = 'pending') AS waiting, SUM(state = 'approved') AS approved FROM photos " +
+      "WHERE account_id IS NOT NULL AND kind = 'photo' AND state IN ('pending', 'approved') GROUP BY account_id",
+    ).all(),
+  ]);
+  const photos = new Map(sent.map((row) => [row.account_id, { waiting: row.waiting, approved: row.approved }]));
   const byId = new Map();
   for (const row of results) {
     if (!byId.has(row.id)) {
@@ -98,25 +116,28 @@ export async function peopleLists(db) {
         note: row.note,
         requestedAt: row.requested_at,
         teams: [],
+        photos: photos.get(row.id) ?? { waiting: 0, approved: 0 },
       });
     }
     byId.get(row.id).teams.push({ team: row.team, name: TEAM_NAMES[row.team] ?? row.team, state: row.state });
   }
-  const lists = { waiting: [], approved: [], turnedDown: [] };
+  const lists = { waiting: [], approved: [], revoked: [], turnedDown: [] };
   for (const person of byId.values()) {
     person.teams.sort((a, b) => TEAM_KEYS.indexOf(a.team) - TEAM_KEYS.indexOf(b.team));
     const has = (state) => person.teams.some((t) => t.state === state);
     if (has('requested')) lists.waiting.push(person);
     else if (has('approved')) lists.approved.push(person);
+    else if (has('revoked')) lists.revoked.push(person);
     else if (has('rejected')) lists.turnedDown.push(person);
   }
   return lists;
 }
 
 // The states a decision may change a team from: approving takes a waiting
-// team or a turned-down one, turning down a waiting team only.
+// team, a turned-down one or a revoked one (#225: re-approving is how an
+// admin takes a revoked person back), turning down a waiting team only.
 const DECIDABLE = {
-  approve: "state IN ('requested', 'rejected')",
+  approve: "state IN ('requested', 'rejected', 'revoked')",
   reject: "state = 'requested'",
 };
 
@@ -153,6 +174,12 @@ function teamChange(db, decision, { accountId, teams }) {
  *
  * The role changes, and is logged, only when a team is approved by the same
  * press: a role is chosen at approval (criterion 1).
+ *
+ * A revoked team can be approved again (#225). When that leaves the account
+ * with no revoked team, its address's hold is lifted in the same batch: the
+ * row revoked_addresses kept for it is deleted, so the re-approval is the
+ * owner allowing it (#225's criterion 5). A revoke ended every session the
+ * account held, so no cookie from before it comes back with the approval.
  */
 export async function approveTeams(db, { accountId, teams, role, admin, now }) {
   if (!ROLES.includes(role)) throw new Error('approveTeams: not a role');
@@ -168,6 +195,11 @@ export async function approveTeams(db, { accountId, teams, role, admin, now }) {
     ).bind(role, accountId, role, JSON.stringify(teams)),
     teamLog(db, 'approve', { accountId, teams, admin, now }),
     teamChange(db, 'approve', { accountId, teams }),
+    // After the change, so it reads the teams as the approval left them.
+    db.prepare(
+      'DELETE FROM revoked_addresses WHERE account_id = ? ' +
+      "AND NOT EXISTS (SELECT 1 FROM account_teams WHERE account_id = ? AND state = 'revoked')",
+    ).bind(accountId, accountId),
   ]);
   const approved = results[3].results.map(({ team }) => team);
   return approved.length ? TEAM_KEYS.filter((team) => approved.includes(team)) : null;
@@ -263,6 +295,206 @@ export async function demoteAdmin(db, { accountId, actorId, admin, now }) {
     ).bind(accountId, actorId),
   ]);
   return results[1].results.length > 0;
+}
+
+// An account an admin may revoke or delete: one that holds no admin role. The
+// owner removes the role first (the owner's choice at #225's pickup,
+// 2026-10-07), so only the owner can take an admin's access away, as #224
+// made removing an admin the owner's alone. The owner's own role can never be
+// removed, and migration 0013 refuses the owner's revoke and delete under
+// this condition too.
+const NOT_ADMIN = (column) => `EXISTS (SELECT 1 FROM accounts AS z WHERE z.id = ${column} AND z.admin_role IS NULL)`;
+
+// A ticked team of account `column` that is approved now: what a revoke changes.
+const REVOCABLE = (column) => `EXISTS (SELECT 1 FROM account_teams AS x WHERE x.account_id = ${column} ` +
+  "AND x.team IN (SELECT value FROM json_each(?)) AND x.state = 'approved')";
+
+/**
+ * Revoke account `accountId` for `teams` (readTeams'), the ones it is
+ * approved for now, as the admin whose address is `admin`, at `now` (#225).
+ * `hashKey` is the ADDRESS_HASH_KEY secret. Answers the teams it revoked, in
+ * TEAMS order, or null when none of them was approved, the account holds the
+ * admin role, or it is gone, in which case nothing changed. Throws when D1
+ * fails. Revoking every team the account is approved for is revoking the
+ * account (criterion 1).
+ *
+ * One D1 batch, which D1 runs as a transaction, every statement held by the
+ * same condition, so they commit together or not at all and of two presses at
+ * once only the first changes anything (criterion 6):
+ *
+ *   1. a log entry per team, made first while the condition still picks the
+ *      teams out;
+ *   2. the account's address as a keyed hash into revoked_addresses, so /ask
+ *      holds a new request from it back, now and after a delete (criterion
+ *      5; migration 0014);
+ *   3. the account's session version up by 1, so every session it holds ends
+ *      at its next request, and re-approving a team later cannot bring a
+ *      cookie from before the revoke back (criterion 2). That holds for a
+ *      single team too: the person signs in again to the teams they keep;
+ *   4. the teams to `revoked`, which takes them out of the share page's
+ *      albums at the next request (criterion 1).
+ *
+ * Nothing touches the photos the account sent: the approved ones stay public
+ * (criterion 3, D17). Hiding them is hidePhotos, a separate press.
+ */
+export async function revokeTeams(db, { accountId, teams, hashKey, admin, now }) {
+  if (typeof hashKey !== 'string' || hashKey === '') throw new Error('revokeTeams: no hashKey');
+  const account = await db.prepare('SELECT email FROM accounts WHERE id = ?').bind(accountId).first();
+  if (account === null) return null;
+  const emailKey = await emailHash(hashKey, account.email);
+  const json = JSON.stringify(teams);
+  const results = await db.batch([
+    db.prepare(
+      'INSERT INTO admin_log (at, admin, action, account_id, name, email, detail) ' +
+      "SELECT ?, ?, 'revoke', a.id, a.name, a.email, t.name " +
+      'FROM accounts AS a JOIN account_teams AS x ON x.account_id = a.id JOIN teams AS t ON t.team = x.team ' +
+      'JOIN json_each(?) AS j ON j.value = x.team ' +
+      "WHERE a.id = ? AND a.admin_role IS NULL AND x.state = 'approved' ORDER BY j.key",
+    ).bind(now, admin, json, accountId),
+    db.prepare(
+      'INSERT INTO revoked_addresses (email_hash, account_id) SELECT ?, a.id FROM accounts AS a ' +
+      `WHERE a.id = ? AND a.admin_role IS NULL AND ${REVOCABLE('a.id')} ` +
+      'ON CONFLICT (email_hash) DO UPDATE SET account_id = excluded.account_id',
+    ).bind(emailKey, accountId, json),
+    db.prepare(
+      'UPDATE accounts SET session_version = session_version + 1 ' +
+      `WHERE id = ? AND admin_role IS NULL AND ${REVOCABLE('accounts.id')}`,
+    ).bind(accountId, json),
+    db.prepare(
+      "UPDATE account_teams SET state = 'revoked' WHERE account_id = ? AND team IN (SELECT value FROM json_each(?)) " +
+      `AND state = 'approved' AND ${NOT_ADMIN('account_teams.account_id')} RETURNING team`,
+    ).bind(accountId, json),
+  ]);
+  const revoked = results[3].results.map(({ team }) => team);
+  return revoked.length ? TEAM_KEYS.filter((team) => revoked.includes(team)) : null;
+}
+
+// The photos "Hide all their photos" takes down: every one the account sent
+// that is waiting or public. A clip waits for #198, as everywhere else.
+const HIDEABLE = "account_id = ? AND kind = 'photo' AND state IN ('pending', 'approved')";
+
+/**
+ * Hide every photo account `accountId` sent, waiting or public, as the admin
+ * whose address is `admin`, at `now` (#225, criterion 4; D17). Answers {
+ * hidden, waiting }, how many it hid and how many of those were waiting, or
+ * null when there was none to hide or the account is gone, and then nothing
+ * changed. Throws when D1 fails.
+ *
+ * Through #158's removal mechanism: each photo becomes `hidden`, as "Remove
+ * this photo" makes one, with no note, so it waits on /admin/removals to be
+ * put back or deleted for good, naming the account. No takedown is counted
+ * against anyone's limit. A waiting photo keeps its place in that mechanism
+ * by a placeholder: 0005's CHECK requires approved_at on a hidden row, so it
+ * gets WAITING_WHEN_HIDDEN, 0, which no approval is ever made at, and "Put it
+ * back" sends such a photo back to the queue rather than making it public
+ * (lib/removals.js, restorePhoto). A photo already hidden keeps its own time
+ * and note.
+ *
+ * One batch: the log entry, naming how many, then the change, both held by
+ * the same set of photos, so of two presses at once the second finds none.
+ * Any admin may press it, for any account: it takes no one's access away.
+ */
+export async function hidePhotos(db, { accountId, admin, now }) {
+  const results = await db.batch([
+    db.prepare(
+      'INSERT INTO admin_log (at, admin, action, account_id, name, email, detail) ' +
+      "SELECT ?, ?, 'hide', a.id, a.name, a.email, CASE c.n WHEN 1 THEN '1 photo' ELSE c.n || ' photos' END " +
+      `FROM accounts AS a, (SELECT COUNT(*) AS n FROM photos WHERE ${HIDEABLE}) AS c WHERE a.id = ? AND c.n > 0`,
+    ).bind(now, admin, accountId, accountId),
+    db.prepare(
+      "UPDATE photos SET state = 'hidden', hidden_at = ?, hidden_note = NULL, " +
+      `approved_at = CASE WHEN state = 'pending' THEN ${WAITING_WHEN_HIDDEN} ELSE approved_at END ` +
+      `WHERE ${HIDEABLE} AND EXISTS (SELECT 1 FROM accounts WHERE id = ?) RETURNING approved_at`,
+    ).bind(now, accountId, accountId),
+  ]);
+  const hidden = results[1].results;
+  if (hidden.length === 0) return null;
+  return { hidden: hidden.length, waiting: hidden.filter((row) => row.approved_at === WAITING_WHEN_HIDDEN).length };
+}
+
+/**
+ * Delete account `accountId`, as the admin whose address is `admin`, at `now`
+ * (#225, criterion 7). The route has already required the admin's word that a
+ * reply from the account's own address confirms the request (the owner's
+ * choice at #225's pickup, 2026-10-07): the site cannot read that reply
+ * itself. Answers whether it deleted it: false when the account holds the
+ * admin role or is gone, and then nothing changed. Throws when D1 fails.
+ *
+ * One batch: the log entry, then the photos' takedown times cut to their day,
+ * then the delete, all held by the same condition. What the delete takes and
+ * leaves is the schema's, as README's statement by hand is: its teams, links
+ * and sign-in codes go with it (ON DELETE CASCADE); every photo it sent stays,
+ * in whatever state it is in, and stops naming it (0012's ON DELETE SET NULL);
+ * a revoked address's keyed hash stays, and stops naming it too (0014's), so a
+ * new request from the address is still held back. The admins' log keeps
+ * every entry naming the person, this one included, as /policy says.
+ *
+ * The takedown times are cut because "Hide all their photos" stamps one second
+ * on every photo it hides and on the log's 'hide' entry, which names the
+ * person. Left whole, matching hidden_at to that entry would still say which
+ * photos the deleted person sent, against /policy's "they no longer record
+ * which account sent them" (the owner's choice at #225's review, 2026-10-07;
+ * cairn: a-timestamp-joins-to-the-log-that-names-it). Cut to the start of its
+ * UTC day, a photo's hidden_at matches no entry's second. Not chosen: saying
+ * so on /policy; a README step alone.
+ */
+export async function deleteAccount(db, { accountId, admin, now }) {
+  const results = await db.batch([
+    db.prepare(
+      'INSERT INTO admin_log (at, admin, action, account_id, name, email) ' +
+      "SELECT ?, ?, 'delete', a.id, a.name, a.email FROM accounts AS a WHERE a.id = ? AND a.admin_role IS NULL",
+    ).bind(now, admin, accountId),
+    db.prepare(
+      `UPDATE photos SET hidden_at = hidden_at - hidden_at % ${HIDDEN_DAY_SECONDS} WHERE account_id = ? AND hidden_at IS NOT NULL ` +
+      'AND EXISTS (SELECT 1 FROM accounts WHERE id = ? AND admin_role IS NULL)',
+    ).bind(accountId, accountId),
+    db.prepare('DELETE FROM accounts WHERE id = ? AND admin_role IS NULL RETURNING id').bind(accountId),
+  ]);
+  return results[2].results.length > 0;
+}
+
+// A day, in seconds: what a deleted account's photos keep of when each was
+// taken down (deleteAccount).
+export const HIDDEN_DAY_SECONDS = 24 * 60 * 60;
+
+/**
+ * Let the address `email`, typed by the admin whose address is `admin`, ask
+ * for an account again, at `now` (#225, criterion 5's "unless the owner allows
+ * it"; the owner's choice at pickup). `hashKey` is the ADDRESS_HASH_KEY
+ * secret. Answers one of:
+ *
+ *   'allowed'    its hold is lifted: the next request from it is taken as a
+ *                new one
+ *   'not-held'   no revoked address has that hash, so nothing was held back
+ *   'account'    the address still has an account, revoked: re-approving it
+ *                on the page is how that one is taken back
+ *   'unmatched'  held, but no log entry names the address as typed, so the
+ *                lift could not be logged and nothing changed (an address
+ *                that differs only by the case of a letter outside A to Z)
+ *
+ * One batch: the log entry, copying the person's id, name and address from
+ * the newest entry naming them, then the lift, both held by the hold and that
+ * entry. Throws when D1 fails.
+ */
+export async function allowAddress(db, { email, hashKey, admin, now }) {
+  if (typeof hashKey !== 'string' || hashKey === '') throw new Error('allowAddress: no hashKey');
+  const emailKey = await emailHash(hashKey, email);
+  const held = await db.prepare('SELECT account_id FROM revoked_addresses WHERE email_hash = ?').bind(emailKey).first();
+  if (held === null) return 'not-held';
+  if (held.account_id !== null) return 'account';
+  const named = 'EXISTS (SELECT 1 FROM admin_log WHERE email = ? COLLATE NOCASE)';
+  const holds = 'EXISTS (SELECT 1 FROM revoked_addresses WHERE email_hash = ? AND account_id IS NULL)';
+  const results = await db.batch([
+    db.prepare(
+      'INSERT INTO admin_log (at, admin, action, account_id, name, email) ' +
+      `SELECT ?, ?, 'allow', l.account_id, l.name, l.email FROM admin_log AS l WHERE l.email = ? COLLATE NOCASE AND ${holds} ` +
+      'ORDER BY l.id DESC LIMIT 1',
+    ).bind(now, admin, email, emailKey),
+    db.prepare(`DELETE FROM revoked_addresses WHERE email_hash = ? AND account_id IS NULL AND ${named} RETURNING email_hash`)
+      .bind(emailKey, email),
+  ]);
+  if (results[1].results.length > 0) return 'allowed';
+  return (await db.prepare(`SELECT ${holds} AS held`).bind(emailKey).first('held')) ? 'unmatched' : 'not-held';
 }
 
 /**

@@ -39,6 +39,7 @@ import { nowSeconds } from '../lib/session.js';
 import { emailHash, hashing, setPassword, signOut } from '../lib/sign-in.js';
 import { demoteAdmin } from '../lib/people.js';
 import { accountPage } from '../lib/sign-in-page.js';
+import { emailKeyOf } from './address-key.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -83,7 +84,7 @@ const one = (db, sql, ...args) => ({ ...db.sqlite.prepare(sql).get(...args) });
 let asked = 0;
 async function account(db, { email = 'jane@example.org', name = 'Jane Rivers', adminRole = 'owner', approved = true } = {}) {
   asked += 1;
-  await requestAccount(db, { request: { name, email, role: 'coach', teams: ['hoover-jrt'], note: null }, address: `address-${asked}`, now: nowSeconds() });
+  await requestAccount(db, { request: { name, email, role: 'coach', teams: ['hoover-jrt'], note: null }, address: `address-${asked}`, emailKey: await emailKeyOf(email), now: nowSeconds() });
   const { id } = db.sqlite.prepare('SELECT id FROM accounts WHERE email = ?').get(email);
   if (approved) db.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = ?").run(id);
   db.sqlite.prepare('UPDATE accounts SET password_hash = ?, admin_role = ? WHERE id = ?').run(STORED, adminRole, id);

@@ -34,6 +34,7 @@ import * as approveRoute from '../functions/api/admin/people/approve.js';
 import * as rejectRoute from '../functions/api/admin/people/reject.js';
 import * as linkRoute from '../functions/api/admin/people/link.js';
 import * as setPassword from '../functions/set-password.js';
+import { emailKeyOf } from './address-key.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -67,7 +68,7 @@ afterEach(() => mock.restoreAll());
 let asked = 0;
 async function ask(db, { name = 'Jane Rivers', email = 'jane@example.org', role = 'parent', teams = ['hoover-jrt', 'cohssa'], note = null, now = NOW } = {}) {
   asked += 1;
-  const result = await requestAccount(db, { request: { name, email, role, teams, note }, address: `address-${asked}`, now });
+  const result = await requestAccount(db, { request: { name, email, role, teams, note }, address: `address-${asked}`, emailKey: await emailKeyOf(email), now });
   assert.deepEqual(result, { outcome: 'taken', created: true });
   return db.sqlite.prepare('SELECT id FROM accounts WHERE email = ?').get(email).id;
 }
@@ -273,7 +274,10 @@ test('a turned-down address that asks again still writes nothing (#220\'s criter
   const id = await ask(db, { teams: ['cohssa'] });
   await rejectTeams(db, { accountId: id, teams: ['cohssa'], admin: ADMIN, now: NOW });
   const result = await requestAccount(db, {
-    request: { name: 'Jane Again', email: 'JANE@example.org', role: 'coach', teams: ['hoover-jrt', 'cohssa'], note: 'please' }, address: 'address-x', now: NOW + 7200,
+    request: { name: 'Jane Again', email: 'JANE@example.org', role: 'coach', teams: ['hoover-jrt', 'cohssa'], note: 'please' },
+    address: 'address-x',
+    emailKey: await emailKeyOf('JANE@example.org'),
+    now: NOW + 7200,
   });
   assert.deepEqual(result, { outcome: 'taken', created: false });
   assert.deepEqual(states(db, id), { cohssa: 'rejected' });
@@ -316,6 +320,8 @@ test('the lists sort each account by where its teams stand, oldest request first
   assert.deepEqual(lists.waiting[2], {
     id: mixed, name: 'B Mixed', email: 'b@example.org', role: 'parent', adminRole: null, note: null, requestedAt: NOW + 1,
     teams: [{ team: 'hoover-jrt', name: 'Hoover JRT', state: 'requested' }, { team: 'cohssa', name: 'COHSSA', state: 'approved' }],
+    // #225: the photos "Hide all their photos" would hide.
+    photos: { waiting: 0, approved: 0 },
   });
   // #224: an admin is listed by where their teams stand too, holding the role.
   db.sqlite.prepare("UPDATE accounts SET admin_role = 'owner' WHERE id = ?").run(approved);
@@ -522,6 +528,9 @@ test('nothing here logs a name, an address, a note or a token', async (t) => {
 
 // ---- The log ---------------------------------------------------------------
 
+// Every list empty: the four peopleLists() gives since #225.
+const NO_ONE = Object.freeze({ waiting: [], approved: [], revoked: [], turnedDown: [] });
+
 test('the page shows the newest LOG_SHOWN entries, newest first, and how many there are in all', async () => {
   const db = d1();
   const insert = db.sqlite.prepare("INSERT INTO admin_log (at, admin, action, account_id, name, email, detail) VALUES (?, ?, 'approve', 1, 'Jane', 'j@example.org', 'COHSSA')");
@@ -532,15 +541,16 @@ test('the page shows the newest LOG_SHOWN entries, newest first, and how many th
   assert.equal(entries[0].at, NOW + LOG_SHOWN + 4);
   assert.equal(entries.at(-1).at, NOW + 5);
   assert.equal(entries[0].accountId, 1);
-  const html = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries, total }, viewer: VIEWER });
+  const html = adminPeoplePage({ lists: NO_ONE, log: { entries, total }, viewer: VIEWER });
   assert.match(html, new RegExp(`The newest ${LOG_SHOWN} of ${LOG_SHOWN + 5} are shown\\.`));
   assert.equal([...html.matchAll(/<li><time /g)].length, LOG_SHOWN);
 });
 
 test('every action this story logs has its own sentence on the page', () => {
-  assert.deepEqual(ACTIONS, ['approve', 'reject', 'role', 'link', 'promote', 'demote']);
+  // #225's four are held by test/revoke.test.js.
+  assert.deepEqual(ACTIONS, ['approve', 'reject', 'role', 'link', 'promote', 'demote', 'revoke', 'hide', 'delete', 'allow']);
   const entry = (action, detail) => ({ id: 1, at: NOW, admin: ADMIN, action, accountId: 1, name: 'Jane Rivers', email: 'jane@example.org', detail });
-  const page = (entries) => adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries, total: entries.length }, viewer: VIEWER });
+  const page = (entries) => adminPeoplePage({ lists: NO_ONE, log: { entries, total: entries.length }, viewer: VIEWER });
   const sentence = (action, detail) => page([entry(action, detail)]).match(/<li><time [^>]+>[^<]+<\/time>: ([^<]*)<\/li>/)[1];
   assert.equal(sentence('approve', 'COHSSA'), 'owner@example.com approved Jane Rivers (jane@example.org) for COHSSA.');
   assert.equal(sentence('reject', 'Hoover JRT'), 'owner@example.com turned down Jane Rivers (jane@example.org) for Hoover JRT.');
@@ -553,7 +563,7 @@ test('every action this story logs has its own sentence on the page', () => {
   assert.equal(sentence('promote', null), 'owner@example.com made Jane Rivers (jane@example.org) an admin.');
   assert.equal(sentence('demote', null), 'owner@example.com removed Jane Rivers (jane@example.org) as an admin.');
   // A later story's action is still shown, by its word.
-  assert.equal(sentence('revoke', null), 'owner@example.com: revoke Jane Rivers (jane@example.org).');
+  assert.equal(sentence('archive', null), 'owner@example.com: archive Jane Rivers (jane@example.org).');
 });
 
 test('the log\'s table takes a later story\'s action without a migration, and refuses one of the wrong shape', () => {
@@ -617,7 +627,10 @@ test('a waiting request has a box per team, ticked, the requester\'s role chosen
   const ben = item(html, ids.mixed);
   assert.match(section(html, 'people-waiting'), new RegExp(`id="person-${ids.mixed}"`));
   assert.match(ben, /Hoover JRT: approved · COHSSA: waiting/);
-  assert.deepEqual([...ben.matchAll(/name="team" value="([^"]+)"/g)].map((m) => m[1]), ['cohssa']);
+  // The decision form's boxes; since #225 the approved team has a box of its
+  // own in the revoke form below it.
+  const decide = ben.match(/<form method="post" action="\/api\/admin\/people\/approve"[\s\S]*?<\/form>/)[0];
+  assert.deepEqual([...decide.matchAll(/name="team" value="([^"]+)"/g)].map((m) => m[1]), ['cohssa']);
   assert.match(ben, /<option value="coach" selected>/);
   assert.match(ben, /Send a new link/);
 });
@@ -659,9 +672,10 @@ test('the page holds the admins\' log, newest first, naming who, what, whom and 
 });
 
 test('the empty page says so in each list, and the log that nothing is logged yet', () => {
-  const html = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries: [], total: 0 }, viewer: VIEWER });
+  const html = adminPeoplePage({ lists: NO_ONE, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.match(html, /No request is waiting\./);
   assert.match(html, /Nobody is approved yet\./);
+  assert.match(html, /Nobody is revoked\./);
   assert.match(html, /Nobody is turned down\./);
   assert.match(html, /Nothing is logged yet\./);
   assert.doesNotMatch(html, /<ul class="admin-log">/);
@@ -674,7 +688,7 @@ test('the rendered page is valid under the photo site\'s html-validate config, a
     assert.deepEqual(problems(await validate(html)), [], query);
     assert.equal((await validate(html.replace('<h2 ', '<h1>again</h1><h2 '))).valid, false);
   }
-  const empty = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries: [], total: 0 }, viewer: VIEWER });
+  const empty = adminPeoplePage({ lists: NO_ONE, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.deepEqual(problems(await validate(empty)), []);
 });
 
@@ -705,10 +719,10 @@ test('a name with no spaces wraps rather than widening the page past 320 px (#22
 
 test('a team key is escaped in its box\'s value, like everything else on the page (#221\'s security audit)', () => {
   const person = {
-    id: 7, name: 'Jane', email: 'j@example.org', role: 'parent', note: null, requestedAt: NOW,
-    teams: [{ team: 'x"><b>y', name: 'X', state: 'requested' }],
+    id: 7, name: 'Jane', email: 'j@example.org', role: 'parent', adminRole: null, note: null, requestedAt: NOW,
+    teams: [{ team: 'x"><b>y', name: 'X', state: 'requested' }], photos: { waiting: 0, approved: 0 },
   };
-  const html = adminPeoplePage({ lists: { waiting: [person], approved: [], turnedDown: [] }, log: { entries: [], total: 0 }, viewer: VIEWER });
+  const html = adminPeoplePage({ lists: { ...NO_ONE, waiting: [person] }, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.match(html, /value="x&quot;&gt;&lt;b&gt;y" checked>/);
   assert.doesNotMatch(html, /<b>y/);
 });

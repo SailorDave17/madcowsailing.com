@@ -56,7 +56,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=cf2d09e55b">
+<link rel="stylesheet" href="/css/site.css?v=014521fb1c">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -552,7 +552,9 @@ export function queueNotice(params) {
     text = QUEUE_ERRORS[error];
   }
   if (text && unsaved && (done || error === 'gone')) {
-    text += ` ${plural(unsaved, 'caption was', 'captions were')} not saved: ${unsaved === 1 ? 'its photo was' : 'their photos were'} approved after this page was loaded.`;
+    // Approved, or since #225 hidden by "Hide all their photos": a waiting
+    // photo leaves the queue either way, and only approving makes it public.
+    text += ` ${plural(unsaved, 'caption was', 'captions were')} not saved: ${unsaved === 1 ? 'its photo was' : 'their photos were'} approved or hidden after this page was loaded.`;
   }
   return text ? `\n    <p role="status">${text}</p>` : '';
 }
@@ -721,6 +723,10 @@ export function removalsNotice(params) {
   let text = null;
   if (done === 'restored' && photo) {
     text = `Put photo ${photo} back. It is public again.`;
+  } else if (done === 'queued' && photo) {
+    // #225: a photo hidden with everything its account sent, while it was
+    // still waiting, goes back to the queue, never straight onto the site.
+    text = `Put photo ${photo} back in the queue. It was waiting for approval when it was hidden, so it is not public until an admin approves it.`;
   } else if (done === 'deleted' && photo) {
     text = `Deleted photo ${photo}, with its three sizes.`;
     if (params.get('kept') === '1') text += ' The storage did not delete its files; the log names their folder.';
@@ -741,9 +747,12 @@ function removalItem(photo, team) {
     ? '<p class="removal-note removal-note-none">No note was left.</p>'
     : `<p class="removal-note">${escapeHtml(photo.note)}</p>`;
   const caption = photo.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(photo.caption)}</p>`;
+  // #225: hidden by "Hide all their photos" before anyone approved it, so
+  // "Put it back" returns it to the queue.
+  const waiting = photo.waiting ? ' · was waiting for approval, so putting it back returns it to the queue' : '';
   return `<li class="removal" id="photo-${id}">
       <h2>Photo ${id}</h2>
-      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}${sentBy(photo)}</p>
+      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}${sentBy(photo)}${waiting}</p>
       <a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${photo.grid.width}" height="${photo.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>${caption}
       <h3 class="removal-note-heading">The note</h3>
       ${note}
@@ -789,8 +798,8 @@ export function adminRemovalsPage({ photos, notice = '', team = null }) {
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Removal requests</h1>
-    <p class="lede">Anyone can take down an approved photo with "Remove this photo". It is hidden from everyone until an admin puts it back or deletes it.</p>
-    <p>${summary} Putting a photo back makes it public again. Deleting it removes it and all three of its sizes for good.</p>${notice}${teamFilter('/admin/removals', team)}
+    <p class="lede">Anyone can take down an approved photo with "Remove this photo", and an admin can hide every photo one account sent, from <a href="/admin/people">People</a>. A photo is hidden from everyone until an admin puts it back or deletes it.</p>
+    <p>${summary} Putting a photo back makes it public again, or returns it to the queue if it was hidden before anyone approved it. Deleting it removes it and all three of its sizes for good.</p>${notice}${teamFilter('/admin/removals', team)}
     <noscript><p>Deleting needs JavaScript. Putting a photo back does not.</p></noscript>
   </section>
 ${list}
