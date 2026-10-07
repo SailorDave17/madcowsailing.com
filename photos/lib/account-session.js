@@ -104,23 +104,25 @@ export async function readAccountSession(request, secret, now = nowSeconds()) {
 }
 
 /**
- * The account a session belongs to, as { id, name, email, role, teams },
- * teams the ones it is approved for in TEAMS order, or null when the account
- * is gone, approved for no team, or holds another version than the session
- * names. The role is the one an admin approved (#221): since #223 it decides
- * whether an upload is a coach's (lib/photos.js, sendsAsCoach).
+ * The account a session belongs to, as { id, name, email, role, adminRole,
+ * teams }, teams the ones it is approved for in TEAMS order, or null when the
+ * account is gone, approved for no team, or holds another version than the
+ * session names. The role is the one an admin approved (#221): since #223 it
+ * decides whether an upload is a coach's (lib/photos.js, sendsAsCoach).
+ * adminRole is 'owner', 'admin' or null (#224), only so /account can link
+ * the admin pages: it opens nothing, which only lib/admin-session.js does.
  */
 export async function sessionAccount(db, session) {
   const { results } = await db
     .prepare(
-      'SELECT a.id, a.name, a.email, a.role, t.team FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ' +
+      'SELECT a.id, a.name, a.email, a.role, a.admin_role, t.team FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ' +
       "WHERE a.id = ? AND a.session_version = ? AND t.state = 'approved'",
     )
     .bind(session.accountId, session.version)
     .all();
   if (results.length === 0) return null;
-  const { id, name, email, role } = results[0];
-  return { id, name, email, role, teams: TEAMS.map(({ team }) => team).filter((team) => results.some((row) => row.team === team)) };
+  const { id, name, email, role, admin_role: adminRole } = results[0];
+  return { id, name, email, role, adminRole, teams: TEAMS.map(({ team }) => team).filter((team) => results.some((row) => row.team === team)) };
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD']);

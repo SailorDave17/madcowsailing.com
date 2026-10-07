@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/mail/test: send a test email to the address typed on
  * /admin/mail (#217). The guards in ../_middleware.js have already required
- * the owner's Access token and the site's own Origin.
+ * an admin's session and the site's own Origin.
  *
  * The message is fixed: it says which environment sent it and when, so a
  * test from the develop preview can be told from one from production. Only

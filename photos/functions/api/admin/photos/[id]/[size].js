@@ -1,8 +1,8 @@
 /**
  * GET /api/admin/photos/<id>/<size>: one stored size of a photo, grid, screen
  * or full, for the admins (#156). The guards in ../../_middleware.js have
- * already required an admin's Access token; without one this answers 403 and
- * reads nothing.
+ * already required an admin's session; without one this is never reached,
+ * and nothing is read.
  *
  * /admin/queue shows every size from here, so the owner sees all three
  * before approving: #154 refuses three sizes that are not one shape, but two

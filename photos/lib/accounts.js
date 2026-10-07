@@ -30,7 +30,6 @@
  *
  * Nothing here logs a name, an email address, a note or a network address.
  */
-import { allowList } from './access.js';
 import { isEmailAddress, sendMail } from './mail.js';
 import { readNote } from './removals.js';
 import { TEAMS } from './teams.js';
@@ -41,7 +40,8 @@ import { TEAMS } from './teams.js';
 export { TEAMS };
 
 // The role a requester picks (criterion 1), which 0007's CHECK holds to these
-// three. Not the admin role, which is #224's.
+// three. Not the admin role, which is accounts.admin_role (#224, migration
+// 0013): an admin is still a parent, a coach or other.
 export const ROLES = Object.freeze(['parent', 'coach', 'other']);
 
 // In characters (code points), as 0007's CHECKs count them. A name of 100
@@ -358,6 +358,21 @@ async function unlistedRequests(db) {
 }
 
 /**
+ * The address of every admin who can sign in (#224): each account holding
+ * the admin role and an approved team, the owner's included, in id order.
+ * The admins' email about new requests goes to these.
+ */
+export async function adminAddresses(db) {
+  const { results } = await db
+    .prepare(
+      'SELECT a.email FROM accounts AS a WHERE a.admin_role IS NOT NULL ' +
+      "AND EXISTS (SELECT 1 FROM account_teams AS t WHERE t.account_id = a.id AND t.state = 'approved') ORDER BY a.id",
+    )
+    .all();
+  return results.map((row) => row.email);
+}
+
+/**
  * Tell the admins about new requests, at most once an hour (criterion 5; the
  * owner's choice at pickup). functions/ask.js runs this after the page has
  * answered a request that made an account. The first request emails at once
@@ -367,15 +382,16 @@ async function unlistedRequests(db) {
  * admin home's count (waitingRequests).
  *
  * The hour is claimed by one statement on account_request_mail's one row,
- * so two requests at once cannot both send. Each admin on ADMIN_EMAILS (the
- * admin guard's list, until #224 makes admins accounts) gets the email, each
- * address a send of its own (lib/mail.js takes one address). Once at least one
- * admin's email is sent, the requests it names are marked as named. If none
- * is sent, the hour is given back and the requests stay unnamed, so the next
- * request tries again: an email that never went cannot be "the last one".
- * With nobody on ADMIN_EMAILS, no hour is claimed at all. An admin can be
- * named a request twice when Resend times out on a send it made, which is
- * better than never.
+ * so two requests at once cannot both send. Each admin gets the email, each
+ * address a send of its own (lib/mail.js takes one address): since #224 the
+ * accounts holding the admin role (adminAddresses), the owner's included,
+ * where until then it was each address on the ADMIN_EMAILS secret, the
+ * Access guard's list, which nothing reads now. Once at least one admin's
+ * email is sent, the requests it names are marked as named. If none is sent,
+ * the hour is given back and the requests stay unnamed, so the next request
+ * tries again: an email that never went cannot be "the last one". With no
+ * admin at all, no hour is claimed. An admin can be named a request twice
+ * when Resend times out on a send it made, which is better than never.
  *
  * Never throws: it runs after the answer, where nobody would see an error.
  * Returns what happened, for the tests: 'waiting' (inside the hour),
@@ -383,9 +399,15 @@ async function unlistedRequests(db) {
  */
 export async function mailAdmins(env, { now, site }) {
   const db = env.DB;
-  const admins = allowList(env.ADMIN_EMAILS);
+  let admins;
+  try {
+    admins = await adminAddresses(db);
+  } catch (err) {
+    console.error('accounts: could not read who the admins are, so none was emailed about new requests:', err instanceof Error ? err.message : String(err));
+    return { outcome: 'failed' };
+  }
   if (admins.length === 0) {
-    console.error('accounts: ADMIN_EMAILS holds no address, so no admin was emailed about new requests');
+    console.error('accounts: no account holds the admin role, so no admin was emailed about new requests');
     return { outcome: 'no-admins' };
   }
 

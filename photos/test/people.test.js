@@ -40,6 +40,8 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE = 'https://photos.madcowsailing.com';
 const ADMIN = 'owner@example.com';
 const NOW = 1_790_000_000;
+// The admin a page is drawn for (#224), the owner, so every admin button shows.
+const VIEWER = { id: 999, name: 'Owner', email: ADMIN, role: 'owner', issued: 1 };
 
 const rows = (db, sql, ...args) => db.sqlite.prepare(sql).all(...args).map((row) => ({ ...row }));
 const count = (db, table) => db.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
@@ -312,9 +314,12 @@ test('the lists sort each account by where its teams stand, oldest request first
   assert.deepEqual(lists.approved.map((p) => p.id), [approved]);
   assert.deepEqual(lists.turnedDown.map((p) => p.id), [down]);
   assert.deepEqual(lists.waiting[2], {
-    id: mixed, name: 'B Mixed', email: 'b@example.org', role: 'parent', note: null, requestedAt: NOW + 1,
+    id: mixed, name: 'B Mixed', email: 'b@example.org', role: 'parent', adminRole: null, note: null, requestedAt: NOW + 1,
     teams: [{ team: 'hoover-jrt', name: 'Hoover JRT', state: 'requested' }, { team: 'cohssa', name: 'COHSSA', state: 'approved' }],
   });
+  // #224: an admin is listed by where their teams stand too, holding the role.
+  db.sqlite.prepare("UPDATE accounts SET admin_role = 'owner' WHERE id = ?").run(approved);
+  assert.equal((await peopleLists(db)).approved[0].adminRole, 'owner');
 });
 
 // ---- The link's email: sendLink --------------------------------------------
@@ -527,15 +532,15 @@ test('the page shows the newest LOG_SHOWN entries, newest first, and how many th
   assert.equal(entries[0].at, NOW + LOG_SHOWN + 4);
   assert.equal(entries.at(-1).at, NOW + 5);
   assert.equal(entries[0].accountId, 1);
-  const html = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries, total } });
+  const html = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries, total }, viewer: VIEWER });
   assert.match(html, new RegExp(`The newest ${LOG_SHOWN} of ${LOG_SHOWN + 5} are shown\\.`));
   assert.equal([...html.matchAll(/<li><time /g)].length, LOG_SHOWN);
 });
 
 test('every action this story logs has its own sentence on the page', () => {
-  assert.deepEqual(ACTIONS, ['approve', 'reject', 'role', 'link']);
+  assert.deepEqual(ACTIONS, ['approve', 'reject', 'role', 'link', 'promote', 'demote']);
   const entry = (action, detail) => ({ id: 1, at: NOW, admin: ADMIN, action, accountId: 1, name: 'Jane Rivers', email: 'jane@example.org', detail });
-  const page = (entries) => adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries, total: entries.length } });
+  const page = (entries) => adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries, total: entries.length }, viewer: VIEWER });
   const sentence = (action, detail) => page([entry(action, detail)]).match(/<li><time [^>]+>[^<]+<\/time>: ([^<]*)<\/li>/)[1];
   assert.equal(sentence('approve', 'COHSSA'), 'owner@example.com approved Jane Rivers (jane@example.org) for COHSSA.');
   assert.equal(sentence('reject', 'Hoover JRT'), 'owner@example.com turned down Jane Rivers (jane@example.org) for Hoover JRT.');
@@ -544,8 +549,11 @@ test('every action this story logs has its own sentence on the page', () => {
   assert.equal(sentence('link', 'unconfirmed'), 'owner@example.com emailed Jane Rivers (jane@example.org) a link to set a password, which Resend did not confirm.');
   assert.equal(sentence('link', 'not sent: quota'), 'owner@example.com pressed to email Jane Rivers (jane@example.org) a link to set a password, which was not sent (quota).');
   assert.equal(sentence('link', 'unrecorded'), 'owner@example.com made Jane Rivers (jane@example.org) a link to set a password; how its email went was not recorded.');
+  // #224's two (criterion 6).
+  assert.equal(sentence('promote', null), 'owner@example.com made Jane Rivers (jane@example.org) an admin.');
+  assert.equal(sentence('demote', null), 'owner@example.com removed Jane Rivers (jane@example.org) as an admin.');
   // A later story's action is still shown, by its word.
-  assert.equal(sentence('promote', null), 'owner@example.com: promote Jane Rivers (jane@example.org).');
+  assert.equal(sentence('revoke', null), 'owner@example.com: revoke Jane Rivers (jane@example.org).');
 });
 
 test('the log\'s table takes a later story\'s action without a migration, and refuses one of the wrong shape', () => {
@@ -576,7 +584,7 @@ async function seeded() {
 
 const render = async (db, query = '') => {
   const lists = await peopleLists(db);
-  return adminPeoplePage({ lists, log: await adminLog(db), notice: peopleNotice(new URLSearchParams(query), lists) });
+  return adminPeoplePage({ lists, log: await adminLog(db), notice: peopleNotice(new URLSearchParams(query), lists), viewer: VIEWER });
 };
 const item = (html, id) => html.match(new RegExp(`<li class="person" id="person-${id}">[\\s\\S]*?\\n    </li>`))?.[0];
 const section = (html, id) => html.match(new RegExp(`<section class="wrap" aria-labelledby="${id}">[\\s\\S]*?</section>`))?.[0];
@@ -651,7 +659,7 @@ test('the page holds the admins\' log, newest first, naming who, what, whom and 
 });
 
 test('the empty page says so in each list, and the log that nothing is logged yet', () => {
-  const html = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries: [], total: 0 } });
+  const html = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.match(html, /No request is waiting\./);
   assert.match(html, /Nobody is approved yet\./);
   assert.match(html, /Nobody is turned down\./);
@@ -666,7 +674,7 @@ test('the rendered page is valid under the photo site\'s html-validate config, a
     assert.deepEqual(problems(await validate(html)), [], query);
     assert.equal((await validate(html.replace('<h2 ', '<h1>again</h1><h2 '))).valid, false);
   }
-  const empty = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries: [], total: 0 } });
+  const empty = adminPeoplePage({ lists: { waiting: [], approved: [], turnedDown: [] }, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.deepEqual(problems(await validate(empty)), []);
 });
 
@@ -700,7 +708,7 @@ test('a team key is escaped in its box\'s value, like everything else on the pag
     id: 7, name: 'Jane', email: 'j@example.org', role: 'parent', note: null, requestedAt: NOW,
     teams: [{ team: 'x"><b>y', name: 'X', state: 'requested' }],
   };
-  const html = adminPeoplePage({ lists: { waiting: [person], approved: [], turnedDown: [] }, log: { entries: [], total: 0 } });
+  const html = adminPeoplePage({ lists: { waiting: [person], approved: [], turnedDown: [] }, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.match(html, /value="x&quot;&gt;&lt;b&gt;y" checked>/);
   assert.doesNotMatch(html, /<b>y/);
 });
@@ -743,7 +751,9 @@ const post = (path, fields, { type = 'application/x-www-form-urlencoded', origin
   for (const [name, value] of fields) body.append(name, value);
   return new Request(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': type, Origin: origin }, body: body.toString() });
 };
-const context = (request, db, extra = {}) => ({ request, env: env(db, extra), data: { owner: { email: ADMIN } } });
+// What the admin guard leaves on context.data (#224): approve, reject and
+// link read only the address, so no account need stand behind this one.
+const context = (request, db, extra = {}) => ({ request, env: env(db, extra), data: { admin: VIEWER } });
 const location = (res) => res.headers.get('Location');
 
 test('GET /admin/people renders the lists, keeps no copy, and deletes expired links on the way', async () => {
@@ -754,7 +764,7 @@ test('GET /admin/people renders the lists, keeps no copy, and deletes expired li
   const old = await ask(db, { name: 'Old Link', email: 'old@example.org', teams: ['cohssa'] });
   db.sqlite.prepare('INSERT INTO password_links (token_hash, account_id, made_at, expires_at) VALUES (?, ?, ?, ?)')
     .run('x'.repeat(43), old, 1, 2);
-  const res = await peoplePage({ request: new Request(`${SITE}/admin/people?done=approved&account=${ids.approved}&mail=sent`), env: env(db) });
+  const res = await peoplePage({ request: new Request(`${SITE}/admin/people?done=approved&account=${ids.approved}&mail=sent`), env: env(db), data: { admin: VIEWER } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
   const html = await res.text();

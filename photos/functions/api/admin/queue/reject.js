@@ -7,7 +7,7 @@
  * (public/js/admin-queue.js), which points the confirm button at their
  * batch's form, so the press carries reject=<id> or reject=all with that
  * batch's captions. The guards in ../_middleware.js have already required an
- * admin's Access token and the site's own Origin.
+ * admin's session and the site's own Origin.
  *
  * The batch's captions are saved first, as every press saves them
  * (lib/queue.js). A rejected photo's own caption goes with its row. 303 back

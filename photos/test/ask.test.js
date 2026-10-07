@@ -24,6 +24,7 @@ import { SITE_HEADERS, TURNSTILE_CSP } from '../lib/headers.js';
 import { RESEND_URL } from '../lib/mail.js';
 import { HTML_CACHE } from '../lib/public-page.js';
 import { SITEVERIFY_URL, TOKEN_FIELD } from '../lib/turnstile.js';
+import { seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -63,8 +64,11 @@ beforeEach(() => {
 });
 afterEach(() => mock.restoreAll());
 
+// No admin unless a test seeds one: since #224 the admins' email goes to the
+// accounts holding the admin role (lib/accounts.js, adminAddresses), where it
+// went to the ADMIN_EMAILS secret before.
 const site = (extra = {}) => ({
-  DB: d1(), SITE_ENV: 'preview', RESEND_API_KEY: 'test-key-not-real', ADMIN_EMAILS: 'admin@example.org', ...KEYS, ...extra,
+  DB: d1(), SITE_ENV: 'preview', RESEND_API_KEY: 'test-key-not-real', ...KEYS, ...extra,
 });
 
 const GOOD = Object.freeze({
@@ -272,6 +276,7 @@ test('a field that is wrong comes back 400 with its reason linked from the summa
 
 test('a request taken is answered 303 to /ask?sent; the account, its teams and the scrambled address are kept, and the admins are told after', async () => {
   const env = site();
+  seedAdmin(env.DB, { email: 'admin@example.org', name: 'Admin' });
   // Resend does not answer until the test says so: the page's answer must
   // arrive anyway, since the email is not part of it.
   let answer;
@@ -280,9 +285,9 @@ test('a request taken is answered 303 to /ask?sent; the account, its teams and t
   assert.equal(response.status, 303);
   assert.equal(response.headers.get('Location'), '/ask?sent');
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
-  const account = env.DB.sqlite.prepare('SELECT email, name, role, note, admins_emailed FROM accounts').get();
+  const account = env.DB.sqlite.prepare('SELECT email, name, role, note, admins_emailed FROM accounts WHERE admin_role IS NULL').get();
   assert.deepEqual({ ...account }, { email: 'jane@example.org', name: 'Jane Rivers', role: 'parent', note: 'Two boats, one parent.', admins_emailed: 0 });
-  assert.equal(count(env.DB, 'account_teams'), 2);
+  assert.equal(env.DB.sqlite.prepare("SELECT COUNT(*) AS n FROM account_teams WHERE account_id = (SELECT id FROM accounts WHERE email = 'jane@example.org')").get().n, 2);
   // The network address only as its keyed hash.
   const { address_hash: stored } = env.DB.sqlite.prepare('SELECT address_hash FROM account_request_log').get();
   const request = new Request(SITE, { headers: { 'CF-Connecting-IP': IP } });
@@ -290,11 +295,12 @@ test('a request taken is answered 303 to /ask?sent; the account, its teams and t
   assert.ok(!JSON.stringify(snapshot(env.DB)).includes(IP), 'the address is stored as it is');
   // The answer came while the email was still waiting on Resend.
   assert.equal(later.length, 1);
-  assert.equal(env.DB.sqlite.prepare('SELECT admins_emailed FROM accounts').get().admins_emailed, 0);
+  assert.equal(env.DB.sqlite.prepare('SELECT admins_emailed FROM accounts WHERE admin_role IS NULL').get().admins_emailed, 0);
   answer();
   assert.deepEqual(await later[0], { outcome: 'sent', named: 1, sent: 1 });
   assert.equal(sends.length, 1);
-  assert.equal(env.DB.sqlite.prepare('SELECT admins_emailed FROM accounts').get().admins_emailed, 1);
+  assert.deepEqual(sends[0].to, ['admin@example.org']);
+  assert.equal(env.DB.sqlite.prepare('SELECT admins_emailed FROM accounts WHERE admin_role IS NULL').get().admins_emailed, 1);
 });
 
 test('a note of NOTE_MAX four-byte characters, a form past readForm\'s 4 KiB default, is taken whole', async () => {

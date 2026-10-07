@@ -1,9 +1,9 @@
 // The invite code on the admin page (#152): showing it, rotating it, and
 // making the first one. Every request here runs through the same chain Pages
 // runs in front of the route (the root middleware, then the admin guards),
-// against a real SQLite holding the real migrations (test/d1.js), with Access
-// tokens minted by test/access.js.
-import { test, beforeEach } from 'node:test';
+// against a real SQLite holding the real migrations (test/d1.js), with an
+// admin's session minted by test/admin.js (#224; Access tokens until then).
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -21,11 +21,11 @@ import { onRequestGet as createGet, onRequestPost as create } from '../functions
 import { onRequestPost as join_ } from '../functions/api/join.js';
 import { onRequest as uploadGuard } from '../functions/api/upload/_middleware.js';
 import { onRequestGet as uploadSession } from '../functions/api/upload/session.js';
-import { TOKEN_HEADER, keyCache } from '../lib/access.js';
 import { CODE_SCRIPT, adminCodePage, adminHome, timeElement } from '../lib/admin-page.js';
+import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import { ALPHABET, PRODUCTION_SITE, createFirstCode, currentCode, normalizeCode, rotateCode } from '../lib/invite.js';
 import { COOKIE_NAME } from '../lib/session.js';
-import { accessEnv, certs, claims, keyPair, mint } from './access.js';
+import { ADMIN_KEY, adminCookieHeader, adminData, seedAdmin } from './admin.js';
 import { d1, seedCodes } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -46,17 +46,16 @@ const SITE = PRODUCTION_SITE;
 const OLD = 'Q2WE-R4TY-V6PA';
 const CURRENT = 'K7QM-3XRD-9FWB';
 const KEYS = {
-  SESSION_SIGNING_KEY: 'test-session-signing-key-0123456789abcdef',
+  SESSION_SIGNING_KEY: ADMIN_KEY,
   ADDRESS_HASH_KEY: 'test-address-hash-key-fedcba9876543210',
 };
 
-const team = await keyPair();
-beforeEach(() => keyCache.clear());
-
+// The owner is account 1, whose admin session admin() sends (#224).
 function site({ codes = [OLD, CURRENT], SITE_ENV = 'production' } = {}) {
   const DB = d1();
   seedCodes(DB, ...codes);
-  return { DB, SITE_ENV, ...KEYS, ...accessEnv() };
+  seedAdmin(DB);
+  return { DB, SITE_ENV, ...KEYS };
 }
 
 const codeRows = (env) =>
@@ -69,13 +68,18 @@ function chain(handlers, request, env) {
   return run(0);
 }
 
-const owner = () => mint(team);
-
-async function admin(env, method, path, { token, origin = SITE, host = SITE, cookie } = {}) {
+/**
+ * A request through the whole chain: `session: null` sends no admin session,
+ * `cookie` an upload session beside it, `origin: null` no Origin.
+ */
+async function admin(env, method, path, { session, origin = SITE, host = SITE, cookie } = {}) {
   const headers = {};
   if (origin !== null) headers.Origin = origin;
-  if (token !== null) headers[TOKEN_HEADER] = token ?? await owner();
-  if (cookie) headers.Cookie = `${COOKIE_NAME}=${cookie}`;
+  const cookies = [
+    ...(session !== null ? [session ?? await adminCookieHeader(1)] : []),
+    ...(cookie ? [`${COOKIE_NAME}=${cookie}`] : []),
+  ];
+  if (cookies.length) headers.Cookie = cookies.join('; ');
   const request = new Request(`${host}${path}`, { method, headers });
   const api = {
     POST: { '/api/admin/code/rotate': rotate, '/api/admin/code/create': create },
@@ -115,7 +119,6 @@ test('the zone pin took effect: this process is not on a whole-hour offset', () 
 // ---- Criterion 1: what the page shows ---------------------------------
 
 test('the page shows the current code, the invite link, and a copy button for each', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const html = await page(site());
   assert.match(html, /<code id="invite-code">K7QM-3XRD-9FWB<\/code>/);
   assert.match(html, /<code id="invite-link">https:\/\/photos\.madcowsailing\.com\/share\/#code=K7QM-3XRD-9FWB<\/code>/);
@@ -140,8 +143,7 @@ test('the time is UTC, zero-padded, whatever the machine running it', () => {
 });
 
 test('the invite link names production\'s domain there, and the page\'s own origin anywhere else', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
-  // Production, reached on its pages.dev address with a valid token: still the domain.
+  // Production, reached on its pages.dev address with an admin's session: still the domain.
   const prod = await page(site(), { host: 'https://madcowphotos.pages.dev', origin: null });
   assert.match(prod, /<code id="invite-link">https:\/\/photos\.madcowsailing\.com\/share\/#code=/);
   const preview = await page(site({ SITE_ENV: 'preview' }), { host: 'https://develop.madcowphotos.pages.dev', origin: null });
@@ -157,7 +159,6 @@ test('a code is escaped on the page, so a stored value cannot put markup there',
 });
 
 test('GET /admin/code answers HTML that no cache may keep, since it carries the code', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const res = await admin(site(), 'GET', '/admin/code');
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Type'), 'text/html; charset=utf-8');
@@ -166,7 +167,7 @@ test('GET /admin/code answers HTML that no cache may keep, since it carries the 
 });
 
 test('the admin home links to the page', () => {
-  assert.match(block(adminHome('owner@example.com', { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/code">Invite code<\/a>/);
+  assert.match(block(adminHome(adminData().admin, { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/code">Invite code<\/a>/);
 });
 
 // ---- Criterion 2: the dialog --------------------------------------------
@@ -214,7 +215,6 @@ test('only the dialog\'s confirm button rotates: one form posts there, and its o
 });
 
 test('rotating makes the next generation a new, well-formed code, and answers 303 back to the page', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site();
   const res = await admin(env, 'POST', '/api/admin/code/rotate');
   assert.equal(res.status, 303);
@@ -232,7 +232,6 @@ test('rotating makes the next generation a new, well-formed code, and answers 30
 });
 
 test('after rotating, the page shows the new code and not the old one', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site();
   await admin(env, 'POST', '/api/admin/code/rotate');
   const { code } = await currentCode(env.DB);
@@ -244,7 +243,6 @@ test('after rotating, the page shows the new code and not the old one', async (t
 });
 
 test('two rotations make two generations, and each new code differs from every earlier one', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site();
   await admin(env, 'POST', '/api/admin/code/rotate');
   await admin(env, 'POST', '/api/admin/code/rotate');
@@ -256,7 +254,6 @@ test('two rotations make two generations, and each new code differs from every e
 // ---- Criterion 3: every session ends at once ------------------------------
 
 test('two sessions opened with the old code: after a rotation each next upload call is 401, the old link reads rotated, and the new one joins', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site();
   const a = await joinWith(env, CURRENT);
   const b = await joinWith(env, CURRENT);
@@ -281,28 +278,31 @@ test('two sessions opened with the old code: after a rotation each next upload c
 
 // ---- Criterion 4: refused without the owner, or from another site ---------
 
+// Since #224 a request with no admin session that holds is sent to the
+// sign-in, 303 (lib/admin-session.js); one from another site is the Origin
+// guard's 403, as before. Account 99 does not exist.
 const REFUSALS = {
-  'no Access token': { token: null },
-  'a token for an email not on the list': { token: () => mint(team, claims({ email: 'someone@example.com' })) },
-  'a token for another Access application': { token: () => mint(team, claims({ aud: ['b'.repeat(64)] })) },
-  'a foreign Origin': { origin: 'https://evil.example' },
-  'a sibling site\'s Origin': { origin: 'https://madcowsailing.com' },
-  'no Origin': { origin: null },
+  'no admin session': { session: null, status: 303 },
+  'an admin session signed with another key': { session: () => adminCookieHeader(1, { key: `${ADMIN_KEY}-other` }), status: 303 },
+  'an admin session for an account that does not exist': { session: () => adminCookieHeader(99), status: 303 },
+  'a foreign Origin': { origin: 'https://evil.example', status: 403 },
+  'a sibling site\'s Origin': { origin: 'https://madcowsailing.com', status: 403 },
+  'no Origin': { origin: null, status: 403 },
   // What a sandboxed frame or a data: URL page sends: a check that let the
   // opaque origin through would be open to any page that sandboxes itself.
-  'the opaque Origin "null"': { origin: 'null' },
-  'the origin spelled with another scheme': { origin: 'http://photos.madcowsailing.com' },
+  'the opaque Origin "null"': { origin: 'null', status: 403 },
+  'the origin spelled with another scheme': { origin: 'http://photos.madcowsailing.com', status: 403 },
 };
 
 for (const path of ['/api/admin/code/rotate', '/api/admin/code/create']) {
-  for (const [name, options] of Object.entries(REFUSALS)) {
-    test(`POST ${path} with ${name}: 403, and the codes are unchanged`, async (t) => {
-      t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
+  for (const [name, { status, ...options }] of Object.entries(REFUSALS)) {
+    test(`POST ${path} with ${name}: ${status}, and the codes are unchanged`, async () => {
       const env = site({ codes: path.endsWith('create') ? [] : [OLD, CURRENT] });
       const before = codeRows(env);
-      const token = typeof options.token === 'function' ? await options.token() : options.token;
-      const res = await admin(env, 'POST', path, { ...options, token });
-      assert.equal(res.status, 403);
+      const session = typeof options.session === 'function' ? await options.session() : options.session;
+      const res = await admin(env, 'POST', path, { ...options, session });
+      assert.equal(res.status, status);
+      if (status === 303) assert.equal(res.headers.get('Location'), ADMIN_SIGN_IN);
       assert.equal(res.headers.get('Cache-Control'), 'no-store');
       assert.deepEqual(codeRows(env), before);
     });
@@ -310,14 +310,12 @@ for (const path of ['/api/admin/code/rotate', '/api/admin/code/create']) {
 }
 
 test('a foreign Origin is refused by the Origin guard, with its own reason', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const res = await admin(site(), 'POST', '/api/admin/code/rotate', { origin: 'https://evil.example' });
   assert.deepEqual(await res.json(), { error: 'origin' });
 });
 
-test('with the owner\'s token and the site\'s Origin, on any hostname, the same POST goes through', async (t) => {
+test('with the owner\'s session and the site\'s Origin, on any hostname, the same POST goes through', async (t) => {
   // The control for the refusals above: each one is the guard's.
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   for (const host of [SITE, 'https://madcowphotos.pages.dev', 'http://localhost:8788']) {
     const env = site();
     const res = await admin(env, 'POST', '/api/admin/code/rotate', { host, origin: host });
@@ -329,7 +327,6 @@ test('with the owner\'s token and the site\'s Origin, on any hostname, the same 
 // ---- Criterion 5: no code yet ---------------------------------------------
 
 test('with no code, the page offers "Create code" and nothing to copy or rotate', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const html = await page(site({ codes: [] }));
   assert.match(html, /<form method="post" action="\/api\/admin\/code\/create">\s*<p><button type="submit" class="button">Create code<\/button><\/p>\s*<\/form>/);
   // A coach needs no code (#192, owner at its review), so the page says no
@@ -341,7 +338,6 @@ test('with no code, the page offers "Create code" and nothing to copy or rotate'
 });
 
 test('with no code, parents\' uploads stay closed: no code joins and no session passes the upload guard', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site({ codes: [] });
   for (const code of [CURRENT, OLD, '0000-0000-0000']) {
     const j = await joinWith(env, code);
@@ -350,7 +346,6 @@ test('with no code, parents\' uploads stay closed: no code joins and no session 
 });
 
 test('"Create code" makes generation 1, and the page then shows it', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site({ codes: [] });
   const res = await admin(env, 'POST', '/api/admin/code/create');
   assert.equal(res.status, 303);
@@ -369,7 +364,6 @@ test('"Create code" makes generation 1, and the page then shows it', async (t) =
 });
 
 test('"Create code" once a code exists changes nothing, so a stale page cannot end a session', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const env = site();
   const s = await joinWith(env, CURRENT);
   const before = codeRows(env);
@@ -383,7 +377,6 @@ test('"Create code" once a code exists changes nothing, so a stale page cannot e
 // gets going, so this cannot see a read-then-write race (review-fanout, #152,
 // measured 0 red on one). It holds the answer; the two below hold the race.
 test('two presses of "Create code" both answer 303 and leave one code', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   t.mock.method(console, 'error', () => {});
   const env = site({ codes: [] });
   const both = await Promise.all([admin(env, 'POST', '/api/admin/code/create'), admin(env, 'POST', '/api/admin/code/create')]);
@@ -410,7 +403,6 @@ test('rotateCode twice at once makes two new generations, and neither call fails
 // ---- A press that arrives as a GET (review-fanout #9) ---------------------
 
 test('a GET on either write route changes nothing and goes back to the page, saying so', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   for (const [path, codes, key] of [['/api/admin/code/rotate', [OLD, CURRENT], 'rotate'], ['/api/admin/code/create', [], 'create']]) {
     const env = site({ codes });
     const before = codeRows(env);
@@ -424,7 +416,6 @@ test('a GET on either write route changes nothing and goes back to the page, say
 });
 
 test('the page says nothing changed, only in the state its button lives in', async (t) => {
-  t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
   const statuses = (html) => [...html.matchAll(/<p role="status">([^<]*)<\/p>/g)].map((m) => m[1].split('.')[0]);
   const withCode = site();
   const empty = site({ codes: [] });
@@ -468,7 +459,7 @@ test('one h1, a main, noindex, and no inline script, style or handler', () => {
 });
 
 test('its chrome and stylesheets are the admin home\'s, and its one script is stamped with its own hash', () => {
-  const home = adminHome('owner@example.com', { waiting: 0, bytes: 0 });
+  const home = adminHome(adminData().admin, { waiting: 0, bytes: 0 });
   for (const html of [withCode, noCode]) {
     assert.equal(block(html, 'header'), block(home, 'header'));
     assert.equal(block(html, 'footer'), block(home, 'footer'));

@@ -20,8 +20,19 @@
  * Only POST: a link or a prefetch never signs anyone out. Public in
  * test/guard.test.js's sense, since it must answer a session that no longer
  * holds by deleting its cookie.
+ *
+ * Since #224 an admin's sign-in holds two cookies, the account's and the
+ * admin's (lib/admin-session.js), and the admin home's Sign out posts here.
+ * The session is ended from whichever of the two the request carries, and
+ * both cookies are deleted. Each account the cookies name is signed out in
+ * one statement holding every version they carry, so a change already made
+ * is never followed by one that can fail and answer 503 for a session that
+ * ended (#224's review). Since a sign-in deletes any admin cookie it finds
+ * (functions/sign-in.js, functions/set-password.js), the two name one
+ * account; a browser holding two from before that is signed out of each.
  */
 import { clearAccountCookie, readAccountSession } from '../lib/account-session.js';
+import { clearAdminCookie, readAdminSession } from '../lib/admin-session.js';
 import { sameOrigin } from '../lib/origin.js';
 import { htmlResponse } from '../lib/public-page.js';
 import { closedPage } from '../lib/sign-in-page.js';
@@ -42,17 +53,22 @@ export async function onRequestPost({ request, env }) {
     console.error('sign-out: the database or a secret is not configured, so no session was ended');
     return closed();
   }
-  const session = await readAccountSession(request, env.SESSION_SIGNING_KEY);
-  if (session) {
-    try {
-      await signOut(env.DB, session);
-    } catch (err) {
-      console.error('sign-out: the database did not answer, so the session was not ended:', err instanceof Error ? err.message : String(err));
-      return closed();
-    }
+  const sessions = [
+    await readAccountSession(request, env.SESSION_SIGNING_KEY),
+    await readAdminSession(request, env.SESSION_SIGNING_KEY),
+  ].filter(Boolean);
+  // Every version each account's cookies carry: set together they name one,
+  // and a cookie from before a new password names an older one.
+  const accounts = new Map();
+  for (const { accountId, version } of sessions) accounts.set(accountId, [...(accounts.get(accountId) ?? []), version]);
+  try {
+    for (const [accountId, versions] of accounts) await signOut(env.DB, { accountId, versions });
+  } catch (err) {
+    console.error('sign-out: the database did not answer, so the session was not ended:', err instanceof Error ? err.message : String(err));
+    return closed();
   }
-  return new Response(null, {
-    status: 303,
-    headers: { Location: '/sign-in?signed-out', 'Set-Cookie': clearAccountCookie(), 'Cache-Control': 'no-store' },
-  });
+  const headers = new Headers({ Location: '/sign-in?signed-out', 'Cache-Control': 'no-store' });
+  headers.append('Set-Cookie', clearAccountCookie());
+  headers.append('Set-Cookie', clearAdminCookie());
+  return new Response(null, { status: 303, headers });
 }

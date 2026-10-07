@@ -14,6 +14,13 @@
  * ?error=, so a reload cannot post again and the page needs no script. Under
  * all of it, the admins' log, newest first (criterion 5).
  *
+ * Since #224 each person shows whether they are the owner or an admin. Any
+ * admin can make an approved person an admin ("Make admin"), and only the
+ * owner can take the role away again ("Remove admin"), never from the owner
+ * (the owner's choice at #224's pickup). The page draws a button only for
+ * the admin who may press it; the routes check again, and lib/people.js and
+ * migration 0013 under them.
+ *
  * Everything a requester typed, their name, address and note, is escaped, and
  * the notice after a press looks its person up in the lists by id, so a
  * crafted link can put on the page only a known sentence and a name the
@@ -21,6 +28,7 @@
  */
 import { ROLES } from './accounts.js';
 import { adminPage, escapeHtml, timeElement } from './admin-page.js';
+import { ADMIN_SESSION_HOURS } from './admin-session.js';
 import { LINK_DAYS, LOG_SHOWN } from './people.js';
 
 const ROLE_NAMES = { parent: 'Parent', coach: 'Coach', other: 'Other' };
@@ -62,6 +70,10 @@ const ERRORS = {
   gone: 'Nothing was changed: no ticked team was still waiting for that, so another admin may have got to it first. The lists below are as they are now.',
   'not-approved': 'No link was sent: that account is not approved for any team, or no longer exists.',
   unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+  // #224
+  'not-promoted': 'Nothing was changed: that person is already an admin, is no longer approved for a team, or no longer exists. The lists below are as they are now.',
+  'not-demoted': 'Nothing was changed: that person is not an admin now, or is the owner, whose role stays. The lists below are as they are now.',
+  'not-owner': 'Nothing was changed: only the owner removes an admin.',
 };
 
 /**
@@ -78,6 +90,8 @@ export function peopleNotice(params, lists) {
   if (done === 'approved') text = `Approved ${name}. ${mailOutcome(params.get('mail'))}`;
   else if (done === 'rejected') text = `Turned down ${name}. Nothing was emailed to them.`;
   else if (done === 'link') text = `${mailOutcome(params.get('mail'))}`;
+  else if (done === 'promoted') text = `${name} is an admin, and is signed out on every phone and computer. The admin pages open to them the next time they sign in, which asks for a code the site emails them. Nothing was emailed now.`;
+  else if (done === 'demoted') text = `${name} is no longer an admin. The admin pages are closed to them from their next request, and their account can still send photos.`;
   else if (Object.hasOwn(ERRORS, error)) text = ERRORS[error];
   if (done === 'link' && found) text = `${name}: ${text}`;
   return text ? `\n    <p role="status">${text}</p>` : '';
@@ -130,21 +144,44 @@ function linkForm(person) {
       </form>`;
 }
 
-function personItem(person) {
+const ADMIN_ROLE_NAMES = { owner: 'the owner', admin: 'an admin' };
+
+// "Make admin" for anyone approved for a team who is not one, which any
+// admin may press; "Remove admin" for an admin who is not the owner, drawn
+// only for the owner, who alone may press it (#224). `viewer` is the admin
+// the page is for (lib/admin-session.js's context.data.admin).
+function adminForm(person, viewer) {
+  if (!person.teams.some((t) => t.state === 'approved')) return '';
+  const name = escapeHtml(person.name);
+  if (person.adminRole === null) {
+    return `<form method="post" action="/api/admin/people/promote">
+        <button type="submit" class="button button-quiet" name="account" value="${person.id}" aria-label="Make ${name} an admin">Make admin</button>
+      </form>`;
+  }
+  if (person.adminRole === 'admin' && viewer.role === 'owner') {
+    return `<form method="post" action="/api/admin/people/demote">
+        <button type="submit" class="button button-quiet" name="account" value="${person.id}" aria-label="Remove ${name} as an admin">Remove admin</button>
+      </form>`;
+  }
+  return '';
+}
+
+function personItem(person, viewer) {
   const note = person.note === null
     ? '<p class="person-note person-note-none">No note was left.</p>'
     : `<p class="person-note">${escapeHtml(person.note)}</p>`;
-  const forms = [decisionForm(person), linkForm(person)].filter(Boolean).join('\n      ');
+  const forms = [decisionForm(person), linkForm(person), adminForm(person, viewer)].filter(Boolean).join('\n      ');
+  const admin = Object.hasOwn(ADMIN_ROLE_NAMES, person.adminRole ?? '') ? ` · ${ADMIN_ROLE_NAMES[person.adminRole]}` : '';
   return `<li class="person" id="person-${person.id}">
       <h3>${escapeHtml(person.name)}</h3>
-      <p class="person-facts">${escapeHtml(person.email)} · ${ROLE_NAMES[person.role] ?? escapeHtml(person.role)} · asked ${timeElement(person.requestedAt)}</p>
+      <p class="person-facts">${escapeHtml(person.email)} · ${ROLE_NAMES[person.role] ?? escapeHtml(person.role)}${admin} · asked ${timeElement(person.requestedAt)}</p>
       <p class="person-teams">${teamStates(person)}</p>
       ${note}${forms ? `\n      ${forms}` : ''}
     </li>`;
 }
 
-const peopleList = (people, empty) => (people.length
-  ? `<ul class="people">\n    ${people.map(personItem).join('\n    ')}\n    </ul>`
+const peopleList = (people, empty, viewer) => (people.length
+  ? `<ul class="people">\n    ${people.map((person) => personItem(person, viewer)).join('\n    ')}\n    </ul>`
   : `<p class="people-empty">${empty}</p>`);
 
 // One log entry as a sentence. The person is named as the entry recorded
@@ -163,13 +200,15 @@ function logSentence({ admin, action, name, email, detail }) {
       if (detail === 'unconfirmed') return `${who} emailed ${whom} a link to set a password, which Resend did not confirm.`;
       if (detail === 'unrecorded') return `${who} made ${whom} a link to set a password; how its email went was not recorded.`;
       return `${who} pressed to email ${whom} a link to set a password, which was not sent (${escapeHtml((detail ?? '').replace(/^not sent: /, ''))}).`;
+    case 'promote': return `${who} made ${whom} an admin.`;
+    case 'demote': return `${who} removed ${whom} as an admin.`;
     default: return `${who}: ${escapeHtml(action)} ${whom}${what ? `, ${what}` : ''}.`;
   }
 }
 
 function logSection({ entries, total }) {
   const intro = total === 0
-    ? 'Nothing is logged yet. Every approval, turn-down, role change and link sent will be.'
+    ? 'Nothing is logged yet. Every approval, turn-down, role change, link sent, and admin made or removed will be.'
     : `Newest first. The log keeps every entry, and each names the person as they were when it was made, even after their account is deleted.${total > LOG_SHOWN ? ` The newest ${LOG_SHOWN} of ${total} are shown.` : ''}`;
   const items = entries.map((entry) => `<li>${timeElement(entry.at)}: ${logSentence(entry)}</li>`).join('\n      ');
   return `<section class="wrap" aria-labelledby="admin-log">
@@ -180,10 +219,14 @@ function logSection({ entries, total }) {
 
 /**
  * /admin/people (#221). `lists` is lib/people.js's peopleLists(), `log` its
- * adminLog(), and `notice` peopleNotice()'s HTML.
+ * adminLog(), `notice` peopleNotice()'s HTML, and `viewer` the admin the page
+ * is for, whose role decides which admin buttons it draws (#224).
  */
-export function adminPeoplePage({ lists, log, notice = '' }) {
+export function adminPeoplePage({ lists, log, notice = '', viewer }) {
   const { waiting, approved, turnedDown } = lists;
+  const removes = viewer.role === 'owner'
+    ? 'As the owner, you can also remove an admin.'
+    : 'Only the owner can remove one.';
   return adminPage({
     title: 'People',
     main: `<main id="main">
@@ -199,7 +242,7 @@ export function adminPeoplePage({ lists, log, notice = '' }) {
   <section class="wrap" aria-labelledby="people-waiting">
     <h2 id="people-waiting">Waiting</h2>
     <p>${waiting.length ? `${plural(waiting.length, 'request waits', 'requests wait')}, the oldest first.` : 'No request is waiting.'}</p>
-    ${peopleList(waiting, 'A request someone sends at /ask appears here.')}
+    ${peopleList(waiting, 'A request someone sends at /ask appears here.', viewer)}
   </section>
 
   <section class="wrap" aria-labelledby="people-approved">
@@ -207,14 +250,17 @@ export function adminPeoplePage({ lists, log, notice = '' }) {
     <p>People approved for at least one team, with nothing left waiting.
       "Send a new link" emails a new link to set a password, and the last one
       stops working.</p>
-    ${peopleList(approved, 'Nobody is approved yet.')}
+    <p>Any admin can make an approved person an admin. ${removes} An admin
+      signs in with their password and a code the site emails them, and the
+      admin pages stay open for ${ADMIN_SESSION_HOURS} hours at a time.</p>
+    ${peopleList(approved, 'Nobody is approved yet.', viewer)}
   </section>
 
   <section class="wrap" aria-labelledby="people-turned-down">
     <h2 id="people-turned-down">Turned down</h2>
     <p>Nothing was emailed to them, and if they ask again nothing changes.
       To change your mind, tick a team and approve it here.</p>
-    ${peopleList(turnedDown, 'Nobody is turned down.')}
+    ${peopleList(turnedDown, 'Nobody is turned down.', viewer)}
   </section>
 
   ${logSection(log)}

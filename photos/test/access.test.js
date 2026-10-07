@@ -1,12 +1,16 @@
-// The admin guard: the Cloudflare Access token check every /admin page and
-// admin API passes first (#151, criteria 2, 3 and 5).
+// The Cloudflare Access token check (#151, criteria 2, 3 and 5), which /coach
+// passes first (#192). It was the admin guard's, run as requireOwner, until
+// #224 replaced that with the admin session (lib/admin-session.js; its cases
+// are test/admin-sign-in.test.js's). The check itself, verifyAccessToken, is
+// unchanged and still guards /coach until #226, so every case here runs
+// requireCoach, with a coach's claims by default.
 //
-// Every case runs requireOwner as the admin middleware runs it, with tokens
-// minted here from generated key pairs and the team's certs endpoint stood in
-// for by a mocked fetch. A refused request must answer 403 (503 where the
-// keys cannot be read), never reach the route, and carry nothing of it. The
+// Every case runs the guard as its middleware runs it, with tokens minted
+// here from generated key pairs and the team's certs endpoint stood in for by
+// a mocked fetch. A refused request must answer 403 (503 where the keys
+// cannot be read), never reach the route, and carry nothing of it. The
 // refusal each case predicts, and the check that makes it, were written down
-// before lib/access.js existed; the PR shows that table.
+// before lib/access.js existed; #151's PR shows that table.
 //
 // Timing tests advance the clock by literal seconds, never by the constants
 // they test, so a changed constant turns them red (prove-tests shape 15).
@@ -14,15 +18,20 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ADMINS, CLOCK_SKEW_SECONDS, COACHES, KEYS_MAX_AGE_SECONDS, REFETCH_GAP_SECONDS, TOKEN_HEADER, keyCache,
-  requireOwner,
+  CLOCK_SKEW_SECONDS, COACHES, KEYS_MAX_AGE_SECONDS, REFETCH_GAP_SECONDS, TOKEN_HEADER, keyCache,
+  requireCoach,
 } from '../lib/access.js';
 import { COOKIE_NAME, signSession } from '../lib/session.js';
-import { AUD, OWNER, TEAM, accessEnv, certs, claims, keyPair, mint, publicPem, segment } from './access.js';
+import {
+  COACH as PERSON, COACH_AUD, TEAM, accessEnv, certs, coachClaims as claims, keyPair, mint as mintToken, publicPem, segment,
+} from './access.js';
 import { base64url, hmac } from '../lib/crypto.js';
 
 const SITE = 'https://photos.madcowsailing.com';
-const ROUTE_BODY = 'ADMIN-ROUTE-CONTENT';
+const ROUTE_BODY = 'COACH-ROUTE-CONTENT';
+
+// A token over a coach's claims unless a case gives its own.
+const mint = (pair, payload = claims(), options) => mintToken(pair, payload, options);
 
 const team = await keyPair();
 const stranger = await keyPair();
@@ -30,7 +39,7 @@ const stranger = await keyPair();
 beforeEach(() => keyCache.clear());
 
 // Runs the guard once. `reached` says whether the route behind it ran.
-async function guard({ token, env = accessEnv(), headers = {}, url = `${SITE}/admin/` } = {}) {
+async function guard({ token, env = accessEnv(), headers = {}, url = `${SITE}/coach` } = {}) {
   const all = { ...headers };
   if (token !== undefined) all[TOKEN_HEADER] = token;
   const context = {
@@ -43,7 +52,7 @@ async function guard({ token, env = accessEnv(), headers = {}, url = `${SITE}/ad
     context.reached = true;
     return new Response(ROUTE_BODY, { status: 200 });
   };
-  const response = await requireOwner(context);
+  const response = await requireCoach(context);
   return { response, reached: context.reached, data: context.data, body: await response.text() };
 }
 
@@ -53,7 +62,7 @@ async function assertRefused(result, status = 403) {
   assert.equal(result.response.status, status);
   assert.equal(result.reached, false, 'the route ran behind a refused token');
   assert.doesNotMatch(result.body, new RegExp(ROUTE_BODY));
-  assert.doesNotMatch(result.body, new RegExp(OWNER.replace('.', '\\.')));
+  assert.doesNotMatch(result.body, new RegExp(PERSON.replace('.', '\\.')));
   assert.equal(result.response.headers.get('Cache-Control'), 'no-store');
 }
 
@@ -66,14 +75,14 @@ test('V1: a valid token for an email on the list reaches the route, which learns
   const result = await guard({ token: await mint(team) });
   assert.equal(result.response.status, 200);
   assert.equal(result.reached, true);
-  assert.deepEqual(result.data.owner, { email: OWNER });
+  assert.deepEqual(result.data.coach, { email: PERSON });
 });
 
 test('V2: the list is compared without regard to letter case', async (t) => {
   publishes(t);
-  const upper = await guard({ token: await mint(team, claims({ email: OWNER.toUpperCase() })) });
+  const upper = await guard({ token: await mint(team, claims({ email: PERSON.toUpperCase() })) });
   assert.equal(upper.reached, true);
-  const listed = await guard({ token: await mint(team), env: accessEnv({ ADMIN_EMAILS: ` ${OWNER.toUpperCase()} , other@example.com` }) });
+  const listed = await guard({ token: await mint(team), env: accessEnv({ COACH_EMAILS: ` ${PERSON.toUpperCase()} , other@example.com` }) });
   assert.equal(listed.reached, true);
 });
 
@@ -223,19 +232,19 @@ test('R21: characters outside base64url in the signature: 403, never a throw', a
   await assertRefused(await guard({ token: `${head}.${payload}.AAAA` }));
 });
 
-test('R22: a valid token while ADMIN_EMAILS is not set', async (t) => {
+test('R22: a valid token while COACH_EMAILS is not set', async (t) => {
   publishes(t);
-  await assertRefused(await guard({ token: await mint(team), env: accessEnv({ ADMIN_EMAILS: undefined }) }));
-  await assertRefused(await guard({ token: await mint(team), env: accessEnv({ ADMIN_EMAILS: ' , ' }) }));
+  await assertRefused(await guard({ token: await mint(team), env: accessEnv({ COACH_EMAILS: undefined }) }));
+  await assertRefused(await guard({ token: await mint(team), env: accessEnv({ COACH_EMAILS: ' , ' }) }));
 });
 
-test('R23: a valid token while ACCESS_AUD or ACCESS_TEAM_DOMAIN is not set', async (t) => {
+test('R23: a valid token while ACCESS_COACH_AUD or ACCESS_TEAM_DOMAIN is not set', async (t) => {
   publishes(t);
-  await assertRefused(await guard({ token: await mint(team), env: accessEnv({ ACCESS_AUD: undefined }) }));
+  await assertRefused(await guard({ token: await mint(team), env: accessEnv({ ACCESS_COACH_AUD: undefined }) }));
   await assertRefused(await guard({ token: await mint(team), env: accessEnv({ ACCESS_TEAM_DOMAIN: undefined }) }));
-  // The case only the config check stops: with ACCESS_AUD unset and a token
+  // The case only the config check stops: with ACCESS_COACH_AUD unset and a token
   // that carries no aud, the aud check would compare undefined with undefined.
-  await assertRefused(await guard({ token: await mint(team, claims({ aud: undefined })), env: accessEnv({ ACCESS_AUD: undefined }) }));
+  await assertRefused(await guard({ token: await mint(team, claims({ aud: undefined })), env: accessEnv({ ACCESS_COACH_AUD: undefined }) }));
 });
 
 test('R24: a valid upload session and no Access token', async (t) => {
@@ -371,8 +380,8 @@ test('K10: a key the team stops publishing is refused once the hour is up', asyn
   await assertRefused(await guard({ token: await mint(team) }));
 });
 
-test('criterion 5: no hostname, environment, header or cookie opens the admin without the token', async (t) => {
-  // requireOwner reads the token header and three config values, nothing
+test('criterion 5: no hostname, environment, header or cookie gets past the guard without the token', async (t) => {
+  // The guard reads the token header and three config values, nothing
   // else. These are the shapes a bypass would take: a local or pages.dev
   // host, a dev environment flag, a header claiming to be Access, and a
   // valid token in the CF_Authorization cookie, which is deliberately never
@@ -381,30 +390,30 @@ test('criterion 5: no hostname, environment, header or cookie opens the admin wi
   const valid = await mint(team);
   const hosts = ['http://localhost:8788', 'http://127.0.0.1:8788', 'https://madcowphotos.pages.dev', 'https://develop.madcowphotos.pages.dev', SITE];
   const envs = [accessEnv(), accessEnv({ SITE_ENV: 'dev' }), accessEnv({ SITE_ENV: 'preview' }), accessEnv({ SITE_ENV: 'local', DEV: 'true' })];
-  const headers = [{}, { 'X-Dev-Bypass': '1' }, { 'Cf-Access-Authenticated-User-Email': OWNER }, { Cookie: `CF_Authorization=${valid}` }];
+  const headers = [{}, { 'X-Dev-Bypass': '1' }, { 'Cf-Access-Authenticated-User-Email': PERSON }, { Cookie: `CF_Authorization=${valid}` }];
   let refused = 0;
   for (const host of hosts) {
     for (const env of envs) {
       for (const extra of headers) {
-        await assertRefused(await guard({ url: `${host}/admin/`, env, headers: extra }));
+        await assertRefused(await guard({ url: `${host}/coach`, env, headers: extra }));
         refused++;
       }
       // The control: the same host and environment with the token pass.
-      assert.equal((await guard({ url: `${host}/admin/`, env, token: valid })).reached, true, host);
+      assert.equal((await guard({ url: `${host}/coach`, env, token: valid })).reached, true, host);
     }
   }
   assert.equal(refused, hosts.length * envs.length * headers.length);
 });
 
-test('the config the guards read is the team domain, and an AUD tag and a list for each', () => {
-  // The names the guards read, from lib/access.js itself, written out here as
-  // README and wrangler.jsonc spell them: the admins' pair (#151) and the
-  // coaches' (#192). Then the fixture has to supply exactly those, so a test
-  // env cannot drift from what the code reads (#192's review).
-  assert.deepEqual({ ...ADMINS }, { aud: 'ACCESS_AUD', list: 'ADMIN_EMAILS' });
+test('the config the guard reads is the team domain, the coaches\' AUD tag and their list', () => {
+  // The names the guard reads, from lib/access.js itself, written out here as
+  // README and wrangler.jsonc spell them (#192). Then the fixture has to
+  // supply exactly those, so a test env cannot drift from what the code reads
+  // (#192's review). The admins' tag and list went with the admin guard's
+  // Access check (#224), so a fixture still carrying either fails here.
   assert.deepEqual({ ...COACHES }, { aud: 'ACCESS_COACH_AUD', list: 'COACH_EMAILS' });
-  const read = ['ACCESS_TEAM_DOMAIN', ADMINS.aud, ADMINS.list, COACHES.aud, COACHES.list].sort();
+  const read = ['ACCESS_TEAM_DOMAIN', COACHES.aud, COACHES.list].sort();
   assert.deepEqual(Object.keys(accessEnv()).sort(), read);
   assert.equal(TEAM, 'https://testteam.cloudflareaccess.com');
-  assert.equal(AUD.length, 64);
+  assert.equal(COACH_AUD.length, 64);
 });

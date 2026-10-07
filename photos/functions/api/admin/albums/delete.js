@@ -1,6 +1,6 @@
 /**
  * POST /api/admin/albums/delete: delete an empty album (#153). The guards in
- * ../_middleware.js have already required the owner's Access token and the
+ * ../_middleware.js have already required an admin's session and the
  * site's own Origin.
  *
  * An album holding any photo, in any state, is not deleted: the database

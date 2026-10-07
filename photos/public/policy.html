@@ -203,8 +203,8 @@
                                          id, its version and the time, signed
                                          (#222's criterion 4)
        Signing out, a new password or    signOut and setPassword in
-       a revoke ends every session       lib/sign-in.js add 1 to
-                                         session_version in
+       a revoke ends every session, and  lib/sign-in.js add 1 to
+       so does being made an admin       session_version in
                                          migrations/0009_sign_in.sql, and
                                          requireAccount refuses an older one;
                                          every device (owner, at #222's
@@ -215,7 +215,37 @@
                                          revoke will add 1 too, so a
                                          re-approval cannot bring an old
                                          cookie back, is #225's criterion
-                                         (#222's review)
+                                         (#222's review). promoteAdmin in
+                                         lib/people.js adds 1 too, so a
+                                         re-promotion cannot bring back an
+                                         admin cookie from before a
+                                         demotion (owner, at #224's review)
+       An admin, or the owner: the       admin_role on accounts in
+       role on the account               migrations/0013_admins.sql (#224;
+                                         D15); the one owner made by hand,
+                                         README's Making the owner (owner, at
+                                         #224's pickup)
+       An admin's code: emailed, once,   startCode, checkCode, useCode,
+       10 minutes, 5 tries, one          CODE_SECONDS, CODE_TRIES and
+       browser                           CODE_COOKIE in lib/admin-code.js,
+                                         from functions/sign-in.js and
+                                         functions/sign-in/code.js (#224's
+                                         criterion 1)
+       The code only as a keyed hash;    code_hash in admin_codes
+       its time kept a day, 10 a day,    (migrations/0013_admins.sql), an
+       or until a new password           HMAC keyed with SESSION_SIGNING_KEY;
+                                         CODES_PER_DAY and clearExpiredCodes
+                                         in lib/admin-code.js, run by
+                                         startCode and
+                                         functions/admin/index.js; and
+                                         setPassword in lib/sign-in.js
+                                         deletes an account's codes with its
+                                         new password (#224's review)
+       The admin pages' cookie: 12       ADMIN_COOKIE, ADMIN_SESSION_HOURS and
+       hours, holding what the other     signAdminSession in
+       does                              lib/admin-session.js; requireAdmin
+                                         reads the role on every request
+                                         (#224's criterion 2)
        Failed sign-ins: 10 an hour       EMAIL_FAILURE_LIMIT,
        per address, 20 per network,      NETWORK_FAILURE_LIMIT and
        100 from everyone, then none      FAILURE_BUDGET_PER_HOUR in
@@ -279,7 +309,9 @@
                                          approveTeams, rejectTeams and
                                          sendLink in lib/people.js, a link's
                                          entry in the same batch as the link
-                                         (owner, at #221's review). #225's
+                                         (owner, at #221's review);
+                                         promoteAdmin and demoteAdmin
+                                         (#224's criterion 6). #225's
                                          delete entry (owner, at #219's
                                          review, 2026-10-05)
        Approved or turned down per       D16; approveTeams and rejectTeams in
@@ -344,6 +376,12 @@
                                          https://developers.cloudflare.com/d1/platform/limits/
                                          (read 2026-10-05; owner, at #219's
                                          review)
+
+     #224 (admins) added whether an account is an admin or the owner, the
+     code an admin's sign-in emails, kept as a keyed hash with its time for
+     a day, its cookie and its limits, the 12-hour cookie for the admin
+     pages, and making and removing an admin in the admins' log (#219's
+     review asked each of #220 to #224 to add its own records).
 
      #223 (sending from an account) changed the lede, "Who can send a
      photo", what a photo keeps and the daily count, which it counts per
@@ -597,6 +635,8 @@
       <li>your name and email address;</li>
       <li>your role, the teams you asked for, and which of them an admin
         approved;</li>
+      <li>whether you are one of the site's admins, and whether you are its
+        owner;</li>
       <li>when you asked, which teams still wait for an admin's answer, and
         whether the admins have been emailed about your request;</li>
       <li>the note you left with your request, if any;</li>
@@ -606,6 +646,8 @@
         sign-in succeeds;</li>
       <li>a link to set your password, while it waits to be used, only as a
         hash, which can check the link but cannot be turned back into it;</li>
+      <li>if you are an admin, each code emailed to you to sign in, only as a
+        hash made with a secret key, and when it was sent;</li>
       <li>which photos you sent from it.</li>
     </ul>
     <p>On the site, only its admins see any of it. Every admin sees every
@@ -621,9 +663,20 @@
       keeps it signed in for 90 days. The cookie holds your account's number,
       a session number and when you signed in, signed with a secret key so it
       cannot be changed, and no password, name or email address. Signing out,
-      setting a new password, or an admin revoking the account ends every
-      session the account has, on every phone and computer, the next time
-      each is used.</p>
+      setting a new password, being made one of the site's admins, or an
+      admin revoking the account ends every session the account has, on
+      every phone and computer, the next time each is used.</p>
+    <p>An admin's sign-in takes one more step. Once the password is right, the
+      site emails a 6-digit code to the account's address. The code works
+      once, for 10 minutes and 5 tries, and only in the browser where the
+      password was typed, which holds a small cookie naming that sign-in for
+      those 10 minutes. The code is kept only as a hash, made with a secret
+      key, and when it was sent is kept for a day, so that the site sends an
+      admin at most 10 codes a day; after that day it is deleted, the next
+      time a code is sent or an admin opens the admin home page. Setting a new
+      password deletes an account's codes at once. The right code opens a
+      second cookie, for the admin pages, which lasts 12 hours and holds what
+      the first one holds, and nothing more.</p>
     <p>So that nobody can guess a password, the site counts failed sign-ins:
       at most 10 an hour for one email address, whether or not it has an
       account, and 20 an hour from one network. It keeps each failed try for
@@ -652,7 +705,8 @@
       was checked.</p>
     <p>The admins also keep a log of what they do with each account: who
       approved it or turned it down for each team, changed its role, sent it a
-      link to set a password, revoked it or deleted it, and when. Each entry
+      link to set a password, made it an admin or removed it as one, revoked
+      it or deleted it, and when. Each entry
       names the person whose account it was, by name and email address. The
       log has no set limit.</p>
     <p>The request asks for no sailor's name, so leave sailors' names out of

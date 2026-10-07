@@ -6,7 +6,7 @@
  * page's "Delete permanently" button only opens it
  * (public/js/admin-removals.js) and gives the confirm button the photo's id,
  * so the press carries photo=<id>. The guards in ../_middleware.js have
- * already required an admin's Access token and the site's own Origin.
+ * already required an admin's session and the site's own Origin.
  *
  * Only a hidden photo is deleted here: an approved one is taken down first,
  * and a waiting one is rejected on the queue. 303 back to the page, saying

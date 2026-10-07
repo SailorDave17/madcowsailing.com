@@ -39,9 +39,9 @@ const TEAM_KEYS = TEAMS.map(({ team }) => team);
 const TEAM_NAMES = Object.fromEntries(TEAMS.map(({ team, name }) => [team, name]));
 
 // What the log records, and what each word means on the page
-// (lib/people-page.js). #224 and #225 add their own; 0008's CHECK holds only
-// the shape, so adding one needs no migration.
-export const ACTIONS = Object.freeze(['approve', 'reject', 'role', 'link']);
+// (lib/people-page.js). #224 added promote and demote, and #225 adds its own;
+// 0008's CHECK holds only the shape, so adding one needs no migration.
+export const ACTIONS = Object.freeze(['approve', 'reject', 'role', 'link', 'promote', 'demote']);
 
 // How many log entries the page shows, newest first. The table keeps every
 // one; the page says how many more there are.
@@ -68,9 +68,10 @@ export function readTeams(values) {
 export const teamsText = (teams) => teams.map((team) => TEAM_NAMES[team]).join(' and ');
 
 /**
- * Every account, as the page lists it: { id, name, email, role, note,
- * requestedAt, teams: [{ team, name, state }] in TEAMS order }, sorted into
- * the three lists the page shows, each in the order the requests arrived.
+ * Every account, as the page lists it: { id, name, email, role, adminRole,
+ * note, requestedAt, teams: [{ team, name, state }] in TEAMS order }, sorted
+ * into the three lists the page shows, each in the order the requests
+ * arrived. adminRole is 'admin', 'owner' or null (#224).
  *
  *   waiting     a team still waits for an admin
  *   approved    nothing waits, and a team is approved
@@ -81,7 +82,7 @@ export const teamsText = (teams) => teams.map((team) => TEAM_NAMES[team]).join('
 export async function peopleLists(db) {
   const { results } = await db
     .prepare(
-      'SELECT a.id, a.name, a.email, a.role, a.note, a.requested_at, t.team, t.state ' +
+      'SELECT a.id, a.name, a.email, a.role, a.admin_role, a.note, a.requested_at, t.team, t.state ' +
       'FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ORDER BY a.requested_at, a.id',
     )
     .all();
@@ -89,7 +90,14 @@ export async function peopleLists(db) {
   for (const row of results) {
     if (!byId.has(row.id)) {
       byId.set(row.id, {
-        id: row.id, name: row.name, email: row.email, role: row.role, note: row.note, requestedAt: row.requested_at, teams: [],
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        adminRole: row.admin_role,
+        note: row.note,
+        requestedAt: row.requested_at,
+        teams: [],
       });
     }
     byId.get(row.id).teams.push({ team: row.team, name: TEAM_NAMES[row.team] ?? row.team, state: row.state });
@@ -177,6 +185,84 @@ export async function rejectTeams(db, { accountId, teams, admin, now }) {
   ]);
   const rejected = results[1].results.map(({ team }) => team);
   return rejected.length ? TEAM_KEYS.filter((team) => rejected.includes(team)) : null;
+}
+
+// The account the press is about still holds an approved team: only such an
+// account can sign in, so only such an account is made an admin.
+const APPROVED_TEAM = (column) =>
+  `EXISTS (SELECT 1 FROM account_teams AS t WHERE t.account_id = ${column} AND t.state = 'approved')`;
+
+// The admin pressing still holds the role the press needs, read in the same
+// statement as the change: the guard read it when the request began, and a
+// demotion can land in between.
+const ACTOR_IS = (role) => (role === 'owner'
+  ? "EXISTS (SELECT 1 FROM accounts AS actor WHERE actor.id = ? AND actor.admin_role = 'owner')"
+  : 'EXISTS (SELECT 1 FROM accounts AS actor WHERE actor.id = ? AND actor.admin_role IS NOT NULL)');
+
+/**
+ * Make account `accountId` an admin (#224), pressed by the admin whose
+ * account is `actorId` and whose address is `admin`, at `now`. Any admin may
+ * (the owner's choice at #224's pickup, over criterion 4's default of the
+ * owner alone). Answers whether it did: false when the account already holds
+ * an admin role, holds no approved team, is gone, or the one pressing is no
+ * longer an admin, and then nothing changed.
+ *
+ * One D1 batch, which D1 runs as a transaction: the log entry, then the
+ * change, both held by the same condition, so they commit together or not at
+ * all (criterion 6), and of two presses at once only the first changes
+ * anything. The entry is written first, while the condition still picks the
+ * account out.
+ *
+ * The change adds 1 to the account's session version, which ends every
+ * session it holds, on every device (the owner's choice at #224's review: a
+ * session is renewed when its rights grow). Without it, a demotion only
+ * suspended: someone made an admin again within 12 hours of their last admin
+ * sign-in found a cookie from before the demotion open again, with no new
+ * password and no new code. So the admin pages open, and sending resumes, at
+ * their next sign-in, with its code. Throws when D1 fails.
+ */
+export async function promoteAdmin(db, { accountId, actorId, admin, now }) {
+  const results = await db.batch([
+    db.prepare(
+      "INSERT INTO admin_log (at, admin, action, account_id, name, email) SELECT ?, ?, 'promote', a.id, a.name, a.email " +
+      `FROM accounts AS a WHERE a.id = ? AND a.admin_role IS NULL AND ${APPROVED_TEAM('a.id')} AND ${ACTOR_IS('admin')}`,
+    ).bind(now, admin, accountId, actorId),
+    db.prepare(
+      "UPDATE accounts SET admin_role = 'admin', session_version = session_version + 1 " +
+      `WHERE id = ? AND admin_role IS NULL AND ${APPROVED_TEAM('accounts.id')} AND ${ACTOR_IS('admin')} RETURNING id`,
+    ).bind(accountId, actorId),
+  ]);
+  return results[1].results.length > 0;
+}
+
+/**
+ * Take the admin role from account `accountId` (#224), pressed by the owner,
+ * whose account is `actorId` and whose address is `admin`, at `now`. Only the
+ * owner may (criterion 4, the owner's choice at pickup), and only an admin's
+ * role is taken: the owner's never is (criterion 3). Answers whether it did:
+ * false when the account holds no admin role or is the owner, or the one
+ * pressing is not the owner, and then nothing changed.
+ *
+ * One D1 batch, as promoteAdmin's. The admin guard reads the role on every
+ * request (lib/admin-session.js), so the admin pages close to them at their
+ * next one (criterion 2); their account's own sessions stay, so they can
+ * still send. Their admin cookie cannot come back if they are made an admin
+ * again, since promoteAdmin ends every session. Migration 0013's triggers
+ * refuse the owner's demotion and the last admin's in the database itself,
+ * so this statement could not do either even with its own condition gone.
+ * Throws when D1 fails.
+ */
+export async function demoteAdmin(db, { accountId, actorId, admin, now }) {
+  const results = await db.batch([
+    db.prepare(
+      "INSERT INTO admin_log (at, admin, action, account_id, name, email) SELECT ?, ?, 'demote', a.id, a.name, a.email " +
+      `FROM accounts AS a WHERE a.id = ? AND a.admin_role = 'admin' AND ${ACTOR_IS('owner')}`,
+    ).bind(now, admin, accountId, actorId),
+    db.prepare(
+      `UPDATE accounts SET admin_role = NULL WHERE id = ? AND admin_role = 'admin' AND ${ACTOR_IS('owner')} RETURNING id`,
+    ).bind(accountId, actorId),
+  ]);
+  return results[1].results.length > 0;
 }
 
 /**

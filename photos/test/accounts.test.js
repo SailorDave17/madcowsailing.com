@@ -18,6 +18,7 @@ import { requestsText } from '../lib/admin-page.js';
 import { RESEND_URL, TEXT_MAX } from '../lib/mail.js';
 import { NOTE_MAX as REMOVAL_NOTE_MAX, readNote } from '../lib/removals.js';
 import { onRequestGet as adminIndex } from '../functions/admin/index.js';
+import { adminData, seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 
 const HOUR = 497_222;
@@ -360,7 +361,7 @@ test('the admin home says how many requests wait, and its load deletes the addre
   // An hour-old row put in after the requests, whose own tidying would
   // otherwise have deleted it: only the home's load can.
   db.sqlite.prepare("UPDATE account_request_log SET requested_at = ? WHERE address_hash = 'one'").run(NOW - 3600);
-  const res = await adminIndex({ data: { owner: { email: 'owner@example.org' } }, env: { DB: db } });
+  const res = await adminIndex({ data: adminData(), env: { DB: db } });
   const html = await res.text();
   assert.match(html, /<p>2 requests for an account are waiting\.<\/p>/);
   assert.deepEqual(rows(db, 'SELECT address_hash FROM account_request_log ORDER BY address_hash').map((r) => r.address_hash), ['three', 'two']);
@@ -370,17 +371,25 @@ test('the admin home says how many requests wait, and its load deletes the addre
 
 // ---- The admins' email --------------------------------------------------------
 
-const ADMINS = 'first.admin@example.org, Second.Admin@example.org';
-const mailEnv = (db, extra = {}) => ({ DB: db, RESEND_API_KEY: 'test-key-not-real', ADMIN_EMAILS: ADMINS, ...extra });
-const named = (db) => rows(db, 'SELECT email, admins_emailed FROM accounts ORDER BY id').map((r) => `${r.email}:${r.admins_emailed}`);
+// The admins (#224): every account holding the admin role and an approved
+// team, the owner's included. Until #224 they were the addresses on the
+// ADMIN_EMAILS secret, which nothing reads now. Seeded ahead of the requests,
+// so named() leaves them out.
+const ADMINS = ['first.admin@example.org', 'Second.Admin@example.org'];
+const seedAdmins = (db, emails = ADMINS) =>
+  emails.forEach((email, i) => seedAdmin(db, { email, name: `Admin ${i + 1}`, role: i === 0 ? 'owner' : 'admin' }));
+const mailEnv = (db, extra = {}) => ({ DB: db, RESEND_API_KEY: 'test-key-not-real', ...extra });
+const named = (db) => rows(db, 'SELECT email, admins_emailed FROM accounts WHERE admin_role IS NULL ORDER BY id').map((r) => `${r.email}:${r.admins_emailed}`);
 const sentAt = (db) => db.sqlite.prepare('SELECT sent_at FROM account_request_mail').get()?.sent_at;
 
 test('the first request emails every admin at once, each a send of their own, and names it', async () => {
   assert.equal(MAIL_WINDOW_SECONDS, 3600);
   const db = d1();
+  seedAdmins(db);
   await take(db, { teams: ['hoover-jrt', 'cohssa'] });
   assert.deepEqual(await mailAdmins(mailEnv(db), { now: NOW, site: SITE }), { outcome: 'sent', named: 1, sent: 2 });
-  assert.deepEqual(sends.map((s) => s.to), [['first.admin@example.org'], ['second.admin@example.org']]);
+  // Each to the address its account holds, as typed when it asked.
+  assert.deepEqual(sends.map((s) => s.to), [['first.admin@example.org'], ['Second.Admin@example.org']]);
   assert.equal(sends[0].subject, 'An account request is waiting on the photo site');
   assert.match(sends[0].text, /^- Jane Rivers, parent: Hoover JRT and COHSSA$/m);
   assert.match(sends[0].text, new RegExp(`Review it at ${SITE}/admin/people\\n`));
@@ -390,6 +399,7 @@ test('the first request emails every admin at once, each a send of their own, an
 
 test('inside the hour a request sends nothing, and the first after it names every request since', async () => {
   const db = d1();
+  seedAdmins(db);
   const env = mailEnv(db);
   await take(db, { email: 'one@example.org', name: 'One' });
   assert.equal((await mailAdmins(env, { now: NOW, site: SITE })).outcome, 'sent');
@@ -409,6 +419,7 @@ test('inside the hour a request sends nothing, and the first after it names ever
 test('when no admin\'s email goes through, the hour goes back and the requests stay unnamed, so the next request sends', async (t) => {
   t.mock.method(console, 'error', () => {});
   const db = d1();
+  seedAdmins(db);
   const env = mailEnv(db);
   await take(db);
   resend = () => new Response('down', { status: 503 });
@@ -425,6 +436,7 @@ test('when no admin\'s email goes through, the hour goes back and the requests s
 test('one admin\'s email going through is enough: the requests are named and the hour is kept', async (t) => {
   t.mock.method(console, 'error', () => {});
   const db = d1();
+  seedAdmins(db);
   await take(db);
   resend = (body) => (body.to[0].startsWith('first') ? new Response('no', { status: 503 }) : Response.json({ id: 'ok' }));
   assert.deepEqual(await mailAdmins(mailEnv(db), { now: NOW, site: SITE }), { outcome: 'sent', named: 1, sent: 1 });
@@ -432,17 +444,37 @@ test('one admin\'s email going through is enough: the requests are named and the
   assert.equal(sentAt(db), NOW);
 });
 
-test('with nobody on ADMIN_EMAILS nothing is claimed or sent; with nothing unnamed the hour goes back', async (t) => {
+test('with no admin who can sign in nothing is claimed or sent; with nothing unnamed the hour goes back', async (t) => {
   t.mock.method(console, 'error', () => {});
   const db = d1();
   await take(db);
-  for (const list of [undefined, '', ' , ']) {
-    assert.deepEqual(await mailAdmins(mailEnv(db, { ADMIN_EMAILS: list }), { now: NOW, site: SITE }), { outcome: 'no-admins' });
-  }
+  // No admin at all; then an admin approved for no team, who cannot sign in;
+  // then that admin with the role taken away (#224). The ADMIN_EMAILS secret
+  // counts for nothing now, whatever it holds.
+  assert.deepEqual(await mailAdmins(mailEnv(db, { ADMIN_EMAILS: 'old.list@example.org' }), { now: NOW, site: SITE }), { outcome: 'no-admins' });
+  db.sqlite.prepare("INSERT INTO accounts (email, name, role, requested_at, admin_role) VALUES ('unteamed@example.org', 'Unteamed', 'parent', 1, 'owner')").run();
+  assert.deepEqual(await mailAdmins(mailEnv(db), { now: NOW, site: SITE }), { outcome: 'no-admins' });
   assert.equal(sentAt(db), undefined);
+  // The control: approved for a team, the same account is an admin who is
+  // emailed, so the refusals above were the team and the role, not the query.
+  db.sqlite.prepare("INSERT INTO account_teams (account_id, team, state) SELECT id, 'cohssa', 'approved' FROM accounts WHERE email = 'unteamed@example.org'").run();
+  assert.deepEqual(await mailAdmins(mailEnv(db), { now: NOW, site: SITE }), { outcome: 'sent', named: 1, sent: 1 });
+  assert.deepEqual(sends.map((s) => s.to), [['unteamed@example.org']]);
+  db.sqlite.prepare("DELETE FROM account_request_mail").run();
+  sends = [];
+  // A plain admin without the role is no admin: seeded beside the owner, then
+  // demoted, which the last-admin rule allows while the owner stays.
+  seedAdmin(db, { email: 'former@example.org', name: 'Former', role: 'admin' });
+  db.sqlite.prepare("UPDATE accounts SET admin_role = NULL WHERE email = 'former@example.org'").run();
+  await take(db, { email: 'second@example.org', name: 'Second' }, { now: NOW + 1 });
+  assert.deepEqual(await mailAdmins(mailEnv(db), { now: NOW + 1, site: SITE }), { outcome: 'sent', named: 1, sent: 1 });
+  assert.deepEqual(sends.map((s) => s.to), [['unteamed@example.org']]);
+  // With nothing left unnamed, the hour claimed goes back.
+  sends = [];
   db.sqlite.prepare("UPDATE account_teams SET state = 'approved'").run();
-  assert.deepEqual(await mailAdmins(mailEnv(db), { now: NOW, site: SITE }), { outcome: 'nothing' });
-  assert.equal(sentAt(db), NOW - MAIL_WINDOW_SECONDS);
+  const later = NOW + 1 + MAIL_WINDOW_SECONDS;
+  assert.deepEqual(await mailAdmins(mailEnv(db), { now: later, site: SITE }), { outcome: 'nothing' });
+  assert.equal(sentAt(db), later - MAIL_WINDOW_SECONDS);
   assert.equal(sends.length, 0);
 });
 
@@ -453,12 +485,22 @@ test('a database failure gives the hour back before an email goes, and keeps it 
     prepare: (sql) => (pattern.test(sql) ? { bind: () => ({ all: async () => { throw new Error('D1 down'); }, run: async () => { throw new Error('D1 down'); } }) } : db.prepare(sql)),
   });
   const before = d1();
+  seedAdmins(before);
   await take(before);
   assert.deepEqual(await mailAdmins(mailEnv(failing(before, /^SELECT a\.id/)), { now: NOW, site: SITE }), { outcome: 'failed' });
   assert.equal(sentAt(before), NOW - MAIL_WINDOW_SECONDS, 'a failure before sending kept the hour');
   assert.equal(sends.length, 0);
 
+  // Reading who the admins are fails before any hour is claimed (#224).
+  const unread = d1();
+  seedAdmins(unread);
+  await take(unread);
+  assert.deepEqual(await mailAdmins(mailEnv(failing(unread, /^SELECT a\.email/)), { now: NOW, site: SITE }), { outcome: 'failed' });
+  assert.equal(sentAt(unread), undefined, 'a failure reading the admins claimed the hour');
+  assert.equal(sends.length, 0);
+
   const after = d1();
+  seedAdmins(after);
   await take(after);
   assert.deepEqual(await mailAdmins(mailEnv(failing(after, /^UPDATE accounts/)), { now: NOW, site: SITE }), { outcome: 'failed' });
   assert.equal(sends.length, 2);
@@ -468,7 +510,8 @@ test('a database failure gives the hour back before an email goes, and keeps it 
 test('one email names at most LIST_MAX requests and says how many more wait; the next names those', async () => {
   assert.equal(LIST_MAX, 50);
   const db = d1();
-  const env = mailEnv(db, { ADMIN_EMAILS: 'admin@example.org' });
+  seedAdmins(db, ['admin@example.org']);
+  const env = mailEnv(db);
   for (let i = 0; i < LIST_MAX + 3; i++) {
     db.sqlite.prepare('INSERT INTO accounts (email, name, role, requested_at) VALUES (?, ?, ?, ?)').run(`p${i}@example.org`, `Person ${i}`, 'parent', NOW);
     db.sqlite.prepare("INSERT INTO account_teams VALUES (last_insert_rowid(), 'cohssa', 'requested')").run();
@@ -488,16 +531,18 @@ test('the widest email LIST_MAX requests can make is one lib/mail.js sends', asy
   const { subject, text } = adminsEmail(widest, SITE, 999_999);
   assert.ok(text.length <= TEXT_MAX, `${text.length} > ${TEXT_MAX}`);
   const db = d1();
+  seedAdmins(db, ['admin@example.org']);
   for (const [i, { name }] of widest.entries()) {
     db.sqlite.prepare('INSERT INTO accounts (email, name, role, requested_at) VALUES (?, ?, ?, ?)').run(`w${i}@example.org`, name, 'parent', NOW);
     db.sqlite.prepare("INSERT INTO account_teams VALUES (last_insert_rowid(), 'hoover-jrt', 'requested'), (last_insert_rowid(), 'cohssa', 'requested')").run();
   }
-  assert.equal((await mailAdmins(mailEnv(db, { ADMIN_EMAILS: 'admin@example.org' }), { now: NOW, site: SITE })).outcome, 'sent');
+  assert.equal((await mailAdmins(mailEnv(db), { now: NOW, site: SITE })).outcome, 'sent');
   assert.equal(subject.length > 0, true);
 });
 
 test('the email names each requester by name, role and teams, and never their address or note; the subject names nobody', async () => {
   const db = d1();
+  seedAdmins(db);
   await take(db, { email: 'private.address@example.org', name: 'Pat Lee', role: 'coach', teams: ['cohssa'], note: 'A private note' });
   await mailAdmins(mailEnv(db), { now: NOW, site: 'https://develop.madcowphotos.pages.dev' });
   const [{ subject, text }] = sends;

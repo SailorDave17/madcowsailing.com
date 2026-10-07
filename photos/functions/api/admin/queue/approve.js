@@ -2,7 +2,7 @@
  * POST /api/admin/queue/approve: approve one waiting photo, or every photo a
  * batch showed (#156). Posted by a batch's form on /admin/queue: an
  * "Approve" button sends approve=<id>, "Approve all" approve=all. The guards
- * in ../_middleware.js have already required an admin's Access token and the
+ * in ../_middleware.js have already required an admin's session and the
  * site's own Origin.
  *
  * Every caption typed in the batch is saved first (lib/queue.js), so the
