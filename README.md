@@ -266,20 +266,32 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   `madcowsailing.cloudflareaccess.com`. It is the issuer #151 checks. `madcow`
   was wanted and is taken by another account: the rename answered `409`, while
   the confirmation dialog had already shown `madcow.cloudflareaccess.com`.
-- Three Access applications, read back from Zero Trust → Access controls →
+- Two Access applications, read back from Zero Trust → Access controls →
   Applications on 2026-09-28 (#151) and, for the coach one, 2026-10-01 (#192):
 
-  | | Admin (#151) | Coach (#192) | Previews (#149) |
-  |---|---|---|---|
-  | Name | `madcowphotos admin` | `madcowphotos coach` | `madcowphotos - Cloudflare Pages` |
-  | Destinations | `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*` | `photos.madcowsailing.com/coach` and `…/coach/*` | `*.madcowphotos.pages.dev` |
-  | Policy | `Admins - photos admin`: Allow, Include Emails (the admins' addresses, the same list as `ADMIN_EMAILS`), Require Login Methods: One-time PIN | `Coaches - photos coach`: Allow, Include Emails (the coaches' addresses, the same list as `COACH_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
-  | Identity providers | One-time PIN only, instant authentication on | One-time PIN only, instant authentication on | as #149 left it |
-  | Session | 24 hours | 24 hours | as #149 left it |
-  | AUD tag | `78d0a143…` = `env.production.vars.ACCESS_AUD` | `3be126b6…` = `env.production.vars.ACCESS_COACH_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_AUD` and `ACCESS_COACH_AUD` |
+  | | Coach (#192) | Previews (#149) |
+  |---|---|---|
+  | Name | `madcowphotos coach` | `madcowphotos - Cloudflare Pages` |
+  | Destinations | `photos.madcowsailing.com/coach` and `…/coach/*` | `*.madcowphotos.pages.dev` |
+  | Policy | `Coaches - photos coach`: Allow, Include Emails (the coaches' addresses, the same list as `COACH_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
+  | Identity providers | One-time PIN only, instant authentication on | as #149 left it |
+  | Session | 24 hours | as #149 left it |
+  | AUD tag | `3be126b6…` = `env.production.vars.ACCESS_COACH_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_COACH_AUD` |
 
-  Both of each pair of paths are listed because Access's `/admin/*` does not
-  match `/admin`, nor `/coach/*` `/coach`. The coach tag was read twice on
+  **The admin application is gone.** `madcowphotos admin` (#151), on
+  `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*`, with the
+  policy `Admins - photos admin` and the tag `78d0a143…`, was deleted by #268
+  on 2026-10-07, and the `ACCESS_AUD` var that held its tag with it. Since
+  #224 no code had read its token, so all it did was ask an admin for
+  Access's PIN before the site's own sign-in and its code. Its policy was a
+  reusable one, and deleting the application left it in place, used by no
+  application, so it was deleted too. Zero Trust's seat count read 3 of 50
+  before and after: a seat belongs to a person who has signed in through
+  Access, not to an application.
+
+  Both paths are listed because Access's `/coach/*` does not match `/coach`
+  (the admin application listed `/admin` and `/admin/*` for the same
+  reason). The coach tag was read twice on
   2026-10-01: in the application's settings, and in the `kid` of the 302 that
   `https://photos.madcowsailing.com/coach` answers to a visitor with no
   sign-in, beside `/admin`'s `78d0a143…` as the control.
@@ -289,23 +301,24 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   item 20).
   `madcowphotos.pages.dev`, the project's production address, is behind
   neither. The admin application's destination list offered it on 2026-09-28,
-  so Access could cover it too. It was left out, so that address answers the
-  site's own `403`, which is the check #151's criteria read.
-  **The site's own token check is the lock; Access is the door to it.**
-  `photos/lib/access.js` reads the tag from `ACCESS_AUD` and the team domain
-  (`https://madcowsailing.cloudflareaccess.com`, issuer and key URL both) from
-  `ACCESS_TEAM_DOMAIN`, both in `photos/wrangler.jsonc`, one pair per
-  environment. It reads the addresses from the `ADMIN_EMAILS` secret (below),
-  so a person needs to be in a policy **and** in that environment's secret:
-  the policy alone gets a PIN and then a `403`. A tag changes only if its application is
-  deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
-  refuses everyone.
-  **Since #224 that is true of `/coach` alone.** `/admin` answers to the
-  site's admin session (`photos/lib/admin-session.js`), and no code reads the
-  admin application's token, `ACCESS_AUD` or `ADMIN_EMAILS`. The admin
-  application stays in front of `/admin` on `photos.madcowsailing.com` until
-  #226 removes it, so there an admin passes its PIN and then the site's own
-  sign-in.
+  so Access could have covered it too. It was left out, so that address
+  answered the site's own `403`, which is the check #151's criteria read.
+  **For `/coach`, the site's own token check is the lock; Access is the door
+  to it.** `photos/lib/access.js` reads the tag from `ACCESS_COACH_AUD` and
+  the team domain (`https://madcowsailing.cloudflareaccess.com`, issuer and
+  key URL both) from `ACCESS_TEAM_DOMAIN`, both in `photos/wrangler.jsonc`,
+  one pair per environment. It reads the addresses from the `COACH_EMAILS`
+  secret (below), so a coach needs to be in the policy **and** in that
+  environment's secret: the policy alone gets a PIN and then a `403`. A tag
+  changes only if its application is deleted and recreated; then
+  `ACCESS_COACH_AUD` must change with it, or `/coach` refuses everyone.
+  **`/admin` answers to the site's admin session alone**
+  (`photos/lib/admin-session.js`; #224), and since #268 on
+  `photos.madcowsailing.com` too: an admin signs in once, with the password
+  and the emailed code, and a signed-out request is a `303` to
+  `/sign-in?admin` on either hostname. On a `develop` preview the Pages
+  preview application still stands in front of every path, `/admin`
+  included.
 - **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC;
   since #222 the reset form at `/forgot-password` uses it too),
   in Managed mode with pre-clearance off, for the hostnames
@@ -338,14 +351,13 @@ By name only; a value never goes in this repo.
     admin guard let in. **Since #224 nothing reads it**: the admin pages
     answer to accounts holding the admin role, and the admins' email about
     new requests goes to those accounts (`CLAUDE.md`, The photo site, item
-    30). It stays set until #226 deletes it with the Access application.
+    30). It stays set until #226 deletes it; the Access application whose
+    policy held the same list went first, in #268.
     **Adding an admin is now "Make admin" on `/admin/people`**, for anyone
-    with an approved account (Approving accounts, below). Until #226 the
-    `Admins - photos admin` Access policy still stands in front of `/admin`
-    on `photos.madcowsailing.com`, so an admin not on it uses
-    `madcowphotos.pages.dev/admin/` (Making the owner, below). The `Allow
-    Members - Cloudflare Pages` policy still decides who can open a preview
-    at all.
+    with an approved account (Approving accounts, below), and since #268
+    nothing else: no Access policy stands in front of `/admin` on
+    `photos.madcowsailing.com`. The `Allow Members - Cloudflare Pages`
+    policy still decides who can open a preview at all.
   - `COACH_EMAILS` (#192) is the comma-separated list of coaches the coach
     sign-in at `/coach` lets in, kept as a secret for the same reason as
     `ADMIN_EMAILS`, and compared the same way. Unset or empty, `/coach`
@@ -1165,12 +1177,12 @@ on `/admin/people`. `photos/test/policy.test.js` runs the step-3 statement
 against the real schema, on an approved account and on one approved for no
 team.
 
-**Until #226, Cloudflare Access still stands in front of `/admin` on
-`photos.madcowsailing.com`** (criterion 7), and its policy lists the addresses
-it always has. So an admin made on `/admin/people` who is not on that policy
-opens the admin pages at `https://madcowphotos.pages.dev/admin/`, where Access
-is not, or is added to the policy as well. Everyone on it meets both: Access's
-PIN, then the site's sign-in and its code.
+**Until #268, Cloudflare Access stood in front of `/admin` on
+`photos.madcowsailing.com`** (#224's criterion 7), so an admin not on its
+policy opened the admin pages at `https://madcowphotos.pages.dev/admin/`, and
+everyone on it met Access's PIN before the site's sign-in and its code. #268
+deleted that application on 2026-10-07: every admin now signs in once, on
+either hostname.
 
 ### Signing in
 
@@ -1220,10 +1232,10 @@ until #226.
   opens the account's 90-day session and a 12-hour admin session,
   `__Host-admin`, which every admin page and admin API checks on every
   request: the role, the session version and an approved team. It lands on
-  `/account`, whose "Open the admin pages" link opens them: until #226,
-  Access stands in front of `/admin` on `photos.madcowsailing.com`, and
-  Chromium and WebKit stop a form's redirect into its login under the page's
-  `form-action 'self'`, where a link goes through (#224's review). An admin
+  `/account`, whose "Open the admin pages" link opens them: until #268,
+  Access stood in front of `/admin` on `photos.madcowsailing.com`, and
+  Chromium and WebKit stopped a form's redirect into its login under the
+  page's `form-action 'self'`, where a link went through (#224's review). An admin
   is sent at most 10 codes in any 24 hours; a code whose email Resend
   refused is deleted and does not count, and a new password deletes the
   account's codes, so a reset lifts the limit at once. A password's step at

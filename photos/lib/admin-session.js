@@ -4,9 +4,9 @@
  * and admin API runs (functions/admin/_middleware.js and
  * functions/api/admin/_middleware.js). It replaced requireOwner's Cloudflare
  * Access check (#151) in both directories (owner, at #224's pickup: replace
- * outright). The Access application still stands in front of /admin on
- * photos.madcowsailing.com until #226 removes it, but no code reads its token
- * there now.
+ * outright). The Access application that stood in front of /admin on
+ * photos.madcowsailing.com was deleted by #268, so this is the only sign-in
+ * on every hostname.
  *
  *   __Host-admin=m1.<account>.<version>.<issued>.<signature>
  *
