@@ -87,6 +87,61 @@
   color: var(--deep);
 }
 
+/* ---- Admin: the home's to-do list (#269) ---------------------------- */
+
+/* The home opens on what is waiting, so the list follows its head closely,
+   as the request form does. */
+.admin-todo {
+  padding-block-start: 0;
+}
+
+.todo {
+  list-style: none;
+  padding: 0;
+  margin-block-start: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* One full-width button per thing waiting, a zero included. --space-6 is
+   48 px, past the 44 px #269 asks for a thumb on a phone, and the text wraps
+   inside it at 320 px rather than widening the page (WCAG 1.4.10). */
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--space-6);
+  font-size: var(--text-base);
+}
+
+.todo-count {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+}
+
+/* The other sections are links in sentences; each gets a little height and
+   a step apart, so a thumb does not take the next one by mistake. */
+.admin-links li + li {
+  margin-block-start: var(--space-2);
+}
+
+.admin-links a {
+  display: inline-block;
+  padding-block: var(--space-1);
+}
+
+/* The storage figure is a line of its own under the links, not a fifth one. */
+.admin-storage {
+  margin-block-start: var(--space-3);
+}
+
+/* An email address is one unbroken word, which can be wider than a 320 px
+   screen (as on /admin/people, #221). */
+.signed-in {
+  overflow-wrap: anywhere;
+}
+
 /* ---- Admin: albums (#153) ------------------------------------------- */
 
 /* The first form fields on any of the three sites. The border is --deep, not

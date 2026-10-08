@@ -1117,19 +1117,19 @@ test('Download and "Remove this photo" each have the same 24 px box, so neither 
 test('the admin home says how many removal requests wait: hidden photos, not clips, not other states', async () => {
   const { env, fall } = await site();
   const home = async () => words(block(await (await admin(env, 'GET', '/admin', { origin: null })).text(), 'main'));
-  assert.match(await home(), /No removal request is waiting\./);
+  assert.match(await home(), / 0 removal requests waiting\. Nothing to do\. /);
   seed(env, fall);
   seed(env, fall, { state: 'pending' });
   seedClip(env, fall, 'hidden');
   const id = seed(env, fall, { state: 'hidden' });
-  assert.match(await home(), /1 removal request is waiting\./);
+  assert.match(await home(), / 1 removal request waiting /);
   seed(env, fall, { state: 'hidden' });
-  assert.match(await home(), /2 removal requests are waiting\./);
+  assert.match(await home(), / 2 removal requests waiting /);
   // It follows the table: a photo put back is no longer waiting.
   await restore(env, id);
-  assert.match(await home(), /1 removal request is waiting\./);
-  // And it links the page.
-  assert.match(await (await admin(env, 'GET', '/admin', { origin: null })).text(), /<a href="\/admin\/removals">Removal requests<\/a>/);
+  assert.match(await home(), / 1 removal request waiting /);
+  // And it links the page (#269: as a button).
+  assert.match(await (await admin(env, 'GET', '/admin', { origin: null })).text(), /<a class="button todo-item" href="\/admin\/removals"><span class="todo-count">1<\/span>/);
 });
 
 // ---- The pages themselves -----------------------------------------------------

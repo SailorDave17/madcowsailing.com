@@ -12,9 +12,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FileSystemConfigLoader, HtmlValidate } from 'html-validate';
 
-import { SECTIONS, adminHome } from '../lib/admin-page.js';
+import { SECTIONS, TODO, adminHome, todoItem } from '../lib/admin-page.js';
+import { createAlbum } from '../lib/albums.js';
 import { onRequestGet as home } from '../functions/admin/index.js';
 import { onRequestGet as session } from '../functions/api/admin/session.js';
+import { seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -45,8 +47,129 @@ function staticPages(dir = join(ROOT, 'public'), prefix = '') {
 }
 
 test('the admin home says who is signed in, as the owner or an admin, and when the 12 hours end (#224)', () => {
-  assert.match(page, /<p class="lede">Signed in as Owner, owner@example\.com, the owner\. The admin pages stay open until <time datetime="2026-09-22T02:13:20\.000Z">22 September 2026, 02:13 UTC<\/time>, then ask you to sign in again\.<\/p>/);
+  assert.match(page, /<p class="signed-in">Signed in as Owner, owner@example\.com, the owner\. The admin pages stay open until <time datetime="2026-09-22T02:13:20\.000Z">22 September 2026, 02:13 UTC<\/time>, then ask you to sign in again\.<\/p>/);
   assert.match(adminHome({ ...ADMIN, role: 'admin' }, EMPTY), /owner@example\.com, an admin\. /);
+});
+
+// ---- #269: the home is a to-do list of what is waiting ----------------------
+
+const T0 = 1_790_000_000;
+const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' };
+
+/** The `<ul class="todo">`'s items: each one's classes, link, count and words, in page order. */
+function todoList(html) {
+  const list = block(html, 'main').match(/<ul class="todo">([\s\S]*?)<\/ul>/)?.[1];
+  assert.ok(list, 'no to-do list');
+  return [...list.matchAll(/<li><a class="([^"]+)" href="([^"]+)"><span class="todo-count">(\d+)<\/span> <span>([^<]*)<\/span><\/a><\/li>/g)]
+    .map(([, classes, href, count, words]) => ({ classes, href, count: Number(count), words }));
+}
+
+/** A photo row in `state` (#154's shape), or a clip (#198's), in the album at `address`. */
+function seedRow(db, address, { kind = 'photo', state }) {
+  const albumId = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  const key = db.sqlite.prepare('SELECT COUNT(*) AS n FROM photos').get().n.toString(16).padStart(32, '0');
+  const approvedAt = state === 'pending' ? null : T0 + 1;
+  const hiddenAt = state === 'hidden' ? T0 + 2 : null;
+  if (kind === 'clip') {
+    db.sqlite.prepare(
+      'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+      'captured_at, sent_at, width, height, bytes, content_type, duration_ms, approved_at, hidden_at) ' +
+      "VALUES (?, 'clip', ?, ?, 'b', 'parent', 1, 1, ?, ?, 1920, 1080, 5000000, 'video/mp4', 30000, ?, ?)",
+    ).run(albumId, state, key, T0, T0, approvedAt, hiddenAt);
+    return;
+  }
+  db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at, hidden_at) ' +
+    "VALUES (?, 'photo', ?, ?, 'b', 'parent', 1, 1, ?, ?, 2560, 1920, 480, 360, 1600, 1200, 1000, ?, ?)",
+  ).run(albumId, state, key, T0, T0, approvedAt, hiddenAt);
+}
+
+/** An account asking for `teams` in `state`, as #220's form and #221's decisions leave it. */
+function seedPerson(db, email, teams) {
+  const { lastInsertRowid } = db.sqlite
+    .prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES (?, ?, 'parent', ?)")
+    .run(email, email.split('@')[0], T0);
+  for (const [team, state] of Object.entries(teams)) {
+    db.sqlite.prepare('INSERT INTO account_teams (account_id, team, state) VALUES (?, ?, ?)').run(lastInsertRowid, team, state);
+  }
+}
+
+/** GET /admin over `db`, as the guard leaves it. */
+const homeOf = async (db) => (await home({ data: { admin: ADMIN }, env: { DB: db } })).text();
+
+test('/admin opens on what is waiting: photos, account requests and removal requests, in that order, each counted from the rows (#269, criterion 1)', async () => {
+  const db = d1();
+  seedAdmin(db);
+  const fall = await createAlbum(db, FALL, T0);
+  // Counts chosen apart, 3, 2 and 1, so two counts swapped between items
+  // read wrong. Beside each, rows that must not count: an approved photo, and
+  // a waiting and a hidden clip (clips wait for #198), for the photos and the
+  // removal requests; for the requests, a person asking for both teams (one
+  // person, counted once), and people approved, turned down or revoked.
+  for (let i = 0; i < 3; i++) seedRow(db, fall, { state: 'pending' });
+  seedRow(db, fall, { state: 'approved' });
+  seedRow(db, fall, { kind: 'clip', state: 'pending' });
+  seedRow(db, fall, { state: 'hidden' });
+  seedRow(db, fall, { kind: 'clip', state: 'hidden' });
+  seedPerson(db, 'both@example.org', { 'hoover-jrt': 'requested', cohssa: 'requested' });
+  seedPerson(db, 'one@example.org', { 'hoover-jrt': 'approved', cohssa: 'requested' });
+  seedPerson(db, 'done@example.org', { 'hoover-jrt': 'approved' });
+  seedPerson(db, 'no@example.org', { cohssa: 'rejected' });
+  seedPerson(db, 'gone@example.org', { 'hoover-jrt': 'revoked' });
+  const html = await homeOf(db);
+  assert.deepEqual(todoList(html), [
+    { classes: 'button todo-item', href: '/admin/queue', count: 3, words: 'photos waiting for approval' },
+    { classes: 'button todo-item', href: '/admin/people', count: 2, words: 'account requests waiting' },
+    { classes: 'button todo-item', href: '/admin/removals', count: 1, words: 'removal request waiting' },
+  ]);
+  // It opens on them: the list is the section right after the page's head,
+  // ahead of the links and of who is signed in.
+  const headings = [...block(html, 'main').matchAll(/<h[12][^>]*>([^<]*)</g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['Photo site admin', 'Waiting for you', 'Manage the site', 'Your sign-in']);
+});
+
+test('a zero is shown, in the quiet button, and reads as nothing to do; a count above it does not (#269, criteria 1 and 2)', async () => {
+  // Zero included: an empty site, its admin the one account, approved.
+  const db = d1();
+  seedAdmin(db);
+  await createAlbum(db, FALL, T0);
+  assert.deepEqual(todoList(await homeOf(db)), [
+    { classes: 'button button-quiet todo-item', href: '/admin/queue', count: 0, words: 'photos waiting for approval. Nothing to do.' },
+    { classes: 'button button-quiet todo-item', href: '/admin/people', count: 0, words: 'account requests waiting. Nothing to do.' },
+    { classes: 'button button-quiet todo-item', href: '/admin/removals', count: 0, words: 'removal requests waiting. Nothing to do.' },
+  ]);
+  // Mixed: each item reads its own count, so one zero among two others stays a zero.
+  const mixed = todoList(adminHome(ADMIN, { waiting: 2, requests: 0, removals: 1, bytes: 0 }));
+  assert.deepEqual(mixed.map(({ count, classes }) => [count, classes]), [
+    [2, 'button todo-item'], [0, 'button button-quiet todo-item'], [1, 'button todo-item'],
+  ]);
+  assert.deepEqual(mixed.map(({ words }) => words.includes('Nothing to do')), [false, true, false]);
+});
+
+test('each item reads one and many right', () => {
+  const [photos, requests, removals] = TODO;
+  assert.match(todoItem(photos, 1), /<span>photo waiting for approval<\/span>/);
+  assert.match(todoItem(photos, 2), /<span>photos waiting for approval<\/span>/);
+  assert.match(todoItem(requests, 1), /<span>account request waiting<\/span>/);
+  assert.match(todoItem(requests, 12), /<span>account requests waiting<\/span>/);
+  assert.match(todoItem(removals, 1), /<span>removal request waiting<\/span>/);
+  assert.match(todoItem(removals, 0), /<span>removal requests waiting\. Nothing to do\.<\/span>/);
+});
+
+test('each to-do item is a full-width button at least 44 px tall, by the stylesheet (#269, criterion 1)', () => {
+  const css = read('public', 'css', 'site.css');
+  const rule = (selector) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`))?.[1] ?? '';
+  const item = rule('.todo-item');
+  assert.match(item, /display: flex;/);
+  assert.match(item, /width: 100%;/);
+  const height = item.match(/min-height: var\((--[a-z0-9-]+)\);/)?.[1];
+  assert.ok(height, 'no min-height token on .todo-item');
+  // The token, resolved: rem at the browser's 16 px.
+  const rem = Number(read('..', 'shared', 'css', 'tokens.css').match(new RegExp(`${height}:\\s*([0-9.]+)rem;`))?.[1]);
+  assert.ok(rem * 16 >= 44, `${height} is ${rem * 16} px, under 44`);
+  // The control: the matcher reads a rule's body, and a rule that is not there reads empty.
+  assert.equal(rule('.no-such-rule'), '');
 });
 
 test('the admin home has Sign out, a form posting to /sign-out that says it ends every session (#224)', () => {
@@ -62,10 +185,18 @@ test('the name and email are escaped, so an account cannot put markup on the pag
   assert.doesNotMatch(html, /a<b>|<i>Jo/);
 });
 
-test('it links to each section the later stories fill', () => {
-  const hrefs = [...block(page, 'main').matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(hrefs, ['/admin/code', '/admin/albums', '/admin/queue', '/admin/removals', '/admin/people', '/admin/mail']);
-  assert.deepEqual(hrefs, SECTIONS.map((s) => s.href));
+test('the invite code, albums, people and email follow the list as links, then the storage (#269, criterion 2)', () => {
+  const main = block(page, 'main');
+  // Every link on the page: the three items, then the four sections.
+  const hrefs = [...main.matchAll(/<a\b[^>]*\shref="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(hrefs, ['/admin/queue', '/admin/people', '/admin/removals', '/admin/code', '/admin/albums', '/admin/people', '/admin/mail']);
+  assert.deepEqual(hrefs.slice(0, 3), TODO.map((t) => t.href));
+  assert.deepEqual(hrefs.slice(3), SECTIONS.map((s) => s.href));
+  // The links are a list under "Manage the site", and the storage a line after it.
+  const manage = main.match(/<h2 id="admin-sections">Manage the site<\/h2>\s*<ul class="admin-links">([\s\S]*?)<\/ul>\s*<p class="admin-storage">([^<]*)<\/p>/);
+  assert.ok(manage, 'no list of links followed by the storage line');
+  assert.deepEqual([...manage[1].matchAll(/<li><a href="([^"]+)">([^<]+)<\/a>: /g)].map((m) => m[2]), ['Invite code', 'Albums', 'People', 'Email']);
+  assert.equal(manage[2], 'Storage used: 0 KB of the free 10 GB (0.0%).');
 });
 
 test('it has one h1, a main, a skip link to it, and noindex', () => {

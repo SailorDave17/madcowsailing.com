@@ -20,7 +20,8 @@
  * added the home's count of requests for an account. #221's page for them,
  * /admin/people, is lib/people-page.js, which takes adminPage() from here.
  * #228 added the queue's Move to event and the albums page's section for
- * each team's "Not sure / other event".
+ * each team's "Not sure / other event". #269 made the home a to-do list:
+ * TODO, then the links to the other sections and the storage figure.
  */
 import { ADMIN_SESSION_SECONDS } from './admin-session.js';
 import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
@@ -58,19 +59,28 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=ac1e9e37fb">
+<link rel="stylesheet" href="/css/site.css?v=5b8204240d">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
-// The sections the later stories of epic #147 fill, in the order the owner
-// works through them. Each path is the one its story names.
+// What waits for an admin, in the order the admin home lists it (#269): each
+// a count from adminHome()'s summary, shown as a full-width button to the page
+// where it is dealt with, a zero included. The queue and the removal requests
+// are reached through these alone; People is a link below them as well.
+export const TODO = [
+  { href: '/admin/queue', count: 'waiting', one: 'photo waiting for approval', many: 'photos waiting for approval' },
+  { href: '/admin/people', count: 'requests', one: 'account request waiting', many: 'account requests waiting' },
+  { href: '/admin/removals', count: 'removals', one: 'removal request waiting', many: 'removal requests waiting' },
+];
+
+// The other sections, linked under the to-do list in this order. Each path
+// is the one its story names. The invite code stays until #226 retires the
+// invite link (owner, at #269's pickup).
 export const SECTIONS = [
   { href: '/admin/code', name: 'Invite code', what: 'the link parents join with, and changing it' },
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
-  { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
-  { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
   { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, who the admins are, and the admins\' log' },
   { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
 ];
@@ -108,25 +118,19 @@ ${FOOTER}
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-/** How many photos wait, as the admin home says it. */
-export function waitingText(waiting) {
-  if (waiting === 0) return 'No photo is waiting for approval.';
-  return `${plural(waiting, 'photo is', 'photos are')} waiting for approval.`;
-}
-
-/** How many removal requests wait (#158): each is one hidden photo. */
-export function removalsText(removals) {
-  if (removals === 0) return 'No removal request is waiting.';
-  return `${plural(removals, 'removal request is', 'removal requests are')} waiting.`;
-}
-
 /**
- * How many requests for an account wait (#220): each is one person, with a
- * team an admin has not yet approved or turned down.
+ * One item of the admin home's to-do list (#269), `n` of `item` (a TODO
+ * entry): a full-width button to its page, the count first. A zero is still
+ * shown, in the quiet button, and says there is nothing to do, so an empty
+ * list reads as done rather than as missing. The counts are lib/queue.js's
+ * queueSummary() (photos waiting; removal requests, each one hidden photo,
+ * #158) and lib/accounts.js's waitingRequests() (people with a team an admin
+ * has not yet approved or turned down, #220).
  */
-export function requestsText(requests) {
-  if (requests === 0) return 'No request for an account is waiting.';
-  return `${plural(requests, 'request for an account is', 'requests for an account are')} waiting.`;
+export function todoItem({ href, one, many }, n) {
+  const what = n === 1 ? one : many;
+  const words = n === 0 ? `${what}. Nothing to do.` : what;
+  return `<li><a class="button${n === 0 ? ' button-quiet' : ''} todo-item" href="${href}"><span class="todo-count">${n}</span> <span>${words}</span></a></li>`;
 }
 
 /**
@@ -147,15 +151,21 @@ export function storageText(bytes) {
 
 /**
  * The admin home for `admin`, lib/admin-session.js's context.data.admin:
- * { name, email, role, issued }. Since #224 it says who is signed in, whether
- * as the owner or an admin, and when the 12-hour admin sign-in ends, and has
- * Sign out, which ends every session the account holds (lib/sign-in.js,
- * signOut). `summary` is lib/queue.js's queueSummary(): how many photos wait,
- * how many removal requests wait, and the bytes stored; and, since #220,
- * `requests`, lib/accounts.js's waitingRequests().
+ * { name, email, role, issued }. `summary` is lib/queue.js's queueSummary():
+ * how many photos wait, how many removal requests wait, and the bytes stored;
+ * and, since #220, `requests`, lib/accounts.js's waitingRequests().
+ *
+ * Since #269 it opens on what is waiting, TODO's three buttons in order,
+ * then links to the other sections and the storage figure. Last, since #224,
+ * who is signed in, whether as the owner or an admin, and when the 12-hour
+ * admin sign-in ends, and Sign out, which ends every session the account
+ * holds (lib/sign-in.js, signOut). Until #269 that came first, and on a
+ * phone it filled the first screen.
  */
-export function adminHome({ name, email, role, issued }, { waiting, removals, bytes, requests = 0 }) {
-  const items = SECTIONS.map(({ href, name: section, what }) =>
+export function adminHome({ name, email, role, issued }, { waiting = 0, removals = 0, bytes, requests = 0 }) {
+  const counts = { waiting, requests, removals };
+  const todo = TODO.map((item) => `      ${todoItem(item, counts[item.count])}`).join('\n');
+  const links = SECTIONS.map(({ href, name: section, what }) =>
     `      <li><a href="${href}">${escapeHtml(section)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   const as = role === 'owner' ? 'the owner' : 'an admin';
   return adminPage({
@@ -164,26 +174,30 @@ export function adminHome({ name, email, role, issued }, { waiting, removals, by
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Photo site admin</h1>
-    <p class="lede">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
-    <form method="post" action="/sign-out">
-      <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
-      <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>
-    </form>
   </section>
 
-  <section class="wrap" aria-labelledby="admin-now">
-    <h2 id="admin-now">At a glance</h2>
-    <p>${waitingText(waiting)}</p>
-    <p>${removalsText(removals)}</p>
-    <p>${requestsText(requests)}</p>
-    <p>${storageText(bytes)}</p>
+  <section class="wrap admin-todo" aria-labelledby="admin-todo">
+    <h2 id="admin-todo">Waiting for you</h2>
+    <ul class="todo">
+${todo}
+    </ul>
   </section>
 
   <section class="wrap" aria-labelledby="admin-sections">
     <h2 id="admin-sections">Manage the site</h2>
-    <ul>
-${items}
+    <ul class="admin-links">
+${links}
     </ul>
+    <p class="admin-storage">${storageText(bytes)}</p>
+  </section>
+
+  <section class="wrap" aria-labelledby="admin-you">
+    <h2 id="admin-you">Your sign-in</h2>
+    <p class="signed-in">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
+    <form method="post" action="/sign-out">
+      <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
+      <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>
+    </form>
   </section>
 </main>`,
   });
