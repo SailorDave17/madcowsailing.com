@@ -283,8 +283,8 @@ const ACCOUNT_NOTICES = {
  * `notice` is a key of ACCOUNT_NOTICES.
  *
  * Since #224 an admin lands here too, after the code, and the page links the
- * admin pages: a link gets through the Access sign-in that stands in front
- * of /admin until #226, where a form's redirect is stopped (the owner's
+ * admin pages: a link got through the Access sign-in that stood in front of
+ * /admin until #268, where a form's redirect was stopped (the owner's
  * choice at #224's review; functions/sign-in/code.js says why). The link is
  * drawn for any account holding the role, whatever cookie the browser holds:
  * the admin pages ask for the code again once their 12 hours are up.

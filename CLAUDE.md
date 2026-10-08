@@ -76,8 +76,10 @@ site**, on those accounts; #194 recorded the decisions behind both epics
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
 #228 gave each team a "Not sure / other event" for photos from an event
 nobody has added yet, which an admin moves into its event on `/admin/queue`
-before approving them (item 32). The `develop` preview sits behind
-Access. The domain has served a holding page since release `50992c3`
+before approving them (item 32). #268, the first of epic #267's, deleted
+the Access application in front of `/admin` on production, so an admin
+signs in once, with the password and the emailed code (item 30). The
+`develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -790,8 +792,10 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   every Function route outside its `PUBLIC` list with seven bad cookies, a parent's
   and a coach's (#192), and requires 401, and holds every upload write to 403
   without the site's Origin.
-  An admin route (#151) answers to the admin guard instead (item 12). The test knows
-  admin routes by directory and holds them to 403, rather than listing them as public.
+  An admin route (#151) answers to the admin guard instead: #151's Access check
+  (item 12), since #224 the site's admin session (item 30), and since #268 with no
+  Access application in front of it on any hostname. The test knows admin routes by
+  directory and holds them to the guard's refusal, rather than listing them as public.
 - **The admin page makes and changes the code** (#152, `/admin/code`). "Create code"
   makes generation 1 only while the database holds none, so a second press, or a page
   left open, never ends a session. "Rotate code" opens a native `<dialog>`, and only
@@ -809,13 +813,15 @@ Secrets, and where the code is created and rotated, are in README.md, The photo 
 
 ### 12. The admin guard
 
-**Replaced in code by #224, 2026-10-06 (item 30).** Both admin directories
-now run `requireAdmin`, an account's 12-hour admin session opened by its
-password and an emailed code, and `requireOwner` is gone, with the admins'
-`ACCESS_AUD` and `ADMIN_EMAILS` it read (the owner's choice at #224's
-pickup: replace outright). The Access application in front of `/admin`
-stays until #226 removes it. What follows is #151's record as built: the
-token check it describes still guards `/coach` (item 20) until #226.
+**Replaced in code by #224, 2026-10-06 (item 30), and at the door by #268,
+2026-10-07.** Both admin directories now run `requireAdmin`, an account's
+12-hour admin session opened by its password and an emailed code, and
+`requireOwner` is gone, with the admins' `ACCESS_AUD` and `ADMIN_EMAILS` it
+read (the owner's choice at #224's pickup: replace outright). #268 deleted
+the Access application in front of `/admin` on `photos.madcowsailing.com`,
+and the `ACCESS_AUD` var that still held its tag (epic #267: the owner moved
+it ahead of #226). What follows is #151's record as built: the token check
+it describes still guards `/coach` (item 20) until #226.
 
 **Built in #151, 2026-09-28.** Every `/admin` page and admin API passes
 `requireOwner` in `lib/access.js`. Since #192 the same check also guards
@@ -1602,8 +1608,9 @@ lands on the share page able to send, having typed and followed no code
   does not match `/coach`. Not chosen: adding those paths to the admin
   application. Access applies a policy to a whole application, so a coach
   would then pass Access's sign-in into `/admin`, with the code's 403 the
-  only thing stopping them. Its tag differs from the admin one's, so a token
-  signed for either never passes the other's check. On a preview, the Pages
+  only thing stopping them. Its tag differed from the admin one's, so a token
+  signed for either never passed the other's check, until #268 deleted the
+  admin application. On a preview, the Pages
   preview application signs every path, so there the two tags are equal and
   the lists alone tell admin from coach. README, The photo site, has the
   application, its policy and the four places a new coach goes.
@@ -2763,13 +2770,15 @@ decisions at pickup, through the question tool:
 - **Replace outright** (the recommendation). Both admin directories run
   `[requireAdmin, requireSameOrigin]`; `requireOwner` and the admins' pair
   of names it read (`ACCESS_AUD`, `ADMIN_EMAILS`) are gone from the code.
-  The Access application still stands in front of `/admin` on
-  `photos.madcowsailing.com` until #226 (criterion 7), so there an admin
-  meets Access's PIN and then the site's sign-in, and an admin not on its
-  policy uses `madcowphotos.pages.dev/admin/` until #226. The accepted cost:
-  the second address on `ADMIN_EMAILS` cannot open `/admin` from the
-  release that carries #224 until it has an account and an admin makes it
-  one. Not chosen: either lock opening `/admin` until #226; both required.
+  The Access application stayed in front of `/admin` on
+  `photos.madcowsailing.com` (criterion 7), so there an admin met Access's
+  PIN and then the site's sign-in, and an admin not on its policy used
+  `madcowphotos.pages.dev/admin/`, until #268 deleted it on 2026-10-07
+  (epic #267: the owner moved it ahead of #226). The accepted cost: the
+  second address on `ADMIN_EMAILS` cannot open `/admin` from the release
+  that carries #224 until it has an account and an admin makes it one. Not
+  chosen: either lock opening `/admin` alone while Access stood; both
+  required.
 
 The rest are defaults, taken while building and recorded on #224's pull
 request:
@@ -2835,9 +2844,9 @@ request:
 - **The admins' email about new requests goes to the admin accounts**
   (`adminAddresses` in `lib/accounts.js`), the owner's included, where it
   went to `ADMIN_EMAILS` (item 25). So nothing reads `ADMIN_EMAILS` now, and
-  #226 deletes it with the Access application. `ACCESS_AUD` stays in
-  `wrangler.jsonc`, read by nothing, as the record of that application's
-  tag until #226.
+  #226 deletes it. `ACCESS_AUD` stayed in `wrangler.jsonc`, read by nothing,
+  as the record of the Access application's tag, until #268 deleted the
+  application and the var; README's Access section keeps the tag.
 - **The admin home says who is signed in, as the owner or an admin, until
   when, and has Sign out**, which ends every session the account holds, as
   `/account`'s does (#222). `/sign-out` now ends a session from either
@@ -2852,13 +2861,14 @@ owner chose to fix all 11. The owner's choices on the three it escalated,
 and on its one escalation, through the question tool:
 
 - **The right code lands on `/account`, which links the admin pages** (the
-  recommendation). Until #226, Access stands in front of `/admin` on
-  `photos.madcowsailing.com` and answers a browser without its cookie with a
+  recommendation). Until #268, Access stood in front of `/admin` on
+  `photos.madcowsailing.com` and answered a browser without its cookie with a
   302 to its login on another origin. The code page's CSP says `form-action
   'self'`, which Chromium and WebKit apply to every redirect of a form's
   post, so the 303 to `/admin/` was stopped there with no error page, after
-  the code was spent; Firefox follows it. A link is not a form's post. #226
-  may go back to the direct redirect. Not chosen: allowing Access's origin
+  the code was spent; Firefox follows it. A link is not a form's post. With
+  Access gone, a direct redirect to `/admin/` would stay on the site's
+  origin; no story has taken that up. Not chosen: allowing Access's origin
   in `form-action` on `/sign-in/code`; documenting "open `/admin` first".
 - **Making an admin ends every session the account holds** (the
   recommendation): `promoteAdmin` adds 1 to the session version, the

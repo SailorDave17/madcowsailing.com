@@ -404,8 +404,8 @@ for (const file of admin) {
         t.mock.method(console, 'error', () => {});
         t.mock.method(globalThis, 'fetch', certs(() => [team.jwk]));
         // The admin application's tag and the owner's address, as production's
-        // config still holds them until #226, so a token that is valid in
-        // every respect #151 checked is offered.
+        // config held them until #268, so a token that is valid in every
+        // respect #151 checked is offered.
         const old = { ACCESS_AUD: claims().aud[0], ADMIN_EMAILS: claims().email };
         const res = await call(file, method, cookie, token ? await mint(team, claims()) : undefined, SITE, held, session, old);
         assert.equal(res.status, 303, `functions/${file} answered ${res.status}: does it skip the admin guard?`);
@@ -450,7 +450,8 @@ test('at least one admin route takes a write, so the Origin checks above check s
 
 // The coach routes (#192, criterion 2): the coach guard, and no session set
 // by any refusal. The admin application's tag differs from the coaches' in
-// accessEnv(), as on photos.madcowsailing.com.
+// accessEnv(), as it did on photos.madcowsailing.com until #268 deleted that
+// application.
 const COACH_CASES = {
   'no Access token': async () => undefined,
   'the owner\'s admin token': () => ownerToken(),
