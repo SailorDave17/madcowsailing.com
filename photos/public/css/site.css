@@ -260,6 +260,7 @@
 }
 
 .batch-facts,
+.waiting-album,
 .waiting-facts,
 .waiting figcaption,
 .waiting .field label {
@@ -327,6 +328,31 @@
   width: 100%;
 }
 
+/* Every button on the queue is a thumb's size (#270): --space-6 is 48 px,
+   past the 44 px the story asks for on a phone. Wide screens keep it too; a
+   taller button costs a mouse nothing. The reject dialog's two are on the
+   same page, so they count. */
+.batch .button,
+#reject-dialog .button {
+  min-height: var(--space-6);
+  min-width: var(--space-6);
+}
+
+/* What a press did, shown in the photo card or the batch section the page
+   lands on, rather than at the top, out of sight on a phone (#270,
+   lib/admin-page.js, adminQueuePage). */
+.waiting > [role="status"],
+.batch > [role="status"] {
+  border-inline-start: var(--space-1) solid var(--blue);
+  padding: var(--space-2) var(--space-3);
+  background: var(--hull);
+}
+
+.batch > [role="status"] {
+  background: var(--chalk);
+  margin-block-start: var(--space-3);
+}
+
 /* ---- Admin: Move to event (#228) ------------------------------------ */
 
 /* A batch's Move choices and a new event's fields are .album-form's fields
@@ -339,6 +365,13 @@
   border: 1px solid var(--deep);
   padding: var(--space-1) var(--space-2);
   max-width: 100%;
+}
+
+/* A fieldset is never narrower than its widest field unless told, and the
+   new event's title field is --measure wide: until #270 it held the queue
+   717 px wide on every phone, 320 to 430. */
+.move fieldset {
+  min-inline-size: 0;
 }
 
 /* ---- Share: sending photos (#155) ----------------------------------- */
@@ -960,5 +993,87 @@
   .album-row {
     grid-template-columns: calc(2 * var(--space-6)) minmax(0, 1fr);
     gap: var(--space-3);
+  }
+}
+
+/* ---- Phone: the approval queue (#270) ------------------------------- */
+
+@media (max-width: 30rem) {
+  /* Each waiting photo's screen size runs edge to edge, the most a phone can
+     give a face (owner, at #270's pickup): the list steps out over the
+     page's margin, and the card's words and buttons step back in. */
+  .queue {
+    margin-inline: calc(-1 * var(--space-4));
+  }
+
+  .waiting {
+    border-inline: none;
+    padding-inline: 0;
+  }
+
+  .waiting > :not(.waiting-screen) {
+    margin-inline: var(--space-4);
+  }
+
+  .waiting-screen {
+    display: block;
+  }
+
+  /* The ring goes inside the picture, since outside it would be off the
+     screen's edge, and inside it falls on the photo, any colour at all. So
+     it is two rings: --chalk on the link's edge, --deep just inside it on
+     the picture. The two read 14.87:1 against each other, so one of them
+     reads at least 3:1 against any photo (WCAG technique C40). One --blue
+     ring read 1.14:1 on deep water (review-fanout at #270's review). */
+  .waiting-screen:focus-visible {
+    outline-color: var(--chalk);
+    outline-offset: calc(-1 * var(--space-1) / 2);
+  }
+
+  .waiting-screen:focus-visible img {
+    outline: calc(var(--space-1) / 2) solid var(--deep);
+    outline-offset: calc(-1 * var(--space-1));
+  }
+
+  /* Approve and Move, or a batch's other buttons, fill their rows; Reject
+     and Reject all sit alone on the last row, at its end, apart from Approve
+     (owner, at #270's pickup). The ::after is the line break: Reject comes
+     after it by order, as it does in the markup, so reading and Tab order
+     are the page's own. Reject's rule names .button too, so it outranks the
+     rule above wherever either moves. */
+  .batch .actions .button {
+    flex: 1 1 auto;
+  }
+
+  .batch .actions .button[data-reject] {
+    order: 2;
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+  }
+
+  .batch .actions:has([data-reject])::after {
+    content: '';
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  /* Each photo's buttons stay at the bottom of the screen while its card is
+     on it, so after a press they are under the thumb whatever the photo's
+     shape (owner, at #270's review: an upright photo put Approve 211 to 418
+     px below the screen). Full width, on the card's own ground. */
+  .waiting > .actions {
+    position: sticky;
+    bottom: 0;
+    margin-inline: 0;
+    padding: var(--space-2) var(--space-4);
+    background: var(--chalk);
+    border-top: var(--border-hair);
+  }
+
+  /* And nothing focused is left under them (WCAG 2.4.11): scrolling to a
+     focused field stops their height above the screen's bottom. Two rows of
+     buttons, the break's two row gaps and the row's own padding. */
+  html:has(.queue) {
+    scroll-padding-bottom: calc(2 * var(--space-6) + 4 * var(--space-2));
   }
 }

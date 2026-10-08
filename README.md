@@ -750,6 +750,13 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
   for good. Rejecting needs JavaScript.
 - **Approve all and Reject all act on the photos the page showed.** A photo
   sent into the batch after the page loaded keeps waiting.
+- **After a press the page lands on the next waiting photo** (#270), with what
+  the press did said at the top of that photo: the next one in the batch, else
+  the next batch's first, else the earliest photo still waiting, which is one
+  you skipped. Save captions lands on the last caption it changed, and Move
+  on the photo it moved. On a phone each photo fills the screen's width and
+  names its event and team, its buttons stay at the bottom of the screen
+  while it is on it, and Reject sits alone below Approve and Move.
 - **Move a photo into its event** (#228). Choose the event under **Move to
   event** in the batch, then **Move** under a photo or **Move all** at the
   top. The list is the batch's team's events, newest first, open or closed;

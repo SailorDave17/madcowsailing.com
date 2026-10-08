@@ -1203,13 +1203,70 @@ here; an approved one leaves the public page through #158.
   the upload's objects-first, so no row ever names objects that are gone. A
   delete the bucket refuses leaves objects no row names, and the log names
   each one's `photos/<key>/` prefix (README, The photo site).
-- **A press is at most three statements, whatever the batch holds.** D1 allows
+- **A press is a fixed handful of statements, whatever the batch holds**,
+  besides the admin guard's own read: two for Save captions, four for Reject,
+  four for Approve or five when it approves fewer than it named, and five for
+  Move into an event, six when the move finds none of its photos still
+  waiting. Into a new event, `createAlbum`'s
+  tries for a free address take the place of the event's read, so five at the
+  first address. #270 added the read of the queue's order (below) to Approve
+  and Reject, and to Move when nothing moves, and took two reads off Move's
+  success. `test/queue.test.js` and `test/not-sure.test.js` count them. *(This
+  said "at most three" until #270's review, which counted.)*
+  D1 allows
   50 queries a request on the free plan and 100 bound parameters a query
   ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/), read
   2026-09-30), so the ids and the captions each travel as one JSON value, read
   with `json_each()`. A queue form may be 512 KiB, far past the albums' 4 KB,
   since it carries a caption for every photo in the batch. R2 deletes at most
   1,000 keys a call, so a reject deletes 333 photos' objects a call.
+- **A press lands on the next waiting photo** (#270), so an admin on a phone
+  carries on down the queue rather than starting again at the top: the next
+  photo in its batch that still waits, else the next batch's first, else the
+  earliest photo still waiting, which is one the admin skipped (owner, at
+  #270's pickup; not chosen: the top of the queue). Approve and Reject read
+  the queue's order first (`waitingOrder`, the page's own query, so a
+  filtered page stays on its team), which reads every waiting row once more
+  a press, as the page's load after it does. **Save captions lands on the
+  card of the last caption it changed**, in the page's order, and at the
+  batch when none changed (owner, at #270's review): Enter in a caption field
+  presses it, and landing at the batch's heading sent an admin typing in
+  photo 150 back up past 149 cards. Not chosen: the script naming the
+  focused card, which needs JavaScript; the batch. A Move refused for its
+  choice, and an approve naming only Not sure photos, land at the batch,
+  where the Move choices are. **The
+  notice shows where the page lands** (owner, at pickup), in that photo's
+  card or that batch's section, once; the address carries `?at=` because the
+  fragment never reaches the server, and the page puts the notice at the top
+  only when `?at=` names nothing it shows. Not chosen: the top only, out of
+  sight on a phone; a bar pinned to the screen, which costs height all
+  evening and can cover a focused caption field (WCAG 2.4.11).
+- **On a phone the queue is laid out for one hand** (#270; the owner's choices
+  at pickup). Up to 30rem wide, each photo's screen size runs edge to edge,
+  the most a phone can give a face; its words, caption field and buttons keep
+  the page's margin. Not chosen: the card inside the margins (272 px of
+  picture at 320) or as it was (238 px). Each photo names its event and team
+  under its heading as well as its batch does, since a press lands far below
+  that heading. Every button on the page is at least 48 px square
+  (`--space-6`), at every width. **Reject and Reject all sit alone on the
+  last row of their buttons, at its end**, apart from Approve, with Approve
+  and Move filling the row above. Not chosen: one row with Reject at its far
+  end (it drops to a second row at 320 anyway, and sits 13 px from Move at
+  360); Approve alone across the full width with Move and Reject below it.
+  **Each photo's buttons stick to the bottom of the screen while its card is
+  on it** (owner, at #270's review), so after a press they are under the
+  thumb: landing on an upright photo had put Approve 211 to 418 px below the
+  screen at every phone size, a landscape one on it from 360 px up. The row
+  covers about 128 px of the photo while scrolling, and the page's
+  `scroll-padding-bottom` keeps a focused caption above it (WCAG 2.4.11).
+  Not chosen: filing it for #276's real-phone check; one scroll per upright
+  photo. **The picture's focus ring is two rings**, `--chalk` then `--deep`
+  inside it, since an edge-to-edge picture puts the ring on the photo, where
+  one `--blue` ring read 1.14:1 on deep water; the pair reads 14.87:1, so one
+  of them reads 3:1 on any photo (WCAG technique C40).
+  Before #270 the page was 717 px wide on every phone from 320 to 430: the
+  new event's fieldset was as wide as its 65-character title field, as a
+  fieldset is unless given `min-inline-size: 0`.
 - **The admin home shows how many photos wait and the storage used**, the sum
   of every stored row's `bytes` in any state, against item 8's free 10
   GB-month. R2's pricing page does not say which GB it means
@@ -3168,8 +3225,10 @@ The rest were taken while building:
   `holding = 0` and to the photo's own team in the same statement, so an
   album moved to the other team meanwhile takes nothing. It moves waiting
   photos only and keeps their batch, so the queue shows them as a batch of
-  the event they are in now, and the press lands there (on its first part,
-  when the batch now holds more than 200 there). The captions typed are
+  the event they are in now, and the press lands on the first photo it
+  moved, there, ready to approve (owner, at #270's pickup; until then at the
+  batch, on its first part when it held more than 200 there). The captions
+  typed are
   saved first, as every press saves them, and before the choice is checked,
   so a press with no event chosen loses nothing typed. A press whose photos
   now sit in two teams' events, from a stale page, moves nothing and says so
