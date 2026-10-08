@@ -26,6 +26,13 @@
   font-size: var(--text-lg);
 }
 
+/* What an admin press did, which can name a person, an album's title or its
+   address, each one unbroken word as typed: "Added <title>" made
+   /admin/albums 380 px wide at 320 until it could wrap (#271). */
+.page-head [role="status"] {
+  overflow-wrap: anywhere;
+}
+
 /* ---- Admin: the invite code (#152) ---------------------------------- */
 
 .invite-code code {
@@ -187,6 +194,12 @@
   padding-block: var(--space-4);
 }
 
+/* A title is 1 to 80 characters as the admin typed it, and one long word
+   made the page 383 px wide at 320 until it could wrap (#271). */
+.album h3 {
+  overflow-wrap: anywhere;
+}
+
 .album-facts code {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -197,11 +210,15 @@
   margin-block: var(--space-2);
 }
 
+/* "Edit" opens the album's form, so it is a button to a thumb: the block
+   padding takes its row past 44 px (#271). Padding rather than a flex row,
+   which would delete the disclosure marker. */
 .album summary {
   cursor: pointer;
   color: var(--blue);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  padding-block: var(--space-3);
 }
 
 /* ---- Admin: the team filter (#227) ------------------------------------ */
@@ -217,6 +234,18 @@
   padding: 0;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+}
+
+/* Each link changes what the list below shows, so to a thumb it is a
+   button: a 48 px target, as the pages' buttons are (#271; the owner's
+   reading of its "link used as a button"). It was 18 px tall. The queue's
+   filter shares the rule. */
+.team-filter a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--space-6);
+  min-width: var(--space-6);
 }
 
 .team-filter a[aria-current="page"] {
@@ -245,6 +274,18 @@
    1920" wrapped at --text-sm there. */
 .waiting figcaption {
   font-size: var(--text-xs);
+}
+
+/* An album's title and a sender's name are each as typed, and one long word
+   in either made the queue 545 px wide at every phone width, 320 to 430,
+   until they could wrap (#271, folded in at its gate; #270's reading seeded
+   no long title). A Move's notice, in a card or a batch, names the event. */
+.batch h2,
+.waiting-album,
+.waiting-facts,
+.waiting > [role="status"],
+.batch > [role="status"] {
+  overflow-wrap: anywhere;
 }
 
 .batch-form > .actions {
@@ -730,6 +771,14 @@
   display: inline-block;
 }
 
+/* The album's title, the sender's name and the caption are each as typed,
+   and one long word in any of them made the page 657 px wide at 320 until
+   they could wrap (#271). */
+.removal-facts,
+.removal-caption {
+  overflow-wrap: anywhere;
+}
+
 .removal-note-heading {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -812,14 +861,15 @@
 }
 
 /* "Revoke, hide their photos or delete" (#225): a native <details> under
-   each person, in the type of an album's "Change" disclosure, padded so its
-   summary is a target past 24 px (WCAG 2.5.8). */
+   each person, in the type of an album's "Edit" disclosure, padded as it is,
+   so its summary is a target past 44 px (#271; it was 24 px for WCAG 2.5.8
+   until then). */
 .person-more summary {
   cursor: pointer;
   color: var(--blue);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  padding-block: var(--space-1);
+  padding-block: var(--space-3);
 }
 
 .person-more > * + * {
@@ -833,6 +883,22 @@
 
 .admin-log li + li {
   margin-block-start: var(--space-2);
+}
+
+/* ---- Admin: people, albums and removals at a thumb's size (#271) ---- */
+
+/* Every button on the three pages is at least 48 px square (--space-6), past
+   the 44 px #271 asks for a thumb on a phone, at every width, as the queue's
+   are (#270): a taller button costs a mouse nothing. The removals dialog's
+   two are on the page, so they count. .album-form's include "Add album",
+   "Let it ask again" and /admin/mail's one button. */
+.album .button,
+.album-form .button,
+.person .button,
+.removal .button,
+#delete-dialog .button {
+  min-height: var(--space-6);
+  min-width: var(--space-6);
 }
 
 /* ---- Public: asking for an account (#220) --------------------------- */
@@ -1041,5 +1107,50 @@
      buttons, the break's two row gaps and the row's own padding. */
   html:has(.queue) {
     scroll-padding-bottom: calc(2 * var(--space-6) + 4 * var(--space-2));
+  }
+}
+
+/* ---- Phone: people, albums and removals (#271) ---------------------- */
+
+@media (max-width: 30rem) {
+  /* Every field runs the screen's full width: the date and the role, as the
+     text fields already do. The queue's Move fields (.move) stay as #270
+     shipped them. */
+  .album-form:not(.move) input[type="date"],
+  .person-form select {
+    width: 100%;
+  }
+
+  /* Each team, kind or tick box is a row of its own, 48 px tall, the whole
+     row its target (owner, at #271's pickup). A flex row drops the space
+     between the box and its words, so the gap puts it back. */
+  .album-form:not(.move) .choices label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--space-6);
+    margin-inline-end: 0;
+  }
+
+  /* "Delete permanently" sits alone on the row below "Put it back", at its
+     end (owner, at #271's pickup), as Reject does on the queue (#270). Its
+     dialog is still the confirm. */
+  .removal .actions form {
+    flex: 1 1 100%;
+  }
+
+  .removal .actions form .button {
+    width: 100%;
+  }
+
+  .removal .actions [data-delete] {
+    margin-inline-start: auto;
+  }
+
+  /* Revoke, hide and delete wait behind their disclosure, which stands a
+     step further from the everyday buttons above it, over a rule. */
+  .person > .person-more {
+    margin-block-start: var(--space-4);
+    border-top: var(--border-hair);
   }
 }

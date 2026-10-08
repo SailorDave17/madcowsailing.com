@@ -80,7 +80,8 @@ before approving them (item 32). #268, the first of epic #267's, deleted
 the Access application in front of `/admin` on production, so an admin
 signs in once, with the password and the emailed code (item 30). #269 made
 the admin home open on what is waiting, each count a full-width button to
-its page (item 30). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+its page (item 30), and #271 made `/admin/people`, `/admin/albums` and
+`/admin/removals` work at 320 px, every button 48 px (item 30). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -2921,6 +2922,38 @@ request:
   storage stays text, since there is no page for it to link to. The counts
   are unchanged: `queueSummary` and `waitingRequests`, whole-site, photos
   only.
+- **Since #271 people, albums and removals work on a phone** (epic #267).
+  Every button on the three pages is at least 48 px square (`--space-6`) at
+  every width, as the queue's are (#270); `/admin/mail`'s one button shares
+  `.album-form`, so it grew too. **The team filter's links count as buttons**
+  (the owner's reading of "link used as a button"; not chosen: on removals
+  only, or links left at their 18 px), so each is a 48 px target, on the
+  queue as well as removals, which share the rule. The two disclosures,
+  "Edit" and "Revoke, hide their photos or delete", are padded past 44 px
+  rather than made flex rows, which would delete their marker. Up to 30rem
+  wide every field runs
+  the full width, the date and the role select as well as the text fields,
+  and each team, kind and tick box is a 48 px row of its own (owner, at
+  pickup; not chosen: side by side at 44 px tall, or left at their 25 px).
+  **"Delete permanently" sits alone on the row below a full-width "Put it
+  back", at its end**, as Reject does on the queue, and its dialog stays the
+  confirm (owner, at pickup; not chosen: one row with the two at its ends,
+  or only 48 px tall). Revoke, hide and delete keep their disclosure, which
+  stands a step further from the everyday buttons on a phone, over a rule.
+  An album's Delete is only made 48 px: it has no confirm step, and the
+  database refuses it for an album holding photos (owner; not chosen:
+  setting it apart too, or filing a confirm step). The queue's Move fields
+  (`.move`) stay as #270 shipped them. Before #271, at 320 px,
+  `/admin/albums` was 383 px wide from an album's title, `/admin/removals`
+  657 from a caption, and a notice naming a long name or title 341 to 380;
+  each wraps now. So does the queue's batch heading, each card's album and
+  sender, and a Move's notice, which made `/admin/queue` 545 px wide at
+  every phone width (found by #271's reading and folded in at its gate, the
+  owner's choice over filing it; #270's reading seeded no long title). The
+  320 px reading is a browser's, in #271's PR, and
+  `test/admin-phone.test.js` holds the rules it rests on (owner, at pickup;
+  not chosen: a browser in CI, which would be the gate's fourth kind of
+  step).
 - **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
   so `scripts/access-dev.mjs` signs an admin session for the local account
   `ADMIN_DEV_ACCOUNT` names, with the local key, on every request it
