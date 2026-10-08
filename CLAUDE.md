@@ -104,7 +104,8 @@ story, this is the paragraph to check.*
 ├── shared/
 │   ├── css/
 │   │   ├── tokens.css        Colour, type, space. Single source of truth.
-│   │   └── base.css          Reset, nav, buttons, cards — used by both sites
+│   │   └── base.css          Reset, header and footer shell (#169), nav, buttons,
+│   │                         cards — used by all three sites
 │   ├── img/                  madcow-*.svg, madcow-*.png
 │   └── js/gallery.js         The trip-log lightbox. The only script file; the Race
 │                             Timer product page carries one inline (#40)
