@@ -78,8 +78,9 @@ site**, on those accounts; #194 recorded the decisions behind both epics
 nobody has added yet, which an admin moves into its event on `/admin/queue`
 before approving them (item 32). #268, the first of epic #267's, deleted
 the Access application in front of `/admin` on production, so an admin
-signs in once, with the password and the emailed code (item 30). The
-`develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+signs in once, with the password and the emailed code (item 30). #269 made
+the admin home open on what is waiting, each count a full-width button to
+its page (item 30). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -2850,7 +2851,18 @@ request:
 - **The admin home says who is signed in, as the owner or an admin, until
   when, and has Sign out**, which ends every session the account holds, as
   `/account`'s does (#222). `/sign-out` now ends a session from either
-  cookie and deletes both.
+  cookie and deletes both. Since #269 that is the page's last section.
+- **Since #269 the admin home opens on what is waiting** (epic #267). Under
+  its head come photos waiting for approval, account requests and removal
+  requests, in that order (`TODO` in `lib/admin-page.js`), each a
+  full-width button 48 px tall to its page with its count first. A zero is
+  shown too, in the quiet button, saying "Nothing to do.". Then the links:
+  Invite code, Albums, People and Email, and the storage figure as a line
+  of text. The owner's choices at pickup: keep the Invite code link, which
+  the criterion's list left out, until #226 retires the invite link; and
+  storage stays text, since there is no page for it to link to. The counts
+  are unchanged: `queueSummary` and `waitingRequests`, whole-site, photos
+  only.
 - **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
   so `scripts/access-dev.mjs` signs an admin session for the local account
   `ADMIN_DEV_ACCOUNT` names, with the local key, on every request it

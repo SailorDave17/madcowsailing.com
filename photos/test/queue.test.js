@@ -31,7 +31,7 @@ import { onRequestGet as captionsGet, onRequestPost as captionsPost } from '../f
 import { onRequestGet as image } from '../functions/api/admin/photos/[id]/[size].js';
 import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import {
-  QUEUE_SCRIPT, adminHome, adminQueuePage, queueNotice, storageText, waitingText,
+  QUEUE_SCRIPT, TODO, adminHome, adminQueuePage, queueNotice, storageText, todoItem,
 } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
 import { photoObjectKeys } from '../lib/photos.js';
@@ -876,14 +876,15 @@ test('the admin home shows how many photos wait and the storage every stored row
   env.DB.sqlite.prepare("UPDATE photos SET state = 'hidden', hidden_at = ? WHERE id = ?").run(T0 + 9, seedPhoto(env, fall, { sentAt: T0 + 4, state: 'approved' }));
   setBytes.run(1_000_000_000, rows(env).at(-1).id);
   const html = await (await admin(env, 'GET', '/admin', { origin: null })).text();
-  assert.match(block(html, 'main'), /<p>3 photos are waiting for approval\.<\/p>/);
-  assert.match(block(html, 'main'), /<p>Storage used: 3\.01 GB of the free 10 GB \(30\.1%\)\.<\/p>/);
+  assert.match(block(html, 'main'), /<a class="button todo-item" href="\/admin\/queue"><span class="todo-count">3<\/span> <span>photos waiting for approval<\/span><\/a>/);
+  assert.match(block(html, 'main'), /<p class="admin-storage">Storage used: 3\.01 GB of the free 10 GB \(30\.1%\)\.<\/p>/);
 });
 
 test('the counts read right at their edges', () => {
-  assert.equal(waitingText(0), 'No photo is waiting for approval.');
-  assert.equal(waitingText(1), '1 photo is waiting for approval.');
-  assert.equal(waitingText(2), '2 photos are waiting for approval.');
+  const queue = TODO.find((t) => t.href === '/admin/queue');
+  assert.match(todoItem(queue, 0), /<span class="todo-count">0<\/span> <span>photos waiting for approval\. Nothing to do\.<\/span>/);
+  assert.match(todoItem(queue, 1), /<span class="todo-count">1<\/span> <span>photo waiting for approval<\/span>/);
+  assert.match(todoItem(queue, 2), /<span class="todo-count">2<\/span> <span>photos waiting for approval<\/span>/);
   assert.equal(FREE_STORAGE_BYTES, 10_000_000_000);
   assert.equal(storageText(0), 'Storage used: 0 KB of the free 10 GB (0.0%).');
   assert.equal(storageText(999_499), 'Storage used: 999 KB of the free 10 GB (0.0%).');
@@ -1117,7 +1118,7 @@ test('its chrome and stylesheets are the admin home\'s, and its one script is st
 });
 
 test('the admin home links to the queue', () => {
-  assert.match(block(adminHome(adminData().admin, { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/queue">Waiting for approval<\/a>/);
+  assert.match(block(adminHome(adminData().admin, { waiting: 0, bytes: 0 }), 'main'), /<a class="button button-quiet todo-item" href="\/admin\/queue">/);
 });
 
 // ---- The script (public/js/admin-queue.js) ------------------------------------
