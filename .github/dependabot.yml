@@ -1,0 +1,26 @@
+# Version updates for the repo's two ecosystems (security-audit, 2026-10-08,
+# finding SA-3). Dependabot's security updates are a repository setting, turned
+# on the same day; this file adds the weekly version updates beside them.
+#
+# The deployed sites import no npm package: every dependency here is a dev tool
+# (wrangler, html-validate), so an update changes what the gate and the local
+# server run, never what a visitor is served. The cooldown waits a week after a
+# release before proposing it, so a version pulled soon after publishing (the
+# npm worm lineage the audit checks for) never reaches a PR.
+#
+# Actions are pinned to a commit with the tag in a comment (ci.yml); Dependabot
+# updates the commit and the comment together.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
