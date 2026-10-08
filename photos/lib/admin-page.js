@@ -28,7 +28,7 @@ import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './album
 import { inviteLink } from './invite.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
 import { CAPTION_MAX } from './photos.js';
-import { FREE_STORAGE_BYTES } from './queue.js';
+import { FREE_STORAGE_BYTES, photoAt } from './queue.js';
 import { TEAMS, teamName } from './teams.js';
 
 const HEADER = String.raw`<header class="site-header">
@@ -59,7 +59,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=5b8204240d">
+<link rel="stylesheet" href="/css/site.css?v=df863b34fe">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -678,8 +678,14 @@ const sentBy = (photo) => {
 // to itself, to open alone. The owner's choice at #156's pickup: all three in
 // view, so a swapped picture shows without a tap. Not chosen: the grid and
 // full as links only, or all three at one size.
-function waitingPhoto(photo, formId, first, team, notSure) {
+//
+// Since #270 each photo also names its event and team, which its batch's
+// heading says once above: a press lands on the next photo (lib/queue.js,
+// nextWaiting), often far below that heading on a phone. `notice` is what
+// the press did, shown first when it landed here, or ''.
+function waitingPhoto(photo, album, formId, first, team, notice) {
   const { id } = photo;
+  const notSure = album.holding;
   const size = (name, label) => `<figure>
               <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
               <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
@@ -689,8 +695,9 @@ function waitingPhoto(photo, formId, first, team, notSure) {
   // its batch says why, and a press naming it anyway is refused.
   const approve = notSure ? '' : `
             <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>`;
-  return `<li class="waiting" id="photo-${id}">
+  return `<li class="waiting" id="photo-${id}">${notice ? `\n          ${notice}` : ''}
           <h3>Photo ${id}</h3>
+          <p class="waiting-album">${escapeHtml(album.title)} · ${escapeHtml(teamName(album.team))}</p>
           <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}${from}</p>
           <a class="waiting-screen" href="${photoUrl(id, 'screen')}">${sizeImage(photo, 'screen', !first)}</a>
           <div class="waiting-sizes">
@@ -757,7 +764,10 @@ function moveFields(batch, formId, albums) {
 // A batch sent to a team's "Not sure / other event" (#228) has no Approve at
 // all, and says why: its photos are moved into their event first, and
 // approved there. `albums` is every album, for the Move choices.
-function batchSection(batch, total, team, albums) {
+//
+// `at` is where a press landed (#270): this batch's section, or one of its
+// photos' cards, which then shows `notice` (adminQueuePage).
+function batchSection(batch, total, team, albums, at, notice) {
   const index = batch.number;
   const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
   const n = batch.photos.length;
@@ -775,11 +785,12 @@ function batchSection(batch, total, team, albums) {
         <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="all" aria-label="Move all ${n} in batch ${index}${part}, ${title}, to the event chosen below">Move all ${n}</button>
         <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
   const why = notSure ? `\n    <p class="batch-why">${NOT_SURE_WHY}</p>` : '';
+  const landed = at === batch.id ? `\n    ${notice}` : '';
   // Labelled by the facts as well as the title: two batches sent to one
   // album would otherwise be two regions with one name.
   return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
     <h2 id="${id}-title">${title}</h2>
-    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}
+    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}${landed}
     <form method="post" action="${pressPath('/api/admin/queue/captions', team)}" id="${formId}" class="batch-form">
       <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
       <input type="hidden" name="anchor" value="${id}">
@@ -788,7 +799,8 @@ function batchSection(batch, total, team, albums) {
       </p>
       ${moveFields(batch, formId, albums)}
       <ul class="queue">
-        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0, team, notSure)).join('\n        ')}
+        ${batch.photos.map((photo, i) => waitingPhoto(photo, batch.album, formId, index === 1 && batch.part === 1 && i === 0, team,
+    at === photoAt(photo.id) ? notice : '')).join('\n        ')}
       </ul>
     </form>
   </section>`;
@@ -814,16 +826,25 @@ function batchSection(batch, total, team, albums) {
  * `albums` is lib/albums.js's allAlbums(), for each batch's "Move to event"
  * choices (#228): a photo sent to the wrong event, or to its team's "Not
  * sure / other event", moves into one of the team's events here.
+ *
+ * `at` is the ?at= a press landed on (#270, lib/queue.js, queueLocation): a
+ * waiting photo's card or a batch's section. The browser scrolls there, so
+ * the notice shows there, once, where an admin on a phone can see it (owner,
+ * at #270's pickup), and at the top only when `at` names nothing the page
+ * shows: nothing waits, or another admin took that photo meanwhile.
  */
-export function adminQueuePage({ batches, notice = '', team = null, albums = [] }) {
+export function adminQueuePage({ batches, notice = '', team = null, albums = [], at = null }) {
   const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
+  const landed = notice && batches.some((batch) => batch.id === at || batch.photos.some((photo) => photoAt(photo.id) === at));
+  const where = landed ? at : null;
+  const said = notice.trim();
   // A batch in parts is several entries with one number.
   const total = new Set(batches.map((batch) => batch.number)).size;
   const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
   const summary = waiting
     ? `${plural(waiting, 'photo', 'photos')}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
     : `No photo${from} is waiting. What parents send appears here, oldest first.`;
-  const list = batches.map((batch) => batchSection(batch, total, team, albums)).join('\n\n  ');
+  const list = batches.map((batch) => batchSection(batch, total, team, albums, where, said)).join('\n\n  ');
   return adminPage({
     title: 'Waiting for approval',
     head: QUEUE_SCRIPT,
@@ -833,7 +854,7 @@ export function adminQueuePage({ batches, notice = '', team = null, albums = [] 
     <h1>Waiting for approval</h1>
     <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
     <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>
-    <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${notice}${teamFilter('/admin/queue', team)}
+    <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${landed ? '' : notice}${teamFilter('/admin/queue', team)}
     <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
   </section>
 ${list ? `\n  ${list}\n` : ''}

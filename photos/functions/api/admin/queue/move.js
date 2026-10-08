@@ -16,7 +16,10 @@
  *
  * Every caption typed in the batch is saved first, as every press saves them
  * (lib/queue.js), and before the choice is checked, so a press with no event
- * chosen loses nothing typed. 303 back to the queue, at the moved batch.
+ * chosen loses nothing typed. 303 back to the queue, at the first moved
+ * photo, waiting in its event, ready to approve (owner, at #270's pickup).
+ * A refused choice lands at the batch, where its Move choices are; photos no
+ * longer waiting land at the next waiting photo, as approve.js's do.
  *
  * A press from a page filtered to one team posts here with that ?team=
  * (#227), and lands back on the same team's list, as a GET does.
@@ -24,8 +27,8 @@
 import { albumAt, createAlbum, readAlbumFields } from '../../../../lib/albums.js';
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
-  QUEUE_FORM_BYTES, acted, anchorBatch, batchWaiting, movePhotos, movedAnchor, queueLocation, readPress, saveCaptions,
-  unsavedCaptions, waitingTeams,
+  QUEUE_FORM_BYTES, acted, movePhotos, nextWaiting, photoAt, queueLocation, readPress, saveCaptions, unsavedCaptions,
+  waitingOrder, waitingTeams,
 } from '../../../../lib/queue.js';
 import { nowSeconds } from '../../../../lib/session.js';
 import { teamOf } from '../../../../lib/teams.js';
@@ -38,6 +41,20 @@ export async function onRequestPost({ request, env }) {
   const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
   await saveCaptions(env.DB, press.captions);
   const back = (params) => seeOther(queueLocation({ ...params, unsaved, team }, press.anchor));
+  // Nothing was moved, so the order read now is the order the page showed.
+  // The read only places the landing: when it fails, the answer is still
+  // the 303 saying what happened, an event made included, at the top
+  // (review-fanout at #270's review: uncaught, it turned that notice into a
+  // 500 after createAlbum had committed).
+  const gone = async (params) => {
+    let at = null;
+    try {
+      at = photoAt(nextWaiting(await waitingOrder(env.DB, team), press.ids, press.targets, []));
+    } catch (err) {
+      console.error('queue: could not read the queue to land a move on:', err instanceof Error ? err.message : String(err));
+    }
+    return seeOther(queueLocation({ error: 'gone', ...params, unsaved, team }, at));
+  };
 
   // The photos' team: one, for a press made from a fresh page, since a batch
   // is one album. Two is a stale page, some of whose photos were moved and
@@ -45,7 +62,7 @@ export async function onRequestPost({ request, env }) {
   // own word, since the captions above were saved (review-fanout at #228's
   // review: 'form' says nothing was changed).
   const teams = await waitingTeams(env.DB, press.targets);
-  if (!teams.length) return back({ error: 'gone' });
+  if (!teams.length) return gone({});
   if (teams.length > 1) return back({ error: 'teams' });
   const [from] = teams;
 
@@ -66,13 +83,12 @@ export async function onRequestPost({ request, env }) {
   }
 
   const moved = await movePhotos(env.DB, press.targets, address);
-  if (!moved.length) return back({ error: 'gone', album: made && address, made });
-  const album = await albumAt(env.DB, address);
-  const batch = anchorBatch(press.anchor);
-  const waiting = batch && album ? await batchWaiting(env.DB, batch, album.id) : 0;
+  if (!moved.length) return gone({ album: made && address, made });
+  // The first moved photo in the page's order, which is the form's: its card
+  // is in the event's batch now, in whichever part of it.
   return seeOther(queueLocation(
     { done: 'moved', ...acted(moved), album: address, made, unsaved, team },
-    movedAnchor(press.anchor, album?.id, waiting),
+    photoAt(press.targets.find((id) => moved.includes(id))),
   ));
 }
 
