@@ -3,34 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Apps — Mad Cow HQ</title>
-<meta name="description" content="Every app Dave Alvarado has built, sailing or not: what each does, what it runs on, and where to get it. One is on a watch, one is open for testing in a browser, and most are still being built.">
-<link rel="canonical" href="https://madcowhq.com/apps/">
-<meta property="og:title" content="Apps — Mad Cow HQ">
-<meta property="og:description" content="Every app Dave Alvarado has built, sailing or not: what each does, what it runs on, and where to get it. One is on a watch, one is open for testing in a browser, and most are still being built.">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/apps/">
-<meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Mad Cow lockup: a hand-drawn cow's face over the wordmark, in blue on gelcoat grey.">
-<meta name="twitter:card" content="summary_large_image">
+<title>Page not found — Mad Cow HQ</title>
+
+<!-- Story #36. Cloudflare Pages serves this file, with a 404 status, for every
+     path the site does not hold, at any depth: /nope, /work/nope.html,
+     /apps/nope/. The browser resolves this page's URLs against the path that
+     was asked for, not against /404.html, so every URL here is ROOT-RELATIVE -
+     including the preloads and stylesheets that the other root-level hq pages
+     reach relatively. Served at /work/nope.html, "css/site.css" would ask for
+     /work/css/site.css and the page would render unstyled.
+
+     No rel="canonical" and no og: tags, on purpose. A self-canonical would name
+     whichever URL was mistyped, and a missing page is not a document to share. -->
 
 <!-- assets/shared/ is written by the Cloudflare Pages build step, not by this
-     repo. Never edit anything under it; edit shared/.
-
-     Every href in this file is root-relative. This page lives at depth
-     (hq/apps/), where a relative "assets/..." would resolve to
-     apps/assets/... and 404. The sailing site made the same move in #10. -->
+     repo. Never edit anything under it; edit shared/. -->
 
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="/assets/shared/css/tokens.css">
-<link rel="stylesheet" href="/assets/shared/css/base.css">
-<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="/css/site.css?v=9ad77f9afb">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -43,7 +39,7 @@
      it changes in all of them. There is no templating here on purpose -
      see CLAUDE.md on the no-build-step rule.
 
-     The three nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
+     The four nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
      literally true rather than aspirational. They read "work/" until #7,
      which put the first pages at depth (hq/work/ and hq/apps/), where a
      relative "work/" resolves to work/work/ and 404s. Do not "tidy" them
@@ -59,8 +55,9 @@
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/work/">work</a></li>
-        <li><a href="/apps/" aria-current="page">apps</a></li>
-        <li><a href="/about.html">about</a></li>
+        <li><a href="/about">about</a></li>
+        <li><a href="/assets/david-alvarado-resume.pdf">resume</a></li>
+        <li><a href="/about#getting-in-touch">contact</a></li>
       </ul>
     </nav>
   </div>
@@ -69,96 +66,23 @@
 
 <main id="main">
 
-  <!-- One row per app, sailing or not, per CLAUDE.md's Apps index spec and
-       the third leg of the two-presentation rule: name, one line, platform,
-       status, and links to the case study and to wherever you get it.
-
-       Every link here was checked by TITLE, not status code - both Pages
-       projects answer 200 with the home page for any unknown path, so a 200
-       proves nothing (story #7, and #28 on the sailing side). An app with
-       nowhere public to get it says so in words rather than linking to a
-       repo nobody can open. -->
+  <!-- One h1, one sentence, and the four places the nav goes, repeated in the
+       body because a reader who has just missed a page is looking at the middle
+       of the screen, not the header. The mark on this page is the header's
+       static one; the eye-tracking hero belongs to the home page alone. No
+       search box and no sitemap (#36). No nav item carries aria-current: none
+       of them is the page being shown. -->
 
   <section class="wrap page-head">
-    <p class="eyebrow">Apps</p>
-    <h1>Every app, sailing or not</h1>
-    <p class="lede">What each one does, what it runs on, where it stands and
-      where to get it. One is on a watch, one is open for testing in a
-      browser, and most are still being built.</p>
-  </section>
-
-  <section class="wrap">
-    <ul class="rows">
-
-      <li>
-        <h2>Race Timer</h2>
-        <p>Runs a sailing start sequence on a Wear OS watch with no phone
-          aboard, and sounds the signals on the mark.</p>
-        <p class="meta">Wear OS &middot; In testing on Google Play's internal track</p>
-        <p class="links"><a href="https://madcowsailing.com/apps/race-timer/">Get it</a> &middot;
-          <a href="/work/race-timer.html">Case study</a></p>
-      </li>
-
-      <li>
-        <h2>Taskr</h2>
-        <p>Allocates a household's chores fairly and admits it when a fair
-          split is out of reach.</p>
-        <p class="meta">Web, installable &middot; Open for testing</p>
-        <p class="links"><a href="/apps/taskr/">Try it</a> &middot;
-          <a href="/work/taskr.html">Case study</a> &middot;
-          <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>Tender</h2>
-        <p>Matches skippers who need crew with crew who want a race, one club
-          at a time.</p>
-        <p class="meta">Web &middot; In development</p>
-        <p class="links"><a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a> &middot;
-          <a href="/work/tender.html">Case study</a> &middot;
-          <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
-      </li>
-
-      <li>
-        <h2>Burgee</h2>
-        <p>Yacht-club and regatta management built for sailing clubs only:
-          entries, scoring, protests, and the committee boat.</p>
-        <p class="meta">Web &middot; In development</p>
-        <p class="links">Nowhere to get it yet</p>
-      </li>
-
-      <li>
-        <h2>PRO companion</h2>
-        <p>Race-day tools for the principal race officer, on a phone, with or
-          without a club system behind it.</p>
-        <p class="meta">Android &middot; In development</p>
-        <p class="links">Nowhere to get it yet</p>
-      </li>
-
-      <li>
-        <h2>Buoyant</h2>
-        <p>Drives robotic race marks over Bluetooth from a phone on the
-          committee boat.</p>
-        <p class="meta">Android &middot; In development</p>
-        <p class="links">Nowhere to get it yet</p>
-      </li>
-
-      <li>
-        <h2>COHSSA Attendance</h2>
-        <p>Takes a high-school sailing team's practice attendance on a phone
-          and writes it to the coaches' own spreadsheet.</p>
-        <p class="meta">Web, installable &middot; In development, built for one team</p>
-        <p class="links">Not public</p>
-      </li>
-
-      <li>
-        <h2>Maverick</h2>
-        <p>A smart-home hub that runs in the house rather than in someone
-          else's cloud.</p>
-        <p class="meta">Self-hosted &middot; In development</p>
-        <p class="links">Not public</p>
-      </li>
-
+    <p class="eyebrow">404</p>
+    <h1>Page not found</h1>
+    <p class="lede">There is nothing at this address, so the link that brought
+      you here is either out of date or mistyped.</p>
+    <ul>
+      <li><a href="/work/">Work</a></li>
+      <li><a href="/about">About</a></li>
+      <li><a href="/assets/david-alvarado-resume.pdf">R&eacute;sum&eacute; (PDF)</a></li>
+      <li><a href="/about#getting-in-touch">Contact</a></li>
     </ul>
   </section>
 </main>
@@ -171,8 +95,9 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
-      <li><a href="mailto:HSC.Coach@gmail.com">Email</a></li>
+      <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
   </div>
 </footer>

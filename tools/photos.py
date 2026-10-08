@@ -27,7 +27,7 @@ When every photo has alt text it renders <root>/logs/<trip>/index.html from
 tools/templates/trip.html and regenerates <root>/logs/index.html from every
 trip.json under <root>/logs/. Rendering here rather than in the browser is the
 decision story #11 records: the page is static HTML with the <picture> elements,
-sizes and eager/lazy attributes already in it, so the first row loads without
+sizes and eager/lazy attributes already in it, so the first screen loads without
 waiting for a script, and Cloudflare Pages still runs nothing but its one copy
 line. Without --src the script only renders, so alt text can be edited on a
 machine that does not have the originals.
@@ -48,6 +48,12 @@ import shutil
 import subprocess
 import sys
 
+# Beside this file. Every page rendered below goes through its stamp(), with
+# the path it is written to, so a regenerated log always names the shared CSS
+# and JS (#95) and sailing's own site.css (#176) by their current version,
+# whatever version the template happens to carry.
+from assetver import stamp
+
 try:
     from PIL import Image, ImageOps
 except ImportError:  # pragma: no cover - environment problem, not a code path
@@ -57,6 +63,19 @@ WIDTHS = (("thumb", 400), ("med", 1000), ("full", 2000))
 SOURCE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".heic", ".heif", ".webp")
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
 LQIP_WIDTH = 20
+QUALITY = 62
+
+# The logs index shows each trip's cover cut to 4:3 (sailing/css/site.css,
+# "Index rows"), so the cover gets its own ladder, already cut the way
+# object-fit: cover cuts it - centred. Until #96 the row fetched the uncropped
+# -med derivative and threw the rest away: Mullett Lake's portrait cover cost
+# 198 KB to show 56% of the picture, was the LCP element, and took the index
+# from 95 to 87 (measured locally, three runs each). With this ladder it reads
+# 94; the index's floor is 90 by owner decision (CLAUDE.md). 640 is the rung a
+# 1.75x phone picks for calc(100vw - 3rem), 1200 covers a 3x phone, and 400 a
+# 16rem desktop slot on an ordinary screen.
+COVER_WIDTHS = (400, 640, 1200)
+COVER_RATIO = (4, 3)
 
 # Video. Phones shoot HEVC, which Safari plays and Chrome and Firefox largely do
 # not, so a source file copied straight in would play for a minority of readers
@@ -452,7 +471,7 @@ def build(args):
         print("Write it into %s. Every photo needs it." % manifest_path, file=sys.stderr)
         print("No page was written; re-run once the alt text is in.", file=sys.stderr)
         return 1
-    return render(root, [trip])
+    return render(root, [trip], args.quality)
 
 
 # ---------------------------------------------------------------- rendering
@@ -666,16 +685,25 @@ def figure(trip, entry, share, n, nshare, nn, eager):
 
 def gallery_html(trip, photos):
     narrow = {}
-    for line in pack_rows(photos, NARROW_TARGET):
+    for li, line in enumerate(pack_rows(photos, NARROW_TARGET)):
         for e, nshare in line:
-            narrow[e["file"]] = (nshare, len(line))
+            narrow[e["file"]] = (nshare, len(line), li)
     out = []
     for r, row in enumerate(pack_rows(photos, ROW_TARGET)):
         n = len(row)
         out.append('    <div class="gallery-row" style="--n: %d">' % n)
         for e, share in row:
-            nshare, nn = narrow[e["file"]]
-            out.append(figure(trip, e, share, n, nshare, nn, eager=(r == 0)))
+            nshare, nn, li = narrow[e["file"]]
+            # Eager only on the first screen of BOTH layouts: the wide first row
+            # and the phone's first line. One page serves both widths, and the
+            # wide row re-wraps at phone width, so eager=(r == 0) alone loaded
+            # photos past a phone's first screen eager and at fetchpriority=high:
+            # 004 and 005 on both trips at 412x823, one of them 19 px into the
+            # screen (#53, measured). CLAUDE.md's floor asks for loading="lazy"
+            # below the fold. A photo on the wide first row but past the phone's
+            # first line is therefore lazy at every width; on screen, a lazy
+            # image still loads as soon as layout places it.
+            out.append(figure(trip, e, share, n, nshare, nn, eager=(r == 0 and li == 0)))
         out.append('    </div>')
     # Absorbs the free space on the last narrow line, so the figures there
     # keep their packed widths instead of stretching to fill it. Hidden at
@@ -719,23 +747,69 @@ def render_trip(root, trip):
         "gallery": gallery_html(trip, manifest["photos"]),
     })
     out = os.path.join(root, "logs", trip, "index.html")
+    page = stamp(page, out)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(page)
     print("wrote %s" % out)
 
 
-def index_row(root, trip, manifest):
+def crop_cover(im):
+    """The centred 4:3 cut that object-fit: cover makes of the same picture."""
+    rw, rh = COVER_RATIO
+    w, h = im.size
+    if w * rh > h * rw:          # wider than 4:3: trim the sides
+        nw = h * rw // rh
+        x = (w - nw) // 2
+        return im.crop((x, 0, x + nw, h))
+    nh = w * rh // rw            # taller than 4:3: trim top and bottom
+    y = (h - nh) // 2
+    return im.crop((0, y, w, y + nh))
+
+
+def cover_derivatives(root, trip, cover, quality):
+    """Write the cover's 4:3 ladder and return (widths emitted, crop size).
+
+    Cut from the cover's largest AVIF derivative, because that is the only
+    full-size copy the repo holds - the originals stay wherever --src pointed.
+    It runs on every render, not only on a build, because "cover" is chosen
+    in trip.json after the photos are in, often long after. A derivative
+    newer than its source is left alone, the same rule the build uses."""
+    folder = os.path.join(root, "assets", "photos", trip)
+    src = os.path.join(folder, "%s-%s.avif" % (cover["file"], largest_label(cover)))
+    if not os.path.exists(src):
+        die("%s: cover %s has no %s to cut from" % (trip, cover["file"], os.path.basename(src)))
+    with Image.open(src) as raw:
+        im = crop_cover(raw.convert("RGB"))
+    widths = [w for w in COVER_WIDTHS if w <= im.width] or [im.width]
+    for w in widths:
+        resized = None
+        for ext in ("avif", "webp"):
+            dest = os.path.join(folder, "%s-cover%d.%s" % (cover["file"], w, ext))
+            if os.path.exists(dest) and os.path.getmtime(dest) >= os.path.getmtime(src):
+                continue
+            if resized is None:
+                resized = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+            encode(resized, dest, quality)
+    return widths, im.size
+
+
+def index_row(root, trip, manifest, quality):
     cover = cover_of(manifest)
-    base = "/assets/photos/%s/%s" % (trip, cover["file"])
-    sizes = "(min-width: 46rem) 16rem, calc(100vw - 3rem)"  # the cover is 16rem wide, cropped to 4:3 by the CSS
+    widths, (cw, ch) = cover_derivatives(root, trip, cover, quality)
+    base = "/assets/photos/%s/%s-cover" % (trip, cover["file"])
+    sizes = "(min-width: 46rem) 16rem, calc(100vw - 3rem)"  # the cover is 16rem wide, cut to 4:3 above
+
+    def ladder(ext):
+        return ", ".join("%s%d.%s %dw" % (base, w, ext, w) for w in widths)
+
     return "\n".join([
         '      <li class="log-row">',
         '        <a class="log-cover" href="/logs/%s/" tabindex="-1" aria-hidden="true">' % trip,
         '          <picture>',
-        '            <source type="image/avif" srcset="%s" sizes="%s">' % (srcset(base, cover, "avif"), sizes),
-        '            <source type="image/webp" srcset="%s" sizes="%s">' % (srcset(base, cover, "webp"), sizes),
-        '            <img src="%s-thumb.webp" width="%d" height="%d" loading="lazy" decoding="async" alt="">'
-        % (base, cover["width"], cover["height"]),
+        '            <source type="image/avif" srcset="%s" sizes="%s">' % (ladder("avif"), sizes),
+        '            <source type="image/webp" srcset="%s" sizes="%s">' % (ladder("webp"), sizes),
+        '            <img src="%s%d.webp" width="%d" height="%d" loading="lazy" decoding="async" alt="">'
+        % (base, widths[0], cw, ch),
         '          </picture>',
         '        </a>',
         '        <div class="log-meta">',
@@ -748,7 +822,7 @@ def index_row(root, trip, manifest):
     ])
 
 
-def render_index(root):
+def render_index(root, quality=QUALITY):
     trips = []
     for path in glob.glob(os.path.join(root, "logs", "*", "trip.json")):
         trip = os.path.basename(os.path.dirname(path))
@@ -756,7 +830,7 @@ def render_index(root):
     if not trips:
         die("no trip.json under %s/logs/ - nothing to index" % root)
     trips.sort(key=lambda t: (t[1].get("date", ""), t[0]), reverse=True)
-    rows = "\n".join(index_row(root, trip, m) for trip, m in trips)
+    rows = "\n".join(index_row(root, trip, m, quality) for trip, m in trips)
     page = fill("logs-index.html", {
         "title": esc("Trip logs — %s" % SITE_NAME),
         "description": esc("Trip logs and photos from Mad Cow, sail number 1340: where we went and how it went."),
@@ -766,12 +840,13 @@ def render_index(root):
         "rows": rows,
     })
     out = os.path.join(root, "logs", "index.html")
+    page = stamp(page, out)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(page)
     print("wrote %s (%d trips)" % (out, len(trips)))
 
 
-def render(root, trips=None):
+def render(root, trips=None, quality=QUALITY):
     if trips is None:
         trips = sorted(os.path.basename(os.path.dirname(p))
                        for p in glob.glob(os.path.join(root, "logs", "*", "trip.json")))
@@ -779,7 +854,7 @@ def render(root, trips=None):
             die("no trip.json under %s/logs/ - nothing to render" % root)
     for trip in trips:
         render_trip(root, trip)
-    render_index(root)
+    render_index(root, quality)
     return 0
 
 
@@ -796,8 +871,8 @@ def main(argv=None):
                    help="folder of original photos; omit to re-render only")
     p.add_argument("--root", default="sailing", metavar="DIR",
                    help="site root holding assets/ and logs/ (default: sailing)")
-    p.add_argument("--quality", type=int, default=62, metavar="N",
-                   help="AVIF/WebP quality, 1-100 (default: 62)")
+    p.add_argument("--quality", type=int, default=QUALITY, metavar="N",
+                   help="AVIF/WebP quality, 1-100 (default: %d)" % QUALITY)
     p.add_argument("--force", action="store_true",
                    help="re-encode derivatives that are already up to date")
     args = p.parse_args(argv)
@@ -809,7 +884,7 @@ def main(argv=None):
             p.error("--trip is required with --src")
         args.src = os.path.expanduser(args.src)
         return build(args)
-    return render(args.root, [args.trip] if args.trip else None)
+    return render(args.root, [args.trip] if args.trip else None, args.quality)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+# photos.madcowsailing.com is never indexed (epic #147, D6), and this file
+# does not do that job. Every response carries X-Robots-Tag: noindex instead.
+#
+# Crawling is allowed on purpose. A crawler refused a URL here never fetches
+# it, so it never reads the noindex, and it can still list the URL from a link
+# on some other site. Do not add a Disallow line to keep the site out of
+# search; it would do the opposite for any page linked from elsewhere.
+
+User-agent: *
+Disallow:

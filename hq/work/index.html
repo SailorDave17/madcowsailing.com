@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Work — Mad Cow HQ</title>
-<meta name="description" content="Dave Alvarado's work, grouped by where it stands: Taskr, Race Timer and Tender in testing, then what is still being built, then the tooling behind it.">
+<meta name="description" content="Dave Alvarado's work, grouped by where it stands: a sailing club's photo site, Taskr, Race Timer and Tender in testing, then what is still being built, then Cairn and the tooling behind it.">
 <link rel="canonical" href="https://madcowhq.com/work/">
 <meta property="og:title" content="Work — Mad Cow HQ">
-<meta property="og:description" content="Dave Alvarado's work, grouped by where it stands: Taskr, Race Timer and Tender in testing, then what is still being built, then the tooling behind it.">
+<meta property="og:description" content="Dave Alvarado's work, grouped by where it stands: a sailing club's photo site, Taskr, Race Timer and Tender in testing, then what is still being built, then Cairn and the tooling behind it.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://madcowhq.com/work/">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
@@ -28,9 +28,9 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="/assets/shared/css/tokens.css">
-<link rel="stylesheet" href="/assets/shared/css/base.css">
-<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="/css/site.css?v=9ad77f9afb">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -43,7 +43,7 @@
      it changes in all of them. There is no templating here on purpose -
      see CLAUDE.md on the no-build-step rule.
 
-     The three nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
+     The four nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
      literally true rather than aspirational. They read "work/" until #7,
      which put the first pages at depth (hq/work/ and hq/apps/), where a
      relative "work/" resolves to work/work/ and 404s. Do not "tidy" them
@@ -59,8 +59,9 @@
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/work/" aria-current="page">work</a></li>
-        <li><a href="/apps/">apps</a></li>
-        <li><a href="/about.html">about</a></li>
+        <li><a href="/about">about</a></li>
+        <li><a href="/assets/david-alvarado-resume.pdf">resume</a></li>
+        <li><a href="/about#getting-in-touch">contact</a></li>
       </ul>
     </nav>
   </div>
@@ -83,8 +84,19 @@
        Every place-to-get-it link on /apps/ is carried here, so that page can
        fold into this one (#81) with nothing lost. Taskr's title links to
        its case study, as Race Timer's and Tender's do (#65). A private repo
-       gets no source link rather than a link to a 404. id="burgee" and id="buoyant" stay:
-       the home page's Buoyant card links the second. -->
+       gets no source link rather than a link to a 404. id="burgee" and id="buoyant" stay
+       as the anchors /work/#burgee and /work/#buoyant; the home page's Buoyant
+       card linked the second until #85 put Taskr in its place.
+
+       #230 (2026-10-01) added the photo site to In testing, with its case
+       study: it is live on production for the people it is for, though no
+       usage had been recorded that day, so the row claims none. #230 also
+       replaced the COHSSA Attendance row with Coaches' Dockbox, which
+       superseded it on 2026-09-29. Dockbox gets
+       no source link: its repo is public only until the first real sailor's
+       record (Dockbox decision D1), and a link that later 404s is the case
+       the rule above exists for. Cairn's row now links its case study; the
+       repo itself stays unlinked because it is private. -->
 
   <section class="wrap page-head">
     <p class="eyebrow">Work</p>
@@ -101,33 +113,44 @@
       <ul class="rows">
 
         <li>
-          <h3><a href="/work/taskr.html">Taskr</a></h3>
+          <h3><a href="/work/photos">photos.madcowsailing.com</a></h3>
+          <p>A sailing club's regatta and practice photos, sent from parents'
+            and coaches' phones and public only once approved.</p>
+          <ul class="tags"><li>Cloudflare Pages Functions</li><li>D1</li><li>R2</li></ul>
+          <p class="links"><a href="/work/photos">Read the case study</a> &middot;
+            <a href="https://photos.madcowsailing.com/">photos.madcowsailing.com</a> &middot;
+            <a href="https://github.com/SailorDave17/madcowsailing.com/tree/develop/photos">Source on GitHub</a></p>
+        </li>
+
+        <li>
+          <h3><a href="/work/taskr">Taskr</a></h3>
           <p>Splits a household's chores by the time each person has.
             Rebuilt from a 2020 classroom project.</p>
           <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>
-          <p class="links"><a href="/work/taskr.html">Read the case study</a> &middot;
+          <p class="links"><a href="/work/taskr">Read the case study</a> &middot;
             <a href="/apps/taskr/">Try it</a> &middot;
             <a href="https://github.com/SailorDave17/Taskr">Source on GitHub</a></p>
         </li>
 
         <li>
-          <h3><a href="/work/race-timer.html">Race Timer</a></h3>
+          <h3><a href="/work/race-timer">Race Timer</a></h3>
           <p>A standalone Wear OS race timer that sounds a start sequence within
             a measured bound of the mark, with the screen off and no phone
             aboard.</p>
           <ul class="tags"><li>Kotlin</li><li>Wear OS</li><li>Compose</li></ul>
-          <p class="links"><a href="/work/race-timer.html">Read the case study</a> &middot;
+          <p class="links"><a href="/work/race-timer">Read the case study</a> &middot;
             <a href="https://madcowsailing.com/apps/race-timer/">Get it</a> &middot;
             <a href="https://github.com/SailorDave17/race-timer">Source on GitHub</a></p>
         </li>
 
         <li>
-          <h3><a href="/work/tender.html">Tender</a></h3>
+          <h3><a href="/work/tender">Tender</a></h3>
           <p>Pairs skippers who are short of crew with people who want to race,
             on a race-day board that stays true without anyone curating it. One
             club to start.</p>
           <ul class="tags"><li>Next.js</li><li>TypeScript</li><li>Supabase</li></ul>
-          <p class="links"><a href="/work/tender.html">Read the case study</a> &middot;
+          <p class="links"><a href="/work/tender">Read the case study</a> &middot;
+            <a href="https://madcowsailing.com/apps/tender/">Get it</a> &middot;
             <a href="https://tender.madcowsailing.com/">tender.madcowsailing.com</a> &middot;
             <a href="https://github.com/SailorDave17/tender">Source on GitHub</a></p>
         </li>
@@ -158,10 +181,11 @@
             or alongside Burgee.</p>
         </li>
 
-        <li>
-          <h3>COHSSA Attendance</h3>
-          <p>Replaces a high-school sailing team's paper attendance sheet with a
-            phone app that writes to the spreadsheet the coaches already keep.</p>
+        <li id="coaches-dockbox">
+          <h3>Coaches' Dockbox</h3>
+          <p>Attendance, emergency contacts, schedules and a coaching library for
+            a sailing club's coaches, piloting with one junior team in spring
+            2027.</p>
         </li>
 
         <li>
@@ -186,10 +210,11 @@
         </li>
 
         <li>
-          <h3>Cairn</h3>
-          <p>The engineering record behind everything above: decisions with
-            their reasoning, mistakes with their corrections, and the hooks and
-            checks that stop them recurring.</p>
+          <h3><a href="/work/cairn">Cairn</a></h3>
+          <p>The guardrails and the record behind everything above: what AI
+            coding agents may do unreviewed, the hooks that refuse the rest, and
+            every mistake kept with its correction.</p>
+          <p class="links"><a href="/work/cairn">Read the case study</a></p>
         </li>
 
       </ul>
@@ -206,8 +231,9 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
-      <li><a href="mailto:HSC.Coach@gmail.com">Email</a></li>
+      <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
   </div>
 </footer>

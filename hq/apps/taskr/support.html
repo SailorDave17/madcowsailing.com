@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Taskr support — Mad Cow HQ</title>
 <meta name="description" content="How to report a problem with Taskr, how long a reply takes, and what is currently wrong with it. Taskr deploys continuously, so quote the build number in the app's footer rather than a version.">
-<link rel="canonical" href="https://madcowhq.com/apps/taskr/support.html">
+<link rel="canonical" href="https://madcowhq.com/apps/taskr/support">
 <meta property="og:title" content="Taskr support — Mad Cow HQ">
 <meta property="og:description" content="How to report a problem with Taskr, how long a reply takes, and what is currently wrong with it. Taskr deploys continuously, so quote the build number in the app's footer rather than a version.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://madcowhq.com/apps/taskr/support.html">
+<meta property="og:url" content="https://madcowhq.com/apps/taskr/support">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -28,9 +28,9 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="/assets/shared/css/tokens.css">
-<link rel="stylesheet" href="/assets/shared/css/base.css">
-<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="/css/site.css?v=9ad77f9afb">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -43,7 +43,7 @@
      it changes in all of them. There is no templating here on purpose -
      see CLAUDE.md on the no-build-step rule.
 
-     The three nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
+     The four nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
      literally true rather than aspirational. They read "work/" until #7,
      which put the first pages at depth (hq/work/ and hq/apps/), where a
      relative "work/" resolves to work/work/ and 404s. Do not "tidy" them
@@ -59,8 +59,9 @@
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/work/">work</a></li>
-        <li><a href="/apps/" aria-current="page">apps</a></li>
-        <li><a href="/about.html">about</a></li>
+        <li><a href="/about">about</a></li>
+        <li><a href="/assets/david-alvarado-resume.pdf">resume</a></li>
+        <li><a href="/about#getting-in-touch">contact</a></li>
       </ul>
     </nav>
   </div>
@@ -107,8 +108,7 @@
         change every word first. Add what happened and what you expected
         instead.</dd>
       <dt>By email</dt>
-      <dd><a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a>. The
-        same address the in-app link writes to.</dd>
+      <dd><a href="mailto:dave@madcowhq.com">dave@madcowhq.com</a>.</dd>
       <dt>How long you will wait</dt>
       <dd>I read that address in the evenings, so expect a reply within a
         couple of days. If you write during a regatta weekend it will probably
@@ -162,7 +162,7 @@
 
   <section class="wrap page-foot">
     <p><a href="/apps/taskr/">Taskr</a> &middot;
-      <a href="privacy.html">Privacy</a></p>
+      <a href="privacy">Privacy</a></p>
   </section>
 </main>
 
@@ -171,8 +171,9 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
-      <li><a href="mailto:HSC.Coach@gmail.com">Email</a></li>
+      <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
   </div>
 </footer>

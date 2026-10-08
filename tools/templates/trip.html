@@ -30,9 +30,9 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="/assets/shared/css/tokens.css">
-<link rel="stylesheet" href="/assets/shared/css/base.css">
-<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="/css/site.css?v=f3cbc4252f">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -66,7 +66,8 @@
       <ul>
         <li><a href="/apps/">apps</a></li>
         <li><a href="/logs/" aria-current="page">logs</a></li>
-        <li><a href="/about.html">about</a></li>
+        <li><a href="https://photos.madcowsailing.com/">photos</a></li>
+        <li><a href="/about">about</a></li>
       </ul>
     </nav>
   </div>
@@ -95,8 +96,9 @@
        ratio over the row's total, so heights match inside a row and nothing
        is cropped. The same share is what the sizes attribute states, which
        is why the browser never fetches the -full derivative for a thumbnail
-       (a wrong sizes is the named cause of Lighthouse drops). The first row
-       is eager with fetchpriority=high; every later row is lazy. The
+       (a wrong sizes is the named cause of Lighthouse drops). Photos on the
+       first screen of both layouts - the wide first row AND the phone's first
+       line - are eager with fetchpriority=high; every other photo is lazy. The
        background-image data URI on each frame is the 20px LQIP, showing
        until the real bytes land. Each frame links to the largest derivative,
        which is the no-JavaScript baseline the lightbox story (#12) keeps. -->
@@ -129,6 +131,6 @@
      Cloudflare Pages build that already carries shared/css/ - no new build
      command, which is what #12 AC 7 asks. The script self-activates only when
      it finds a .gallery, so it is inert on any page that has none. -->
-<script src="/assets/shared/js/gallery.js" defer></script>
+<script src="/assets/shared/js/gallery.js?v=f39bf2b628" defer></script>
 </body>
 </html>

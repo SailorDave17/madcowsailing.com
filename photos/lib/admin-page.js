@@ -1,0 +1,1028 @@
+/**
+ * The admin home's HTML (#151), rendered by functions/admin/index.js.
+ *
+ * The admin pages are rendered by a Function, never served from public/, so
+ * they cannot carry a copy of the header and footer the way the static pages
+ * do. This file holds that copy instead, byte for byte, and
+ * test/admin-page.test.js fails until it matches the static pages again. The
+ * same test holds the stylesheet links, with their ?v= stamps, equal to
+ * public/share/index.html's: tools/assetver.py stamps HTML files only, so
+ * after it runs, copy the new stamps here.
+ *
+ * The CSP has no 'unsafe-inline', so nothing here may carry an inline style
+ * or script. Every URL is root-relative, as on every photos page.
+ *
+ * #152 added the invite-code page, adminCodePage(), and its script. #153 added
+ * the albums page, adminAlbumsPage(), which needs no script. #156 added the
+ * approval queue, adminQueuePage(), and its script, and the home's counts.
+ * #158 added the removal requests, adminRemovalsPage(), and its script, and
+ * the home's count of them. #217 added the test email, adminMailPage(). #220
+ * added the home's count of requests for an account. #221's page for them,
+ * /admin/people, is lib/people-page.js, which takes adminPage() from here.
+ * #228 added the queue's Move to event and the albums page's section for
+ * each team's "Not sure / other event".
+ */
+import { ADMIN_SESSION_SECONDS } from './admin-session.js';
+import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
+import { inviteLink } from './invite.js';
+import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
+import { CAPTION_MAX } from './photos.js';
+import { FREE_STORAGE_BYTES } from './queue.js';
+import { TEAMS, teamName } from './teams.js';
+
+const HEADER = String.raw`<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="lockup" href="https://madcowsailing.com/" aria-label="Mad Cow Sailing, home">
+      <svg xmlns="http://www.w3.org/2000/svg" class="lockup-mark" viewBox="0 0 749 746" fill="currentColor" fill-rule="evenodd" aria-hidden="true" focusable="false"><path d="M 156 464 C 156 463.04 157.39 460.61 158 460 C 158 459.67 158 459.33 158 459 C 158 454.35 156.52 423.52 155 422 C 146.67 413.67 126.6 419.6 120 413 C 119 412 116 413 115 412 C 113.67 410.67 109.33 412.33 108 411 C 106 409 99 412 97 410 C 93.83 406.83 87.17 407.17 84 404 C 81.27 401.27 75.94 399.94 74 398 C 66.83 390.83 57.17 386.17 50 379 C 49.17 378.17 46.83 378.83 46 378 C 42.17 374.17 35.83 372.83 32 369 C 31.5 368.5 29.5 369.5 29 369 C 24.96 364.96 15.57 364.57 12 361 C 8.5 357.5 4.5 354.5 1 351 C 0.5 350.5 1.5 348.5 1 348 C 0.63 347.63 -1.46 341.46 0 340 C 2 338 4 336 6 334 C 9.95 330.05 29.29 336.29 31 338 C 33.33 340.33 45.67 339.67 48 342 C 52.32 346.32 64.03 349.03 67 352 C 73.33 358.33 81.67 362.67 88 369 C 91.04 372.04 108.58 375.58 110 377 C 111.17 378.17 115.83 375.83 117 377 C 118.64 378.64 124.99 377.99 126 379 C 129.24 382.24 149.75 389.25 155 384 C 158.23 380.77 157.51 363.49 162 359 C 163.3 357.7 160.42 351.42 160 351 C 148.4 339.4 123.76 338.76 112 327 C 110.33 325.33 106.67 325.67 105 324 C 96.83 315.83 90.17 306.17 82 298 C 81.53 297.53 80.47 298.47 80 298 C 73 291 62 288 55 281 C 54.53 280.53 55.47 279.47 55 279 C 52.67 276.67 50.33 274.33 48 272 C 47.25 271.25 45.99 264.99 44 263 C 43.5 262.5 44.5 260.5 44 260 C 35.59 251.59 20 244.21 20 228 C 20 227.39 19.61 224.39 20 224 C 21.17 222.83 22.83 222.17 24 221 C 24.5 220.5 26.5 221.5 27 221 C 31.93 216.07 44.97 224.97 47 227 C 48.33 228.33 47.67 231.67 49 233 C 53 237 55 243 59 247 C 59.47 247.47 60.53 246.53 61 247 C 68.5 254.5 80.5 257.5 88 265 C 88.83 265.83 91.17 265.17 92 266 C 94.5 268.5 97.5 270.5 100 273 C 101.5 274.5 101.5 277.5 103 279 C 106.33 282.33 113.67 281.67 117 285 C 123.17 291.17 129.83 296.83 136 303 C 136.47 303.47 137.53 302.53 138 303 C 141.41 306.41 155.43 308.43 158 311 C 158.65 311.65 169.21 319.79 171 318 C 178.18 310.82 183.36 297.64 191 290 C 193.57 287.43 194.25 280.75 197 278 C 200.68 274.32 185 255 184 254 C 170.17 240.17 153.83 228.83 140 215 C 137.49 212.49 130.31 211.31 128 209 C 125.17 206.17 122.83 202.83 120 200 C 118.83 198.83 119.17 196.17 118 195 C 114.67 191.67 111.33 188.33 108 185 C 106.5 183.5 107.5 179.5 106 178 C 101.67 173.67 100.33 166.33 96 162 C 95.06 161.06 94.24 154.24 93 153 C 92.33 152.33 90.67 152.67 90 152 C 87.83 149.83 82.52 142 82 142 C 82 136.83 86 131.98 86 130 C 88.07 130 97.68 128.68 99 130 C 101.33 132.33 103.67 134.67 106 137 C 107.17 138.17 106.83 140.83 108 142 C 113.83 147.83 120.17 153.17 126 159 C 128.17 161.17 127.83 165.83 130 168 C 133.66 171.66 140.66 172.66 144 176 C 149.17 181.17 153.83 186.83 159 192 C 160.33 193.33 163.67 192.67 165 194 C 168.33 197.33 173.67 198.67 177 202 C 177.83 202.83 180.17 202.17 181 203 C 185.67 207.67 191.33 211.33 196 216 C 196.47 216.47 197.53 215.53 198 216 C 202.48 220.48 222.13 246.87 233 236 C 233.83 235.17 236.17 235.83 237 235 C 240.17 231.83 242.83 228.17 246 225 C 247.67 223.33 247.33 219.67 249 218 C 253.28 213.72 240.8 195.8 240 195 C 234.9 189.9 234.7 171.7 231 168 C 224.67 161.67 218.33 155.33 212 149 C 209.37 146.37 207.09 140.09 204 137 C 201.06 134.06 203.38 117.38 201 115 C 199.67 113.67 200.33 110.33 199 109 C 196 106 194 102 191 99 C 190.53 98.53 191.47 97.47 191 97 C 183.35 89.35 143.24 73.76 161 56 C 161.5 55.5 163.5 56.5 164 56 C 170.61 49.39 180.62 58.62 184 62 C 185.48 63.48 197.31 63.31 199 65 C 202 68 206 70 209 73 C 213.5 77.5 219.5 80.5 224 85 C 226.87 87.87 227.83 93.83 231 97 C 232.96 98.96 236.48 125.48 237 126 C 243.17 132.17 250.83 136.83 257 143 C 257.47 143.47 256.53 144.53 257 145 C 259.17 147.17 261.83 148.83 264 151 C 266.17 153.17 266.83 156.83 269 159 C 272.59 162.59 271.18 179.18 273 181 C 277.17 185.17 276.83 193.83 281 198 C 281.5 198.5 280.5 200.5 281 201 C 283.5 203.5 286.5 205.5 289 208 C 289.88 208.88 314.61 203.39 315 203 C 317.5 200.5 316.5 194.5 319 192 C 319.75 191.25 318 191.03 318 190 C 318 184.26 316 176.59 316 171 C 316 157.38 319.56 125.56 312 118 C 311.41 117.41 310.18 109.18 308 107 C 307.33 106.33 308.67 103.67 308 103 C 300.73 95.73 316.69 67.69 313 64 C 310.4 61.4 307.21 51.21 305 49 C 302 46 299 43 296 40 C 295.24 39.24 294.19 33.19 293 32 C 290.5 29.5 286.5 28.5 284 26 C 282.17 24.17 282.83 19.83 281 18 C 279.74 16.74 280.8 6.2 283 4 C 283.79 3.21 288 1.1 288 0 C 294.2 0 300.59 6.59 304 10 C 305.77 11.77 314.45 11.45 317 14 C 320 17 322 21 325 24 C 328 27 334 27 337 30 C 340.67 33.67 342.33 39.33 346 43 C 346.67 43.67 345.33 46.33 346 47 C 350.88 51.88 348.83 79.17 345 83 C 344.53 83.47 345 84.33 345 85 C 345 87.23 343.58 97.58 345 99 C 347.93 101.93 350.91 120.91 355 125 C 356.15 126.15 355.27 133.27 357 135 C 359.36 137.36 352.97 172.97 355 175 C 356.83 176.83 356.17 181.17 358 183 C 360.67 185.67 364.33 187.33 367 190 C 369.48 192.48 384.29 190 389 190 C 389.67 190 390.53 190.47 391 190 C 393 188 396 187 398 185 C 404.3 178.7 403.69 148.31 410 142 C 410.5 141.5 409.5 139.5 410 139 C 414.67 134.33 416.33 126.67 421 122 C 421.47 121.53 420.53 120.47 421 120 C 432 109 441 96 452 85 C 455.33 81.67 455.67 75.33 459 72 C 459.5 71.5 458.5 69.5 459 69 C 467.07 60.93 449.41 34.59 453 31 C 454.83 29.17 456.17 26.83 458 25 C 459.17 23.83 461.83 24.17 463 23 C 466.99 19.01 477.52 29.52 478 30 C 479.5 31.5 478.5 35.5 480 37 C 486.27 43.27 484.6 62.6 491 69 C 492 70 491 73 492 74 C 492.47 74.47 492 75.33 492 76 C 492 77.57 490.44 86.56 490 87 C 486.17 90.83 485.83 98.17 482 102 C 481 103 482 106 481 107 C 474.5 113.5 468.5 120.5 462 127 C 460.28 128.72 459.45 136.55 458 138 C 454.5 141.5 452.5 146.5 449 150 C 444.85 154.15 444.9 166.1 441 170 C 440.33 170.67 441.67 173.33 441 174 C 436.81 178.19 435.3 201.3 440 206 C 441.27 207.27 449.38 207.38 450 208 C 456.68 214.68 475.69 209.31 480 205 C 480.47 204.53 479.53 203.47 480 203 C 485.5 197.5 489.5 190.5 495 185 C 496 184 495 181 496 180 C 498.73 177.27 500.06 171.94 502 170 C 504.67 167.33 507.33 164.67 510 162 C 510.47 161.53 509.53 160.47 510 160 C 510.47 159.53 511.53 160.47 512 160 C 512.47 159.53 511.53 158.47 512 158 C 512.47 157.53 513.53 158.47 514 158 C 516.83 155.17 519.17 151.83 522 149 C 522.47 148.53 523.53 149.47 524 149 C 525.5 147.5 525.5 144.5 527 143 C 530 140 533 137 536 134 C 538.49 131.51 545.59 130.41 548 128 C 552.17 123.83 556.83 120.17 561 116 C 561.47 115.53 560.53 114.47 561 114 C 564.33 110.67 566.67 106.33 570 103 C 570.83 102.17 570.17 99.83 571 99 C 574.5 95.5 578.5 92.5 582 89 C 583.47 87.53 584.82 70.18 586 69 C 586.71 68.29 591 56.2 591 55 C 599.95 55 601.03 53.03 607 59 C 607.47 59.47 608.53 58.53 609 59 C 611.17 61.17 616.48 69 617 69 C 617 75.58 614.39 81.61 611 85 C 609.67 86.33 612.33 91.67 611 93 C 606.1 97.9 606.99 115.01 602 120 C 595.17 126.83 590.83 136.17 584 143 C 582.83 144.17 580.17 143.83 579 145 C 575.67 148.33 573.33 152.67 570 156 C 567.67 158.33 562.33 157.67 560 160 C 550.83 169.17 544.17 180.83 535 190 C 534.53 190.47 535.47 191.53 535 192 C 529.6 197.4 528.77 208.23 523 214 C 521.67 215.33 522.33 218.67 521 220 C 520.44 220.56 512.24 230.24 514 232 C 514.67 232.67 514.33 234.33 515 235 C 523.67 243.67 532.33 252.33 541 261 C 544.47 264.47 553.46 252.54 554 252 C 557.17 248.83 559.83 245.17 563 242 C 565.19 239.81 570.3 237.7 573 235 C 574.5 233.5 573.5 229.5 575 228 C 579.33 223.67 583.67 219.33 588 215 C 588.47 214.53 587.53 213.47 588 213 C 588.47 212.53 589.53 213.47 590 213 C 593.33 209.67 598.67 208.33 602 205 C 603.54 203.46 614.43 202.57 617 200 C 617.26 199.74 619.59 200 620 200 C 629.18 200 635.07 198 643 198 C 643.61 198 646.61 198.39 647 198 C 648.45 196.55 663.71 193.29 665 192 C 672.74 184.26 689.24 180.76 697 173 C 698.04 171.96 711.35 173.35 712 174 C 713.83 175.83 715.17 178.17 717 180 C 718.42 181.42 716.33 186.67 716 187 C 715.33 187.67 716.67 190.33 716 191 C 713.33 193.67 711.67 197.33 709 200 C 708.53 200.47 707.47 199.53 707 200 C 701.5 205.5 692.5 207.5 687 213 C 684.67 215.33 680.33 215.67 678 218 C 673.67 222.33 668.33 225.67 664 230 C 661.5 232.5 655.5 231.5 653 234 C 652.4 234.6 647.95 234 647 234 C 640.23 234 618.51 236.49 616 239 C 614.17 240.83 610.83 241.17 609 243 C 602.33 249.67 596.67 257.33 590 264 C 586.89 267.11 584.44 276.56 582 279 C 579.41 281.59 571 285.54 571 290 C 572.64 290 575.72 302.72 577 304 C 582.17 309.17 581.83 319.83 587 325 C 588.87 326.87 588.33 338.33 591 341 C 592.83 342.83 596.17 343.17 598 345 C 599.23 346.23 599.9 344.1 600 344 C 601.67 342.33 607.33 344.67 609 343 C 615.67 336.33 625.33 332.67 632 326 C 632.47 325.53 633.53 326.47 634 326 C 639 321 647 319 652 314 C 654.14 311.86 679.86 316.14 682 314 C 683.83 312.17 690.17 314.83 692 313 C 694.04 310.96 701.47 311.53 703 310 C 707.5 305.5 715.5 304.5 720 300 C 722.5 297.5 728.5 298.5 731 296 C 731.26 295.74 733.59 296 734 296 C 743.78 296 744.29 301.29 749 306 C 750.23 307.23 748.1 307.9 748 308 C 746.5 309.5 747.5 313.5 746 315 C 742 319 738 323 734 327 C 730.67 330.33 724.33 330.67 721 334 C 720 335 717 334 716 335 C 709.59 341.41 675.13 342.87 673 345 C 670.83 347.17 666.17 346.83 664 349 C 655.65 357.35 643.5 362.5 635 371 C 634.17 371.83 631.83 371.17 631 372 C 626.67 376.33 619.33 377.67 615 382 C 614.5 382.5 612.5 381.5 612 382 C 609.17 384.83 605.83 387.17 603 390 C 601.42 391.58 595.57 419.57 599 423 C 605.46 429.46 624.43 427 637 427 C 647.11 427 679.39 416.61 684 412 C 684.33 412 684.67 412 685 412 C 688.73 412 697 406 699 408 C 700.33 409.33 703.67 408.67 705 410 C 707.17 412.17 708.83 414.83 711 417 C 711.26 417.26 711 419.59 711 420 C 711 432.01 696.13 431.87 690 438 C 689.53 438.47 688.47 437.53 688 438 C 681.17 444.83 669.83 447.17 663 454 C 660.83 456.17 656.17 455.83 654 458 C 652.48 459.52 644.85 459.15 643 461 C 641.47 462.53 607.4 459.6 606 461 C 604.33 462.67 599.67 461.33 598 463 C 597.12 463.88 596.68 466 595 466 C 595 479.73 586.04 530.96 581 536 C 579.56 537.44 577.72 560.28 576 562 C 574.17 563.83 574.36 570.64 573 572 C 570.86 574.14 570 581 569 582 C 561.5 589.5 560.5 603.5 553 611 C 551.5 612.5 553.5 617.5 552 619 C 549.61 621.39 549.79 629.21 548 631 C 542.62 636.38 539.97 654.03 535 659 C 533.89 660.11 533.21 668.79 532 670 C 528.11 673.89 525.83 685.17 523 688 C 513 698 501 706 491 716 C 488.83 718.17 484.17 717.83 482 720 C 478.17 723.83 472.83 726.17 469 730 C 466.5 732.5 461.5 732.5 459 735 C 457.02 736.98 447.52 736.48 445 739 C 444.17 739.83 440.83 738.17 440 739 C 435.66 743.34 413.24 741.76 409 746 C 407.65 747.35 385.17 745 383 745 C 365.18 745 335.98 738.98 327 730 C 324.5 727.5 319.5 727.5 317 725 C 316.02 724.02 299.48 719.48 297 717 C 293.67 713.67 289.33 711.33 286 708 C 285.53 707.53 284.47 708.47 284 708 C 276.67 700.67 267.33 695.33 260 688 C 259.33 687.33 257.67 687.67 257 687 C 253.35 683.35 249.79 669.79 247 667 C 240.33 660.33 238.67 648.67 232 642 C 229.5 639.5 229.5 634.5 227 632 C 225.5 630.5 226.5 626.5 225 625 C 218.67 618.67 214.33 610.33 208 604 C 207.17 603.17 207.83 600.83 207 600 C 204.33 597.33 202.67 593.67 200 591 C 198.67 589.67 199.33 586.33 198 585 C 195.08 582.08 194.42 573.42 193 572 C 188.55 567.55 186.14 557.14 181 552 C 179.66 550.66 178.22 539.22 176 537 C 175.17 536.17 176.83 532.83 176 532 C 170.85 526.85 172.12 510.12 167 505 C 166.5 504.5 167.5 502.5 167 502 C 165.33 500.33 163.67 498.67 162 497 C 160.36 495.36 140.64 498.64 139 497 C 136.2 494.2 115.59 493.59 114 492 C 112.15 490.15 106.24 490.24 105 489 C 100.17 484.17 91.83 482.83 87 478 C 86.67 478 86.33 478 86 478 C 83.91 478 67.8 466.2 72 462 C 74 460 76 458 78 456 C 82.68 451.32 106.34 462.34 107 463 C 108.5 464.5 112.5 463.5 114 465 C 115.35 466.35 127.76 464.76 130 467 C 132.39 469.39 153.29 464 156 464 Z M 545 460 C 544.48 460 513.01 467.99 513 468 C 512.15 468.85 492.58 469 489 469 C 471.74 469 454.98 455.98 446 447 C 443.83 444.83 443.17 441.17 441 439 C 439.05 437.05 438.56 425.56 437 424 C 434.56 421.56 435 415.83 435 411 C 435 391.99 442.54 381.46 452 372 C 454 370 458 370 460 368 C 464.65 363.35 482.87 361.13 483 361 C 483.2 360.8 485.71 358.71 487 360 C 489.51 362.51 502.34 361.34 505 364 C 507 366 511 366 513 368 C 515.33 370.33 518.67 371.67 521 374 C 522.67 375.67 523.33 378.33 525 380 C 525.47 380.47 526.53 379.53 527 380 C 529.37 382.37 533.85 397.85 534 398 C 535.62 399.62 537.11 405.89 535 408 C 534 409 536 413 535 414 C 532.33 416.67 532.67 422.33 530 425 C 521.68 433.32 513.87 440 497 440 C 493.5 440 489.77 439.77 488 438 C 486.5 436.5 482.5 437.5 481 436 C 478 433 475 430 472 427 C 470.33 425.33 470.67 421.67 469 420 C 466.04 417.04 471.46 402.54 472 402 C 473.7 400.3 475.14 396.86 477 395 C 479.17 392.83 483.83 393.17 486 391 C 486.39 390.61 489.39 391 490 391 C 508.22 391 512.91 412 493 412 C 493 409.37 488 408.21 488 405 C 487.16 405 485.52 406.48 485 407 C 481.2 410.8 486.15 419.15 488 421 C 489.67 422.67 493.33 422.33 495 424 C 496.42 425.42 501.67 423.33 502 423 C 502.98 422.02 509.53 421.47 511 420 C 514.02 416.98 515.56 410.44 518 408 C 521.49 404.51 512.56 390.56 512 390 C 509.83 387.83 508.17 385.17 506 383 C 502.82 379.82 482.22 374.78 477 380 C 475.69 381.31 468.76 382.24 467 384 C 451.64 399.36 448.02 422.02 465 439 C 465.47 439.47 464.53 440.53 465 441 C 466.83 442.83 470.17 443.17 472 445 C 472.84 445.84 496.29 457.71 501 453 C 503.15 450.85 514.18 451.82 516 450 C 519.67 446.33 527.52 445.48 531 442 C 536.17 436.83 540.83 431.17 546 426 C 548.5 423.5 547.5 417.5 550 415 C 550.85 414.15 551.4 394.4 550 393 C 549.33 392.33 545.4 377.4 543 375 C 537.83 369.83 533.17 364.17 528 359 C 526.83 357.83 524.17 358.17 523 357 C 519.5 353.5 513.5 352.5 510 349 C 508.83 347.83 505.17 349.17 504 348 C 502.07 346.07 480.57 342.43 477 346 C 476.17 346.83 472.83 345.17 472 346 C 468.47 349.53 456.56 349.44 453 353 C 448.67 357.33 443.33 360.67 439 365 C 438.53 365.47 437.47 364.53 437 365 C 433.33 368.67 430.67 373.33 427 377 C 423.58 380.42 423.45 390.55 420 394 C 418.83 395.17 421.17 399.83 420 401 C 415.85 405.15 421 418.51 421 423 C 421 441.93 436.13 459.13 446 469 C 448.24 471.24 453.13 473.13 456 476 C 459.72 479.72 479.9 482.9 482 485 C 482.47 485.47 483.33 485 484 485 C 485.66 485 500.82 485.18 501 485 C 502.81 483.19 510.88 484.12 512 483 C 513.62 481.38 518.94 481.06 520 480 C 526.28 473.72 545 472.05 545 460 Z M 338 462 C 337.76 462 334.27 457.73 332 460 C 326.35 465.65 315.34 466.66 310 472 C 308.21 473.79 300.39 473.61 298 476 C 295.91 478.09 285.31 476.69 283 479 C 282.74 479.26 280.41 479 280 479 C 275.46 479 257.68 477.68 256 476 C 252.08 472.08 242.99 470.99 239 467 C 234.17 462.17 229.83 456.83 225 452 C 222.9 449.9 218.19 432.19 218 432 C 216.38 430.38 214.58 413.42 217 411 C 218 410 216 406 217 405 C 218.87 403.13 220.51 392.49 222 391 C 226.67 386.33 230.33 380.67 235 376 C 237.41 373.59 243.78 372.22 246 370 C 246.83 369.17 274.66 357.66 279 362 C 281.09 364.09 290.48 363.48 292 365 C 295.38 368.38 303.55 369.55 307 373 C 310.67 376.67 314.33 380.33 318 384 C 319.82 385.82 327.16 404.84 323 409 C 321.91 410.09 322.47 417.53 320 420 C 318.17 421.83 318.83 426.17 317 428 C 312.17 432.83 306.83 437.17 302 442 C 297.56 446.44 274.18 451.18 268 445 C 267 444 264 445 263 444 C 260.5 441.5 257.5 439.5 255 437 C 254.33 436.33 254.67 434.67 254 434 C 253.53 433.53 246.62 416.38 250 413 C 252.17 410.83 251.83 406.17 254 404 C 257 401 260 398 263 395 C 263.5 394.5 265.5 395.5 266 395 C 275.07 385.93 295.17 399.83 289 406 C 287.83 407.17 289.17 410.83 288 412 C 286 414 283 415 281 417 C 277.81 420.19 271.91 413 270 413 C 270 413.55 265.61 418.61 268 421 C 269.17 422.17 268.83 424.83 270 426 C 271.17 427.17 272.83 427.83 274 429 C 274.67 429.67 277.33 428.33 278 429 C 282.49 433.49 292.92 426.08 295 424 C 296 423 298 423 299 422 C 299.47 421.53 298.53 420.47 299 420 C 309.54 409.46 302.52 394.52 295 387 C 294.53 386.53 293.47 387.47 293 387 C 285 379 262.12 378.88 254 387 C 253.17 387.83 250.83 387.17 250 388 C 247.33 390.67 244.67 393.33 242 396 C 240.83 397.17 241.17 399.83 240 401 C 239.42 401.58 232.21 418.21 234 420 C 236.26 422.26 235.05 432.05 237 434 C 239 436 239 440 241 442 C 244.83 445.83 248.17 450.17 252 454 C 255.67 457.67 263.33 457.33 267 461 C 267.83 461.83 271.17 460.17 272 461 C 275.17 464.17 292.27 460.73 294 459 C 295 458 298 459 299 458 C 302.3 454.7 310.7 452.3 314 449 C 318.33 444.67 322.67 440.33 327 436 C 329.81 433.19 330.95 427.05 334 424 C 335.07 422.93 339.98 400.98 337 398 C 336.29 397.29 337 392.11 337 391 C 337 388.49 331.48 375.48 330 374 C 324 368 317 363 311 357 C 307.67 353.67 300.33 354.33 297 351 C 294.72 348.72 275.25 348 269 348 C 268.39 348 265.39 347.61 265 348 C 261.54 351.46 246.95 351.05 242 356 C 241.5 356.5 239.5 355.5 239 356 C 235.67 359.33 231.33 361.67 228 365 C 227.53 365.47 226.47 364.53 226 365 C 220.17 370.83 215.83 378.17 210 384 C 206.53 387.47 206.4 398.6 203 402 C 202.17 402.83 203.83 406.17 203 407 C 200.36 409.64 200.33 431.33 203 434 C 203.02 434.02 201.7 437.7 203 439 C 205.88 441.88 208.55 455.55 212 459 C 218 465 223 472 229 478 C 231.74 480.74 236.98 481.98 240 485 C 243.68 488.68 265.86 491.86 268 494 C 269.34 495.34 289.4 493 291 493 C 303.36 493 338 471.2 338 462 Z M 351 678 C 353.98 678 361.09 683.09 363 685 C 363.5 685.5 365.5 684.5 366 685 C 370.43 689.43 402.26 692.74 408 687 C 408.58 686.42 417.15 685.85 418 685 C 421.49 681.51 430.58 679.42 434 676 C 437 673 440 670 443 667 C 443.47 666.53 444.53 667.47 445 667 C 445.47 666.53 444.53 665.47 445 665 C 448.5 661.5 451.5 657.5 455 654 C 455 653.67 455 653.33 455 653 C 455 651.48 465.38 627.38 463 625 C 461.42 623.42 461.69 616.31 462 616 C 462 615.67 462 615.33 462 615 C 458.8 611.8 458.12 589.12 454 585 C 450.37 581.37 447.62 570.62 444 567 C 439.83 562.83 436.17 558.17 432 554 C 428.17 550.17 395.7 535.3 387 544 C 386.08 544.92 376.29 545.71 375 547 C 372.06 549.94 366.69 551.31 364 554 C 360.33 557.67 356.67 561.33 353 565 C 349.48 568.52 347.69 577.31 344 581 C 343.5 581.5 344.5 583.5 344 584 C 338.37 589.63 337.55 617.45 334 621 C 332.83 622.17 335.17 626.83 334 628 C 327.64 634.36 338.89 665.89 341 668 C 342.98 669.98 351 674.95 351 678 Z"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" class="lockup-word" viewBox="0 0 776 150" fill="currentColor" fill-rule="evenodd" aria-hidden="true" focusable="false"><path d="M 284 125 C 301.69 125 325.69 108.31 335 99 C 336.67 97.33 336.33 93.67 338 92 C 341.12 88.88 345.81 69.81 341 65 C 328.65 52.65 307.37 47 286 47 C 286 52.73 285.7 78.3 283 81 C 282.96 81.04 284 120.84 284 125 Z M 595 32 C 595 33.57 603.71 37.71 605 39 C 608.64 42.64 616 60.87 616 68 C 616 72.81 616.5 97.5 615 99 C 613.15 100.85 613.24 106.76 612 108 C 606.83 113.17 605.17 121.83 600 127 C 599.53 127.47 600.47 128.53 600 129 C 579.48 149.52 548.04 146.04 529 127 C 525.21 123.21 511.6 92.4 519 85 C 520 84 519 81 520 80 C 520.85 79.15 520.26 72.74 522 71 C 523.33 69.67 521.67 65.33 523 64 C 525.67 61.33 527.33 57.67 530 55 C 530.83 54.17 530.17 51.83 531 51 C 534.67 47.33 538.33 43.67 542 40 C 542.47 39.53 541.53 38.47 542 38 C 542.67 37.33 544.33 37.67 545 37 C 547.17 34.83 549.83 33.17 552 31 C 554.77 28.23 573.05 28 580 28 C 580.41 28 582.74 27.74 583 28 C 584.79 29.79 592 32 595 32 Z M 221 114 C 214.23 114 176.23 112.77 173 116 C 166.2 122.8 168.21 139.79 161 147 C 158.22 149.78 149.88 145 149 145 C 149 143.65 145.88 134.12 148 132 C 150.55 129.45 151.87 117.13 153 116 C 160 109 161.69 75.31 169 68 C 169.64 67.36 172.3 49.7 176 46 C 176.5 45.5 175.5 43.5 176 43 C 182.52 36.48 178.84 24 193 24 C 193.78 24 197.5 23.5 198 24 C 200.67 26.67 204.33 28.33 207 31 C 209.17 33.17 209.83 36.83 212 39 C 213.5 40.5 212.5 44.5 214 46 C 218.33 50.33 218.67 58.67 223 63 C 223.5 63.5 222.5 65.5 223 66 C 228 71 228 81 233 86 C 233.5 86.5 232.5 88.5 233 89 C 237.17 93.17 236.83 101.83 241 106 C 241.47 106.47 241 107.33 241 108 C 241 110.13 253.93 133.07 249 138 C 246.25 140.75 244.78 142 239 142 C 227.3 142 232.55 131.55 227 126 C 225.01 124.01 221 117.3 221 114 Z M 488 26 C 488 27.32 506 36.14 506 46 C 506 47.96 507.94 48.06 506 50 C 505.74 50.26 504.87 56.13 504 57 C 487.49 73.51 487.88 53.88 480 46 C 477.29 43.29 472.17 45 469 45 C 465.51 45 459.89 46.11 458 48 C 454.5 51.5 450.5 54.5 447 58 C 444.87 60.13 431.47 94.47 438 101 C 438.67 101.67 437.33 104.33 438 105 C 441.5 108.5 443.5 113.5 447 117 C 448.01 118.01 454.2 119.2 455 120 C 459.98 124.98 483.73 123.27 488 119 C 489.5 117.5 491.5 116.5 493 115 C 493.47 114.53 492.53 113.47 493 113 C 493.14 112.86 503.36 104.36 507 108 C 508.17 109.17 509.83 109.83 511 111 C 512.17 112.17 511.83 114.83 513 116 C 514.23 117.23 512.1 117.9 512 118 C 510.33 119.67 510.67 123.33 509 125 C 508.53 125.47 507.47 124.53 507 125 C 505.67 126.33 505.33 128.67 504 130 C 502.5 131.5 499.5 131.5 498 133 C 486.63 144.37 450.18 146.18 438 134 C 436.83 132.83 434.17 133.17 433 132 C 429.17 128.17 425.83 123.83 422 120 C 419.67 117.67 420.33 112.33 418 110 C 416.78 108.78 418 90.63 418 89 C 418 80.35 427.09 50.91 431 47 C 432.5 45.5 434.5 44.5 436 43 C 436.47 42.53 435.53 41.47 436 41 C 440 37 446 35 450 31 C 452.17 28.83 456.83 29.17 459 27 C 459.99 26.01 466.36 26.64 468 25 C 469.28 23.72 486.59 26 488 26 Z M 267 47 C 265.27 47 261.98 45.98 261 45 C 260.75 44.75 256.39 43.39 254 41 C 251.29 38.29 253 35.61 253 32 C 254.57 32 254.24 30.76 255 30 C 257 28 261 28 263 26 C 266.08 22.92 311.18 30.18 312 31 C 312.83 31.83 316.17 30.17 317 31 C 318.97 32.97 325.88 32.88 327 34 C 330.84 37.84 341.95 39.95 346 44 C 349.17 47.17 351.83 50.83 355 54 C 357 56 357 60 359 62 C 360.67 63.67 359.33 68.33 361 70 C 363.71 72.71 356.88 100.12 356 101 C 350.83 106.17 347.17 112.83 342 118 C 341.53 118.47 340.47 117.53 340 118 C 335 123 328 126 323 131 C 322 132 319 131 318 132 C 312.95 137.05 294.47 138.53 293 140 C 291.33 141.67 285.67 139.33 284 141 C 280.11 144.89 265.04 143.04 262 140 C 257.2 135.2 264.19 129.81 266 128 C 267.06 126.94 267 118.79 267 116 C 267 95.04 267 65.04 267 47 Z M 48 31 C 48 35 50.62 44.62 53 47 C 54.16 48.16 54.82 59.82 56 61 C 57.43 62.43 67 96.87 67 101 C 67.67 101 68.33 101 69 101 C 69 98.57 93.57 36.43 95 35 C 97.07 32.93 107.93 25.93 113 31 C 114.83 32.83 116.17 35.17 118 37 C 119.6 38.6 121.37 63.37 122 64 C 124.65 66.65 124.92 83.92 126 85 C 126.53 85.53 138 139.35 138 144 C 136.32 144 124.39 147.39 122 145 C 115.55 138.55 115.01 108.01 109 102 C 108.11 101.11 108.91 93.91 107 92 C 104.53 89.53 107.04 65 101 65 C 101 69.64 82.48 112.52 80 115 C 78.68 116.32 78.56 124.44 77 126 C 75.17 127.83 71.83 128.17 70 130 C 66.57 133.43 55.25 125.25 55 125 C 54 124 55 121 54 120 C 53 119 54 116 53 115 C 50.91 112.91 51.52 103.52 50 102 C 49.72 101.72 39 72.09 39 72 C 38.33 72 37.67 72 37 72 C 37 75.54 30.37 103.63 29 105 C 28.17 105.83 29.83 109.17 29 110 C 24.4 114.6 24.31 142.69 17 150 C 12.58 154.42 1.98 148.98 0 147 C -0.91 146.09 0 139.43 0 138 C 0 137.22 -0.5 133.5 0 133 C 4.95 128.05 4.05 111.95 9 107 C 9.83 106.17 8.17 102.83 9 102 C 11.99 99.01 15.28 75.72 16 75 C 21.05 69.95 22.88 41.12 28 36 C 30.67 33.33 34.33 31.67 37 29 C 39.6 26.4 46.49 31 48 31 Z M 689 82 C 688.33 82 687.67 82 687 82 C 687 84.45 670.54 136.46 670 137 C 668.27 138.73 657.84 144.84 654 141 C 650.67 137.67 648.33 133.33 645 130 C 643.05 128.05 640.44 105.44 637 102 C 635.83 100.83 634.78 87.78 632 85 C 631.07 84.07 629.24 70.24 627 68 C 626.2 67.2 622.81 39.81 620 37 C 619.29 36.29 622 29.24 622 28 C 623.8 28 634.06 22.06 638 26 C 643.01 31.01 643.25 52.25 647 56 C 648.16 57.16 646.81 67.81 649 70 C 649.83 70.83 648.17 74.17 649 75 C 650.69 76.69 658 103.53 658 107 C 663.68 107 663.46 90.54 665 89 C 666.5 87.5 665.5 83.5 667 82 C 673.87 75.13 671.59 52.41 676 48 C 676.67 47.33 675.33 44.67 676 44 C 678.83 41.17 679.17 35.83 682 33 C 683.33 31.67 683 34.67 683 32 C 688.32 32 690.61 34 693 34 C 693 36.63 696.3 44.3 698 46 C 699.83 47.83 697.17 54.17 699 56 C 703.66 60.66 704.88 82.88 711 89 C 714.01 92.01 712.19 102 718 102 C 718 99.98 721.7 95.3 723 94 C 723.62 93.38 724.62 85.38 725 85 C 727.39 82.61 727.21 74.79 729 73 C 735.82 66.18 736.11 48.89 743 42 C 744.63 40.37 746.47 26.53 750 23 C 751.77 21.23 755.27 2.73 758 0 C 765.26 -7.26 770.02 -4.98 776 1 C 779.33 4.33 763 38.03 763 44 C 763 46.73 753.86 66.14 752 68 C 749.92 70.08 747.93 88.07 746 90 C 744.15 91.85 744.24 97.76 743 99 C 740.04 101.96 738.08 113.92 737 115 C 734.52 117.48 734.74 124.26 733 126 C 730.67 128.33 730.33 132.67 728 135 C 726.5 136.5 724.5 137.5 723 139 C 722.5 139.5 720.5 138.5 720 139 C 716.41 142.59 710.79 136.79 709 135 C 707.22 133.22 689 86.44 689 82 Z M 193 48 C 193 50.71 190.56 55.44 189 57 C 188.14 57.86 179 91.4 179 95 C 189.14 95 200.35 95 212 95 C 212 93.01 214 93.73 214 91 C 210.6 91 199.66 48 193 48 Z M 554 122 C 556.9 122 561.45 122.45 563 124 C 564.33 125.33 567.75 123.25 568 123 C 568.83 122.17 572.17 123.83 573 123 C 575.17 120.83 579.83 121.17 582 119 C 585.67 115.33 588.33 110.67 592 107 C 593.16 105.84 596.4 91.6 597 91 C 600 88 597.31 64.31 595 62 C 591.67 58.67 589.33 54.33 586 51 C 584.17 49.17 579.83 49.83 578 48 C 576.33 46.33 565.58 48.42 565 49 C 563.83 50.17 560.17 48.83 559 50 C 555.67 53.33 551.33 55.67 548 59 C 543.83 63.17 544.17 71.83 540 76 C 539.53 76.47 540 77.33 540 78 C 540 81.28 537.2 90.2 538 91 C 540.29 93.29 540.45 108.45 544 112 C 546.46 114.46 554 120.7 554 122 Z"/></svg>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <ul>
+        <li><a href="/">Team photos</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>`;
+
+const FOOTER = String.raw`<footer class="site-footer field-deep">
+  <div class="wrap footer-inner">
+    <span>Built by <a href="https://madcowhq.com/">Dave Alvarado</a></span>
+    <a href="/policy">Who sees these photos</a>
+  </div>
+</footer>`;
+
+const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/instrument-sans-latin-var.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
+
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="/css/site.css?v=ac1e9e37fb">
+<link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
+
+const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+export const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ESCAPES[c]);
+
+// The sections the later stories of epic #147 fill, in the order the owner
+// works through them. Each path is the one its story names.
+export const SECTIONS = [
+  { href: '/admin/code', name: 'Invite code', what: 'the link parents join with, and changing it' },
+  { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
+  { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
+  { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
+  { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, who the admins are, and the admins\' log' },
+  { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
+];
+
+// The invite-code page's script (#152), stamped by hand for the same reason
+// as the stylesheets above: tools/assetver.py never sees this file.
+// test/admin-page.test.js fails until the ?v= is the script's own sha256.
+export const CODE_SCRIPT = '<script src="/js/admin-code.js?v=0c722e1793" defer></script>';
+
+/**
+ * A whole admin page: the site's head, header and footer around `main`, with
+ * `head` (a script tag, say) added after the stylesheets.
+ */
+export function adminPage({ title, main, head = '' }) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)} — Mad Cow Sailing photos</title>
+<meta name="robots" content="noindex">
+${HEAD_LINKS}${head ? `\n${head}` : ''}
+</head>
+
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+${HEADER}
+
+${main}
+${FOOTER}
+</body>
+</html>
+`;
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** How many photos wait, as the admin home says it. */
+export function waitingText(waiting) {
+  if (waiting === 0) return 'No photo is waiting for approval.';
+  return `${plural(waiting, 'photo is', 'photos are')} waiting for approval.`;
+}
+
+/** How many removal requests wait (#158): each is one hidden photo. */
+export function removalsText(removals) {
+  if (removals === 0) return 'No removal request is waiting.';
+  return `${plural(removals, 'removal request is', 'removal requests are')} waiting.`;
+}
+
+/**
+ * How many requests for an account wait (#220): each is one person, with a
+ * team an admin has not yet approved or turned down.
+ */
+export function requestsText(requests) {
+  if (requests === 0) return 'No request for an account is waiting.';
+  return `${plural(requests, 'request for an account is', 'requests for an account are')} waiting.`;
+}
+
+/**
+ * The storage the stored photos take, against the free allowance #148
+ * recorded (lib/queue.js, FREE_STORAGE_BYTES). Decimal units, as the
+ * allowance is read: KB under a megabyte, MB under a gigabyte, then GB.
+ */
+export function storageText(bytes) {
+  // The unit is chosen after rounding, so 999,500 bytes reads 1 MB, never
+  // 1000 KB (#156's review).
+  const kb = Math.round(bytes / 1e3);
+  const mb = Math.round(bytes / 1e6);
+  const used = kb < 1000 ? `${kb} KB` : mb < 1000 ? `${mb} MB` : `${(bytes / 1e9).toFixed(2)} GB`;
+  const share = (bytes / FREE_STORAGE_BYTES) * 100;
+  const text = `Storage used: ${used} of the free ${FREE_STORAGE_BYTES / 1e9} GB (${share.toFixed(1)}%).`;
+  return bytes > FREE_STORAGE_BYTES ? `${text} R2 bills what is over it every month.` : text;
+}
+
+/**
+ * The admin home for `admin`, lib/admin-session.js's context.data.admin:
+ * { name, email, role, issued }. Since #224 it says who is signed in, whether
+ * as the owner or an admin, and when the 12-hour admin sign-in ends, and has
+ * Sign out, which ends every session the account holds (lib/sign-in.js,
+ * signOut). `summary` is lib/queue.js's queueSummary(): how many photos wait,
+ * how many removal requests wait, and the bytes stored; and, since #220,
+ * `requests`, lib/accounts.js's waitingRequests().
+ */
+export function adminHome({ name, email, role, issued }, { waiting, removals, bytes, requests = 0 }) {
+  const items = SECTIONS.map(({ href, name: section, what }) =>
+    `      <li><a href="${href}">${escapeHtml(section)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
+  const as = role === 'owner' ? 'the owner' : 'an admin';
+  return adminPage({
+    title: 'Admin',
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Photo site admin</h1>
+    <p class="lede">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
+    <form method="post" action="/sign-out">
+      <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
+      <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>
+    </form>
+  </section>
+
+  <section class="wrap" aria-labelledby="admin-now">
+    <h2 id="admin-now">At a glance</h2>
+    <p>${waitingText(waiting)}</p>
+    <p>${removalsText(removals)}</p>
+    <p>${requestsText(requests)}</p>
+    <p>${storageText(bytes)}</p>
+  </section>
+
+  <section class="wrap" aria-labelledby="admin-sections">
+    <h2 id="admin-sections">Manage the site</h2>
+    <ul>
+${items}
+    </ul>
+  </section>
+</main>`,
+  });
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+
+/**
+ * A moment as text in UTC: "12 October 2026, 14:03 UTC". Built by hand rather
+ * than with Intl, so the text does not depend on a runtime's locale data. The
+ * email with a link to set a password says when it expires this way (#221).
+ */
+export function utcText(seconds) {
+  const d = new Date(seconds * 1000);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
+    `${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC`;
+}
+
+/**
+ * A moment as a <time>: the machine-readable instant, and utcText(), which
+ * public/js/admin-code.js rewrites into the reader's own time zone.
+ */
+export function timeElement(seconds) {
+  return `<time datetime="${new Date(seconds * 1000).toISOString()}">${utcText(seconds)}</time>`;
+}
+
+/**
+ * A day written YYYY-MM-DD as a <time>: "4 October 2026". It is a calendar
+ * day, not a moment, so no time zone can move it and no script rewrites it.
+ */
+export function dayElement(date) {
+  return `<time datetime="${date}">${dayText(date)}</time>`;
+}
+
+/** A day written YYYY-MM-DD as text, "4 October 2026", where markup cannot go. */
+export function dayText(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return `${day} ${MONTHS[month - 1]} ${year}`;
+}
+
+// What the page says when a press arrived as a GET and changed nothing
+// (functions/api/admin/code/rotate.js). Each shows only in the state its
+// button lives in, so a stale ?unchanged= cannot contradict the page.
+const UNCHANGED = {
+  rotate: 'The code was not rotated. The press reached the site as a page load, which never changes it; this can happen when your sign-in has run out. Press Rotate code again to rotate it.',
+  create: 'No code was made. The press reached the site as a page load, which never makes one; this can happen when your sign-in has run out. Press Create code again.',
+};
+
+const notice = (key) => (UNCHANGED[key] ? `\n    <p role="status">${UNCHANGED[key]}</p>` : '');
+
+/**
+ * /admin/code (#152). `current` is lib/invite.js's currentCode(), or null
+ * when the database holds no code; `site` is where the invite link points;
+ * `unchanged` is the ?unchanged= value, if any.
+ *
+ * Rotating is a form POST from inside a native <dialog>. The page's "Rotate
+ * code" button only opens it (public/js/admin-code.js), its Cancel closes it
+ * through method="dialog", and only its "Rotate now" button posts. Cancel
+ * comes first, so Enter in the dialog cancels, and it takes the focus when
+ * the dialog opens.
+ */
+export function adminCodePage({ current, site, unchanged = null }) {
+  const head = (key) => `<section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Invite code</h1>
+    <p class="lede">Parents open the invite link to send photos to the team.
+      Anyone holding it can send, so rotate the code when the link has
+      travelled further than the team.</p>${notice(key)}
+  </section>`;
+
+  if (!current) {
+    return adminPage({
+      title: 'Invite code',
+      head: CODE_SCRIPT,
+      main: `<main id="main">
+  ${head(unchanged === 'create' ? 'create' : null)}
+
+  <section class="wrap" aria-labelledby="no-code">
+    <h2 id="no-code">No code yet</h2>
+    <p>There is no invite code, so no parent can send photos. Coaches who
+      signed in at /coach still can. Create one, then send its link to the
+      team.</p>
+    <form method="post" action="/api/admin/code/create">
+      <p><button type="submit" class="button">Create code</button></p>
+    </form>
+  </section>
+</main>`,
+    });
+  }
+
+  const changed = current.generation > 1
+    ? `Last rotated ${timeElement(current.createdAt)}.`
+    : `Created ${timeElement(current.createdAt)}. It has never been rotated.`;
+
+  return adminPage({
+    title: 'Invite code',
+    head: CODE_SCRIPT,
+    main: `<main id="main">
+  ${head(unchanged === 'rotate' ? 'rotate' : null)}
+
+  <section class="wrap" aria-labelledby="current-code">
+    <h2 id="current-code">The current code</h2>
+    <p class="invite-code"><code id="invite-code">${escapeHtml(current.code)}</code></p>
+    <p>${changed}</p>
+    <p class="invite-link"><code id="invite-link">${escapeHtml(inviteLink(site, current.code))}</code></p>
+    <p class="actions">
+      <button type="button" class="button" data-copy="invite-code">Copy code</button>
+      <button type="button" class="button" data-copy="invite-link">Copy invite link</button>
+    </p>
+    <p id="copy-status" role="status"></p>
+    <noscript><p>Copying and rotating need JavaScript. The code and the link
+      above can still be selected and copied by hand.</p></noscript>
+  </section>
+
+  <section class="wrap" aria-labelledby="rotate-heading">
+    <h2 id="rotate-heading">Rotate the code</h2>
+    <p>Rotating makes a new code at once. The old link stops working, and every
+      phone signed in to upload with it has to open the new link.</p>
+    <p><button type="button" class="button" id="rotate-open">Rotate code</button></p>
+  </section>
+
+  <dialog id="rotate-dialog" class="confirm" aria-labelledby="rotate-title">
+    <form method="post" action="/api/admin/code/rotate">
+      <h2 id="rotate-title">Rotate the invite code?</h2>
+      <p>Every parent signed in to upload will need the new link. The old link stops
+        working at once, and so does every phone that joined with it. Coaches
+        who signed in at /coach keep sending.</p>
+      <p class="actions">
+        <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
+        <button type="submit" class="button button-accent">Rotate now</button>
+      </p>
+    </form>
+  </dialog>
+</main>`,
+  });
+}
+
+// ---- /admin/albums (#153) ----------------------------------------------
+
+// What the page says after a press. Every write in functions/api/admin/albums/
+// answers 303 back to the page with ?done= or ?error=, and &album= naming the
+// address it acted on. A title comes from the database, never from the
+// address bar, so a crafted link can put nothing on the page but a known
+// sentence and an address-shaped word, escaped.
+const DONE = {
+  created: (a) => `Added ${a.title}. Its address is <code>${a.address}</code>.`,
+  saved: (a) => `Saved ${a.title}. Its address stays <code>${a.address}</code>.`,
+  closed: (a) => (a.holding
+    ? `Closed ${a.title}. Parents can no longer choose it; its waiting photos stay in the queue.`
+    : `Closed ${a.title}. Parents can no longer send photos to it, and its approved photos stay public.`),
+  reopened: (a) => (a.holding
+    ? `Reopened ${a.title}. Parents can choose it again.`
+    : `Reopened ${a.title}. Parents can send photos to it again.`),
+};
+
+const ERRORS = {
+  team: `Nothing was saved: choose ${TEAMS.map(({ name }) => name).join(' or ')}.`,
+  title: `Nothing was saved: a title is 1 to ${TITLE_MAX} characters, on one line.`,
+  kind: 'Nothing was saved: choose Regatta or Practice.',
+  date: 'Nothing was saved: the date is not a real day.',
+  full: `Nothing was saved: ${MAX_SUFFIX} albums already hold every address this date and title can have. Change the title.`,
+  missing: 'Nothing was changed: that album does not exist, or was deleted.',
+  unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+  'not-sure': `Nothing was changed: a team's "${NOT_SURE_TITLE}" is only closed and reopened, never edited or deleted.`,
+};
+
+/**
+ * The notice for the page's query string, as HTML, or '' for none. `albums`
+ * is the list the page shows, which the named album is looked up in. A
+ * team's Not sure album (#228) is named with its team, since every team's
+ * has the same title.
+ */
+export function albumsNotice(params, albums) {
+  const address = params.get('album');
+  const found = isAddress(address) ? albums.find((a) => a.address === address) : undefined;
+  const album = found && {
+    title: found.holding ? `${escapeHtml(found.title)} for ${escapeHtml(teamName(found.team))}` : escapeHtml(found.title),
+    address: escapeHtml(found.address),
+    holding: found.holding,
+  };
+  const done = params.get('done');
+  const error = params.get('error');
+  let text = null;
+  if (done === 'deleted' && isAddress(address)) {
+    text = `Deleted <code>${escapeHtml(address)}</code>.`;
+  } else if (Object.hasOwn(DONE, done) && album) {
+    text = DONE[done](album);
+  } else if (error === 'not-empty' && album) {
+    const n = /^[1-9][0-9]{0,8}$/.test(params.get('photos') ?? '') ? Number(params.get('photos')) : null;
+    const holds = n === null ? 'it holds photos' : `it holds ${plural(n, 'photo', 'photos')}`;
+    text = `${album.title} was not deleted: ${holds}. Only an empty album can be deleted. Close it instead to stop uploads to it.`;
+  } else if (Object.hasOwn(ERRORS, error)) {
+    text = ERRORS[error];
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+// The team, title, kind and date fields, for a new album or for editing one.
+// `id` keeps each form's labels pointing at its own inputs. The team comes
+// first (#227): it decides which section of the site lists the album. A new
+// album preselects no team, as it preselects no kind, so each is a choice.
+function albumFields(id, album = null) {
+  const teams = TEAMS.map(({ team, name }) =>
+    `<label><input type="radio" name="team" value="${team}" required${album?.team === team ? ' checked' : ''}> ${name}</label>`)
+    .join('\n          ');
+  const kinds = Object.entries(KINDS).map(([value, name]) =>
+    `<label><input type="radio" name="kind" value="${value}" required${album?.kind === value ? ' checked' : ''}> ${name}</label>`)
+    .join('\n          ');
+  return `<fieldset class="field">
+        <legend>Team</legend>
+        <p class="choices">
+          ${teams}
+        </p>
+      </fieldset>
+      <p class="field">
+        <label for="${id}-title">Title</label>
+        <input id="${id}-title" name="title" type="text" required maxlength="${TITLE_MAX}" autocomplete="off"${album ? ` value="${escapeHtml(album.title)}"` : ''}>
+      </p>
+      <fieldset class="field">
+        <legend>Kind</legend>
+        <p class="choices">
+          ${kinds}
+        </p>
+      </fieldset>
+      <p class="field">
+        <label for="${id}-date">Date</label>
+        <input id="${id}-date" name="date" type="date" required${album ? ` value="${escapeHtml(album.date)}"` : ''}>
+      </p>`;
+}
+
+// One button that posts one album's address to one action. Its name adds the
+// title to the word on it, so a list of "Close" buttons can be told apart by
+// ear, and the visible word still starts the name (WCAG 2.5.3).
+function pressForm(action, label, album) {
+  return `<form method="post" action="/api/admin/albums/${action}">
+          <input type="hidden" name="address" value="${escapeHtml(album.address)}">
+          <button type="submit" class="button" aria-label="${label} ${escapeHtml(album.title)}">${label}</button>
+        </form>`;
+}
+
+function albumItem(album) {
+  const id = `album-${album.id}`;
+  const title = escapeHtml(album.title);
+  return `<li class="album">
+      <h3 id="${id}">${title}</h3>
+      <p class="album-facts">${escapeHtml(teamName(album.team))} · ${KINDS[album.kind]} · ${dayElement(album.date)} · <code>${escapeHtml(album.address)}</code></p>
+      <details>
+        <summary aria-label="Edit ${title}">Edit</summary>
+        <form method="post" action="/api/admin/albums/update" class="album-form">
+          <input type="hidden" name="address" value="${escapeHtml(album.address)}">
+      ${albumFields(id, album)}
+          <p><button type="submit" class="button">Save</button></p>
+        </form>
+      </details>
+      <div class="actions">
+        ${pressForm(album.open ? 'close' : 'reopen', album.open ? 'Close' : 'Reopen', album)}
+        ${pressForm('delete', 'Delete', album)}
+      </div>
+    </li>`;
+}
+
+const albumList = (albums, empty) => (albums.length
+  ? `<ul class="albums">\n    ${albums.map(albumItem).join('\n    ')}\n    </ul>`
+  : `<p class="albums-empty">${empty}</p>`);
+
+// A team's "Not sure / other event" (#228): its team, whether parents can
+// choose it, and Close or Reopen. No Edit and no Delete: its title is the
+// share page's words, and migration 0015 keeps it. Named with its team, since
+// every team's has the same title.
+function notSureItem(album) {
+  const id = `album-${album.id}`;
+  const named = { ...album, title: `${album.title} for ${teamName(album.team)}` };
+  return `<li class="album">
+      <h3 id="${id}">${escapeHtml(teamName(album.team))}</h3>
+      <p class="album-facts">${album.open ? 'Open: parents can choose it' : 'Closed: parents cannot choose it'}</p>
+      <div class="actions">
+        ${pressForm(album.open ? 'close' : 'reopen', album.open ? 'Close' : 'Reopen', named)}
+      </div>
+    </li>`;
+}
+
+/**
+ * /admin/albums (#153). `albums` is lib/albums.js's allAlbums(), newest
+ * first; `notice` is albumsNotice()'s HTML. Every press is a plain form post
+ * answered 303 back here, so a reload cannot post again, and the page needs
+ * no script. Editing sits in a <details> under each album. The teams' Not
+ * sure albums (#228) have a section of their own, after the events.
+ */
+export function adminAlbumsPage({ albums, notice = '' }) {
+  const events = albums.filter((a) => !a.holding);
+  const open = events.filter((a) => a.open);
+  const closed = events.filter((a) => !a.open);
+  const notSure = albums.filter((a) => a.holding);
+  return adminPage({
+    title: 'Albums',
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Albums</h1>
+    <p class="lede">One album for each regatta and each practice day. Each
+      belongs to a team, and that team's section of the site lists it. Parents
+      choose from the open albums when they send photos.</p>${notice}
+  </section>
+
+  <section class="wrap" aria-labelledby="add-album">
+    <h2 id="add-album">Add an album</h2>
+    <p>Its address, which links to it, is made from the date and the title,
+      and stays the same if either changes later, or the team does.</p>
+    <form method="post" action="/api/admin/albums/create" class="album-form">
+      ${albumFields('new')}
+      <p><button type="submit" class="button">Add album</button></p>
+    </form>
+  </section>
+
+  <section class="wrap" aria-labelledby="open-albums">
+    <h2 id="open-albums">Open albums</h2>
+    <p>Parents can send photos to these. Close an album to stop that; its
+      approved photos stay public. Only an empty album can be deleted.</p>
+    ${albumList(open, notSure.some((a) => a.open)
+    ? `No event is open, so parents can send only to "${NOT_SURE_TITLE}".`
+    : 'No album is open, so parents have nowhere to send photos.')}
+  </section>
+
+  <section class="wrap" aria-labelledby="closed-albums">
+    <h2 id="closed-albums">Closed albums</h2>
+    <p>These take no photos. Their approved photos stay public.</p>
+    ${albumList(closed, 'No album is closed.')}
+  </section>
+
+  <section class="wrap" aria-labelledby="not-sure-albums">
+    <h2 id="not-sure-albums">${NOT_SURE_TITLE}</h2>
+    <p>Parents choose this when they cannot find their event. It is no event:
+      its photos wait in the queue until an admin moves them into one, and
+      nothing in it is ever public. Close a team's to stop parents choosing
+      it.</p>
+    ${notSure.length ? `<ul class="albums">\n    ${notSure.map(notSureItem).join('\n    ')}\n    </ul>` : '<p class="albums-empty">No team has one.</p>'}
+  </section>
+</main>`,
+  });
+}
+
+// ---- The team filter on /admin/queue and /admin/removals (#227) ----------
+
+/**
+ * One row of links above a filtered list: every team together, then each
+ * team, the one showing marked aria-current. `path` is the page's own;
+ * `team` is lib/teams.js's readTeam() of its ?team=, null for every team.
+ */
+function teamFilter(path, team) {
+  const link = (href, name, current) =>
+    `<li><a href="${href}"${current ? ' aria-current="page"' : ''}>${escapeHtml(name)}</a></li>`;
+  const links = [
+    link(path, 'All teams', team === null),
+    ...TEAMS.map(({ team: key, name }) => link(`${path}?team=${key}`, name, team === key)),
+  ];
+  return `\n    <nav class="team-filter" aria-label="Show photos from">
+      <ul>
+        ${links.join('\n        ')}
+      </ul>
+    </nav>`;
+}
+
+// Where a press on a filtered page posts: its route with the page's ?team=,
+// so the press lands back on the same team's list (lib/queue.js,
+// queueLocation; lib/removals.js, removalsLocation). In the address rather
+// than a hidden field, so a press that arrives as a GET, after the Access
+// sign-in ran out, keeps it too (review-fanout at #227's review). Nothing is
+// added when the page shows every team. A team's key is lowercase letters
+// and hyphens (lib/teams.js), so it needs no escaping.
+const pressPath = (path, team) => (team === null ? path : `${path}?team=${team}`);
+
+// ---- /admin/queue (#156) -----------------------------------------------
+
+// The queue's script, stamped by hand as CODE_SCRIPT is.
+// test/queue.test.js fails until the ?v= is the script's own sha256.
+export const QUEUE_SCRIPT = '<script src="/js/admin-queue.js?v=d888c4fa39" defer></script>';
+
+// What the queue says after a press. Every press in
+// functions/api/admin/queue/ answers 303 back with ?done= or ?error=, and a
+// photo's id or a count; anything else in the address bar is ignored, so a
+// crafted link can show only a known sentence and a number.
+const QUEUE_ERRORS = {
+  form: 'Nothing was changed: the press did not say which photos it was for. Reload the page and press again.',
+  gone: 'No photo was approved, rejected or moved: those photos are no longer waiting, so another admin may have got to them first.',
+  unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+  // #228: "Move to event".
+  target: 'No photo was moved: choose one of the team\'s events under "Move to event", or "A new event" and its title, kind and date.',
+  'new-title': `No photo was moved and no event was added: a new event's title is 1 to ${TITLE_MAX} characters, on one line.`,
+  'new-kind': 'No photo was moved and no event was added: choose Regatta or Practice for the new event.',
+  'new-date': 'No photo was moved and no event was added: the new event\'s date is not a real day.',
+  'new-full': `No photo was moved and no event was added: ${MAX_SUFFIX} albums already hold every address that date and title can have. Change the title.`,
+  teams: 'No photo was moved: those photos are in two teams\' events now, since this page was loaded. Reload the page and move each batch from there. The captions typed were saved.',
+};
+
+// Why a photo in a team's "Not sure / other event" is not approved (#228,
+// criterion 4): said on each such batch, and in the notice after a press
+// that named one anyway.
+const NOT_SURE_WHY = `A photo in "${NOT_SURE_TITLE}" has no event to be public in, so it cannot be approved. Move it into its event below, then approve it there.`;
+
+/**
+ * The notice for the queue's query string, as HTML, or '' for none. `albums`
+ * is the list the page shows in its "Move to event" choices (#228), which a
+ * moved-to album's title is looked up in, so the title comes from the
+ * database, never from the address bar.
+ */
+export function queueNotice(params, albums = []) {
+  const count = (name) => (/^[1-9][0-9]{0,14}$/.test(params.get(name) ?? '') ? Number(params.get(name)) : null);
+  const photo = count('photo');
+  const n = count('n');
+  const kept = count('kept');
+  const unsaved = count('unsaved');
+  const notSure = count('not-sure');
+  const done = params.get('done');
+  const error = params.get('error');
+  const address = params.get('album');
+  const album = isAddress(address) ? albums.find((a) => a.address === address && !a.holding) : undefined;
+  const event = album && `${escapeHtml(album.title)} (${escapeHtml(teamName(album.team))}, ${dayText(album.date)})`;
+  const made = params.get('made') === '1' && event ? `Added ${event} to the events. ` : '';
+  let text = null;
+  if (done === 'approved' && (photo || n)) {
+    text = photo ? `Approved photo ${photo}.` : `Approved ${plural(n, 'photo', 'photos')}.`;
+    if (notSure) text += ` ${plural(notSure, 'photo was', 'photos were')} left waiting. ${NOT_SURE_WHY}`;
+  } else if (done === 'moved' && (photo || n) && event) {
+    text = `${made}${photo ? `Moved photo ${photo}` : `Moved ${plural(n, 'photo', 'photos')}`} to ${event}. ${photo ? 'It waits' : 'They wait'} there, ready to approve.`;
+  } else if (error === 'not-sure') {
+    text = `Nothing was approved. ${NOT_SURE_WHY}`;
+  } else if (error === 'gone' && made) {
+    text = `${made}No photo was moved into it: those photos are no longer waiting, so another admin may have got to them first.`;
+  } else if (done === 'rejected' && (photo || n)) {
+    text = photo
+      ? `Rejected photo ${photo}. It is deleted, with its three sizes.`
+      : `Rejected ${plural(n, 'photo', 'photos')}. They are deleted, with their three sizes.`;
+    if (kept) text += ` The storage did not delete the files of ${plural(kept, 'photo', 'photos')}; the log names each one's folder.`;
+  } else if (done === 'saved') {
+    text = n ? `Saved ${plural(n, 'caption', 'captions')}.` : 'No caption had changed.';
+  } else if (error === 'caption' && photo) {
+    // Only a browser without the page's script can send one (lib/queue.js,
+    // readPress), and the reload shows the stored captions, so it says so.
+    text = `Nothing was changed: the caption typed for photo ${photo} was over ${CAPTION_MAX} characters. The captions typed in that batch were not saved, so type them again, keeping that one to ${CAPTION_MAX}.`;
+  } else if (Object.hasOwn(QUEUE_ERRORS, error)) {
+    text = QUEUE_ERRORS[error];
+  }
+  // Every press that got past reading its form saved the batch's captions,
+  // whatever it then refused (#228's move saves them before checking its
+  // choice).
+  const saved = done || ['gone', 'not-sure', 'target', 'teams'].includes(error) || /^new-/.test(error ?? '');
+  if (text && unsaved && saved) {
+    // Approved, or since #225 hidden by "Hide all their photos": a waiting
+    // photo leaves the queue either way, and only approving makes it public.
+    text += ` ${plural(unsaved, 'caption was', 'captions were')} not saved: ${unsaved === 1 ? 'its photo was' : 'their photos were'} approved or hidden after this page was loaded.`;
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+const photoUrl = (id, size) => `/api/admin/photos/${id}/${size}`;
+
+// One stored size as an <img>, at the dimensions the row records, so the page
+// does not shift as each picture arrives.
+function sizeImage(photo, size, lazy) {
+  const { width, height } = photo.sizes[size];
+  return `<img src="${photoUrl(photo.id, size)}" width="${width}" height="${height}" alt="Photo ${photo.id} at ${size} size"${lazy ? ' loading="lazy"' : ''}>`;
+}
+
+// Who sent a photo, as the queue and removals pages say it, per photo rather
+// than per batch, so it stays true whatever a batch holds. A photo from an
+// account names it (#223, criterion 3, D17): the name the person gave, as
+// typed, so escaped. A coach's Access sign-in says only that a coach sent it
+// (#192). The invite link, and an account since deleted, say nothing.
+const sentBy = (photo) => {
+  if (photo.accountName != null) return ` · sent by ${escapeHtml(photo.accountName)}`;
+  return photo.sender === 'coach' ? ' · sent by a coach' : '';
+};
+
+// A photo: the screen size large enough to see a face, then the grid and the
+// full, which the public sees (#157), smaller beside each other. Each links
+// to itself, to open alone. The owner's choice at #156's pickup: all three in
+// view, so a swapped picture shows without a tap. Not chosen: the grid and
+// full as links only, or all three at one size.
+function waitingPhoto(photo, formId, first, team, notSure) {
+  const { id } = photo;
+  const size = (name, label) => `<figure>
+              <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
+              <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
+            </figure>`;
+  const from = sentBy(photo);
+  // No Approve for a photo in "Not sure / other event" (#228, criterion 4):
+  // its batch says why, and a press naming it anyway is refused.
+  const approve = notSure ? '' : `
+            <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>`;
+  return `<li class="waiting" id="photo-${id}">
+          <h3>Photo ${id}</h3>
+          <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}${from}</p>
+          <a class="waiting-screen" href="${photoUrl(id, 'screen')}">${sizeImage(photo, 'screen', !first)}</a>
+          <div class="waiting-sizes">
+            ${size('grid', 'Grid')}
+            ${size('full', 'Full')}
+          </div>
+          <p class="field">
+            <label for="caption-${id}">Caption for photo ${id}</label>
+            <input id="caption-${id}" name="caption-${id}" type="text" autocomplete="off" value="${escapeHtml(photo.caption ?? '')}">
+          </p>
+          <p class="actions">${approve}
+            <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="${id}" aria-label="Move photo ${id} to the event chosen above">Move</button>
+            <button type="button" class="button button-quiet" data-reject="${id}" data-form="${formId}" aria-label="Reject photo ${id}">Reject</button>
+          </p>
+        </li>`;
+}
+
+/**
+ * The batch's "Move to event" choices (#228): its team's events, newest
+ * first, open or closed, never a Not sure album and never the album the
+ * batch is in, then a new event, whose fields sit below. Nothing is chosen,
+ * so a Move press with no choice moves nothing and the notice says so. The
+ * new event's fields are not required, since Save captions and the other
+ * buttons post the same form; the move route checks them.
+ */
+function moveFields(batch, formId, albums) {
+  const events = albums.filter((a) => !a.holding && a.team === batch.album.team && a.id !== batch.album.id);
+  const options = events.map((a) =>
+    `<option value="${escapeHtml(a.address)}">${escapeHtml(a.title)} (${dayText(a.date)}${a.open ? '' : ', closed'})</option>`);
+  const kinds = Object.entries(KINDS).map(([value, name]) =>
+    `<label><input type="radio" name="new-kind" value="${value}"> ${name}</label>`).join('\n            ');
+  return `<div class="move album-form">
+        <p class="field">
+          <label for="${formId}-to">Move to event</label>
+          <select id="${formId}-to" name="to">
+            <option value="">Choose an event</option>
+            ${[...options, '<option value="new">A new event, below</option>'].join('\n            ')}
+          </select>
+        </p>
+        <fieldset class="field new-event">
+          <legend>A new event for ${escapeHtml(teamName(batch.album.team))}</legend>
+          <p class="field">
+            <label for="${formId}-new-title">Title</label>
+            <input id="${formId}-new-title" name="new-title" type="text" maxlength="${TITLE_MAX}" autocomplete="off">
+          </p>
+          <p class="choices">
+            ${kinds}
+          </p>
+          <p class="field">
+            <label for="${formId}-new-date">Date</label>
+            <input id="${formId}-new-date" name="new-date" type="date">
+          </p>
+        </fieldset>
+      </div>`;
+}
+
+// A batch: one form, whose action and first button save its captions, so
+// Enter in a caption field saves rather than approving the first photo. Every
+// other button in it saves them too (lib/queue.js). "Approve all", "Move all"
+// and "Reject all" are left out of a batch of one, where they would repeat
+// its photo's. A batch over lib/queue.js's PART_PHOTOS comes in parts, each
+// one of these, and its "all" means the part.
+//
+// A batch sent to a team's "Not sure / other event" (#228) has no Approve at
+// all, and says why: its photos are moved into their event first, and
+// approved there. `albums` is every album, for the Move choices.
+function batchSection(batch, total, team, albums) {
+  const index = batch.number;
+  const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
+  const n = batch.photos.length;
+  const notSure = batch.album.holding;
+  // The batch is a UUID wherever the upload route wrote it (lib/photos.js,
+  // isBatch), but the column has no CHECK and later stories add writers
+  // (#192, #198), so it is escaped here like any stored text (security-audit
+  // at #156's review, SA-1).
+  const id = escapeHtml(batch.id);
+  const formId = `${id}-form`;
+  const title = escapeHtml(batch.album.title);
+  const approveAll = notSure ? '' : `
+        <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>`;
+  const all = n > 1 ? `${approveAll}
+        <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="all" aria-label="Move all ${n} in batch ${index}${part}, ${title}, to the event chosen below">Move all ${n}</button>
+        <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
+  const why = notSure ? `\n    <p class="batch-why">${NOT_SURE_WHY}</p>` : '';
+  // Labelled by the facts as well as the title: two batches sent to one
+  // album would otherwise be two regions with one name.
+  return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
+    <h2 id="${id}-title">${title}</h2>
+    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}
+    <form method="post" action="${pressPath('/api/admin/queue/captions', team)}" id="${formId}" class="batch-form">
+      <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
+      <input type="hidden" name="anchor" value="${id}">
+      <p class="actions">
+        <button type="submit" class="button button-quiet">Save captions</button>${all}
+      </p>
+      ${moveFields(batch, formId, albums)}
+      <ul class="queue">
+        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0, team, notSure)).join('\n        ')}
+      </ul>
+    </form>
+  </section>`;
+}
+
+/**
+ * /admin/queue (#156). `batches` is lib/queue.js's waitingBatches(), oldest
+ * first; `notice` is queueNotice()'s HTML. `team` is the ?team= the page was
+ * opened with (#227), null for every team: the list shows that team's
+ * batches only, each batch names its team, and every press lands back on the
+ * same team's list.
+ *
+ * Its first line is the media-release reminder (epic #147, D5): the owner
+ * knows the families who opted out, and checks every photo against them here.
+ *
+ * Rejecting is a form post from the one native <dialog> at the end of the
+ * page. A "Reject" or "Reject all" button only opens it
+ * (public/js/admin-queue.js), and points its confirm button at that batch's
+ * form, so only the confirm button posts. Cancel comes first, so Enter in the
+ * dialog cancels, and it takes the focus when the dialog opens. The dialog
+ * sits after every batch, so no batch form's first button is its confirm.
+ *
+ * `albums` is lib/albums.js's allAlbums(), for each batch's "Move to event"
+ * choices (#228): a photo sent to the wrong event, or to its team's "Not
+ * sure / other event", moves into one of the team's events here.
+ */
+export function adminQueuePage({ batches, notice = '', team = null, albums = [] }) {
+  const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
+  // A batch in parts is several entries with one number.
+  const total = new Set(batches.map((batch) => batch.number)).size;
+  const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
+  const summary = waiting
+    ? `${plural(waiting, 'photo', 'photos')}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
+    : `No photo${from} is waiting. What parents send appears here, oldest first.`;
+  const list = batches.map((batch) => batchSection(batch, total, team, albums)).join('\n\n  ');
+  return adminPage({
+    title: 'Waiting for approval',
+    head: QUEUE_SCRIPT,
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Waiting for approval</h1>
+    <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
+    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>
+    <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${notice}${teamFilter('/admin/queue', team)}
+    <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
+  </section>
+${list ? `\n  ${list}\n` : ''}
+  <dialog id="reject-dialog" class="confirm" aria-labelledby="reject-title">
+    <form method="dialog">
+      <h2 id="reject-title">Reject this photo?</h2>
+      <p>A rejected photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
+      <p class="actions">
+        <button type="submit" class="button" autofocus>Cancel</button>
+        <button type="submit" class="button button-accent" id="reject-confirm" formaction="${pressPath('/api/admin/queue/reject', team)}" formmethod="post" name="reject">Reject</button>
+      </p>
+    </form>
+  </dialog>
+</main>`,
+  });
+}
+
+// ---- /admin/removals (#158) ---------------------------------------------
+
+// The removals page's script, stamped by hand as CODE_SCRIPT is.
+// test/removals.test.js fails until the ?v= is the script's own sha256.
+export const REMOVALS_SCRIPT = '<script src="/js/admin-removals.js?v=5655a624bb" defer></script>';
+
+// What the page says after a press. Both presses in
+// functions/api/admin/removals/ answer 303 back with ?done= or ?error= and a
+// photo's id; anything else in the address bar is ignored, so a crafted link
+// can show only a known sentence and a number.
+const REMOVALS_ERRORS = {
+  form: 'Nothing was changed: the press did not say which photo it was for. Reload the page and press again.',
+  gone: 'Nothing was changed: that photo is no longer waiting here, so another admin may have got to it first.',
+  unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
+};
+
+/** The notice for the removals page's query string, as HTML, or '' for none. */
+export function removalsNotice(params) {
+  const photo = /^[1-9][0-9]{0,14}$/.test(params.get('photo') ?? '') ? Number(params.get('photo')) : null;
+  const done = params.get('done');
+  const error = params.get('error');
+  let text = null;
+  if (done === 'restored' && photo) {
+    text = `Put photo ${photo} back. It is public again.`;
+  } else if (done === 'queued' && photo) {
+    // #225: a photo hidden with everything its account sent, while it was
+    // still waiting, goes back to the queue, never straight onto the site.
+    text = `Put photo ${photo} back in the queue. It was waiting for approval when it was hidden, so it is not public until an admin approves it.`;
+  } else if (done === 'deleted' && photo) {
+    text = `Deleted photo ${photo}, with its three sizes.`;
+    if (params.get('kept') === '1') text += ' The storage did not delete its files; the log names their folder.';
+  } else if (Object.hasOwn(REMOVALS_ERRORS, error)) {
+    text = REMOVALS_ERRORS[error];
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+// One hidden photo: its grid size, linking to the screen size to see it
+// larger, the album it was in, when it was hidden, the note, and the two
+// presses. The note is kept as typed, so it is escaped, and its line breaks
+// are kept by the stylesheet (white-space: pre-line), never turned into
+// markup here.
+function removalItem(photo, team) {
+  const { id } = photo;
+  const note = photo.note === null
+    ? '<p class="removal-note removal-note-none">No note was left.</p>'
+    : `<p class="removal-note">${escapeHtml(photo.note)}</p>`;
+  const caption = photo.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(photo.caption)}</p>`;
+  // #225: hidden by "Hide all their photos" before anyone approved it, so
+  // "Put it back" returns it to the queue.
+  const waiting = photo.waiting ? ' · was waiting for approval, so putting it back returns it to the queue' : '';
+  return `<li class="removal" id="photo-${id}">
+      <h2>Photo ${id}</h2>
+      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}${sentBy(photo)}${waiting}</p>
+      <a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${photo.grid.width}" height="${photo.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>${caption}
+      <h3 class="removal-note-heading">The note</h3>
+      ${note}
+      <div class="actions">
+        <form method="post" action="${pressPath('/api/admin/removals/restore', team)}">
+          <button type="submit" class="button" name="photo" value="${id}" aria-label="Put it back: photo ${id}">Put it back</button>
+        </form>
+        <button type="button" class="button button-quiet" data-delete="${id}" aria-label="Delete permanently: photo ${id}">Delete permanently</button>
+      </div>
+    </li>`;
+}
+
+/**
+ * /admin/removals (#158). `photos` is lib/removals.js's hiddenPhotos(), the
+ * oldest takedown first; `notice` is removalsNotice()'s HTML.
+ *
+ * "Put it back" is a plain form post: it only undoes the takedown. "Delete
+ * permanently" is a form post from the one native <dialog> at the end of the
+ * page, as rejecting is on the queue: the button only opens it
+ * (public/js/admin-removals.js) and gives its confirm button the photo's id,
+ * so only the confirm posts. Cancel comes first and takes the focus.
+ *
+ * `team` is the ?team= the page was opened with (#227), null for every team:
+ * the list shows that team's hidden photos only, each names its team, and
+ * both presses land back on the same team's list.
+ */
+export function adminRemovalsPage({ photos, notice = '', team = null }) {
+  const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
+  const summary = photos.length
+    ? `${plural(photos.length, 'photo', 'photos')}${from} ${photos.length === 1 ? 'is' : 'are'} hidden, the oldest takedown first.`
+    : `No photo${from} is hidden. A photo someone takes down with "Remove this photo" appears here.`;
+  const list = photos.length
+    ? `\n  <section class="wrap" aria-label="Hidden photos">
+    <ul class="removals">
+    ${photos.map((photo) => removalItem(photo, team)).join('\n    ')}
+    </ul>
+  </section>\n`
+    : '';
+  return adminPage({
+    title: 'Removal requests',
+    head: REMOVALS_SCRIPT,
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Removal requests</h1>
+    <p class="lede">Anyone can take down an approved photo with "Remove this photo", and an admin can hide every photo one account sent, from <a href="/admin/people">People</a>. A photo is hidden from everyone until an admin puts it back or deletes it.</p>
+    <p>${summary} Putting a photo back makes it public again, or returns it to the queue if it was hidden before anyone approved it. Deleting it removes it and all three of its sizes for good.</p>${notice}${teamFilter('/admin/removals', team)}
+    <noscript><p>Deleting needs JavaScript. Putting a photo back does not.</p></noscript>
+  </section>
+${list}
+  <dialog id="delete-dialog" class="confirm" aria-labelledby="delete-title">
+    <form method="post" action="${pressPath('/api/admin/removals/delete', team)}">
+      <h2 id="delete-title">Delete this photo permanently?</h2>
+      <p>The photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
+      <p class="actions">
+        <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
+        <button type="submit" class="button button-accent" id="delete-confirm" name="photo" value="">Delete</button>
+      </p>
+    </form>
+  </dialog>
+</main>`,
+  });
+}
+
+// ---- /admin/mail (#217) -------------------------------------------------
+
+// What the page says after a press. functions/api/admin/mail/test.js answers
+// 303 back with ?done=sent or ?error= and lib/mail.js's reason, plus Resend's
+// status for a refusal. The address is never in the query, so it is in no
+// browser history or log; a crafted link can show only a known sentence and a
+// status code.
+const MAIL_ERRORS = {
+  address: 'Nothing was sent: that is not one email address. Type a single address, like name@example.com.',
+  'not-configured': 'Nothing was sent: this environment has no RESEND_API_KEY secret, so the site cannot send email here. README.md, The photo site, Secrets, says where it is set.',
+  message: 'Nothing was sent: the site wrote a subject or text it does not send, so it never contacted Resend. The log says so.',
+  quota: "Nothing was sent: Resend's free limit is used up. It is 100 emails a day, which resets at midnight UTC, and 3,000 a month, and every email the site sends counts toward it.",
+  rate: 'Nothing was sent: Resend had too many requests in the same second. Press it again.',
+  unreachable: 'Resend did not confirm the send: it did not answer within 10 seconds, the connection dropped, or it answered with a server error. The email may still arrive, so look for it before pressing again.',
+  unchanged: 'Nothing was sent. The press reached the site as a page load, which never sends anything; this can happen when your sign-in has run out. Press it again.',
+};
+
+/** The notice for the mail page's query string, as HTML, or '' for none. */
+export function mailNotice(params) {
+  const error = params.get('error');
+  let text = null;
+  if (params.get('done') === 'sent') {
+    text = 'Sent. Resend accepted the message, so it should arrive within a minute or two. If it does not, look in the spam folder.';
+  } else if (error === 'refused') {
+    const status = /^4[0-9]{2}$/.test(params.get('status') ?? '') ? ` (status ${params.get('status')})` : '';
+    text = `Nothing was sent: Resend refused the message${status}. The log names Resend's reason.`;
+  } else if (Object.hasOwn(MAIL_ERRORS, error)) {
+    text = MAIL_ERRORS[error];
+  }
+  return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+const angleAddress = (mailbox) => mailbox.match(/<([^>]+)>$/)?.[1] ?? mailbox;
+
+/**
+ * /admin/mail (#217): who the site's email comes from, and a form that sends
+ * a test message. `email` is the signed-in admin's address, which the field
+ * starts with; `notice` is mailNotice()'s HTML. The press is a plain form
+ * post answered 303 back here, so a reload cannot send twice and the page
+ * needs no script.
+ */
+export function adminMailPage({ email, notice = '' }) {
+  return adminPage({
+    title: 'Email',
+    main: `<main id="main">
+  <section class="wrap page-head">
+    <p class="eyebrow">Admin</p>
+    <h1>Email</h1>
+    <p class="lede">The site sends email through Resend, from
+      <code>${escapeHtml(angleAddress(MAIL_FROM))}</code>. Replies go to
+      <code>${escapeHtml(MAIL_REPLY_TO)}</code>.</p>${notice}
+  </section>
+
+  <section class="wrap" aria-labelledby="test-email">
+    <h2 id="test-email">Send a test email</h2>
+    <p>It sends a short message saying which site sent it and when. Use it
+      after anything about the site's email changes, and see where it lands:
+      the inbox, or spam.</p>
+    <p>Each test counts toward Resend's free limit of 100 emails a day, which
+      every email the site sends shares.</p>
+    <form method="post" action="/api/admin/mail/test" class="album-form">
+      <p class="field">
+        <label for="mail-to">Send to</label>
+        <input id="mail-to" name="to" type="text" inputmode="email" autocomplete="email" spellcheck="false" autocapitalize="off" required maxlength="254" value="${escapeHtml(email)}">
+      </p>
+      <p><button type="submit" class="button">Send test email</button></p>
+    </form>
+  </section>
+</main>`,
+  });
+}

@@ -1,0 +1,909 @@
+/* photos.madcowsailing.com — site layout. Loaded after shared tokens.css and
+   base.css, as on the other two sites. Everything all three share belongs in
+   shared/css/base.css instead.
+
+   Every colour, type size and space is a var(--…) from tokens.css, the rule
+   CLAUDE.md's Conventions state for both other sites. The one bare length is
+   the @media condition, because CSS allows no var() in a media query.
+
+   The header shell (.site-header, .header-inner, .lockup) and .footer-inner
+   are copied from sailing/css/site.css, which copies them from hq's. That
+   file says to move the shell into base.css when a third page layout needs
+   it. This is the third. The move is left out of #149 on purpose: it edits
+   shared/, which restamps and rebuilds both live sites, and this story ships
+   only the photo site. Until it moves, a change to the shell there is a
+   change here too. */
+
+/* ---- Shell ---------------------------------------------------------- */
+
+.site-header {
+  border-bottom: var(--border-hair);
+  padding-block: var(--space-3);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.lockup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.lockup-mark { height: var(--space-5); width: auto; }
+.lockup-word { height: var(--space-3); width: auto; }
+
+/* ---- Hidden --------------------------------------------------------- */
+
+/* The hidden attribute is a user-agent rule, so any author rule that sets
+   display beats it: .button's inline-block would show share.js's hidden
+   "Try again". Restated here so a hidden element stays hidden. */
+[hidden] { display: none !important; }
+
+/* ---- Page head ------------------------------------------------------ */
+
+.page-head .lede {
+  font-size: var(--text-lg);
+}
+
+/* ---- Admin: the invite code (#152) ---------------------------------- */
+
+.invite-code code {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  letter-spacing: 0.08em;
+}
+
+/* The link is one unbroken word, longer than a 360 px screen is wide. */
+.invite-link code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A modal dialog is centred by the browser's own `margin: auto`, and base.css's
+   reset sets every margin to 0, so it is restated here or the dialog opens at
+   the top-left corner. The max-width keeps a gutter on a phone, as the
+   browser's own dialog width does. */
+.confirm {
+  margin: auto;
+  max-width: min(var(--measure), calc(100% - 2 * var(--space-4)));
+  border: var(--border-hair);
+  padding: var(--space-5);
+  background: var(--chalk);
+  color: var(--deep);
+}
+
+/* ---- Admin: albums (#153) ------------------------------------------- */
+
+/* The first form fields on any of the three sites. The border is --deep, not
+   the --spray hairline, because a field's edge must read 3:1 against the
+   page to be seen as a field (WCAG 1.4.11): on --hull, --spray reads 1.64:1
+   and --deep 13.45:1. */
+.album-form .field {
+  margin-block-end: var(--space-3);
+}
+
+/* Each section's form or list sits a step below the sentence introducing it. */
+.album-form,
+.albums,
+.albums-empty {
+  margin-block-start: var(--space-3);
+}
+
+.album-form label,
+.album-form legend {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.album-form .choices label {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  margin-inline-end: var(--space-4);
+}
+
+.album-form fieldset {
+  border: none;
+  padding: 0;
+}
+
+.album-form input[type="text"],
+.album-form input[type="email"],
+.album-form input[type="date"] {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.album-form input[type="text"],
+.album-form input[type="email"] {
+  width: var(--measure);
+}
+
+/* Chrome's date field takes one Tab stop more than its three parts: the
+   calendar button, inside the input's own closed shadow tree. With focus
+   there the input matches neither :focus nor :focus-visible, only
+   :focus-within, so base.css's ring vanished and nothing on screen showed
+   where focus was (measured in Chrome, #153). */
+.album-form input[type="date"]:focus-within {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.albums {
+  list-style: none;
+  padding: 0;
+}
+
+.album {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.album-facts code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.album details {
+  margin-block: var(--space-2);
+}
+
+.album summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ---- Admin: the team filter (#227) ------------------------------------ */
+
+/* All teams, then each team, on the queue and removals pages: one row of
+   links that wraps on a phone, the one showing marked as the site nav marks
+   its page, in the nav's type. */
+.team-filter ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  list-style: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.team-filter a[aria-current="page"] {
+  color: var(--blue-deep);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* ---- Admin: the approval queue (#156) ------------------------------- */
+
+.batch {
+  border-top: var(--border-hair);
+  padding-block: var(--space-5);
+}
+
+.batch-facts,
+.waiting-facts,
+.waiting figcaption,
+.waiting .field label {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* A size's caption sits under half a card, 150 px wide at 360: "Full, 2560 ×
+   1920" wrapped at --text-sm there. */
+.waiting figcaption {
+  font-size: var(--text-xs);
+}
+
+.batch-form > .actions {
+  margin-block: var(--space-3);
+}
+
+/* One photo a row on a phone, two on a wide screen, each still wide enough
+   to tell one face from another. */
+.queue {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(5 * var(--space-8))), 1fr));
+  gap: var(--space-4);
+}
+
+.waiting {
+  background: var(--chalk);
+  border: var(--border-hair);
+  padding: var(--space-3);
+}
+
+.waiting > * + * {
+  margin-block-start: var(--space-2);
+}
+
+/* The width and height attributes give each picture its shape before it
+   arrives, so nothing below it moves. */
+.waiting img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--hull);
+}
+
+.waiting-sizes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.waiting .field label {
+  display: block;
+}
+
+/* The same field edge as .album-form's: --deep reads 3:1 and more against a
+   card, where the --spray hairline does not (WCAG 1.4.11). */
+.waiting input[type="text"] {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  width: 100%;
+}
+
+/* ---- Admin: Move to event (#228) ------------------------------------ */
+
+/* A batch's Move choices and a new event's fields are .album-form's fields
+   (the block carries both classes). The list of events is the one select
+   there, with the same --deep edge (WCAG 1.4.11). */
+.move select {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+/* ---- Share: sending photos (#155) ----------------------------------- */
+
+.sender {
+  margin-block-start: var(--space-5);
+}
+
+.sender > * + * {
+  margin-block-start: var(--space-3);
+}
+
+.sender .field label,
+.photo label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* The same field edge as .album-form's: --deep reads 3:1 and more against
+   the page and a card, where the --spray hairline does not (WCAG 1.4.11). */
+.sender select,
+.photo-caption {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.sender select {
+  width: var(--measure);
+}
+
+/* "Add photos" is the file input's label. The input is clipped out of sight
+   but stays in the keyboard order and speaks its label's name, so the label
+   draws the ring the input would have drawn, and only when the input would
+   have: on keyboard focus. :focus-within also matched the focus a tap leaves
+   behind when the photo picker closes, which ringed the button on a phone
+   (Android Chrome 154, measured on #155). */
+.pick {
+  position: relative;
+}
+
+.pick input {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(50%);
+}
+
+.pick:has(:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* A browser without :has() rings it on any focus: a ring after a tap beats
+   none after a Tab. */
+@supports not selector(:has(*)) {
+  .pick:focus-within {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+  }
+}
+
+/* A button that is not the page's action: Remove sits beside Try again in
+   every photo, and thirty solid blue buttons would shout over the photos. */
+.button-quiet {
+  background: transparent;
+  color: var(--blue-deep);
+  border: 1px solid var(--blue);
+}
+
+.button-quiet:hover {
+  background: var(--blue);
+  color: var(--chalk);
+}
+
+/* One column on a phone, as many as fit on a wider screen. */
+.photo-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(3 * var(--space-8))), 1fr));
+  gap: var(--space-4);
+}
+
+.photo {
+  background: var(--chalk);
+  border: var(--border-hair);
+  padding: var(--space-3);
+}
+
+/* A square the preview fits inside, there from the moment the photo is
+   chosen, so the card does not grow when the preview arrives. */
+.photo-frame {
+  aspect-ratio: 1;
+  background: var(--hull);
+}
+
+.photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.photo-state {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  margin-block: var(--space-2);
+}
+
+.photo[data-state="failed"] .photo-state,
+.photo[data-state="unreadable"] .photo-state {
+  font-weight: 500;
+}
+
+.photo-caption {
+  width: 100%;
+}
+
+.photo-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin-block-start: var(--space-1);
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+/* ---- Public: the albums (#157) -------------------------------------- */
+
+/* An album title is 1 to 80 characters as the owner typed it, and one long
+   word would push a 360 px page sideways. */
+.page-head h1,
+.album-row h2 {
+  overflow-wrap: anywhere;
+}
+
+/* Kind, day and count under a title, as the sailing logs set their dates. */
+.meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--blue);
+}
+
+/* The list and the grid follow the page head closely: base.css pads every
+   section of main by --space-7, which would leave a gap of twice that. */
+.album-list,
+.album-photos {
+  padding-block-start: 0;
+}
+
+/* The lists at / (a row per team) and in each team's section (a row per
+   album, #227): the cover beside the words, as on the sailing logs index.
+   The cover is cropped to 4:3, a thumbnail for the row, not the photo. */
+.album-rows {
+  list-style: none;
+  padding: 0;
+}
+
+.album-row {
+  display: grid;
+  grid-template-columns: calc(2 * var(--space-8)) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.album-cover img,
+.album-cover-none {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: var(--border-hair);
+  background: var(--chalk);
+}
+
+.album-row h2 {
+  font-size: var(--text-xl);
+  margin-block-end: var(--space-1);
+}
+
+.album-row h2 a {
+  text-decoration: none;
+}
+
+.album-row h2 a:hover {
+  text-decoration: underline;
+}
+
+/* An album's photos: square tiles in fixed columns, 2 on a phone and 5 at
+   the widest (owner's choice at #157's pickup). The trip logs' justified
+   rows need an inline style on every figure, which this site's CSP refuses.
+   The fewest columns, a phone's 2, are lib/public-page.js's FIRST_ROW, the
+   photos in the first row at every width, which load at once, and
+   test/public.test.js fails if the two disagree. The lightbox shows each
+   photo whole. */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-2);
+}
+
+.gallery figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.gallery .frame {
+  display: block;
+  border: var(--border-hair);
+  background: var(--chalk);
+}
+
+/* The width and height attributes are the stored grid size; the square here
+   is set before the picture arrives, so nothing below it moves. */
+.gallery .frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.gallery figcaption {
+  margin-block-start: var(--space-1);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.caption-text {
+  display: block;
+}
+
+/* The same 24 px box as "Remove this photo" below it (#158): the link is 16 px
+   tall on its own, and with the button 3 px under it the spacing exception
+   no longer holds, so axe read target-size (WCAG 2.5.8) on every Download
+   until the link had a box of its own. */
+.download {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding-block: var(--space-1);
+}
+
+@media (min-width: 30rem) {
+  .gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (min-width: 46rem) {
+  .gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 60rem) {
+  .gallery { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+/* ---- Public: the policy (#159) -------------------------------------- */
+
+/* A page of prose in short sections. They follow each other closely:
+   base.css pads every section of main by --space-7 at both ends, which
+   would leave twice that between two of them. The reset takes every margin
+   and a list's indent, so both are put back here. */
+.policy {
+  padding-block-start: 0;
+}
+
+.policy > * + * {
+  margin-block-start: var(--space-3);
+}
+
+.policy ul {
+  padding-inline-start: var(--space-4);
+}
+
+.policy li + li {
+  margin-block-start: var(--space-1);
+}
+
+/* A release quoted word for word (#253): set off by a rule at its start edge,
+   so it reads as the release's words and not the site's. --blue on --hull
+   clears the 3:1 a non-text mark needs. */
+.policy blockquote {
+  border-inline-start: 4px solid var(--blue);
+  padding-inline-start: var(--space-3);
+}
+
+/* ---- Public: "Remove this photo" (#158) ----------------------------- */
+
+/* Under each photo, below Download. It is a button, because it posts (to
+   the confirmation page, without JavaScript), dressed as a quiet link, so a
+   grid of them does not shout over the photos. The block padding makes its
+   target at least 24 px tall (WCAG 2.5.8) with no layout of its own. */
+.remove {
+  display: block;
+}
+
+.remove-open {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--blue);
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The note, in the dialog and on the confirmation page. The field's edge is
+   --deep, as the admin forms' are, for WCAG 1.4.11. */
+.remove-form .field {
+  margin-block: var(--space-3);
+}
+
+.remove-form label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.remove-form textarea {
+  display: block;
+  width: 100%;
+  max-width: var(--measure);
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  resize: vertical;
+}
+
+.hint {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+/* The confirmation page follows its head closely, as the album grid does. */
+.remove-confirm {
+  padding-block-start: 0;
+}
+
+/* The photo on the confirmation page, and each on /admin/removals, at its
+   stored grid size or narrower. */
+.remove-picture img,
+.removal-picture img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: var(--border-hair);
+  background: var(--chalk);
+}
+
+/* ---- Admin: removal requests (#158) --------------------------------- */
+
+.removals {
+  list-style: none;
+  padding: 0;
+}
+
+.removal {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.removal > * + * {
+  margin-block-start: var(--space-2);
+}
+
+.removal h2 {
+  font-size: var(--text-xl);
+}
+
+.removal-picture {
+  display: inline-block;
+}
+
+.removal-note-heading {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* A note keeps the line breaks it was written with; they are text, never
+   markup, so the stylesheet keeps them. */
+.removal-note {
+  white-space: pre-line;
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Admin: people (#221) ------------------------------------------- */
+
+.people {
+  list-style: none;
+  padding: 0;
+}
+
+.people,
+.people-empty {
+  margin-block-start: var(--space-3);
+}
+
+.person {
+  border-top: var(--border-hair);
+  padding-block: var(--space-4);
+}
+
+.person > * + * {
+  margin-block-start: var(--space-2);
+}
+
+.person h3 {
+  font-size: var(--text-xl);
+}
+
+/* An email address is one unbroken word, which can be wider than a 360 px
+   screen; so is a name or a note with no spaces. A 40-character name made
+   the page 590 px wide at 320 until the heading was in this rule (#221's
+   ux-design audit, 1.4.10). */
+.person h3,
+.person-facts,
+.admin-log li {
+  overflow-wrap: anywhere;
+}
+
+/* A note keeps its line breaks, as a takedown's does. */
+.person-note {
+  white-space: pre-line;
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
+}
+
+/* Each team's box is its label as well, padded past 24 px as the request
+   form's are (WCAG 2.5.8). Since #225 a box's label can carry the person's
+   name or address ("… replied to confirm"), one unbroken word that made
+   /admin/people 485 px wide at 320 until it could wrap (#225's ux-design
+   audit, 1.4.10). */
+.person-form .choices label {
+  padding-block: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.person-form .choices input {
+  accent-color: var(--blue);
+  margin-inline-end: var(--space-1);
+}
+
+/* The same field edge as .album-form's inputs: --deep reads 3:1 and more
+   against the page (WCAG 1.4.11). */
+.person-form select {
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+/* "Revoke, hide their photos or delete" (#225): a native <details> under
+   each person, in the type of an album's "Change" disclosure, padded so its
+   summary is a target past 24 px (WCAG 2.5.8). */
+.person-more summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding-block: var(--space-1);
+}
+
+.person-more > * + * {
+  margin-block-start: var(--space-3);
+}
+
+.admin-log {
+  padding-inline-start: var(--space-4);
+  max-width: var(--measure);
+}
+
+.admin-log li + li {
+  margin-block-start: var(--space-2);
+}
+
+/* ---- Public: asking for an account (#220) --------------------------- */
+
+/* The form follows its head closely, as the album grid does, at the width
+   of the text above it. Since #222 the sign-in, reset and set-password
+   forms and the account page take the same classes (lib/sign-in-page.js). */
+.ask {
+  padding-block-start: 0;
+}
+
+.ask-form,
+.error-summary {
+  max-width: var(--measure);
+}
+
+.ask-form .field {
+  margin-block-end: var(--space-4);
+}
+
+.ask-form fieldset {
+  border: none;
+  padding: 0;
+}
+
+.ask-form label,
+.ask-form legend {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Each choice is its label as well as its box, so the whole line is the
+   target: the block padding takes it past 24 px (WCAG 2.5.8). */
+.ask-form .choices label {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  padding-block: var(--space-1);
+  margin-inline-end: var(--space-4);
+}
+
+.ask-form .choices input {
+  accent-color: var(--blue);
+  margin-inline-end: var(--space-1);
+}
+
+/* The same field edge as .album-form's: --deep reads 3:1 and more against
+   the page, where the --spray hairline does not (WCAG 1.4.11). */
+.ask-form input[type="text"],
+.ask-form input[type="email"],
+.ask-form input[type="password"],
+.ask-form textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--deep);
+  background: var(--chalk);
+  border: 1px solid var(--deep);
+  padding: var(--space-1) var(--space-2);
+}
+
+.ask-form textarea {
+  resize: vertical;
+}
+
+/* A field with a reason beside it. The thicker edge is a second sign beside
+   the words, never the only one (WCAG 1.4.1), and it is --deep: the send
+   button is the page's one accent. */
+.ask-form input[aria-invalid="true"]:not([type="radio"]):not([type="checkbox"]) {
+  border-width: 3px;
+}
+
+.field-error {
+  display: block;
+  font-weight: 600;
+}
+
+/* The reasons above the form. It takes the focus when the page loads, so it
+   shows the ring it holds, from a script or a key. */
+.error-summary {
+  border: 3px solid var(--deep);
+  background: var(--chalk);
+  padding: var(--space-3) var(--space-4);
+  margin-block-end: var(--space-4);
+}
+
+.error-summary:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.error-summary h2 {
+  font-size: var(--text-xl);
+}
+
+.error-summary ul {
+  padding-inline-start: var(--space-4);
+  margin-block-start: var(--space-2);
+}
+
+/* Turnstile's widget is 65 px tall in its flexible size (its widget
+   configurations page). Its room is kept before the script draws it, so the
+   button below does not move when it arrives. */
+.cf-turnstile {
+  min-height: var(--space-7);
+  margin-block-end: var(--space-3);
+}
+
+.ask-policy {
+  margin-block-start: var(--space-4);
+}
+
+/* ---- Footer --------------------------------------------------------- */
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  justify-content: flex-start;
+  align-items: baseline;
+}
+
+/* ---- Narrow --------------------------------------------------------- */
+
+@media (max-width: 46rem) {
+  .page-head .lede { font-size: var(--text-base); }
+
+  /* A smaller cover still beside the words, so a season of albums stays a
+     list a thumb can scan rather than a column of pictures. */
+  .album-row {
+    grid-template-columns: calc(2 * var(--space-6)) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+}

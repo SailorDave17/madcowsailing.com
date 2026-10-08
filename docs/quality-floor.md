@@ -1,9 +1,11 @@
 # Quality floor — measured on production
 
 `CLAUDE.md` sets a quality floor for every page on both sites. This document is
-where the floor is **measured**, on the two production domains after a promotion,
+where the floor is **measured**, on the production domains after a promotion,
 and where the numbers live — with the instrument, its version and the command that
 produced them, so the next measurement is comparable with this one. Story #13.
+Since #161 the run also measures the photo site, photos.madcowsailing.com: two
+pages until #227, and since #227 four, each team's section added.
 
 The per-page stories checked what they could on their own page, usually served
 locally. This is different in two ways that matter: it measures the deployed sites
@@ -26,12 +28,25 @@ alone. `--runs 1` is quicker and noisier; `--only <substring>` restricts the pag
 pages**, so pair `--only` with `--no-write` unless losing the other rows is
 intended (#50 found this out by reading the code, not by doing it);
 `--base-hq` / `--base-sailing` point it at a local serve (used for the controls
-below). It exits non-zero when anything is under the floor, so a shell can read
-the verdict. From Git Bash, prefix `MSYS_NO_PATHCONV=1` or drop the leading slash
+below), and `--base-photos` does the same for the photo site, with
+`--photos-album <address>` naming the album page to measure there. It exits 1
+when anything is under the floor or a page could not be measured, so a shell can
+read the verdict; 2 means the run itself failed. From Git Bash, prefix `MSYS_NO_PATHCONV=1` or drop the leading slash
 from `--only`, or the shell rewrites `/logs/` into a path under its own install.
 
 Pages are derived from the tree — every `.html` under `hq/` and `sailing/` — so a
 new page is measured on the next run without editing the script.
+
+The photo site is the exception (#161). Its pages are made by Functions, so no
+file names them. The run measures its home page, `/`, each team's section
+(`/hoover-jrt/` and `/cohssa/` since #227, read from `photos/lib/teams.js`), and
+one album page: the first album the sections list, in the teams' order, unless
+`--photos-album` names another. When no section lists an album, the album page
+is reported **not measured**, under its own heading, and the run exits 1. A page
+left out of a run would otherwise read as one that passed. Until #227 `/` listed
+every album and the album came from its links, so **a tree carrying #227 run
+against a production that predates it stops at the first section**, which
+answers 404 there. Run the tool from `release`'s own tree, as step 9 does.
 
 **It is deliberately not wired into CI.** `CLAUDE.md` says the only build step is
 the one-line copy in the Pages config and means it; `githooks/checks` and `ci.yml`
@@ -46,8 +61,12 @@ when a story claims to have moved one of these numbers.
 
 - **Performance** is the median of three Lighthouse runs, with all three shown in
   brackets; the spread is part of the measurement, not noise to hide. Anything
-  under 95 is marked and explained under *Under the floor* with its LCP element and
-  what Lighthouse itself names as render-blocking.
+  under the page's floor is marked and explained under *Under the floor* with its
+  LCP element and what Lighthouse itself names as render-blocking. The floor is 95
+  unless `CLAUDE.md` sets a page its own, and then it is shown beside the score:
+  the sailing logs index is held to 90 since #96, each trip page to 85 since
+  #53, and a photo-site album page to 85 since #157. The tool reads that number
+  from `PERF_FLOORS` in the script (#124).
 - **Accessibility** is deterministic and is read from the last run.
 - **CLS** is Lighthouse's, under its simulated slow-4G throttling. An unthrottled
   probe under-reads the font-swap shift by two orders of magnitude, so this is the
@@ -66,18 +85,118 @@ when a story claims to have moved one of these numbers.
   brief's table (`design-brief.md`) is the design intent; this is what production
   does.
 
+## Findings, 2026-10-01
+
+The first run to include the photo site (#161), against `release` after PR #209,
+which then held everything on `develop`. One full run of `node tools/quality_floor.mjs`
+from a tree equal to `develop` (`f09d6df` plus #161's change to the tool), so the
+page list matched production's: 24 pages, three runs each. The block under
+*Measurements* is that run, whole.
+
+- **Every page at or above its floor**, accessibility 100 on all 24, and the run
+  exited 0. The 18 pages held to 95 read 97–99. The trip pages read 89, 89 and 93
+  against 85, and the logs index 97 against 90.
+- **The photo site's home read 98 (98/98/97)**, and **its album page 96
+  (95/96/96)** against the 85 that album pages are held to (#157). Production
+  serves HTTP/2, which `CLAUDE.md`'s Quality floor section says is why a photo page
+  reads higher here than under plain `wrangler pages dev`.
+- **The album measured was a test album**: 12 Put-in-Bay trip-log photos with no
+  people in them, already public on madcowsailing.com, sent through the real share
+  page, approved for #161's production checks, and taken down afterwards. So the
+  address in the table no longer answers, and a real album with more photos on its
+  first screen can read lower. Only the first row loads eager at any width (item 17).
+- `lighthouse exited 1 after writing its report` appeared on several pages. It is
+  the chrome-launcher clean-up race the script already tolerates, and each report
+  was kept.
+
+## Findings, 2026-09-15
+
+Against release `c684027` (PR #133: everything through #132 live on both
+domains), Lighthouse 13.4.1. This is one full run of `node tools/quality_floor.mjs`
+from `release`'s own tree (`git archive origin/release`), so the page list is
+exactly what production holds: 21 pages, three runs each. The block under
+*Measurements* is that run, whole, with no rows pasted in by hand. Before it ran,
+all 21 pages fetched with `Accept: text/html` were byte-identical to
+`origin/release`, while a page from the previous release was not, so the run
+measured this release and not a deploy still rolling out.
+
+### Performance: every page at or above its floor, and the font cause is gone
+
+Nothing is under the floor. The 18 pages held to 95 read **97–99** on the median.
+The three that sat under it in the 2026-09-04 block on image LCP alone have
+recovered: `madcowhq.com/work/race-timer.html` reads 99 (97/99/99) and
+`madcowsailing.com/about.html` 97 (98/97/97). The trip pages have been held to
+85 since #53. They read 91 (94/91/89) and 89 (89/89/89), against 87 and 88 on
+release `5509192`, before #129 made the photos below a phone's first screen lazy.
+The logs index has been held to 90 since #96 and reads 97 (94/98/97).
+
+The bimodal scores the section below explains do not recur. In that race, the
+Google font files landed before Chrome's first paint, the simulator put them on
+the critical path, and *simulated* first paint moved from about 1.9 s to 3.8 s.
+A page read 98 in one run and 79 in the next. The widest spread now, on a page
+held to 95, is 92 to 99, and the simulated metrics are not what moved. Race
+Timer's three pages ran nine times between them. In all nine, FCP scored
+0.97–0.99 (1,213–1,395 ms) and LCP 0.93–0.97.
+
+**Four of the 63 runs painted late, and each lost points on Speed Index.** In
+the other 59, the observed first paint in the unthrottled trace came at
+534–1,555 ms. In these four it came at 2.5–4.8 s, and the whole page arrived with
+it, fonts included:
+
+| Page | That run | Observed first paint | Speed Index |
+|---|---|---|---|
+| `madcowsailing.com/apps/race-timer/privacy.html` | 92 | 4,768 ms | 0.30 (7.2 s) |
+| `madcowsailing.com/apps/race-timer/` | 92 | 3,928 ms | 0.45 (6.1 s) |
+| `madcowsailing.com/logs/` | 94 | 2,646 ms | 0.75 (4.3 s) |
+| `madcowhq.com/apps/taskr/support.html` | 97 | 2,477 ms | 0.81 (4.0 s) |
+
+In the two 92s, FCP, LCP, TBT and CLS scored as they did in the same pages' 98
+and 99 runs. Speed Index is read from the observed filmstrip, so a page that
+arrives late in the trace loses it whatever the simulator makes of the critical
+path. The same bytes were served in every run of a page. So the late arrival is
+the network during those runs, not anything the pages load. *That attribution is
+reasoned from the trace, not measured with a control arm.* Held to #46's bar of
+95 in all three runs, not only the median, the two Race Timer pages miss on one
+run each for this reason. The trip pages and the logs index are held to their
+own floors by owner decision.
+
+### Accessibility: 100 on every page
+
+All 21 score 100. Earlier on 2026-09-15, before a release carried #119, Taskr's
+tester, privacy and support pages read 95, 96 and 96 on production. Each failed
+only color-contrast, on `--blue` eyebrows and table heads on a navy field.
+
+### CLS: 0.000 on every page
+
+The two shifts found on 2026-09-04 are gone on all 21 pages. Both came from the
+web-font swap: `madcowsailing.com/` at 0.025 and `madcowsailing.com/apps/` at
+0.044.
+
+### 360px and keyboard: every page passes
+
+All 21 read exactly 360. On every page Tab reaches every expected element with
+focus showing. Both trip-page lightboxes read 3 of 3 and trapped, and their ring is
+now `--chalk` (#56).
+
+### Contrast: nine pairs, all above 4.5:1
+
+The lowest is still `--blue` on `--hull` at 5.3:1. The `--blue` on `--deep` pair
+that #119 removed (2.5:1, on three hq pages) is absent. `--spray` on `--deep` is
+used on 8 pages, against 4 on 2026-09-04: Tender's product page (#37) and #119's
+three hq pages added the rest.
+
 ## Findings, 2026-09-04
 
-**The block under *Measurements* is no longer that run.** It was regenerated by
-#50 on 2026-09-04, after the #55 promotion put the self-hosted fonts (#46) on both
-domains, because #50 changed the keyboard column and the doc says to re-run after
-a promotion. Read the Lighthouse and CLS prose in this section as describing the
-PR #45 promotion it names: in the block, no render-blocking list names a Google
-host any more and CLS reads 0.000 on all thirteen pages, while three pages sit
-under the performance floor on image LCP alone — `madcowhq.com/work/race-timer.html`
-94, `madcowsailing.com/about.html` 94, the trip page 85. Re-reading those findings
-is **#53**'s, which is where #46 deferred it; this note exists so the prose and the
-block cannot be read as agreeing when they do not.
+**Superseded as the current reading by *Findings, 2026-09-15* above**, which is
+the run the block under *Measurements* now holds. This section stays as the record
+of the Google Fonts cause and of how the scores behaved while it was live, so read
+its Lighthouse and CLS prose as describing the PR #45 promotion it names. In
+between, #50 regenerated the block on 2026-09-04, after the #55 promotion put the
+self-hosted fonts (#46) on both domains. That block had no render-blocking list
+naming a Google host and read CLS 0.000 on all thirteen pages, while three pages
+sat under the performance floor on image LCP alone: `madcowhq.com/work/race-timer.html`
+94, `madcowsailing.com/about.html` 94 and the trip page 85. #46 deferred
+re-reading them to #53, which did so on 2026-09-15.
 
 Against the promotion in PR #45 (everything through #11 live on both domains),
 Lighthouse 13.4.1. The tool was run in full three times that day; the block under
@@ -270,15 +389,17 @@ visible difference — and nothing before #50 would have noticed.
 
 ## Also found, not fixed here
 
-- **Every `.html` URL on both domains answers `308` to its clean form**
-  (`/about.html` → `/about`), a Cloudflare Pages default nobody set. The pages'
-  `rel="canonical"` and every internal link say `.html`, so each click pays a
-  redirect and the canonical names a URL the host redirects away from. Not a floor
-  criterion and not this story's; recorded on #13 for a story of its own.
+- **Resolved by #112 and #113 — every `.html` URL on both domains answers `308`
+  to its clean form** (`/about.html` → `/about`), a Cloudflare Pages default nobody
+  set. The pages' `rel="canonical"` and every internal link said `.html`, so each
+  click paid a redirect and the canonical named a URL the host redirects away from.
+  Not a floor criterion and not this story's; recorded on #13 for a story of its own.
+  #112 pointed each canonical and `og:url` at the clean URL, and #113 did the same
+  for every internal link.
 - **The real trip has 24 photos**, not the forty the epic and #13 imagined. It is
   the real trip, which is what the criterion asks for; the number is recorded so
   nobody reads "forty" off the epic as a measured fact.
-- **The lightbox's focus ring is `--blue` on a navy field.** Measured 2026-09-04
+- **Resolved by #56 — the lightbox's focus ring was `--blue` on a navy field.** Measured 2026-09-04
   by #50's pass: each control's `:focus-visible` outline computes to
   `rgb(0, 103, 161)` (`--blue`), with `outline-offset: 2px` placing the ring over
   the `::backdrop` — `--deep` at 0.94 over the page ground — which composites to
@@ -291,6 +412,14 @@ visible difference — and nothing before #50 would have noticed.
   the ratio here is arithmetic on the tokens, not an instrument reading. Not this
   story's — #50 makes the lightbox measurable and does not change it — and
   recorded on #50 for a story of its own.
+  *Resolved 2026-09-14 by #56*: `.lightbox :focus-visible` now shares the
+  `--chalk` override with `.field-deep` in `shared/css/base.css`. The pass still
+  does not measure a ring's contrast, but its progress line now names the
+  outline colour each set of stops showed, by token, so the change reads off the
+  tool. On a local serve of all 21 pages, `develop` printed `lightbox 3/3 trapped
+  outlines --blue x3` on both trip pages and the branch `--chalk x3`, with every
+  other line identical. Production has it: the 2026-09-15 run below printed
+  `lightbox 3/3 trapped outlines --chalk x3` on both trip pages.
 - Lighthouse's image-delivery insight flags the first-row `-med` derivative as
   larger than its displayed box. It is informational (weight 0) and the pick is
   what `sizes` and a 1.75× DPR select; the request log #11 took shows no `-full`
@@ -299,7 +428,7 @@ visible difference — and nothing before #50 would have noticed.
 ## Measurements
 
 <!-- generated:start -->
-_Generated by `node tools/quality_floor.mjs` on 2026-09-04. Lighthouse 13.4.1, mobile preset, 3 run(s) per page, performance = median. Bases: https://madcowhq.com and https://madcowsailing.com. Per-page Lighthouse command:_
+_Generated by `node tools/quality_floor.mjs` on 2026-10-01. Lighthouse 13.4.1, mobile preset, 3 run(s) per page, performance = median. Bases: https://madcowhq.com, https://madcowsailing.com and https://photos.madcowsailing.com. Per-page Lighthouse command:_
 
 ```
 npx --yes lighthouse@13.4.1 <url> --only-categories=performance,accessibility --form-factor=mobile --screenEmulation.mobile --chrome-flags="--headless=new" --output=json
@@ -309,25 +438,34 @@ npx --yes lighthouse@13.4.1 <url> --only-categories=performance,accessibility --
 
 | Page | Performance | Accessibility | CLS | 360px scrollWidth | Keyboard | Date | Lighthouse |
 |---|---|---|---|---|---|---|---|
-| madcowhq.com/about.html | 95 (95/97/95) | 100 | 0.000 | 360 | 12/12 ok | 2026-09-04 | 13.4.1 |
-| madcowhq.com/apps/ | 96 (96/96/96) | 100 | 0.000 | 360 | 14/14 ok | 2026-09-04 | 13.4.1 |
-| madcowhq.com/ | 95 (95/95/95) | 100 | 0.000 | 360 | 16/16 ok | 2026-09-04 | 13.4.1 |
-| madcowhq.com/work/ | 96 (96/96/96) | 100 | 0.000 | 360 | 14/14 ok | 2026-09-04 | 13.4.1 |
-| madcowhq.com/work/race-timer.html | 94 **under floor** (95/94/94) | 100 | 0.000 | 360 | 11/11 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/about.html | 94 **under floor** (94/94/93) | 100 | 0.000 | 360 | 8/8 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/apps/ | 97 (97/96/97) | 100 | 0.000 | 360 | 8/8 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/apps/race-timer/ | 95 (95/95/95) | 100 | 0.000 | 360 | 13/13 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/apps/race-timer/privacy.html | 95 (95/95/95) | 100 | 0.000 | 360 | 11/11 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/apps/race-timer/support.html | 95 (95/95/96) | 100 | 0.000 | 360 | 11/11 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/ | 95 (95/94/95) | 100 | 0.000 | 360 | 12/12 ok | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/logs/2025-07-12-put-in-bay/ | 85 **under floor** (85/85/85) | 100 | 0.000 | 360 | 30/30 ok +3 lightbox | 2026-09-04 | 13.4.1 |
-| madcowsailing.com/logs/ | 95 (96/95/94) | 100 | 0.000 | 360 | 7/7 ok | 2026-09-04 | 13.4.1 |
+| madcowhq.com/404.html | 98 (99/98/97) | 100 | 0.000 | 360 | 13/13 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/about.html | 98 (98/98/98) | 100 | 0.000 | 360 | 14/14 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/apps/taskr/ | 98 (98/98/98) | 100 | 0.000 | 360 | 17/17 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/apps/taskr/privacy.html | 97 (97/97/97) | 100 | 0.000 | 360 | 14/14 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/apps/taskr/support.html | 98 (98/98/98) | 100 | 0.000 | 360 | 14/14 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/ | 98 (98/98/98) | 100 | 0.000 | 360 | 16/16 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/work/ | 98 (98/98/98) | 100 | 0.000 | 360 | 23/23 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/work/race-timer.html | 97 (97/97/97) | 100 | 0.000 | 360 | 12/12 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/work/taskr.html | 97 (97/97/98) | 100 | 0.000 | 360 | 14/14 ok | 2026-10-01 | 13.4.1 |
+| madcowhq.com/work/tender.html | 98 (98/97/98) | 100 | 0.000 | 360 | 14/14 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/404.html | 98 (98/98/98) | 100 | 0.000 | 360 | 9/9 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/about.html | 98 (98/97/98) | 100 | 0.000 | 360 | 8/8 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/apps/ | 98 (98/98/98) | 100 | 0.000 | 360 | 10/10 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/apps/race-timer/ | 99 (97/99/99) | 100 | 0.000 | 360 | 13/13 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/apps/race-timer/privacy.html | 97 (97/97/97) | 100 | 0.000 | 360 | 11/11 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/apps/race-timer/support.html | 98 (98/98/97) | 100 | 0.000 | 360 | 11/11 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/apps/tender/ | 98 (98/98/97) | 100 | 0.000 | 360 | 14/14 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/ | 97 (97/97/97) | 100 | 0.000 | 360 | 13/13 ok | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/logs/2025-07-12-put-in-bay/ | 89 (91/86/89), floor 85 | 100 | 0.000 | 360 | 30/30 ok +3 lightbox | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/logs/2026-07-04-mullett-lake/ | 89 (90/89/87), floor 85 | 100 | 0.000 | 360 | 59/59 ok +3 lightbox | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/logs/2026-09-19-foundry/ | 93 (93/93/93), floor 85 | 100 | 0.000 | 360 | 12/12 ok +3 lightbox | 2026-10-01 | 13.4.1 |
+| madcowsailing.com/logs/ | 97 (96/98/97), floor 90 | 100 | 0.000 | 360 | 9/9 ok | 2026-10-01 | 13.4.1 |
+| photos.madcowsailing.com/ | 98 (98/98/97) | 100 | 0.000 | 360 | 7/7 ok | 2026-10-01 | 13.4.1 |
+| photos.madcowsailing.com/albums/2026-09-30-production-check-test/ | 96 (95/96/96), floor 85 | 100 | 0.000 | 360 | 43/43 ok +3 lightbox | 2026-10-01 | 13.4.1 |
 
 ### Under the floor
 
-- **https://madcowhq.com/work/race-timer.html** — performance 94, accessibility 100; simulated FCP 1851 ms, LCP 2871 ms (last run; observed first paint in the unthrottled trace 320 ms). LCP element: `main#main > section.wrap > div.shot > img "The watch face mid-countdown: white nume"`. Weighted audits under 1: first-contentful-paint (0.88), largest-contentful-paint (0.81). Render-blocking per Lighthouse: https://madcowhq.com/css/site.css (150 ms).
-- **https://madcowsailing.com/about.html** — performance 94, accessibility 100; simulated FCP 1833 ms, LCP 3003 ms (last run; observed first paint in the unthrottled trace 295 ms). LCP element: `section.wrap > div.boat-photo > picture > img "Mad Cow sailing under spinnaker on grey "`. Weighted audits under 1: first-contentful-paint (0.89), largest-contentful-paint (0.78). Render-blocking per Lighthouse: https://madcowsailing.com/css/site.css (450 ms).
-- **https://madcowsailing.com/logs/2025-07-12-put-in-bay/** — performance 85, accessibility 100; simulated FCP 1839 ms, LCP 4135 ms (last run; observed first paint in the unthrottled trace 390 ms). LCP element: `body.logs-page > main#main > section.wrap > p "Five days at Put-in-Bay, 12 to 16 July. "`. Weighted audits under 1: first-contentful-paint (0.89), largest-contentful-paint (0.46). Render-blocking per Lighthouse: https://madcowsailing.com/css/site.css (300 ms); https://madcowsailing.com/assets/shared/css/base.css (150 ms).
+Nothing. Every page scored at or above its floor on both categories in this run: 95, or the performance floor shown beside its score.
 
 ### Keyboard pass
 
@@ -335,19 +473,30 @@ Desktop width (1280px). "Expected" is every visible `a[href]`, button, form cont
 
 On a page carrying a `.gallery` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open `<dialog>`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards and the page is re-walked, so the page's own count is measured before and after.
 
-- [x] madcowhq.com/about.html — 12 of 12
-- [x] madcowhq.com/apps/ — 14 of 14
+- [x] madcowhq.com/404.html — 13 of 13
+- [x] madcowhq.com/about.html — 14 of 14
+- [x] madcowhq.com/apps/taskr/ — 17 of 17
+- [x] madcowhq.com/apps/taskr/privacy.html — 14 of 14
+- [x] madcowhq.com/apps/taskr/support.html — 14 of 14
 - [x] madcowhq.com/ — 16 of 16
-- [x] madcowhq.com/work/ — 14 of 14
-- [x] madcowhq.com/work/race-timer.html — 11 of 11
+- [x] madcowhq.com/work/ — 23 of 23
+- [x] madcowhq.com/work/race-timer.html — 12 of 12
+- [x] madcowhq.com/work/taskr.html — 14 of 14
+- [x] madcowhq.com/work/tender.html — 14 of 14
+- [x] madcowsailing.com/404.html — 9 of 9
 - [x] madcowsailing.com/about.html — 8 of 8
-- [x] madcowsailing.com/apps/ — 8 of 8
+- [x] madcowsailing.com/apps/ — 10 of 10
 - [x] madcowsailing.com/apps/race-timer/ — 13 of 13
 - [x] madcowsailing.com/apps/race-timer/privacy.html — 11 of 11
 - [x] madcowsailing.com/apps/race-timer/support.html — 11 of 11
-- [x] madcowsailing.com/ — 12 of 12
+- [x] madcowsailing.com/apps/tender/ — 14 of 14
+- [x] madcowsailing.com/ — 13 of 13
 - [x] madcowsailing.com/logs/2025-07-12-put-in-bay/ — 30 of 30, lightbox 3 of 3, focus trapped, closed and focus returned
-- [x] madcowsailing.com/logs/ — 7 of 7
+- [x] madcowsailing.com/logs/2026-07-04-mullett-lake/ — 59 of 59, lightbox 3 of 3, focus trapped, closed and focus returned
+- [x] madcowsailing.com/logs/2026-09-19-foundry/ — 12 of 12, lightbox 3 of 3, focus trapped, closed and focus returned
+- [x] madcowsailing.com/logs/ — 9 of 9
+- [x] photos.madcowsailing.com/ — 7 of 7
+- [x] photos.madcowsailing.com/albums/2026-09-30-production-check-test/ — 43 of 43, lightbox 3 of 3, focus trapped, closed and focus returned
 
 ### Contrast pairs in production
 
@@ -355,12 +504,13 @@ Every distinct (text colour, effective background) pair found on any page, named
 
 | Text | Background | Ratio | Smallest use | Pages | Sample | Floor |
 |---|---|---|---|---|---|---|
-| --blue | --hull | 5.3:1 | 12.0px | 10 | p.eyebrow "Columbus, Ohio" | ok |
-| --blue | --chalk | 5.9:1 | 12.0px | 10 | li "Kotlin" | ok |
-| --chalk | --ensign | 6.6:1 | 14.0px | 2 | a.button "See the work" -> work/ | ok |
-| --blue-deep | --hull | 7.7:1 | 14.0px | 6 | a "about" -> /about.html | ok |
-| --spray | --deep | 8.2:1 | 12.0px | 4 | p.eyebrow "Get it" | ok |
-| --deep | --hull | 13.5:1 | 14.0px | 10 | a "work" -> /work/ | ok |
+| --blue | --hull | 5.3:1 | 12.0px | 20 | p.eyebrow "404" | ok |
+| --blue | --chalk | 5.9:1 | 12.0px | 20 | li "React" | ok |
+| --chalk | --blue | 5.9:1 | 14.0px | 1 | a.button "Try Taskr" -> /apps/taskr/ | ok |
+| --chalk | --ensign | 6.6:1 | 14.0px | 4 | a.button "Start your household" -> https://taskr.madcowhq.com/?start | ok |
+| --blue-deep | --hull | 7.7:1 | 14.0px | 14 | a "about" -> /about | ok |
+| --spray | --deep | 8.2:1 | 12.0px | 8 | p.eyebrow "Testing" | ok |
+| --deep | --hull | 13.5:1 | 14.0px | 20 | a "work" -> /work/ | ok |
+| --chalk | --deep | 14.9:1 | 14.0px | 16 | td "Supabase" | ok |
 | --deep | --chalk | 14.9:1 | 14.0px | 2 | p.card-more "No page yet — it is still being built." | ok |
-| --chalk | --deep | 14.9:1 | 14.0px | 8 | span "Built by Dave Alvarado" | ok |
 <!-- generated:end -->

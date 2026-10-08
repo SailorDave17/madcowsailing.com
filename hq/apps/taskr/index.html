@@ -28,9 +28,9 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="/assets/shared/css/tokens.css">
-<link rel="stylesheet" href="/assets/shared/css/base.css">
-<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="/css/site.css?v=9ad77f9afb">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -43,7 +43,7 @@
      it changes in all of them. There is no templating here on purpose -
      see CLAUDE.md on the no-build-step rule.
 
-     The three nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
+     The four nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
      literally true rather than aspirational. They read "work/" until #7,
      which put the first pages at depth (hq/work/ and hq/apps/), where a
      relative "work/" resolves to work/work/ and 404s. Do not "tidy" them
@@ -59,8 +59,9 @@
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/work/">work</a></li>
-        <li><a href="/apps/" aria-current="page">apps</a></li>
-        <li><a href="/about.html">about</a></li>
+        <li><a href="/about">about</a></li>
+        <li><a href="/assets/david-alvarado-resume.pdf">resume</a></li>
+        <li><a href="/about#getting-in-touch">contact</a></li>
       </ul>
     </nav>
   </div>
@@ -76,16 +77,17 @@
 
        Every control named below is the app's own label, read on production
        (build 74aed25) on 2026-09-13 by walking the steps in a fresh browser
-       context. If the app renames one, this page is wrong until it follows.
+       context. Step 1's were re-read on build e974302 on 2026-09-16 (#87),
+       when the action moved to the start-a-household entry. If the app
+       renames one, this page is wrong until it follows.
 
        The two-presentation rule: this page shares no sentence with the
        apps-index row, the work-index row, or the case study. Taskr's
        one-liner is exempt (#75, D9) and is not used here anyway.
 
-       The primary action goes to the app root for now. Taskr #343 will give
-       the app a URL that opens on Start a household; when it lands, this
-       href and the home page's "Open for testing" link move together
-       (owner decision 2026-09-13, on #66). -->
+       The primary action is Taskr's start-a-household entry, /?start, the
+       value Taskr's docs/deploy-runbook.md names for the website (Taskr
+       #343). About's "Start one" link carries the same URL (#87). -->
   <section class="wrap page-head">
     <p class="eyebrow">Taskr &middot; Open for testing</p>
     <h1>Chores, split by the minutes each of you actually has.</h1>
@@ -93,7 +95,7 @@
       many minutes each person has this week, and Taskr deals the work out in
       proportion. When the split cannot be made fair, it says so instead of
       pretending. It runs in a phone's browser, and it is free to try.</p>
-    <p class="actions"><a class="button button-accent" href="https://taskr.madcowhq.com/">Open Taskr</a></p>
+    <p class="actions"><a class="button button-accent" href="https://taskr.madcowhq.com/?start">Start your household</a></p>
   </section>
 
   <section class="wrap">
@@ -101,8 +103,8 @@
     <p>Three steps, and the first two happen once. Everything in bold is the
       name of a control as the app shows it.</p>
     <ol class="steps">
-      <li><strong>Make your own account.</strong> Open Taskr and, under the
-        sign-in form, tap <strong>Start a household</strong>. Type
+      <li><strong>Make your own account.</strong> Tap Start your household
+        above; Taskr opens on <strong>Start a household</strong>. Type
         <strong>Your email</strong> and <strong>Your password</strong> and tap
         <strong>Create account</strong>. An email called <em>Confirm your
         email address</em> arrives; tap <strong>Confirm email address</strong>
@@ -159,7 +161,7 @@
         have moved. What you enter lives on the server, not in the app, so an
         update does not lose it.</p>
       <p>Some things are known to be wrong with it and are listed on the
-        <a href="support.html">support page</a> so you do not have to find
+        <a href="support">support page</a> so you do not have to find
         them yourself. The one to know before you start: <strong>Continue
         with Google</strong> is shown on the sign-in screen but does not work
         yet, so use your email and password.</p>
@@ -173,7 +175,7 @@
       split. Everyone in the household can see everyone else's email address.
       There is no advertising and no analytics. A member can leave, and the
       organizer can delete the household, from inside the app. The
-      <a href="privacy.html">privacy page</a> lists every item, who can read
+      <a href="privacy">privacy page</a> lists every item, who can read
       it, and which companies handle it.</p>
   </section>
 
@@ -182,13 +184,13 @@
     <p>Every screen has a <strong>Report a problem</strong> link in its footer.
       It opens your email app with the build number and the screen already
       filled in; add what happened and send it. Or write to
-      <a href="mailto:hsc.coach@gmail.com">hsc.coach@gmail.com</a>. The
-      <a href="support.html">support page</a> says how long a reply takes.</p>
+      <a href="mailto:dave@madcowhq.com">dave@madcowhq.com</a>. The
+      <a href="support">support page</a> says how long a reply takes.</p>
   </section>
 
   <section class="wrap page-foot">
-    <p><a href="support.html">Support</a> &middot;
-      <a href="privacy.html">Privacy</a> &middot;
+    <p><a href="support">Support</a> &middot;
+      <a href="privacy">Privacy</a> &middot;
       <a href="/work/">The work index</a></p>
   </section>
 </main>
@@ -198,8 +200,9 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
-      <li><a href="mailto:HSC.Coach@gmail.com">Email</a></li>
+      <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
   </div>
 </footer>

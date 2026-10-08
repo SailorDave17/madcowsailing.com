@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "no-inline-style": "error",
+    "form-dup-name": ["error", { "shared": ["radio", "checkbox", "button", "reset", "submit"] }]
+  }
+}

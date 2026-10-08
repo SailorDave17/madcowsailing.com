@@ -121,6 +121,16 @@ difference between a gallery and a log, and the log is the part people read.
 Each trip is a row: cover photo, title, date, location, photo count, first line of
 the log. Reverse chronological.
 
+The cover is shown cut to 4:3, and since #96 it is served that way. `photos.py`
+gives the cover its own ladder, `<file>-cover400`, `-cover640` and `-cover1200`
+in AVIF and WebP, cut from the cover's largest derivative with the same centred
+crop `object-fit: cover` makes. Before that the row fetched the uncropped `-med`,
+and Mullett Lake's portrait cover cost 198 KB to show 56% of the picture. The
+cut runs on every render, so changing `cover` in `trip.json` and re-running the
+script without `--src` is enough. The previous cover's files are not deleted;
+remove them by hand. The index's performance floor is 90, not 95, while two
+covers share its first screen (`CLAUDE.md`, #96).
+
 ## Photo pipeline
 
 `tools/photos.py` — written in Python. Run end to end on 2026-08-21 against one
@@ -209,9 +219,12 @@ when someone presses play, not when they arrow past it.
 `aspect-ratio`. Not a uniform square grid — cropping a sailing photo square throws
 away the horizon, which is the subject.
 
-**Loading.** First row `loading="eager"` with `fetchpriority="high"`, everything
-else lazy. `<picture>` with AVIF source and WebP fallback, `srcset` across the three
-widths, and a `sizes` attribute matching the actual grid. The `lqip` string is the
+**Loading.** `loading="eager"` with `fetchpriority="high"` only on the photos on
+the first screen of both layouts: the wide first row **and** the phone's first
+line. Everything else is lazy. One page serves both widths and the wide first row
+re-wraps on a phone, so "first row" alone loaded photos below a phone's first
+screen eager and at high priority (#53). `<picture>` with AVIF source and WebP
+fallback, `srcset` across the three widths, and a `sizes` attribute matching the actual grid. The `lqip` string is the
 wrapper's background, revealed as the image fades in.
 
 **Lightbox.** Vanilla JS on the native `<dialog>` element — it provides the focus
@@ -239,7 +252,7 @@ cause is almost always a wrong `sizes` attribute causing the browser to download
   item — this audience did not come for the portfolio.
 - Each app product page footer: a quiet link to its case study on hq.
 - hq case studies link out to the product page as "get it".
-- hq `/apps` index rows link to both.
+- hq `/work/` index rows link to both (the `/apps/` index folded into it in #81).
 
 ## Headway Sailing
 

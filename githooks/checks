@@ -18,17 +18,34 @@
 # degraded to exactly the intended no-JavaScript baseline: a silent failure
 # wearing the costume of a supported mode.
 #
-# The linkcheck line below IS python, which the paragraph above used to say was
-# impossible here: `python` and `python3` both resolved to the Windows Store
-# alias stub, exiting 126. Measured 2026-09-03 on the owner's machine, all three
-# of `python`, `python3` and `py` run a real 3.13.14 - the stub is gone. Do not
-# read that as settled: cairn records this interpreter moving four times, each
-# correction accurate when written and wrong within two days. `python3` is the
-# spelling chosen because it is the one that works BOTH here and on the ubuntu
-# runner, where `py` does not exist. If this line ever fails with 126 or "not
-# found", that is the stub returning, not the check breaking.
+# The linkcheck line below is python, and it names its interpreter as $PY, not
+# as a command. githooks/pre-push resolves $PY once, by RUNNING
+# githooks/pyprobe.py under each candidate (CAIRN_PY, python3, python, py, then
+# any Python3* under %LOCALAPPDATA%) and taking the first that exits 0. If none
+# can run a script, it refuses the push rather than skipping the line. CI sets
+# PY=python3 in ci.yml, so both lists carry the same line character for
+# character. To run it by hand, run `sh githooks/pre-push`, not the bare line:
+# outside the driver $PY is empty.
+#
+# Why a resolved name and not a spelling: this line said `python3` from
+# 2026-09-03, when all of python, python3 and py ran a real interpreter on the
+# owner's machine. Measured 2026-09-14, `python3` there is the Windows Store
+# alias stub again (126 from sh, 9009 from PowerShell) while `python` and
+# `py -3` run a real 3.12.1, so every hand run of this gate failed on this line.
+# cairn records this interpreter moving four times, each correction wrong within
+# days, which is why the driver resolves it rather than this file naming it.
+# Pin one for a single push with CAIRN_PY=/full/path/to/python.
 #
 # There is no build step. The sites are static files plus the one-line copy in
 # the Cloudflare Pages config - see CLAUDE.md.
+#
+# The photo site joined all three lines in #149. html-validate reads photos/
+# through the glob in package.json's `check` script, and refuses an inline
+# style there (photos/.htmlvalidate.json), because the site's CSP would drop
+# one silently. linkcheck reads photos/public, not photos: that is the site's
+# served root, its Pages output directory. `npm run --silent test` runs the
+# site's own tests with node --test (photos/test/), which hold the Functions,
+# the headers, _routes.json and the Wrangler config.
 npm run --silent check
-python3 tools/linkcheck.py hq sailing
+$PY tools/linkcheck.py hq sailing photos/public
+npm run --silent test

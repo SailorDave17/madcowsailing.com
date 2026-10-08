@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dave Alvarado — Mad Cow HQ</title>
-<meta name="description" content="Dave Alvarado: a start timer measured to 61 ms at worst, crew matching for racing, and Taskr, which splits a household's chores by the time each person has.">
+<meta name="description" content="Dave Alvarado, software engineer: five years at JPMorgan Chase, open to full-time roles and contract work. A sailing club's photo site, a race timer, crew matching, Taskr, and the guardrails for the AI agents that help build them.">
 <link rel="canonical" href="https://madcowhq.com/">
 <meta property="og:title" content="Dave Alvarado — Mad Cow HQ">
-<meta property="og:description" content="Dave Alvarado: a start timer measured to 61 ms at worst, crew matching for racing, and Taskr, which splits a household's chores by the time each person has.">
+<meta property="og:description" content="Dave Alvarado, software engineer: five years at JPMorgan Chase, open to full-time roles and contract work. A sailing club's photo site, a race timer, crew matching, Taskr, and the guardrails for the AI agents that help build them.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://madcowhq.com/">
 <meta property="og:image" content="https://madcowhq.com/assets/img/share-card.png">
@@ -24,9 +24,9 @@
 <link rel="preload" as="font" type="font/woff2" crossorigin
       href="assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
-<link rel="stylesheet" href="assets/shared/css/tokens.css">
-<link rel="stylesheet" href="assets/shared/css/base.css">
-<link rel="stylesheet" href="css/site.css">
+<link rel="stylesheet" href="assets/shared/css/tokens.css?v=072074f9ae">
+<link rel="stylesheet" href="assets/shared/css/base.css?v=a89edb8513">
+<link rel="stylesheet" href="css/site.css?v=9ad77f9afb">
 <link rel="icon" href="assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -39,7 +39,7 @@
      it changes in all of them. There is no templating here on purpose -
      see CLAUDE.md on the no-build-step rule.
 
-     The three nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
+     The four nav hrefs are ROOT-RELATIVE, and that is what makes "verbatim"
      literally true rather than aspirational. They read "work/" until #7,
      which put the first pages at depth (hq/work/ and hq/apps/), where a
      relative "work/" resolves to work/work/ and 404s. Do not "tidy" them
@@ -55,8 +55,9 @@
     <nav class="site-nav" aria-label="Primary">
       <ul>
         <li><a href="/work/">work</a></li>
-        <li><a href="/apps/">apps</a></li>
-        <li><a href="/about.html">about</a></li>
+        <li><a href="/about">about</a></li>
+        <li><a href="/assets/david-alvarado-resume.pdf">resume</a></li>
+        <li><a href="/about#getting-in-touch">contact</a></li>
       </ul>
     </nav>
   </div>
@@ -88,10 +89,11 @@
     <div>
       <p class="eyebrow">Westerville, Ohio</p>
       <h1>Dave Alvarado</h1>
-      <p class="lede">I build software for a watch, a race course and a house: a
-        start timer measured to 61&nbsp;ms from the mark at its worst, crew
-        matching that fills a boat before the start, and Taskr, which splits a
-        household's chores by the time each person has.</p>
+      <p class="lede">Software that has to work where it runs: a sailing club's
+        photo site, a start timer that runs with no phone aboard, crew matching
+        that fills a boat before the start, and the guardrails that let AI
+        coding agents help build them. Five years at JPMorgan Chase, and open
+        to full-time roles and contract work.</p>
       <div class="actions">
         <a class="button button-accent" href="work/">See the work</a>
         <a class="button" href="/apps/taskr/">Try Taskr</a>
@@ -108,10 +110,23 @@
 
   <section class="wrap">
     <p class="eyebrow">Selected work</p>
-    <h2>Three that had to work on the water</h2>
+    <h2>Three in testing now</h2>
     <p class="section-lede">Each one carries a decision I would defend. The rest
       are a line in the index.</p>
     <div class="cards">
+
+      <!-- Taskr is the one selected project a stranger can use today, so its
+           card alone carries a second link (G9 on epic #75). That href copies
+           Try Taskr's in the hero character for character: #66 owns it, and
+           the two move together (G6). Both stay plain links, so the hero's
+           See the work is still the only accent on the page. -->
+      <article class="card">
+        <h3>Taskr</h3>
+        <p>Splits a household's chores by the time each person has.</p>
+        <ul class="tags"><li>React</li><li>Supabase</li><li>Vercel</li></ul>
+        <p><a href="work/taskr">Read the case study</a> &middot;
+          <a href="/apps/taskr/">Open for testing</a></p>
+      </article>
 
       <article class="card">
         <h3>Race Timer</h3>
@@ -119,16 +134,7 @@
           start sequences on the wrist. Cues are scheduled rather than polled,
           which is the difference between a horn on the gun and a horn near it.</p>
         <ul class="tags"><li>Kotlin</li><li>Wear OS</li><li>Compose</li></ul>
-        <p><a href="work/race-timer.html">Read the case study</a></p>
-      </article>
-
-      <article class="card">
-        <h3>Buoyant</h3>
-        <p>Cross-platform BLE fleet control for GPS station-keeping robotic race
-          marks &mdash; set, move and monitor a course from the committee boat
-          instead of dragging anchors.</p>
-        <ul class="tags"><li>Flutter</li><li>Dart</li><li>BLE</li></ul>
-        <p><a href="work/#buoyant">In the work index</a></p>
+        <p><a href="work/race-timer">Read the case study</a></p>
       </article>
 
       <article class="card">
@@ -137,49 +143,22 @@
           matching engine widens its own search when nobody fits, and colours
           how far it had to relax rather than hiding anyone.</p>
         <ul class="tags"><li>Next.js</li><li>TypeScript</li><li>Supabase</li></ul>
-        <p><a href="work/tender.html">Read the case study</a></p>
+        <p><a href="work/tender">Read the case study</a></p>
       </article>
 
     </div>
   </section>
 
-  <div class="wrap">
-    <svg class="divider" viewBox="0 0 1200 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <path d="M0 8 C 110 12, 170 4, 270 10 S 430 13, 540 6 S 690 3, 800 11 S 970 13, 1080 6 S 1150 9, 1200 8"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </div>
-
-  <section class="wrap">
-    <p class="eyebrow">Apps</p>
-    <h2>On a watch, in a browser, on a phone</h2>
-    <ul class="apps">
-      <li>
-        <span class="name">Race Timer</span>
-        <span class="what">Start sequences on a Wear OS watch, offline.</span>
-        <span class="where"><a href="https://madcowsailing.com/apps/race-timer/">madcowsailing.com</a></span>
-      </li>
-      <li>
-        <span class="name">Taskr</span>
-        <span class="what">Fair household chore allocation.</span>
-        <span class="where"><a href="/apps/taskr/">Open for testing</a></span>
-      </li>
-      <li>
-        <span class="name">Buoyant</span>
-        <span class="what">BLE control for robotic race marks.</span>
-        <span class="where">In development</span>
-      </li>
-    </ul>
-    <p><a href="apps/">Every app, sailing or not</a></p>
-  </section>
-
   <section class="wrap about">
     <p class="eyebrow">About</p>
     <h2>Short version</h2>
-    <p>I race an Interlake at Hoover Sailing Club and write the software I
-      wanted on the water. Most of it starts as a problem on a race course and
-      ends as something small enough to trust with a start sequence.</p>
-    <p><a href="about.html">The longer version</a></p>
+    <p>I race an Interlake at Hoover Sailing Club, direct its Junior Race Team,
+      and write the software the club and I wanted on the water. Most of it
+      starts as a problem on a race course and ends as something small enough
+      to trust with a start sequence.</p>
+    <p>I'm open to a full-time role and to contract work.</p>
+    <p><a href="about">The longer version</a> &middot;
+      <a href="about#getting-in-touch">Get in touch</a></p>
   </section>
 </main>
 
@@ -191,8 +170,9 @@
     <span>Dave Alvarado</span>
     <ul class="footer-links">
       <li><a href="https://github.com/SailorDave17">GitHub</a></li>
+      <li><a href="https://www.linkedin.com/in/david-r-alvarado17/">LinkedIn</a></li>
       <li><a href="https://madcowsailing.com/">madcowsailing.com</a></li>
-      <li><a href="mailto:HSC.Coach@gmail.com">Email</a></li>
+      <li><a href="mailto:dave@madcowhq.com">Email</a></li>
     </ul>
   </div>
 </footer>

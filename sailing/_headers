@@ -9,14 +9,25 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
 
-# Everything under assets/ is either content-hashed or a logo that changes by
-# being replaced, so a year is safe. `immutable` tells the browser not to
-# revalidate at all - that is the half that actually removes the request.
+# Everything under assets/ is cached for a year. `immutable` tells the browser
+# not to revalidate at all - that is the half that actually removes the request,
+# and it is also why a file replaced under its own name reaches nobody who
+# already has it. Cloudflare's edge kept a replaced gallery.js through a deploy
+# (#95), and a purge would not have reached a browser that held it.
 #
-# NOTE for story #11: this covers assets/photos/ too. The trip-log derivatives
-# are written once per photo and never edited in place, so that is correct - but
-# if a photo is ever re-encoded under the same filename, a year is a long time
-# to be wrong. Rename rather than overwrite.
+# So a replaced file gets a new URL, and how depends on what it is:
+#   - assets/shared/css/ and assets/shared/js/ (copied from shared/) keep their
+#     filenames. Every page names them with ?v=<the first 10 hex digits of the
+#     file's sha256>. After editing one, run `python tools/assetver.py`, which
+#     rewrites every reference. The gate (tools/linkcheck.py) refuses a page
+#     whose version does not match the file, and tools/photos.py stamps every
+#     trip log it renders.
+#   - fonts, images and trip-log photos are not versioned: rename rather than
+#     overwrite. A font is named both in each page's preload and in a url() in
+#     tokens.css, and the two must match exactly or it is fetched twice. The
+#     trip-log derivatives are written once per photo and never edited in
+#     place; a photo re-encoded under the same filename would be wrong for a
+#     year.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 

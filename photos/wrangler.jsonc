@@ -1,0 +1,128 @@
+// The photo site's Pages configuration (CLAUDE.md, The photo site, item 5).
+//
+// Pages reads this file from the project's root directory, photos/, on every
+// build, and the dashboard then shows these bindings read-only. What this file
+// cannot hold (build command, root directory, watch paths, custom domain,
+// branch controls, preview access policy, fail mode) is in README.md's hosting
+// table, which is the only other copy.
+//
+// Three rules, each from item 5:
+//   - env.preview and env.production each restate EVERY key below, because
+//     overriding one non-inheritable key in an environment means restating
+//     them all.
+//   - The top level names the PREVIEW resources. Anything that matches no
+//     environment then falls back to preview storage, never to production.
+//     wrangler pages dev uses the top level, with local stand-ins for both.
+//   - Every database_id is written out, and no secret goes in this file or
+//     anywhere in the tree. Secrets are Pages secrets, named in README.md.
+//
+// The admin guard (#151, lib/access.js) read two vars here. Neither is
+// secret: every Access token carries both. Since #224 the admin guard is the
+// site's own admin session (lib/admin-session.js), and only the coach guard
+// below reads ACCESS_TEAM_DOMAIN. ACCESS_AUD is read by nothing: it stays as
+// the record of the admin application's tag until #226 removes the
+// application, and with it this var.
+//   - ACCESS_TEAM_DOMAIN is the Zero Trust team's domain: the tokens' issuer,
+//     and where the signing keys are fetched from.
+//   - ACCESS_AUD is the AUD tag of the Access application that signs this
+//     environment's requests. Preview deployments sit behind the project's
+//     Pages preview application, production behind the admin application on
+//     photos.madcowsailing.com, so the two differ. A tag changes only if its
+//     application is deleted and recreated.
+// The admins' addresses were the third thing it read, the ADMIN_EMAILS
+// secret, which nothing reads since #224 either.
+//
+// The coach guard (#192) reads the same team domain and one more var:
+//   - ACCESS_COACH_AUD is the AUD tag of the application that signs /coach:
+//     the coach application on photos.madcowsailing.com in production, and
+//     the Pages preview application on a preview, which signs every path, so
+//     there it equals ACCESS_AUD.
+// The coaches' addresses are the COACH_EMAILS secret.
+//
+// The request form at /ask (#220) reads one more var:
+//   - TURNSTILE_SITE_KEY is the site key of the Turnstile widget
+//     "madcowphotos ask", which serves photos.madcowsailing.com and
+//     madcowphotos.pages.dev, so both environments name the same one. It is
+//     public: every /ask page carries it. Its secret is the
+//     TURNSTILE_SECRET_KEY secret. Locally, photos/.dev.vars sets Cloudflare's
+//     test keys in place of both (README, Running it locally).
+//
+// photos/test/config.test.mjs holds these rules, and it fails if preview and
+// production ever share a database or a bucket.
+//
+// nodejs_compat (#218): lib/password.js imports scrypt from node:crypto, the
+// runtime's own, since Workers has no Argon2id and caps PBKDF2 below OWASP's
+// count (CLAUDE.md, The photo site, item 23). A compatibility_date of
+// 2026-08-04 or later turns the flag on by default, and Cloudflare's crypto
+// page says a project need not remove it. It is named anyway: photos/package.json
+// installs nothing, so Pages builds the Functions with the wrangler in its own
+// build image, not the one pinned in the repo root, and a build that did not
+// know the dated default would fail to resolve the import.
+{
+  "name": "madcowphotos",
+  "pages_build_output_dir": "./public",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "vars": {
+    "SITE_ENV": "preview",
+    "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
+    "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
+    "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "madcowphotos-preview",
+      "database_id": "1cf98564-46b0-4e84-b015-2aa6767c1f2a",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "madcowphotos-preview" }
+  ],
+
+  "env": {
+    "preview": {
+      "vars": {
+        "SITE_ENV": "preview",
+        "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
+        "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
+        "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "madcowphotos-preview",
+          "database_id": "1cf98564-46b0-4e84-b015-2aa6767c1f2a",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "madcowphotos-preview" }
+      ]
+    },
+    "production": {
+      "vars": {
+        "SITE_ENV": "production",
+        "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
+        "ACCESS_AUD": "78d0a143ee4090db61bac7bf71d2d6a40055fcc1f99b6dfa82105175c33727f1",
+        "ACCESS_COACH_AUD": "3be126b61281628beeb5a8674c84d1741c0c5582a3071e52cde925cb26314946",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "madcowphotos",
+          "database_id": "ea7cb9f4-80f8-4cac-bbf1-a2b09d476b15",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "madcowphotos" }
+      ]
+    }
+  }
+}
