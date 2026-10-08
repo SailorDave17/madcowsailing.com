@@ -1099,7 +1099,8 @@ is under them.
   the owner's alone, and the owner's own role can never be taken (the owner's
   choices at #224's pickup). Neither emails anyone. "Make admin" signs the
   person out on every phone and computer, and they open the admin pages at
-  their next sign-in, which asks for an emailed code; so a cookie from before
+  their next sign-in, which asks for an emailed code (Signing in, below, says
+  where they are reached); so a cookie from before
   a removal cannot open them again if they are made an admin again (the
   owner's choice at #224's review). A removed one is refused from their next
   request, and their account still sends. Both are in the log. The owner is
@@ -1155,34 +1156,64 @@ is under them.
 The owner role goes to one account, once per database, by hand: no address
 may go into this public repo, so no migration can name the owner (owner, at
 #224's pickup). The database then refuses a second owner, and any change that
-would demote, revoke or delete the owner (migration 0013). From `photos/`,
-with the D1 token in `photos/.env` (above):
+would demote, revoke or delete the owner (migration 0013). Both databases
+have had their owner since 2026-10-07 (#224's closing comment). These steps
+are for a database made again: it runs #224's code from its first request,
+so there is no admin to approve the owner's account on `/admin/people`, and
+the approval is made by hand (#260). From `photos/`, with the D1 token in
+`photos/.env` (above), each statement on the database the steps are for
+(`madcowphotos-preview --env preview`, or `madcowphotos --env production`):
 
-1. The owner's own account must exist and be approved for a team: ask at
-   `/ask` with the owner's address, approve it on `/admin/people`, and set a
-   password from the emailed link. On production the approval happens on
-   today's admin pages, before the release that carries #224.
-2. Find its id (step 1 of Deleting an account by hand, below).
-3. Make it the owner, on the database the step is for (`madcowphotos-preview
-   --env preview`, or `madcowphotos --env production`):
+1. Ask for the owner's account at `/ask`, with the owner's address, the role
+   the owner sends as, and the teams. Step 3 keeps the role and the teams as
+   asked. On the preview, Access's PIN comes first, as on every path there.
+2. Find its id (step 1 of Deleting an account by hand, below). Read it, never
+   assume it: the preview's ids go on from deleted rows, so its owner is not
+   account 1.
+3. Approve it by hand, with the two statements Approve runs on
+   `/admin/people` (`teamLog`, then `teamChange`, in `lib/people.js`), their
+   parameters written in. First the log entries, while the teams still wait:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "INSERT INTO admin_log (at, admin, action, account_id, name, email, detail) SELECT unixepoch(), a.email, 'approve', a.id, a.name, a.email, t.name FROM accounts AS a JOIN account_teams AS x ON x.account_id = a.id JOIN teams AS t ON t.team = x.team JOIN json_each(json_array('hoover-jrt', 'cohssa')) AS j ON j.value = x.team WHERE a.id = <id> AND x.state IN ('requested', 'rejected', 'revoked') ORDER BY j.key"
+   ```
+
+   then the teams:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE account_teams SET state = 'approved' WHERE account_id = <id> AND team IN (SELECT value FROM json_each(json_array('hoover-jrt', 'cohssa'))) AND state IN ('requested', 'rejected', 'revoked')"
+   ```
+
+   Each changes 1 row for each team the request named; a team it did not
+   name has no row, and is skipped. The log names the owner as the admin
+   who approved, as the page would have. Run again, each changes nothing.
+   `json_array` gives the teams as the JSON list the page passes, whose
+   double quotes could not go inside `--command "…"`.
+4. Ask for a link at `/forgot-password` with the owner's address, and set the
+   password from it. Nothing sends the approval's email by hand, and a reset
+   goes to any account approved for a team, with a password or without
+   (Signing in, below). Its link works once, for 1 hour, where the
+   approval's lasts 7 days, and it adds nothing to the log.
+5. Make it the owner:
 
    ```
    npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE accounts SET admin_role = 'owner' WHERE id = <id> AND EXISTS (SELECT 1 FROM account_teams AS t WHERE t.account_id = accounts.id AND t.state = 'approved')"
    ```
 
    It changes 1 row, or none for an account approved for no team. A second
-   run, or another account, is refused: `there is an owner already`.
-4. Read it back: `--command "SELECT id, email, admin_role FROM accounts WHERE
+   run on the same account changes 1 row and alters nothing, because 0013's
+   trigger skips an update that leaves the role as it was. Another account
+   is refused: `there is an owner already`.
+6. Read it back: `--command "SELECT id, email, admin_role FROM accounts WHERE
    admin_role IS NOT NULL"` lists the one owner.
 
-**On production, do this before the release that carries #224 is promoted**,
-after migration 0013 is applied: from that release `/admin` answers only to an
-admin account, so until there is an owner it answers no one. The owner then
-signs in at `/sign-in` with the password and the emailed code, lands on
-`/account`, opens the admin pages from its link, and makes the other admins
-on `/admin/people`. `photos/test/policy.test.js` runs the step-3 statement
-against the real schema, on an approved account and on one approved for no
-team.
+The owner then signs in, opens the admin pages (Signing in, below, says
+how), and makes the other admins on `/admin/people`.
+`photos/test/policy.test.js` runs step 3's statements on one copy of the real
+schema and the page's `approveTeams` on another, and fails unless every
+table holds the same rows; then step 4's reset and step 5's statement on the
+same account. It runs step 5's statement on an account approved for no team,
+a second time on the owner, and on another account too.
 
 **Until #268, Cloudflare Access stood in front of `/admin` on
 `photos.madcowsailing.com`** (#224's criterion 7), so an admin not on its
@@ -1250,6 +1281,13 @@ until #226.
   and the code step replaces it, so the browser is one person. The admin
   home's Sign out ends every session the account holds, as `/account`'s
   does. A refused admin request lands on `/sign-in?admin`, which says so.
+- **The way to the admin pages** (#260) is the `/admin/` address, which
+  takes a browser with no admin session to `/sign-in?admin`, or the **Open
+  the admin pages** button on `/account`. The button is drawn on each load
+  of `/account` for an account holding the role, so a page loaded before the
+  role was given has none until it is loaded again. Nothing on the home or
+  team pages links either: #272's Add photos button is to lead from there to
+  `/sign-in`.
 
 ### Hiding every photo an account sent, by hand
 
