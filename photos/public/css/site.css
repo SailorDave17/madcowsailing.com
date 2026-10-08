@@ -7,38 +7,11 @@
    the @media condition, because CSS allows no var() in a media query.
 
    The header shell (.site-header, .header-inner, .lockup) and .footer-inner
-   are copied from sailing/css/site.css, which copies them from hq's. That
-   file says to move the shell into base.css when a third page layout needs
-   it. This is the third. The move is left out of #149 on purpose: it edits
-   shared/, which restamps and rebuilds both live sites, and this story ships
-   only the photo site. Until it moves, a change to the shell there is a
-   change here too. */
-
-/* ---- Shell ---------------------------------------------------------- */
-
-.site-header {
-  border-bottom: var(--border-hair);
-  padding-block: var(--space-3);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.lockup {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--blue);
-  text-decoration: none;
-}
-
-.lockup-mark { height: var(--space-5); width: auto; }
-.lockup-word { height: var(--space-3); width: auto; }
+   live in shared/css/base.css since #169, once for all three sites. Until
+   then this file carried a copy of sailing's, which carried a copy of hq's;
+   the photo site was the third copy that made the move worth it. This site
+   uses base.css's defaults for both values that differ by site: the 2rem
+   header mark and the left-aligned footer. */
 
 /* ---- Hidden --------------------------------------------------------- */
 
@@ -85,6 +58,61 @@
   padding: var(--space-5);
   background: var(--chalk);
   color: var(--deep);
+}
+
+/* ---- Admin: the home's to-do list (#269) ---------------------------- */
+
+/* The home opens on what is waiting, so the list follows its head closely,
+   as the request form does. */
+.admin-todo {
+  padding-block-start: 0;
+}
+
+.todo {
+  list-style: none;
+  padding: 0;
+  margin-block-start: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* One full-width button per thing waiting, a zero included. --space-6 is
+   48 px, past the 44 px #269 asks for a thumb on a phone, and the text wraps
+   inside it at 320 px rather than widening the page (WCAG 1.4.10). */
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--space-6);
+  font-size: var(--text-base);
+}
+
+.todo-count {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+}
+
+/* The other sections are links in sentences; each gets a little height and
+   a step apart, so a thumb does not take the next one by mistake. */
+.admin-links li + li {
+  margin-block-start: var(--space-2);
+}
+
+.admin-links a {
+  display: inline-block;
+  padding-block: var(--space-1);
+}
+
+/* The storage figure is a line of its own under the links, not a fifth one. */
+.admin-storage {
+  margin-block-start: var(--space-3);
+}
+
+/* An email address is one unbroken word, which can be wider than a 320 px
+   screen (as on /admin/people, #221). */
+.signed-in {
+  overflow-wrap: anywhere;
 }
 
 /* ---- Admin: albums (#153) ------------------------------------------- */
@@ -205,6 +233,7 @@
 }
 
 .batch-facts,
+.waiting-album,
 .waiting-facts,
 .waiting figcaption,
 .waiting .field label {
@@ -272,6 +301,31 @@
   width: 100%;
 }
 
+/* Every button on the queue is a thumb's size (#270): --space-6 is 48 px,
+   past the 44 px the story asks for on a phone. Wide screens keep it too; a
+   taller button costs a mouse nothing. The reject dialog's two are on the
+   same page, so they count. */
+.batch .button,
+#reject-dialog .button {
+  min-height: var(--space-6);
+  min-width: var(--space-6);
+}
+
+/* What a press did, shown in the photo card or the batch section the page
+   lands on, rather than at the top, out of sight on a phone (#270,
+   lib/admin-page.js, adminQueuePage). */
+.waiting > [role="status"],
+.batch > [role="status"] {
+  border-inline-start: var(--space-1) solid var(--blue);
+  padding: var(--space-2) var(--space-3);
+  background: var(--hull);
+}
+
+.batch > [role="status"] {
+  background: var(--chalk);
+  margin-block-start: var(--space-3);
+}
+
 /* ---- Admin: Move to event (#228) ------------------------------------ */
 
 /* A batch's Move choices and a new event's fields are .album-form's fields
@@ -284,6 +338,13 @@
   border: 1px solid var(--deep);
   padding: var(--space-1) var(--space-2);
   max-width: 100%;
+}
+
+/* A fieldset is never narrower than its widest field unless told, and the
+   new event's title field is --measure wide: until #270 it held the queue
+   717 px wide on every phone, 320 to 430. */
+.move fieldset {
+  min-inline-size: 0;
 }
 
 /* ---- Share: sending photos (#155) ----------------------------------- */
@@ -885,15 +946,8 @@
   margin-block-start: var(--space-4);
 }
 
-/* ---- Footer --------------------------------------------------------- */
-
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  justify-content: flex-start;
-  align-items: baseline;
-}
+/* ---- Footer ---------------------------------------------------------
+   .footer-inner is in shared/css/base.css since #169. */
 
 /* ---- Narrow --------------------------------------------------------- */
 
@@ -905,5 +959,87 @@
   .album-row {
     grid-template-columns: calc(2 * var(--space-6)) minmax(0, 1fr);
     gap: var(--space-3);
+  }
+}
+
+/* ---- Phone: the approval queue (#270) ------------------------------- */
+
+@media (max-width: 30rem) {
+  /* Each waiting photo's screen size runs edge to edge, the most a phone can
+     give a face (owner, at #270's pickup): the list steps out over the
+     page's margin, and the card's words and buttons step back in. */
+  .queue {
+    margin-inline: calc(-1 * var(--space-4));
+  }
+
+  .waiting {
+    border-inline: none;
+    padding-inline: 0;
+  }
+
+  .waiting > :not(.waiting-screen) {
+    margin-inline: var(--space-4);
+  }
+
+  .waiting-screen {
+    display: block;
+  }
+
+  /* The ring goes inside the picture, since outside it would be off the
+     screen's edge, and inside it falls on the photo, any colour at all. So
+     it is two rings: --chalk on the link's edge, --deep just inside it on
+     the picture. The two read 14.87:1 against each other, so one of them
+     reads at least 3:1 against any photo (WCAG technique C40). One --blue
+     ring read 1.14:1 on deep water (review-fanout at #270's review). */
+  .waiting-screen:focus-visible {
+    outline-color: var(--chalk);
+    outline-offset: calc(-1 * var(--space-1) / 2);
+  }
+
+  .waiting-screen:focus-visible img {
+    outline: calc(var(--space-1) / 2) solid var(--deep);
+    outline-offset: calc(-1 * var(--space-1));
+  }
+
+  /* Approve and Move, or a batch's other buttons, fill their rows; Reject
+     and Reject all sit alone on the last row, at its end, apart from Approve
+     (owner, at #270's pickup). The ::after is the line break: Reject comes
+     after it by order, as it does in the markup, so reading and Tab order
+     are the page's own. Reject's rule names .button too, so it outranks the
+     rule above wherever either moves. */
+  .batch .actions .button {
+    flex: 1 1 auto;
+  }
+
+  .batch .actions .button[data-reject] {
+    order: 2;
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+  }
+
+  .batch .actions:has([data-reject])::after {
+    content: '';
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  /* Each photo's buttons stay at the bottom of the screen while its card is
+     on it, so after a press they are under the thumb whatever the photo's
+     shape (owner, at #270's review: an upright photo put Approve 211 to 418
+     px below the screen). Full width, on the card's own ground. */
+  .waiting > .actions {
+    position: sticky;
+    bottom: 0;
+    margin-inline: 0;
+    padding: var(--space-2) var(--space-4);
+    background: var(--chalk);
+    border-top: var(--border-hair);
+  }
+
+  /* And nothing focused is left under them (WCAG 2.4.11): scrolling to a
+     focused field stops their height above the screen's bottom. Two rows of
+     buttons, the break's two row gaps and the row's own padding. */
+  html:has(.queue) {
+    scroll-padding-bottom: calc(2 * var(--space-6) + 4 * var(--space-2));
   }
 }

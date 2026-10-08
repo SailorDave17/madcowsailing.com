@@ -266,20 +266,32 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   `madcowsailing.cloudflareaccess.com`. It is the issuer #151 checks. `madcow`
   was wanted and is taken by another account: the rename answered `409`, while
   the confirmation dialog had already shown `madcow.cloudflareaccess.com`.
-- Three Access applications, read back from Zero Trust → Access controls →
+- Two Access applications, read back from Zero Trust → Access controls →
   Applications on 2026-09-28 (#151) and, for the coach one, 2026-10-01 (#192):
 
-  | | Admin (#151) | Coach (#192) | Previews (#149) |
-  |---|---|---|---|
-  | Name | `madcowphotos admin` | `madcowphotos coach` | `madcowphotos - Cloudflare Pages` |
-  | Destinations | `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*` | `photos.madcowsailing.com/coach` and `…/coach/*` | `*.madcowphotos.pages.dev` |
-  | Policy | `Admins - photos admin`: Allow, Include Emails (the admins' addresses, the same list as `ADMIN_EMAILS`), Require Login Methods: One-time PIN | `Coaches - photos coach`: Allow, Include Emails (the coaches' addresses, the same list as `COACH_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
-  | Identity providers | One-time PIN only, instant authentication on | One-time PIN only, instant authentication on | as #149 left it |
-  | Session | 24 hours | 24 hours | as #149 left it |
-  | AUD tag | `78d0a143…` = `env.production.vars.ACCESS_AUD` | `3be126b6…` = `env.production.vars.ACCESS_COACH_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_AUD` and `ACCESS_COACH_AUD` |
+  | | Coach (#192) | Previews (#149) |
+  |---|---|---|
+  | Name | `madcowphotos coach` | `madcowphotos - Cloudflare Pages` |
+  | Destinations | `photos.madcowsailing.com/coach` and `…/coach/*` | `*.madcowphotos.pages.dev` |
+  | Policy | `Coaches - photos coach`: Allow, Include Emails (the coaches' addresses, the same list as `COACH_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
+  | Identity providers | One-time PIN only, instant authentication on | as #149 left it |
+  | Session | 24 hours | as #149 left it |
+  | AUD tag | `3be126b6…` = `env.production.vars.ACCESS_COACH_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_COACH_AUD` |
 
-  Both of each pair of paths are listed because Access's `/admin/*` does not
-  match `/admin`, nor `/coach/*` `/coach`. The coach tag was read twice on
+  **The admin application is gone.** `madcowphotos admin` (#151), on
+  `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*`, with the
+  policy `Admins - photos admin` and the tag `78d0a143…`, was deleted by #268
+  on 2026-10-07, and the `ACCESS_AUD` var that held its tag with it. Since
+  #224 no code had read its token, so all it did was ask an admin for
+  Access's PIN before the site's own sign-in and its code. Its policy was a
+  reusable one, and deleting the application left it in place, used by no
+  application, so it was deleted too. Zero Trust's seat count read 3 of 50
+  before and after: a seat belongs to a person who has signed in through
+  Access, not to an application.
+
+  Both paths are listed because Access's `/coach/*` does not match `/coach`
+  (the admin application listed `/admin` and `/admin/*` for the same
+  reason). The coach tag was read twice on
   2026-10-01: in the application's settings, and in the `kid` of the 302 that
   `https://photos.madcowsailing.com/coach` answers to a visitor with no
   sign-in, beside `/admin`'s `78d0a143…` as the control.
@@ -289,23 +301,24 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   item 20).
   `madcowphotos.pages.dev`, the project's production address, is behind
   neither. The admin application's destination list offered it on 2026-09-28,
-  so Access could cover it too. It was left out, so that address answers the
-  site's own `403`, which is the check #151's criteria read.
-  **The site's own token check is the lock; Access is the door to it.**
-  `photos/lib/access.js` reads the tag from `ACCESS_AUD` and the team domain
-  (`https://madcowsailing.cloudflareaccess.com`, issuer and key URL both) from
-  `ACCESS_TEAM_DOMAIN`, both in `photos/wrangler.jsonc`, one pair per
-  environment. It reads the addresses from the `ADMIN_EMAILS` secret (below),
-  so a person needs to be in a policy **and** in that environment's secret:
-  the policy alone gets a PIN and then a `403`. A tag changes only if its application is
-  deleted and recreated; then `ACCESS_AUD` must change with it, or `/admin`
-  refuses everyone.
-  **Since #224 that is true of `/coach` alone.** `/admin` answers to the
-  site's admin session (`photos/lib/admin-session.js`), and no code reads the
-  admin application's token, `ACCESS_AUD` or `ADMIN_EMAILS`. The admin
-  application stays in front of `/admin` on `photos.madcowsailing.com` until
-  #226 removes it, so there an admin passes its PIN and then the site's own
-  sign-in.
+  so Access could have covered it too. It was left out, so that address
+  answered the site's own `403`, which is the check #151's criteria read.
+  **For `/coach`, the site's own token check is the lock; Access is the door
+  to it.** `photos/lib/access.js` reads the tag from `ACCESS_COACH_AUD` and
+  the team domain (`https://madcowsailing.cloudflareaccess.com`, issuer and
+  key URL both) from `ACCESS_TEAM_DOMAIN`, both in `photos/wrangler.jsonc`,
+  one pair per environment. It reads the addresses from the `COACH_EMAILS`
+  secret (below), so a coach needs to be in the policy **and** in that
+  environment's secret: the policy alone gets a PIN and then a `403`. A tag
+  changes only if its application is deleted and recreated; then
+  `ACCESS_COACH_AUD` must change with it, or `/coach` refuses everyone.
+  **`/admin` answers to the site's admin session alone**
+  (`photos/lib/admin-session.js`; #224), and since #268 on
+  `photos.madcowsailing.com` too: an admin signs in once, with the password
+  and the emailed code, and a signed-out request is a `303` to
+  `/sign-in?admin` on either hostname. On a `develop` preview the Pages
+  preview application still stands in front of every path, `/admin`
+  included.
 - **One Turnstile widget, `madcowphotos ask`** (#220, made 2026-10-06 UTC;
   since #222 the reset form at `/forgot-password` uses it too),
   in Managed mode with pre-clearance off, for the hostnames
@@ -338,14 +351,13 @@ By name only; a value never goes in this repo.
     admin guard let in. **Since #224 nothing reads it**: the admin pages
     answer to accounts holding the admin role, and the admins' email about
     new requests goes to those accounts (`CLAUDE.md`, The photo site, item
-    30). It stays set until #226 deletes it with the Access application.
+    30). It stays set until #226 deletes it; the Access application whose
+    policy held the same list went first, in #268.
     **Adding an admin is now "Make admin" on `/admin/people`**, for anyone
-    with an approved account (Approving accounts, below). Until #226 the
-    `Admins - photos admin` Access policy still stands in front of `/admin`
-    on `photos.madcowsailing.com`, so an admin not on it uses
-    `madcowphotos.pages.dev/admin/` (Making the owner, below). The `Allow
-    Members - Cloudflare Pages` policy still decides who can open a preview
-    at all.
+    with an approved account (Approving accounts, below), and since #268
+    nothing else: no Access policy stands in front of `/admin` on
+    `photos.madcowsailing.com`. The `Allow Members - Cloudflare Pages`
+    policy still decides who can open a preview at all.
   - `COACH_EMAILS` (#192) is the comma-separated list of coaches the coach
     sign-in at `/coach` lets in, kept as a secret for the same reason as
     `ADMIN_EMAILS`, and compared the same way. Unset or empty, `/coach`
@@ -738,6 +750,13 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
   for good. Rejecting needs JavaScript.
 - **Approve all and Reject all act on the photos the page showed.** A photo
   sent into the batch after the page loaded keeps waiting.
+- **After a press the page lands on the next waiting photo** (#270), with what
+  the press did said at the top of that photo: the next one in the batch, else
+  the next batch's first, else the earliest photo still waiting, which is one
+  you skipped. Save captions lands on the last caption it changed, and Move
+  on the photo it moved. On a phone each photo fills the screen's width and
+  names its event and team, its buttons stay at the bottom of the screen
+  while it is on it, and Reject sits alone below Approve and Move.
 - **Move a photo into its event** (#228). Choose the event under **Move to
   event** in the batch, then **Move** under a photo or **Move all** at the
   top. The list is the batch's team's events, newest first, open or closed;
@@ -1080,7 +1099,8 @@ is under them.
   the owner's alone, and the owner's own role can never be taken (the owner's
   choices at #224's pickup). Neither emails anyone. "Make admin" signs the
   person out on every phone and computer, and they open the admin pages at
-  their next sign-in, which asks for an emailed code; so a cookie from before
+  their next sign-in, which asks for an emailed code (Signing in, below, says
+  where they are reached); so a cookie from before
   a removal cannot open them again if they are made an admin again (the
   owner's choice at #224's review). A removed one is refused from their next
   request, and their account still sends. Both are in the log. The owner is
@@ -1136,41 +1156,71 @@ is under them.
 The owner role goes to one account, once per database, by hand: no address
 may go into this public repo, so no migration can name the owner (owner, at
 #224's pickup). The database then refuses a second owner, and any change that
-would demote, revoke or delete the owner (migration 0013). From `photos/`,
-with the D1 token in `photos/.env` (above):
+would demote, revoke or delete the owner (migration 0013). Both databases
+have had their owner since 2026-10-07 (#224's closing comment). These steps
+are for a database made again: it runs #224's code from its first request,
+so there is no admin to approve the owner's account on `/admin/people`, and
+the approval is made by hand (#260). From `photos/`, with the D1 token in
+`photos/.env` (above), each statement on the database the steps are for
+(`madcowphotos-preview --env preview`, or `madcowphotos --env production`):
 
-1. The owner's own account must exist and be approved for a team: ask at
-   `/ask` with the owner's address, approve it on `/admin/people`, and set a
-   password from the emailed link. On production the approval happens on
-   today's admin pages, before the release that carries #224.
-2. Find its id (step 1 of Deleting an account by hand, below).
-3. Make it the owner, on the database the step is for (`madcowphotos-preview
-   --env preview`, or `madcowphotos --env production`):
+1. Ask for the owner's account at `/ask`, with the owner's address, the role
+   the owner sends as, and the teams. Step 3 keeps the role and the teams as
+   asked. On the preview, Access's PIN comes first, as on every path there.
+2. Find its id (step 1 of Deleting an account by hand, below). Read it, never
+   assume it: the preview's ids go on from deleted rows, so its owner is not
+   account 1.
+3. Approve it by hand, with the two statements Approve runs on
+   `/admin/people` (`teamLog`, then `teamChange`, in `lib/people.js`), their
+   parameters written in. First the log entries, while the teams still wait:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "INSERT INTO admin_log (at, admin, action, account_id, name, email, detail) SELECT unixepoch(), a.email, 'approve', a.id, a.name, a.email, t.name FROM accounts AS a JOIN account_teams AS x ON x.account_id = a.id JOIN teams AS t ON t.team = x.team JOIN json_each(json_array('hoover-jrt', 'cohssa')) AS j ON j.value = x.team WHERE a.id = <id> AND x.state IN ('requested', 'rejected', 'revoked') ORDER BY j.key"
+   ```
+
+   then the teams:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE account_teams SET state = 'approved' WHERE account_id = <id> AND team IN (SELECT value FROM json_each(json_array('hoover-jrt', 'cohssa'))) AND state IN ('requested', 'rejected', 'revoked')"
+   ```
+
+   Each changes 1 row for each team the request named; a team it did not
+   name has no row, and is skipped. The log names the owner as the admin
+   who approved, as the page would have. Run again, each changes nothing.
+   `json_array` gives the teams as the JSON list the page passes, whose
+   double quotes could not go inside `--command "…"`.
+4. Ask for a link at `/forgot-password` with the owner's address, and set the
+   password from it. Nothing sends the approval's email by hand, and a reset
+   goes to any account approved for a team, with a password or without
+   (Signing in, below). Its link works once, for 1 hour, where the
+   approval's lasts 7 days, and it adds nothing to the log.
+5. Make it the owner:
 
    ```
    npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE accounts SET admin_role = 'owner' WHERE id = <id> AND EXISTS (SELECT 1 FROM account_teams AS t WHERE t.account_id = accounts.id AND t.state = 'approved')"
    ```
 
    It changes 1 row, or none for an account approved for no team. A second
-   run, or another account, is refused: `there is an owner already`.
-4. Read it back: `--command "SELECT id, email, admin_role FROM accounts WHERE
+   run on the same account changes 1 row and alters nothing, because 0013's
+   trigger skips an update that leaves the role as it was. Another account
+   is refused: `there is an owner already`.
+6. Read it back: `--command "SELECT id, email, admin_role FROM accounts WHERE
    admin_role IS NOT NULL"` lists the one owner.
 
-**On production, do this before the release that carries #224 is promoted**,
-after migration 0013 is applied: from that release `/admin` answers only to an
-admin account, so until there is an owner it answers no one. The owner then
-signs in at `/sign-in` with the password and the emailed code, lands on
-`/account`, opens the admin pages from its link, and makes the other admins
-on `/admin/people`. `photos/test/policy.test.js` runs the step-3 statement
-against the real schema, on an approved account and on one approved for no
-team.
+The owner then signs in, opens the admin pages (Signing in, below, says
+how), and makes the other admins on `/admin/people`.
+`photos/test/policy.test.js` runs step 3's statements on one copy of the real
+schema and the page's `approveTeams` on another, and fails unless every
+table holds the same rows; then step 4's reset and step 5's statement on the
+same account. It runs step 5's statement on an account approved for no team,
+a second time on the owner, and on another account too.
 
-**Until #226, Cloudflare Access still stands in front of `/admin` on
-`photos.madcowsailing.com`** (criterion 7), and its policy lists the addresses
-it always has. So an admin made on `/admin/people` who is not on that policy
-opens the admin pages at `https://madcowphotos.pages.dev/admin/`, where Access
-is not, or is added to the policy as well. Everyone on it meets both: Access's
-PIN, then the site's sign-in and its code.
+**Until #268, Cloudflare Access stood in front of `/admin` on
+`photos.madcowsailing.com`** (#224's criterion 7), so an admin not on its
+policy opened the admin pages at `https://madcowphotos.pages.dev/admin/`, and
+everyone on it met Access's PIN before the site's sign-in and its code. #268
+deleted that application on 2026-10-07: every admin now signs in once, on
+either hostname.
 
 ### Signing in
 
@@ -1220,10 +1270,10 @@ until #226.
   opens the account's 90-day session and a 12-hour admin session,
   `__Host-admin`, which every admin page and admin API checks on every
   request: the role, the session version and an approved team. It lands on
-  `/account`, whose "Open the admin pages" link opens them: until #226,
-  Access stands in front of `/admin` on `photos.madcowsailing.com`, and
-  Chromium and WebKit stop a form's redirect into its login under the page's
-  `form-action 'self'`, where a link goes through (#224's review). An admin
+  `/account`, whose "Open the admin pages" link opens them: until #268,
+  Access stood in front of `/admin` on `photos.madcowsailing.com`, and
+  Chromium and WebKit stopped a form's redirect into its login under the
+  page's `form-action 'self'`, where a link went through (#224's review). An admin
   is sent at most 10 codes in any 24 hours; a code whose email Resend
   refused is deleted and does not count, and a new password deletes the
   account's codes, so a reset lifts the limit at once. A password's step at
@@ -1231,6 +1281,13 @@ until #226.
   and the code step replaces it, so the browser is one person. The admin
   home's Sign out ends every session the account holds, as `/account`'s
   does. A refused admin request lands on `/sign-in?admin`, which says so.
+- **The way to the admin pages** (#260) is the `/admin/` address, which
+  takes a browser with no admin session to `/sign-in?admin`, or the **Open
+  the admin pages** button on `/account`. The button is drawn on each load
+  of `/account` for an account holding the role, so a page loaded before the
+  role was given has none until it is loaded again. Nothing on the home or
+  team pages links either: #272's Add photos button is to lead from there to
+  `/sign-in`.
 
 ### Hiding every photo an account sent, by hand
 

@@ -23,10 +23,15 @@
  * the form, never on the batch as it stands when the press arrives. A photo
  * that joined the batch after the page loaded has not been seen, so it waits.
  *
- * A press is at most three statements, whatever the batch holds. D1 allows 50
+ * A press is a handful of statements, whatever the batch holds. D1 allows 50
  * queries a request on the free plan and 100 bound parameters a query
  * (developers.cloudflare.com/d1/platform/limits, read 2026-09-30), so the ids
  * and the captions each travel as one JSON value, read with json_each().
+ *
+ * Since #270 a press lands on the next waiting photo (nextWaiting), not on
+ * its batch, so an admin on a phone carries on down the queue. Approve and
+ * Reject read the queue's order first (waitingOrder), one more statement,
+ * which reads every waiting row as the page's own load does.
  *
  * The queue shows photos only. A clip (#198) is a pending row too, and every
  * statement here names kind = 'photo', so a clip's id posted to a press
@@ -78,30 +83,40 @@ export const readPhotoId = (text) => (typeof text === 'string' && ID.test(text) 
 const BATCH_ID = /^batch-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[1-9][0-9]{0,14}(?:-part-[1-9][0-9]{0,3})?$/;
 export const batchId = ({ batch, albumId }) => `batch-${batch}-${albumId}`;
 
-/** The batch a section id names (#228): its UUID, or null. */
-export const anchorBatch = (anchor) => anchor?.match(/^batch-([0-9a-f-]{36})-/)?.[1] ?? null;
+/** A waiting photo's card on the page, and so a place a press can land (#270). */
+export const photoAt = (id) => (id == null ? null : `photo-${id}`);
 
 /**
- * Where photos moved from the batch at `anchor` into the album `albumId`
- * show now (#228): the same batch, in that album's section of the queue.
- * `waiting` is how many of the batch wait in that album after the move
- * (batchWaiting): past PART_PHOTOS the queue shows it in parts, and the move
- * lands on the first (review-fanout at #228's review: the unsplit id named
- * no section). Null when there is no anchor or album to go to.
+ * Where a press that approved, rejected or tried to (#270) lands: the next
+ * waiting photo after the ones it named, in the order the page shows them.
+ *
+ *   order    every waiting photo's id in the page's order (waitingOrder),
+ *            read before the press changed anything
+ *   ids      the photos the batch's page showed, in order (readPress)
+ *   targets  the photos the press named
+ *   acted    the ones it approved or rejected, which wait no more
+ *
+ * First the photo after them in their batch that still waits; else the
+ * first one after the batch; else, when nothing comes after, the earliest
+ * photo still waiting, which is one the admin skipped (owner, at #270's
+ * pickup). Null when nothing waits, for the top of the queue. A photo's
+ * card is found by its id wherever the batch is split into parts.
  */
-export function movedAnchor(anchor, albumId, waiting) {
-  const batch = anchorBatch(anchor);
-  if (!batch || !albumId) return null;
-  const id = batchId({ batch, albumId });
-  return waiting > PART_PHOTOS ? `${id}-part-1` : id;
+export function nextWaiting(order, ids, targets, acted) {
+  const last = Math.max(...targets.map((id) => ids.indexOf(id)));
+  const later = ids.slice(last + 1).find((id) => order.includes(id));
+  if (later !== undefined) return later;
+  const done = new Set(acted);
+  const end = Math.max(-1, ...ids.map((id) => order.indexOf(id)));
+  return order.slice(end + 1).find((id) => !done.has(id)) ?? order.find((id) => !done.has(id)) ?? null;
 }
 
-/** How many photos of `batch` wait in the album `albumId` (#228). */
-export async function batchWaiting(db, batch, albumId) {
-  return db
-    .prepare("SELECT COUNT(*) AS n FROM photos WHERE batch = ? AND album_id = ? AND kind = 'photo' AND state = 'pending'")
-    .bind(batch, albumId)
-    .first('n');
+/**
+ * Every waiting photo's id, in the order the page shows them (#270): the
+ * page's own query, so `team` keeps one team's, as on a filtered page.
+ */
+export async function waitingOrder(db, team = null) {
+  return (await waitingBatches(db, team)).flatMap((batch) => batch.photos.map((photo) => photo.id));
 }
 
 /**
@@ -114,7 +129,9 @@ export async function batchWaiting(db, batch, albumId) {
  *             control character is a space
  *   targets   the photos the press acts on: `name`'s value is "all" (every
  *             id) or one of the ids; none when `name` is null
- *   anchor    the batch's section id, to scroll back to, or null
+ *   anchor    the batch's section id, where a press that changes no photo's
+ *             place lands (Save captions that changed none, a refused Move,
+ *             an approve naming only Not sure photos), or null
  *
  * A caption over 200 characters refuses the press, so nothing is half done.
  * The reload then shows the stored captions, so what was typed in the batch
@@ -152,12 +169,13 @@ export function readPress(fields, name) {
 
 /**
  * Save each caption that differs from what is stored, on photos still
- * waiting, and return how many changed. One statement: the captions travel
- * as a JSON object keyed by id. A caption the CHECK would refuse never gets
- * here, since readPress() refused it first.
+ * waiting, and return the ids whose caption changed, in no set order. One
+ * statement: the captions travel as a JSON object keyed by id. A caption the
+ * CHECK would refuse never gets here, since readPress() refused it first.
+ * Save captions lands on the last of them in the page's order (#270).
  */
 export async function saveCaptions(db, captions) {
-  if (!Object.keys(captions).length) return 0;
+  if (!Object.keys(captions).length) return [];
   const { results } = await db
     .prepare(
       'UPDATE photos SET caption = c.caption ' +
@@ -168,7 +186,7 @@ export async function saveCaptions(db, captions) {
     )
     .bind(JSON.stringify(captions))
     .all();
-  return results.length;
+  return results.map((row) => row.id);
 }
 
 /**
@@ -314,13 +332,16 @@ export async function rejectPhotos(db, bucket, ids) {
 
 /**
  * Where a press sends the browser back to: /admin/queue with its notice's
- * fields (undefined and null ones left out), scrolled to `anchor`, the
- * batch's section, when there is one.
+ * fields (undefined and null ones left out), scrolled to `at`, when there is
+ * one: a waiting photo's card (photoAt) or a batch's section. `at` is in the
+ * query too (#270), since the fragment never reaches the server, and the
+ * page shows the notice there, where the browser lands, rather than at the
+ * top, out of sight on a phone.
  */
-export function queueLocation(params, anchor = null) {
-  const kept = Object.entries(params).filter(([, value]) => value !== undefined && value !== null);
+export function queueLocation(params, at = null) {
+  const kept = Object.entries({ ...params, at }).filter(([, value]) => value !== undefined && value !== null);
   const query = new URLSearchParams(kept.map(([name, value]) => [name, String(value)])).toString();
-  return `/admin/queue${query ? `?${query}` : ''}${anchor ? `#${anchor}` : ''}`;
+  return `/admin/queue${query ? `?${query}` : ''}${at ? `#${at}` : ''}`;
 }
 
 /** The notice's count for the photos a press acted on: one by its id, more by how many. */

@@ -29,14 +29,15 @@
  *        signs in is read before useCode spends it, so the same code works
  *        when the form is sent again (#224's review)
  *
- * Why /account and not /admin/ (#224's review): until #226, Cloudflare
- * Access stands in front of /admin on photos.madcowsailing.com and answers a
+ * Why /account and not /admin/ (#224's review): until #268, Cloudflare
+ * Access stood in front of /admin on photos.madcowsailing.com and answered a
  * browser without its cookie with a 302 to its login on another origin. This
  * page's CSP says form-action 'self', and Chromium and WebKit apply that to
  * every redirect of a form's post, so a 303 to /admin/ was stopped there with
  * no error page, after the code was spent. A link is not a form's post, so
- * /account's link to the admin pages goes through. #226 may answer /admin/
- * again once Access is gone.
+ * /account's link to the admin pages goes through. #268 deleted that
+ * application, so a 303 to /admin/ would now stay on this origin; this page
+ * still answers /account until a story chooses otherwise.
  *
  * Not behind a directory guard, so it checks the Origin itself, as /sign-in
  * does. test/guard.test.js lists it public: it is the second half of the

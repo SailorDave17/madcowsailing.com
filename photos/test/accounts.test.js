@@ -14,7 +14,7 @@ import {
   LIST_MAX, MAIL_WINDOW_SECONDS, NAME_MAX, NOTE_MAX, REQUEST_BUDGET_PER_HOUR, REQUEST_LIMIT, REQUEST_WINDOW_SECONDS,
   ROLES, TEAMS, adminsEmail, clearExpiredRequests, mailAdmins, readRequest, requestAccount, waitingRequests,
 } from '../lib/accounts.js';
-import { requestsText } from '../lib/admin-page.js';
+import { TODO, todoItem } from '../lib/admin-page.js';
 import { RESEND_URL, TEXT_MAX } from '../lib/mail.js';
 import { NOTE_MAX as REMOVAL_NOTE_MAX, readNote } from '../lib/removals.js';
 import { onRequestGet as adminIndex } from '../functions/admin/index.js';
@@ -366,10 +366,11 @@ test('the admin home says how many requests wait, and its load deletes the addre
   db.sqlite.prepare("UPDATE account_request_log SET requested_at = ? WHERE address_hash = 'one'").run(NOW - 3600);
   const res = await adminIndex({ data: adminData(), env: { DB: db } });
   const html = await res.text();
-  assert.match(html, /<p>2 requests for an account are waiting\.<\/p>/);
+  assert.match(html, /<a class="button todo-item" href="\/admin\/people"><span class="todo-count">2<\/span> <span>account requests waiting<\/span><\/a>/);
   assert.deepEqual(rows(db, 'SELECT address_hash FROM account_request_log ORDER BY address_hash').map((r) => r.address_hash), ['three', 'two']);
-  assert.equal(requestsText(0), 'No request for an account is waiting.');
-  assert.equal(requestsText(1), '1 request for an account is waiting.');
+  const requests = TODO.find((t) => t.href === '/admin/people');
+  assert.match(todoItem(requests, 0), /<span>account requests waiting\. Nothing to do\.<\/span>/);
+  assert.match(todoItem(requests, 1), /<span>account request waiting<\/span>/);
 });
 
 // ---- The admins' email --------------------------------------------------------

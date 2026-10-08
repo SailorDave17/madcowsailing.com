@@ -1536,3 +1536,131 @@ test('README\'s owner statement makes nobody the owner who is approved for no te
   assert.equal(role(), 'owner');
 });
 
+// ---- #260: README's owner, on a database with no admin yet ----------------
+//
+// #224's release landed partway through README's route, whose step 1 approved
+// on the admin pages from before it, so both owners were approved by hand on
+// 2026-10-07. A database made again starts where they did, with no admin to
+// press Approve, so README's steps are run here as written.
+
+// Every row of every table, by table, to compare two databases whole.
+const everyRow = (db) => Object.fromEntries(
+  db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()
+    .map(({ name }) => [name, db.sqlite.prepare(`SELECT * FROM "${name}"`).all().map((row) => ({ ...row }))]),
+);
+const ownerSteps = () => read('..', 'README.md').split('### Making the owner\n')[1]?.split(/\n## |\n### /)[0] ?? '';
+const ownerStatement = (steps) => steps.match(/--command "(UPDATE accounts SET admin_role = 'owner' [^"]+)"/)?.[1];
+
+test('README\'s hand approval leaves what Approve on /admin/people leaves, and its reset and owner steps then make the owner (#260, criterion 2)', async (t) => {
+  const steps = ownerSteps();
+  const flat = steps.replace(/\s+/g, ' ');
+  const log = steps.match(/--command "(INSERT INTO admin_log [^"]+)"/)?.[1];
+  const approve = steps.match(/--command "(UPDATE account_teams [^"]+)"/)?.[1];
+  const owner = ownerStatement(steps);
+  assert.ok(log?.includes('<id>'), 'README has no log statement naming <id>');
+  assert.ok(approve?.includes('<id>'), 'README has no approval statement naming <id>');
+  assert.ok(steps.indexOf(log) < steps.indexOf(approve), 'the log entries come after the approval, which leaves no team waiting for them to name');
+  assert.ok(owner && steps.indexOf(approve) < steps.indexOf(owner), 'the owner statement comes before the approval, which it needs');
+
+  // Each copy holds the owner's request for both teams and a second request,
+  // the control, which neither route may touch.
+  const now = nowSeconds();
+  const seeded = async () => {
+    const db = d1();
+    // 0015 stamps each team's Not sure album with the second it ran, so two
+    // copies built either side of a second differ before anything runs
+    // (#260's mutation round read 1791477031 against 1791477032). Pinned.
+    db.sqlite.prepare('UPDATE albums SET created_at = ?').run(now - 120);
+    for (const [name, email, role, teams] of [
+      ['Owen Owner', 'owen@example.org', 'coach', ['hoover-jrt', 'cohssa']],
+      ['Wanda Waiting', 'wanda@example.org', 'parent', ['hoover-jrt']],
+    ]) {
+      await requestAccount(db, { request: { name, email, role, teams, note: null }, address: 'a', emailKey: await emailKeyOf(email), now: now - 60 });
+    }
+    return db;
+  };
+  const page = await seeded();
+  const hand = await seeded();
+  assert.deepEqual(everyRow(hand), everyRow(page), 'the two copies differ before either route runs');
+
+  // The page's Approve, with the role the request asked for, on one copy;
+  // README's step 3 on the other.
+  assert.deepEqual(await approveTeams(page, { accountId: 1, teams: ['hoover-jrt', 'cohssa'], role: 'coach', admin: 'owen@example.org', now }), ['hoover-jrt', 'cohssa']);
+  const run = (sql) => hand.sqlite.prepare(sql.replaceAll('<id>', '?')).run(1).changes;
+  const before = nowSeconds();
+  assert.equal(run(log), 2);
+  assert.equal(run(approve), 2);
+  const after = nowSeconds();
+
+  // The same rows in every table but for the log's time: the page's is the
+  // `now` it was handed, and README's is unixepoch(), which must be this
+  // second in whole seconds, as the page writes it.
+  const withoutAt = (tables) => ({ ...tables, admin_log: tables.admin_log.map(({ at, ...entry }) => entry) });
+  const handRows = everyRow(hand);
+  assert.deepEqual(withoutAt(handRows), withoutAt(everyRow(page)));
+  for (const { at } of handRows.admin_log) {
+    assert.ok(Number.isInteger(at) && at >= before && at <= after, `the log's time ${at} is not this second`);
+  }
+  // Not two copies alike in doing nothing: the owner is approved for both
+  // teams, logged in the page's order with the owner as the approving admin,
+  // and the control still waits.
+  assert.deepEqual(handRows.admin_log.map((e) => [e.admin, e.action, e.account_id, e.detail]),
+    [['owen@example.org', 'approve', 1, 'Hoover JRT'], ['owen@example.org', 'approve', 1, 'COHSSA']]);
+  assert.deepEqual(handRows.account_teams.map((r) => `${r.account_id} ${r.team} ${r.state}`).sort(),
+    ['1 cohssa approved', '1 hoover-jrt approved', '2 hoover-jrt requested']);
+  // "Run again, each changes nothing."
+  assert.ok(flat.includes('Run again, each changes nothing.'), 'README no longer says a second run changes nothing');
+  assert.equal(run(log), 0);
+  assert.equal(run(approve), 0);
+  assert.deepEqual(everyRow(hand), handRows, 'a second run changed a row');
+
+  // Step 4: a reset reaches the account, which has no password, and its link
+  // lasts the hour README says. The waiting control is sent none.
+  assert.ok(flat.includes('Its link works once, for 1 hour,'), 'README no longer says how long the reset link lasts');
+  assert.equal(RESET_SECONDS, 60 * 60);
+  const sent = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(url, RESEND_URL);
+    sent.push(JSON.parse(init.body).to);
+    return Response.json({ id: 'msg-260' });
+  });
+  assert.equal(hand.sqlite.prepare('SELECT password_hash FROM accounts WHERE id = 1').get().password_hash, null);
+  const env = { DB: hand, RESEND_API_KEY: 'test-key' };
+  assert.equal(await sendReset(env, { email: 'wanda@example.org', now, site: 'https://photos.madcowsailing.com' }), 'no-account');
+  assert.equal(await sendReset(env, { email: 'owen@example.org', now, site: 'https://photos.madcowsailing.com' }), 'sent');
+  assert.deepEqual(sent, [['owen@example.org']]);
+  const link = hand.sqlite.prepare('SELECT made_at, expires_at FROM password_links WHERE account_id = 1').get();
+  assert.equal(link.expires_at - link.made_at, RESET_SECONDS);
+
+  // Step 5 then makes the owner, and step 6's read-back lists the one.
+  assert.equal(run(owner), 1);
+  assert.deepEqual(hand.sqlite.prepare('SELECT id, admin_role FROM accounts WHERE admin_role IS NOT NULL').all().map((r) => ({ ...r })),
+    [{ id: 1, admin_role: 'owner' }]);
+});
+
+test('README\'s owner statement run again on the owner changes 1 row and alters nothing, and on another account is refused (#260, criterion 3)', async () => {
+  // README said "A second run, or another account, is refused" until #260.
+  // The rehearsal for production's owner (2026-10-07) found the first half
+  // false: 0013's trigger fires only WHEN NEW.admin_role IS NOT OLD.admin_role,
+  // so the same update again passes it.
+  const steps = ownerSteps();
+  const flat = steps.replace(/\s+/g, ' ');
+  assert.ok(flat.includes('A second run on the same account changes 1 row and alters nothing'), 'README no longer says what a second run does');
+  assert.ok(flat.includes('Another account is refused: `there is an owner already`'), 'README no longer says another account is refused');
+  const db = d1();
+  for (const [name, email] of [['Owen Owner', 'owen@example.org'], ['Ann Other', 'ann@example.org']]) {
+    await requestAccount(db, { request: { name, email, role: 'parent', teams: ['cohssa'], note: null }, address: 'a', emailKey: await emailKeyOf(email), now: 1 });
+  }
+  for (const accountId of [1, 2]) {
+    assert.deepEqual(await approveTeams(db, { accountId, teams: ['cohssa'], role: 'parent', admin: 'owen@example.org', now: 2 }), ['cohssa']);
+  }
+  const make = db.sqlite.prepare(ownerStatement(steps).replace('<id>', '?'));
+  assert.equal(make.run(1).changes, 1);
+  const made = everyRow(db);
+  assert.equal(made.accounts.find((a) => a.id === 1).admin_role, 'owner');
+  assert.equal(make.run(1).changes, 1);
+  assert.deepEqual(everyRow(db), made, 'a second run on the owner altered a row');
+  assert.throws(() => make.run(2), /there is an owner already/);
+  assert.deepEqual(everyRow(db), made, 'the refused run on another account altered a row');
+});
+

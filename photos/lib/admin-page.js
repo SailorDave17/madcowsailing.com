@@ -20,14 +20,15 @@
  * added the home's count of requests for an account. #221's page for them,
  * /admin/people, is lib/people-page.js, which takes adminPage() from here.
  * #228 added the queue's Move to event and the albums page's section for
- * each team's "Not sure / other event".
+ * each team's "Not sure / other event". #269 made the home a to-do list:
+ * TODO, then the links to the other sections and the storage figure.
  */
 import { ADMIN_SESSION_SECONDS } from './admin-session.js';
 import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
 import { inviteLink } from './invite.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
 import { CAPTION_MAX } from './photos.js';
-import { FREE_STORAGE_BYTES } from './queue.js';
+import { FREE_STORAGE_BYTES, photoAt } from './queue.js';
 import { TEAMS, teamName } from './teams.js';
 
 const HEADER = String.raw`<header class="site-header">
@@ -57,20 +58,29 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
       href="/assets/shared/fonts/bricolage-grotesque-latin-var.woff2">
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
-<link rel="stylesheet" href="/assets/shared/css/base.css?v=a89edb8513">
-<link rel="stylesheet" href="/css/site.css?v=ac1e9e37fb">
+<link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
+<link rel="stylesheet" href="/css/site.css?v=a438de2263">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
-// The sections the later stories of epic #147 fill, in the order the owner
-// works through them. Each path is the one its story names.
+// What waits for an admin, in the order the admin home lists it (#269): each
+// a count from adminHome()'s summary, shown as a full-width button to the page
+// where it is dealt with, a zero included. The queue and the removal requests
+// are reached through these alone; People is a link below them as well.
+export const TODO = [
+  { href: '/admin/queue', count: 'waiting', one: 'photo waiting for approval', many: 'photos waiting for approval' },
+  { href: '/admin/people', count: 'requests', one: 'account request waiting', many: 'account requests waiting' },
+  { href: '/admin/removals', count: 'removals', one: 'removal request waiting', many: 'removal requests waiting' },
+];
+
+// The other sections, linked under the to-do list in this order. Each path
+// is the one its story names. The invite code stays until #226 retires the
+// invite link (owner, at #269's pickup).
 export const SECTIONS = [
   { href: '/admin/code', name: 'Invite code', what: 'the link parents join with, and changing it' },
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
-  { href: '/admin/queue', name: 'Waiting for approval', what: 'photos parents sent, with their captions' },
-  { href: '/admin/removals', name: 'Removal requests', what: 'photos someone took down, to put back or delete' },
   { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, who the admins are, and the admins\' log' },
   { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
 ];
@@ -108,25 +118,19 @@ ${FOOTER}
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-/** How many photos wait, as the admin home says it. */
-export function waitingText(waiting) {
-  if (waiting === 0) return 'No photo is waiting for approval.';
-  return `${plural(waiting, 'photo is', 'photos are')} waiting for approval.`;
-}
-
-/** How many removal requests wait (#158): each is one hidden photo. */
-export function removalsText(removals) {
-  if (removals === 0) return 'No removal request is waiting.';
-  return `${plural(removals, 'removal request is', 'removal requests are')} waiting.`;
-}
-
 /**
- * How many requests for an account wait (#220): each is one person, with a
- * team an admin has not yet approved or turned down.
+ * One item of the admin home's to-do list (#269), `n` of `item` (a TODO
+ * entry): a full-width button to its page, the count first. A zero is still
+ * shown, in the quiet button, and says there is nothing to do, so an empty
+ * list reads as done rather than as missing. The counts are lib/queue.js's
+ * queueSummary() (photos waiting; removal requests, each one hidden photo,
+ * #158) and lib/accounts.js's waitingRequests() (people with a team an admin
+ * has not yet approved or turned down, #220).
  */
-export function requestsText(requests) {
-  if (requests === 0) return 'No request for an account is waiting.';
-  return `${plural(requests, 'request for an account is', 'requests for an account are')} waiting.`;
+export function todoItem({ href, one, many }, n) {
+  const what = n === 1 ? one : many;
+  const words = n === 0 ? `${what}. Nothing to do.` : what;
+  return `<li><a class="button${n === 0 ? ' button-quiet' : ''} todo-item" href="${href}"><span class="todo-count">${n}</span> <span>${words}</span></a></li>`;
 }
 
 /**
@@ -147,15 +151,21 @@ export function storageText(bytes) {
 
 /**
  * The admin home for `admin`, lib/admin-session.js's context.data.admin:
- * { name, email, role, issued }. Since #224 it says who is signed in, whether
- * as the owner or an admin, and when the 12-hour admin sign-in ends, and has
- * Sign out, which ends every session the account holds (lib/sign-in.js,
- * signOut). `summary` is lib/queue.js's queueSummary(): how many photos wait,
- * how many removal requests wait, and the bytes stored; and, since #220,
- * `requests`, lib/accounts.js's waitingRequests().
+ * { name, email, role, issued }. `summary` is lib/queue.js's queueSummary():
+ * how many photos wait, how many removal requests wait, and the bytes stored;
+ * and, since #220, `requests`, lib/accounts.js's waitingRequests().
+ *
+ * Since #269 it opens on what is waiting, TODO's three buttons in order,
+ * then links to the other sections and the storage figure. Last, since #224,
+ * who is signed in, whether as the owner or an admin, and when the 12-hour
+ * admin sign-in ends, and Sign out, which ends every session the account
+ * holds (lib/sign-in.js, signOut). Until #269 that came first, and on a
+ * phone it filled the first screen.
  */
-export function adminHome({ name, email, role, issued }, { waiting, removals, bytes, requests = 0 }) {
-  const items = SECTIONS.map(({ href, name: section, what }) =>
+export function adminHome({ name, email, role, issued }, { waiting = 0, removals = 0, bytes, requests = 0 }) {
+  const counts = { waiting, requests, removals };
+  const todo = TODO.map((item) => `      ${todoItem(item, counts[item.count])}`).join('\n');
+  const links = SECTIONS.map(({ href, name: section, what }) =>
     `      <li><a href="${href}">${escapeHtml(section)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   const as = role === 'owner' ? 'the owner' : 'an admin';
   return adminPage({
@@ -164,26 +174,30 @@ export function adminHome({ name, email, role, issued }, { waiting, removals, by
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Photo site admin</h1>
-    <p class="lede">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
-    <form method="post" action="/sign-out">
-      <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
-      <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>
-    </form>
   </section>
 
-  <section class="wrap" aria-labelledby="admin-now">
-    <h2 id="admin-now">At a glance</h2>
-    <p>${waitingText(waiting)}</p>
-    <p>${removalsText(removals)}</p>
-    <p>${requestsText(requests)}</p>
-    <p>${storageText(bytes)}</p>
+  <section class="wrap admin-todo" aria-labelledby="admin-todo">
+    <h2 id="admin-todo">Waiting for you</h2>
+    <ul class="todo">
+${todo}
+    </ul>
   </section>
 
   <section class="wrap" aria-labelledby="admin-sections">
     <h2 id="admin-sections">Manage the site</h2>
-    <ul>
-${items}
+    <ul class="admin-links">
+${links}
     </ul>
+    <p class="admin-storage">${storageText(bytes)}</p>
+  </section>
+
+  <section class="wrap" aria-labelledby="admin-you">
+    <h2 id="admin-you">Your sign-in</h2>
+    <p class="signed-in">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
+    <form method="post" action="/sign-out">
+      <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
+      <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>
+    </form>
   </section>
 </main>`,
   });
@@ -664,8 +678,14 @@ const sentBy = (photo) => {
 // to itself, to open alone. The owner's choice at #156's pickup: all three in
 // view, so a swapped picture shows without a tap. Not chosen: the grid and
 // full as links only, or all three at one size.
-function waitingPhoto(photo, formId, first, team, notSure) {
+//
+// Since #270 each photo also names its event and team, which its batch's
+// heading says once above: a press lands on the next photo (lib/queue.js,
+// nextWaiting), often far below that heading on a phone. `notice` is what
+// the press did, shown first when it landed here, or ''.
+function waitingPhoto(photo, album, formId, first, team, notice) {
   const { id } = photo;
+  const notSure = album.holding;
   const size = (name, label) => `<figure>
               <a href="${photoUrl(id, name)}">${sizeImage(photo, name, true)}</a>
               <figcaption>${label}, ${photo.sizes[name].width} × ${photo.sizes[name].height}</figcaption>
@@ -675,8 +695,9 @@ function waitingPhoto(photo, formId, first, team, notSure) {
   // its batch says why, and a press naming it anyway is refused.
   const approve = notSure ? '' : `
             <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve photo ${id}">Approve</button>`;
-  return `<li class="waiting" id="photo-${id}">
+  return `<li class="waiting" id="photo-${id}">${notice ? `\n          ${notice}` : ''}
           <h3>Photo ${id}</h3>
+          <p class="waiting-album">${escapeHtml(album.title)} · ${escapeHtml(teamName(album.team))}</p>
           <p class="waiting-facts">Taken ${timeElement(photo.capturedAt)}${from}</p>
           <a class="waiting-screen" href="${photoUrl(id, 'screen')}">${sizeImage(photo, 'screen', !first)}</a>
           <div class="waiting-sizes">
@@ -743,7 +764,10 @@ function moveFields(batch, formId, albums) {
 // A batch sent to a team's "Not sure / other event" (#228) has no Approve at
 // all, and says why: its photos are moved into their event first, and
 // approved there. `albums` is every album, for the Move choices.
-function batchSection(batch, total, team, albums) {
+//
+// `at` is where a press landed (#270): this batch's section, or one of its
+// photos' cards, which then shows `notice` (adminQueuePage).
+function batchSection(batch, total, team, albums, at, notice) {
   const index = batch.number;
   const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
   const n = batch.photos.length;
@@ -761,11 +785,12 @@ function batchSection(batch, total, team, albums) {
         <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="all" aria-label="Move all ${n} in batch ${index}${part}, ${title}, to the event chosen below">Move all ${n}</button>
         <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
   const why = notSure ? `\n    <p class="batch-why">${NOT_SURE_WHY}</p>` : '';
+  const landed = at === batch.id ? `\n    ${notice}` : '';
   // Labelled by the facts as well as the title: two batches sent to one
   // album would otherwise be two regions with one name.
   return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
     <h2 id="${id}-title">${title}</h2>
-    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}
+    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}${landed}
     <form method="post" action="${pressPath('/api/admin/queue/captions', team)}" id="${formId}" class="batch-form">
       <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
       <input type="hidden" name="anchor" value="${id}">
@@ -774,7 +799,8 @@ function batchSection(batch, total, team, albums) {
       </p>
       ${moveFields(batch, formId, albums)}
       <ul class="queue">
-        ${batch.photos.map((photo, i) => waitingPhoto(photo, formId, index === 1 && batch.part === 1 && i === 0, team, notSure)).join('\n        ')}
+        ${batch.photos.map((photo, i) => waitingPhoto(photo, batch.album, formId, index === 1 && batch.part === 1 && i === 0, team,
+    at === photoAt(photo.id) ? notice : '')).join('\n        ')}
       </ul>
     </form>
   </section>`;
@@ -800,16 +826,25 @@ function batchSection(batch, total, team, albums) {
  * `albums` is lib/albums.js's allAlbums(), for each batch's "Move to event"
  * choices (#228): a photo sent to the wrong event, or to its team's "Not
  * sure / other event", moves into one of the team's events here.
+ *
+ * `at` is the ?at= a press landed on (#270, lib/queue.js, queueLocation): a
+ * waiting photo's card or a batch's section. The browser scrolls there, so
+ * the notice shows there, once, where an admin on a phone can see it (owner,
+ * at #270's pickup), and at the top only when `at` names nothing the page
+ * shows: nothing waits, or another admin took that photo meanwhile.
  */
-export function adminQueuePage({ batches, notice = '', team = null, albums = [] }) {
+export function adminQueuePage({ batches, notice = '', team = null, albums = [], at = null }) {
   const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
+  const landed = notice && batches.some((batch) => batch.id === at || batch.photos.some((photo) => photoAt(photo.id) === at));
+  const where = landed ? at : null;
+  const said = notice.trim();
   // A batch in parts is several entries with one number.
   const total = new Set(batches.map((batch) => batch.number)).size;
   const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
   const summary = waiting
     ? `${plural(waiting, 'photo', 'photos')}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
     : `No photo${from} is waiting. What parents send appears here, oldest first.`;
-  const list = batches.map((batch) => batchSection(batch, total, team, albums)).join('\n\n  ');
+  const list = batches.map((batch) => batchSection(batch, total, team, albums, where, said)).join('\n\n  ');
   return adminPage({
     title: 'Waiting for approval',
     head: QUEUE_SCRIPT,
@@ -819,7 +854,7 @@ export function adminQueuePage({ batches, notice = '', team = null, albums = [] 
     <h1>Waiting for approval</h1>
     <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
     <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>
-    <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${notice}${teamFilter('/admin/queue', team)}
+    <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${landed ? '' : notice}${teamFilter('/admin/queue', team)}
     <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
   </section>
 ${list ? `\n  ${list}\n` : ''}

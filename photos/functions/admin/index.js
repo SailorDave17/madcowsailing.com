@@ -1,8 +1,10 @@
 /**
  * GET /admin and /admin/: the admin home (#151). The guard in _middleware.js
- * has already checked the admin session (#224); this says who is signed in
- * and until when, how many photos wait for approval and how much of the free
- * storage is used (#156), links to each section, and has Sign out.
+ * has already checked the admin session (#224). Since #269 it opens on what
+ * is waiting: the photos for approval (#156), the requests for an account
+ * and the removal requests, each a button to its page. Then the links to the
+ * other sections and how much of the free storage is used, and last who is
+ * signed in and until when, and Sign out (lib/admin-page.js, adminHome).
  *
  * Rendered here, never a static file: nothing under /admin may exist in
  * public/, so that a project switched to fail open could not serve it

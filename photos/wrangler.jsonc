@@ -16,28 +16,21 @@
 //   - Every database_id is written out, and no secret goes in this file or
 //     anywhere in the tree. Secrets are Pages secrets, named in README.md.
 //
-// The admin guard (#151, lib/access.js) read two vars here. Neither is
-// secret: every Access token carries both. Since #224 the admin guard is the
-// site's own admin session (lib/admin-session.js), and only the coach guard
-// below reads ACCESS_TEAM_DOMAIN. ACCESS_AUD is read by nothing: it stays as
-// the record of the admin application's tag until #226 removes the
-// application, and with it this var.
+// The coach guard (#192, lib/access.js) reads two vars here. Neither is
+// secret: every Access token carries both.
 //   - ACCESS_TEAM_DOMAIN is the Zero Trust team's domain: the tokens' issuer,
 //     and where the signing keys are fetched from.
-//   - ACCESS_AUD is the AUD tag of the Access application that signs this
-//     environment's requests. Preview deployments sit behind the project's
-//     Pages preview application, production behind the admin application on
-//     photos.madcowsailing.com, so the two differ. A tag changes only if its
-//     application is deleted and recreated.
-// The admins' addresses were the third thing it read, the ADMIN_EMAILS
-// secret, which nothing reads since #224 either.
-//
-// The coach guard (#192) reads the same team domain and one more var:
 //   - ACCESS_COACH_AUD is the AUD tag of the application that signs /coach:
 //     the coach application on photos.madcowsailing.com in production, and
-//     the Pages preview application on a preview, which signs every path, so
-//     there it equals ACCESS_AUD.
+//     the project's Pages preview application on a preview, which signs
+//     every path, so the two differ. A tag changes only if its application
+//     is deleted and recreated.
 // The coaches' addresses are the COACH_EMAILS secret.
+//
+// The admin guard (#151) read the same team domain, an ACCESS_AUD var and
+// the ADMIN_EMAILS secret. #224 replaced it with the site's own admin session
+// (lib/admin-session.js), and #268 deleted the admin application in front of
+// /admin on photos.madcowsailing.com, and ACCESS_AUD with it.
 //
 // The request form at /ask (#220) reads one more var:
 //   - TURNSTILE_SITE_KEY is the site key of the Turnstile widget
@@ -67,7 +60,6 @@
   "vars": {
     "SITE_ENV": "preview",
     "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
-    "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
     "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
   },
@@ -88,7 +80,6 @@
       "vars": {
         "SITE_ENV": "preview",
         "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
-        "ACCESS_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
         "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
       },
@@ -108,7 +99,6 @@
       "vars": {
         "SITE_ENV": "production",
         "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
-        "ACCESS_AUD": "78d0a143ee4090db61bac7bf71d2d6a40055fcc1f99b6dfa82105175c33727f1",
         "ACCESS_COACH_AUD": "3be126b61281628beeb5a8674c84d1741c0c5582a3071e52cde925cb26314946",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
       },
