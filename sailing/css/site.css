@@ -13,10 +13,11 @@
    2. The @media condition is a bare length. CSS does not permit a var() in a
       media query, so there is no form of this file where that is a token.
 
-   The header shell below (.site-header, .header-inner, .lockup) is the same
-   shape as hq/css/site.css. It is copied rather than hoisted into base.css on
-   purpose: shared/ rebuilds both sites, and a second copy is not yet the pain
-   that earns a shared rule. If a third page layout needs it, move it then.
+   The header shell (.site-header, .header-inner, .lockup) and .footer-inner
+   live in shared/css/base.css since #169, once for all three sites. This
+   file kept its own copy until the photo site made a third. This site uses
+   base.css's defaults for both values that differ by site: the 2rem header
+   mark and the left-aligned footer.
 
    A grep for this must read declarations, not comments — the paragraph above
    names a pixel size while breaking no rule. */
@@ -29,34 +30,10 @@
   --sail-narrow:         46rem;   /* one-column breakpoint */
 }
 
-/* ---- Shell ---------------------------------------------------------- */
-
-.site-header {
-  border-bottom: var(--border-hair);
-  padding-block: var(--space-3);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.lockup {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--blue);
-  text-decoration: none;
-}
-
-/* Inlined rather than <img>: an <img>-loaded SVG has no parent to inherit
-   currentColor from and renders black. The mark is about 2rem here and that is the
-   only place it appears on this site — the brief's "one signature, one place". */
-.lockup-mark { height: var(--space-5); width: auto; }
-.lockup-word { height: var(--space-3); width: auto; }
+/* ---- Shell ----------------------------------------------------------
+   In shared/css/base.css since #169. The header mark is 2rem here, base.css's
+   default, and the header is the only place it appears on this site — the
+   brief's "one signature, one place". */
 
 /* ---- Hero ------------------------------------------------------------
    The boat beside the words. The photo column is capped at the width the
@@ -153,17 +130,10 @@ section p + p { margin-top: var(--space-3); }
   padding-block: var(--space-5);
 }
 
-/* ---- Footer ----------------------------------------------------------- */
-
-/* One line since the sail-number span was removed (story #30). Left-aligned
-   rather than space-between, which would push a lone item to the right edge. */
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  justify-content: flex-start;
-  align-items: baseline;
-}
+/* ---- Footer -----------------------------------------------------------
+   .footer-inner is in shared/css/base.css since #169. One line since the
+   sail-number span was removed (story #30), and left-aligned, base.css's
+   default, because space-between would push a lone item to the right edge. */
 
 /* ---- Narrow ----------------------------------------------------------
    The narrow floor from the quality floor is 360 CSS pixels wide. The hero

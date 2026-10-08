@@ -7,38 +7,11 @@
    the @media condition, because CSS allows no var() in a media query.
 
    The header shell (.site-header, .header-inner, .lockup) and .footer-inner
-   are copied from sailing/css/site.css, which copies them from hq's. That
-   file says to move the shell into base.css when a third page layout needs
-   it. This is the third. The move is left out of #149 on purpose: it edits
-   shared/, which restamps and rebuilds both live sites, and this story ships
-   only the photo site. Until it moves, a change to the shell there is a
-   change here too. */
-
-/* ---- Shell ---------------------------------------------------------- */
-
-.site-header {
-  border-bottom: var(--border-hair);
-  padding-block: var(--space-3);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.lockup {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--blue);
-  text-decoration: none;
-}
-
-.lockup-mark { height: var(--space-5); width: auto; }
-.lockup-word { height: var(--space-3); width: auto; }
+   live in shared/css/base.css since #169, once for all three sites. Until
+   then this file carried a copy of sailing's, which carried a copy of hq's;
+   the photo site was the third copy that made the move worth it. This site
+   uses base.css's defaults for both values that differ by site: the 2rem
+   header mark and the left-aligned footer. */
 
 /* ---- Hidden --------------------------------------------------------- */
 
@@ -973,15 +946,8 @@
   margin-block-start: var(--space-4);
 }
 
-/* ---- Footer --------------------------------------------------------- */
-
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  justify-content: flex-start;
-  align-items: baseline;
-}
+/* ---- Footer ---------------------------------------------------------
+   .footer-inner is in shared/css/base.css since #169. */
 
 /* ---- Narrow --------------------------------------------------------- */
 
