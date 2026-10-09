@@ -120,8 +120,17 @@ createServer(async (req, res) => {
   // be seen refusing it.
   if (headers.get('origin') === STAND_IN) headers.set('origin', new URL(SITE).origin);
   const hasBody = !['GET', 'HEAD'].includes(req.method);
+  // Only a path is forwarded, onto SITE's own origin, so no request target can
+  // name another host after SITE's port. Measured at #226's PR, the shapes
+  // tried already failed (Node's parser refuses "@host/x", and an
+  // absolute-form URL glued on does not parse as a URL), so this states the
+  // rule rather than closing a known hole (CodeQL js/request-forgery).
+  if (!req.url?.startsWith('/')) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' }).end('only a path is forwarded\n');
+    return;
+  }
   try {
-    const answer = await fetch(`${SITE}${req.url}`, {
+    const answer = await fetch(`${SITE}/${req.url.slice(1)}`, {
       method: req.method, headers, redirect: 'manual', body: hasBody ? req : undefined, duplex: hasBody ? 'half' : undefined,
     });
     const out = {};

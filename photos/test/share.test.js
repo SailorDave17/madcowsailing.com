@@ -904,8 +904,15 @@ test('the page links /sign-in and /ask and no longer /coach, and says before its
   const lede = HTML.match(/<p class="lede" id="join-status" role="status">([^<]*)<\/p>/)?.[1];
   assert.equal(lede?.replace(/\s+/g, ' '), NONE);
   assert.match(HTML, /<noscript><p>This page needs JavaScript to send photos\. Turn it on, then\s+reload\.<\/p><\/noscript>/);
-  // Nothing a visitor reads names the invite link, comments aside.
-  assert.doesNotMatch(HTML.replace(/<!--[\s\S]*?-->/g, ''), /invite/i);
+  // Nothing a visitor reads names the invite link, comments aside. Comments
+  // come out until none is left, so taking one out cannot leave another
+  // behind (CodeQL js/incomplete-multi-character-sanitization, at #226's PR).
+  let visible = HTML;
+  for (let before = null; before !== visible;) {
+    before = visible;
+    visible = visible.replace(/<!--[\s\S]*?-->/g, '');
+  }
+  assert.doesNotMatch(visible, /invite/i);
 });
 
 // ---- Criterion 2: capture time, upright, three JPEGs through canvas -----
