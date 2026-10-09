@@ -2202,7 +2202,9 @@ const CLIP_OVER = 'Failed. The photo site says this clip is too long or too larg
 const CLIP_DAY = `Failed. Your account has sent today's ${CLIP_DAY_BYTES.everyone / 1024 ** 3} GB of clips. Photos can still go; try clips again tomorrow.`;
 
 test('#198: the page loads the walker as a module ahead of share.js, stamped from its own bytes, and finds the four names clip.js puts on window', () => {
-  const scripts = [...HTML.match(/<head>([\s\S]*?)<\/head>/)[1].matchAll(/<script\b([^>]*)><\/script>/g)].map((m) => m[1].trim());
+  // An end tag is matched however it is written, `</script >` and capitals
+  // included (CodeQL js/bad-tag-filter, at #198's PR).
+  const scripts = [...HTML.match(/<head>([\s\S]*?)<\/head>/)[1].matchAll(/<script\b([^>]*)>\s*<\/script[^>]*>/gi)].map((m) => m[1].trim());
   // Deferred scripts, a module's included, run in the order they are written.
   assert.deepEqual(scripts.map((s) => s.match(/src="([^"?]+)/)[1]), ['/js/clip.js', '/js/share.js']);
   assert.match(scripts[0], /^type="module" src="\/js\/clip\.js\?v=[0-9a-f]{10}"$/);
@@ -2218,7 +2220,15 @@ test('#198: the page loads the walker as a module ahead of share.js, stamped fro
 
 test('#198: beside Add photos, the page says clips can go too, in D11\'s minutes, and its picker offers videos', () => {
   const sender = HTML.match(/<div class="sender" id="sender" hidden>([\s\S]*?)<\/div>/)[1];
-  const words = sender.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  // Comments come out until none is left, as #226's test takes them out, so
+  // taking one out cannot leave another behind (CodeQL
+  // js/incomplete-multi-character-sanitization, at #198's PR).
+  let visible = sender;
+  for (let before = null; before !== visible;) {
+    before = visible;
+    visible = visible.replace(/<!--[\s\S]*?-->/g, '');
+  }
+  const words = visible.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   const [, parent, coach] = words.match(/You can send clips too, up to (\d+) minutes long, or (\d+) minutes if you're a coach\./) ?? [];
   assert.equal(Number(parent) * 60, CLIP_SECONDS.everyone);
   assert.equal(Number(coach) * 60, CLIP_SECONDS.coach);

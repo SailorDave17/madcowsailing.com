@@ -1880,7 +1880,9 @@ test('#198: every state of a page with clips passes the photo site\'s html-valid
 
 test('#198: a clip is its card\'s width at its own shape, and on a phone runs edge to edge with the photo\'s two focus rings', () => {
   const css = read('public', 'css', 'site.css');
-  const rule = (text, selector) => text.match(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.()[\]:>*]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
+  // Every character a pattern reads specially is escaped, backslash
+  // included (CodeQL js/incomplete-sanitization, at #198's PR).
+  const rule = (text, selector) => text.match(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
   // At every width: the card's, its height from the frame size the page
   // gives it, on night water until it plays.
   assert.match(rule(css, '.waiting video'), /display: block;\s*width: 100%;\s*height: auto;\s*background: var\(--deep\);/);
