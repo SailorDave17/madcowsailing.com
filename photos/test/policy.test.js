@@ -27,7 +27,7 @@ import {
   CODES_PER_DAY, CODE_COOKIE, CODE_DIGITS, CODE_SECONDS, CODE_TRIES, clearExpiredCodes, codeCookie, startCode,
 } from '../lib/admin-code.js';
 import {
-  ADMIN_COOKIE, ADMIN_SESSION_HOURS, adminCookie, readAdminSession, signAdminSession,
+  ADMIN_COOKIE, ADMIN_SESSION_HOURS, REMEMBERED_SESSION_DAYS, adminCookie, readAdminSession, requireAdmin, signAdminSession,
 } from '../lib/admin-session.js';
 import { RESEND_URL } from '../lib/mail.js';
 import { STALE_SECONDS } from '../lib/clips.js';
@@ -43,6 +43,7 @@ import { TEAMS } from '../lib/teams.js';
 import { askPage } from '../lib/ask-page.js';
 import { onRequestPost as joinRoute } from '../functions/api/join.js';
 import { onRequestGet as adminHomeRoute } from '../functions/admin/index.js';
+import { onRequestPost as forgetRoute } from '../functions/api/admin/forget.js';
 import { ACCOUNT_COOKIE, ACCOUNT_SESSION_DAYS, accountCookie, readAccountSession, sessionAccount } from '../lib/account-session.js';
 import { PWNED_RANGE_URL, pwned } from '../lib/password-rules.js';
 import {
@@ -52,7 +53,7 @@ import {
   EMAIL_FAILURE_LIMIT, FAILED_IN_A_ROW, FAILURE_BUDGET_PER_HOUR, FAILURE_WINDOW_SECONDS as SIGN_IN_WINDOW_SECONDS,
   NETWORK_FAILURE_LIMIT, signOut,
 } from '../lib/sign-in.js';
-import { adminData } from './admin.js';
+import { ADMIN_KEY, adminCookieHeader, adminData, seedAdmin } from './admin.js';
 import { ADDRESS_KEY, emailKeyOf } from './address-key.js';
 import { d1, seedCodes } from './d1.js';
 import { UPLOAD_COOKIE, coachCookie, parentCookie, uploadCookieHeader } from './legacy-cookies.js';
@@ -735,7 +736,10 @@ const ACCOUNT_ROWS = [
   ['An admin, or the owner: the', ['admin_role', 'migrations/0013_admins.sql', 'D15', 'Making the owner', '#224\'s pickup']],
   ['An admin\'s code: emailed, once,', ['startCode', 'checkCode', 'useCode', 'CODE_SECONDS', 'CODE_TRIES', 'CODE_COOKIE', 'lib/admin-code.js', 'functions/sign-in.js', 'functions/sign-in/code.js', '#224\'s criterion 1']],
   ['The code only as a keyed hash;', ['code_hash', 'admin_codes', 'migrations/0013_admins.sql', 'SESSION_SIGNING_KEY', 'CODES_PER_DAY', 'clearExpiredCodes', 'lib/admin-code.js', 'functions/admin/index.js', 'setPassword', 'lib/sign-in.js', '#224\'s review']],
-  ['The admin pages\' cookie: 12', ['ADMIN_COOKIE', 'ADMIN_SESSION_HOURS', 'signAdminSession', 'lib/admin-session.js', 'requireAdmin', '#224\'s criterion 2']],
+  // #274: the length, signed with the rest and read from the cookie, the
+  // owner's 30 days (2026-10-07, #267), and Forget with what it costs (the
+  // owner's choice at #274's pickup).
+  ['The admin pages\' cookie: 12', ['ADMIN_COOKIE', 'ADMIN_SESSION_HOURS', 'REMEMBERED_SESSION_DAYS', 'signAdminSession', 'lib/admin-session.js', '#274\'s criterion 2', 'requireAdmin', '#224\'s criterion 2', 'readAdminSession', '#274\'s criterion 1', '2026-10-07', '#267', 'not chosen: passkeys, and keeping 12 hours', 'functions/api/admin/forget.js', 'writes nothing', 'signOut', 'setPassword', 'demoteAdmin', '#274\'s pickup']],
   ['Failed sign-ins: 10 an hour', ['EMAIL_FAILURE_LIMIT', 'NETWORK_FAILURE_LIMIT', 'FAILURE_BUDGET_PER_HOUR', 'lib/sign-in.js', '#222\'s pickup']],
   ['Each failed try, scrambled, an', ['sign_in_failures', 'migrations/0009_sign_in.sql', 'emailHash', 'addressHash', 'clearExpiredSignIns', 'functions/admin/index.js', '#222\'s criterion 3']],
   ['100 failed in a row stops the', ['FAILED_IN_A_ROW', 'NIST SP 800-63B-4', '3.2.2', '"no more than 100"']],
@@ -827,6 +831,9 @@ test('the head comment traces every account claim in its own row, and the code i
     requireAdmin: '../lib/admin-session.js',
     promoteAdmin: '../lib/people.js',
     demoteAdmin: '../lib/people.js',
+    // #274
+    readAdminSession: '../lib/admin-session.js',
+    onRequestPost: '../functions/api/admin/forget.js',
   };
   for (const [name, module] of Object.entries(exported)) {
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
@@ -1603,20 +1610,37 @@ test('README\'s by-hand "hide every photo an account sent" hides exactly its app
 // and a line here: the admin role, the emailed code kept as a keyed hash with
 // its time for a day, the code's cookie, the 12-hour admin cookie, and making
 // and removing an admin in the admins' log (the log's sentence is held with
-// the rest of "What an account keeps", above).
+// the rest of "What an account keeps", above). #274 lengthened the admin
+// cookie to 30 days on a phone the admin asks the site to remember, signed
+// its length into it, and added "Forget this phone", each held here too.
 
-test('the admin figures are the code\'s: 6 digits, once, 10 minutes, 5 tries, 10 a day, kept a day; the admin pages\' cookie 12 hours (#224, criterion 8)', () => {
+test('the admin figures are the code\'s: 6 digits, once, 10 minutes, 5 tries, 10 a day, kept a day; the admin pages\' cookie 12 hours, or 30 days on a remembered phone (#224, criterion 8; #274)', () => {
   const kept = words(section('What an account keeps'));
   has(kept, [
     `An admin's sign-in takes one more step. Once the password is right, the site emails a ${CODE_DIGITS}-digit code to the account's address.`,
     `The code works once, for ${CODE_SECONDS / 60} minutes and ${CODE_TRIES} tries, and only in the browser where the password was typed, which holds a small cookie naming that sign-in for those ${CODE_SECONDS / 60} minutes.`,
     `The code is kept only as a hash, made with a secret key, and when it was sent is kept for a day, so that the site sends an admin at most ${CODES_PER_DAY} codes a day; after that day it is deleted, the next time a code is sent or an admin opens the admin home page.`,
     'Setting a new password deletes an account\'s codes at once.',
-    `The right code opens a second cookie, for the admin pages, which lasts ${ADMIN_SESSION_HOURS} hours and holds what the first one holds, and nothing more.`,
+    // #274, criteria 1 and 2: the tick on the code step (lib/sign-in-page.js
+    // names it from the same constant), and the length signed into the
+    // cookie with what the account's cookie holds.
+    `The right code opens a second cookie, for the admin pages, which lasts ${ADMIN_SESSION_HOURS} hours, or ${REMEMBERED_SESSION_DAYS} days if "Remember this phone for ${REMEMBERED_SESSION_DAYS} days" is ticked when the code is typed.`,
+    'It holds what the first one holds and how long it lasts, and nothing more.',
+    // #274, criterion 4, and the cost of the owner's choice at its pickup:
+    // Forget deletes one browser's cookie and writes nothing, so nothing on
+    // the server can end a copy but the version or the role.
+    '"Forget this phone", on the admin pages, deletes it from the browser it is pressed in, which stays signed in to send photos.',
+    'The site keeps no list of these cookies, so if a copy of one was taken from that browser, the copy keeps working until its time is up, until signing out or a new password ends every session, or until the account stops being an admin.',
   ], '"What an account keeps"');
+  // The old sentence, which #274 made false twice: the 30 days, and "nothing
+  // more" now that the cookie holds its length. The control: the pattern
+  // finds the sentence as #224 wrote it, so it is no typo that never matches.
+  const gone = /which lasts \d+ hours and holds what the first one holds, and nothing more/;
+  assert.doesNotMatch(kept, gone);
+  assert.match('The right code opens a second cookie, for the admin pages, which lasts 12 hours and holds what the first one holds, and nothing more.', gone);
   // The figures themselves, as the page states them, so a change to a
   // constant is a change someone has to make here too.
-  assert.deepEqual([CODE_DIGITS, CODE_SECONDS, CODE_TRIES, CODES_PER_DAY, ADMIN_SESSION_HOURS], [6, 600, 5, 10, 12]);
+  assert.deepEqual([CODE_DIGITS, CODE_SECONDS, CODE_TRIES, CODES_PER_DAY, ADMIN_SESSION_HOURS, REMEMBERED_SESSION_DAYS], [6, 600, 5, 10, 12, 30]);
 });
 
 test('"kept only as a hash, made with a secret key" and "kept for a day" are what a code\'s row is, and the admin home\'s load deletes it after its day (#224, criterion 8)', async (t) => {
@@ -1649,22 +1673,101 @@ test('"kept only as a hash, made with a secret key" and "kept for a day" are wha
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM admin_codes').get().n, 1);
 });
 
-test('"holds what the first one holds, and nothing more" is the admin cookie: the account\'s number, its session number and the time, signed (#224, criterion 8)', async () => {
+test('"holds what the first one holds and how long it lasts, and nothing more" is the admin cookie: the account cookie\'s three numbers, then its length, signed together, so an edit to either is refused (#224, criterion 8; #274, criterion 2)', async () => {
   const key = 'test-session-signing-key-0123456789abcdef';
-  const value = await signAdminSession(key, { accountId: 7, version: 3 }, 1_790_000_000);
-  assert.match(value, /^m1\.7\.3\.1790000000\.[A-Za-z0-9_-]{43}$/);
-  const line = await adminCookie(key, { accountId: 7, version: 3 }, 1_790_000_000);
-  assert.equal(line, `${ADMIN_COOKIE}=${value}; Max-Age=${ADMIN_SESSION_HOURS * 3600}; Path=/; Secure; HttpOnly; SameSite=Lax`);
-  // The account's own cookie holds the same three numbers: the page's
-  // "what the first one holds".
-  const account = (await accountCookie(key, { accountId: 7, version: 3 }, 1_790_000_000)).split(';')[0].split('=')[1];
-  assert.deepEqual(account.split('.').slice(1, 4), value.split('.').slice(1, 4));
-  // A changed byte is refused, as the account cookie's is.
-  const changed = value.replace('m1.7.', 'm1.8.');
-  assert.equal(await readAdminSession(new Request('https://photos.madcowsailing.com/', { headers: { Cookie: `${ADMIN_COOKIE}=${changed}` } }), key, 1_790_000_100), null);
-  assert.ok(await readAdminSession(new Request('https://photos.madcowsailing.com/', { headers: { Cookie: `${ADMIN_COOKIE}=${value}` } }), key, 1_790_000_100));
+  const issued = 1_790_000_000;
+  const sessionAt = (value, now) => readAdminSession(new Request('https://photos.madcowsailing.com/', { headers: { Cookie: `${ADMIN_COOKIE}=${value}` } }), key, now);
+  // Everything before the signature.
+  const payload = (value) => value.slice(0, value.lastIndexOf('.'));
+  // The two lengths the site issues, each in the payload and in Max-Age.
+  const value = await signAdminSession(key, { accountId: 7, version: 3 }, issued);
+  assert.match(value, /^m2\.7\.3\.1790000000\.43200\.[A-Za-z0-9_-]{43}$/);
+  assert.equal(await adminCookie(key, { accountId: 7, version: 3 }, issued), `${ADMIN_COOKIE}=${value}; Max-Age=43200; Path=/; Secure; HttpOnly; SameSite=Lax`);
+  const remembered = await signAdminSession(key, { accountId: 7, version: 3, seconds: 2_592_000 }, issued);
+  assert.match(remembered, /^m2\.7\.3\.1790000000\.2592000\.[A-Za-z0-9_-]{43}$/);
+  assert.equal(await adminCookie(key, { accountId: 7, version: 3, seconds: 2_592_000 }, issued), `${ADMIN_COOKIE}=${remembered}; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Lax`);
+  // "What the first one holds": the account's own cookie, whose payload is
+  // its prefix and three numbers. "And how long it lasts, and nothing more":
+  // the admin payload is its prefix, those same three, and the length, five
+  // parts and no sixth.
+  const account = (await accountCookie(key, { accountId: 7, version: 3 }, issued)).split(';')[0].split('=')[1];
+  assert.equal(payload(account).split('.').length, 4);
+  for (const [cookie, seconds] of [[value, '43200'], [remembered, '2592000']]) {
+    assert.deepEqual(cookie.split('.').slice(1, 4), account.split('.').slice(1, 4));
+    assert.equal(payload(cookie).split('.').length, 5, `${seconds}: the payload holds more than the account's three numbers and the length`);
+    assert.deepEqual(payload(cookie).split('.'), ['m2', ...account.split('.').slice(1, 4), seconds]);
+  }
+
+  // Each field is signed with the rest. An edited cookie is refused, and the
+  // same payload signed with the key is read at the same clock, so the
+  // refusal is the signature's, not the shape's.
+  const now = issued + 100;
+  assert.deepEqual(await sessionAt(value, now), { accountId: 7, version: 3, issued, seconds: 43_200 }, 'the unchanged 12-hour cookie');
+  // The account number.
+  const otherAccount = value.replace('m2.7.', 'm2.8.');
+  const signedOther = await signAdminSession(key, { accountId: 8, version: 3 }, issued);
+  assert.equal(payload(otherAccount), payload(signedOther));
+  assert.equal(await sessionAt(otherAccount, now), null, 'an edited account number was read');
+  assert.ok(await sessionAt(signedOther, now), 'the control: account 8\'s own cookie is read');
+  // The length (criterion 2): a 12-hour cookie edited to say 30 days.
+  const longer = value.replace('.43200.', '.2592000.');
+  assert.equal(payload(longer), payload(remembered));
+  assert.equal(await sessionAt(longer, now), null, 'a 12-hour cookie edited to 30 days was read');
+  assert.deepEqual(await sessionAt(remembered, now), { accountId: 7, version: 3, issued, seconds: 2_592_000 }, 'the control: a remembered phone\'s own cookie');
+  // At 13 hours, when the edit would pay: the 12-hour cookie has run out, a
+  // remembered phone's is still read, and the edited one is still refused.
+  assert.equal(await sessionAt(value, issued + 46_800), null);
+  assert.ok(await sessionAt(remembered, issued + 46_800));
+  assert.equal(await sessionAt(longer, issued + 46_800), null, 'a 12-hour cookie edited to 30 days outlived its 12 hours');
+
   // The code's cookie: 43 random characters, for the code's 10 minutes.
   assert.match(codeCookie('A'.repeat(43)), new RegExp(`^${CODE_COOKIE}=A{43}; Max-Age=${CODE_SECONDS}; Path=/; Secure; HttpOnly; SameSite=Lax$`));
+});
+
+test('"Forget this phone" deletes the admin cookie in the browser it is pressed in and writes nothing, so a copy keeps working until signing out ends it, as the page says (#274, criterion 4; the owner\'s choice at #274\'s pickup)', async () => {
+  // A remembered phone's session 13 hours old, so it can be told from a
+  // 12-hour one: of the two, only the 30-day cookie opens the admin pages now.
+  const db = d1();
+  const id = seedAdmin(db);
+  const issued = nowSeconds() - 46_800;
+  const copy = await adminCookieHeader(id, { issued, seconds: 2_592_000 });
+  const twelveHours = await adminCookieHeader(id, { issued });
+  const guard = async (cookie) => {
+    let opened = false;
+    const response = await requireAdmin({
+      request: new Request('https://photos.madcowsailing.com/admin/', { headers: { Cookie: cookie } }),
+      env: { DB: db, SESSION_SIGNING_KEY: ADMIN_KEY },
+      data: {},
+      next: () => { opened = true; return new Response('the admin home'); },
+    });
+    return opened ? 'open' : response.headers.get('Location');
+  };
+  const account = () => ({ ...db.sqlite.prepare('SELECT session_version, admin_role FROM accounts WHERE id = ?').get(id) });
+  assert.equal(await guard(copy), 'open', 'the remembered cookie did not open the admin pages before the press');
+  assert.equal(await guard(twelveHours), '/sign-in?admin', 'a 12-hour cookie as old opened them too, so the age proves nothing');
+
+  // The press. Any use of the database throws, so a route that read or wrote
+  // it fails here.
+  const response = await forgetRoute({
+    request: new Request('https://photos.madcowsailing.com/api/admin/forget', { method: 'POST' }),
+    env: { get DB() { throw new Error('Forget used the database'); }, SESSION_SIGNING_KEY: ADMIN_KEY },
+    data: adminData(id, { issued, seconds: 2_592_000 }),
+  });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('Location'), '/account?forgotten');
+  // One Set-Cookie, deleting the admin cookie. The account's own cookie,
+  // which sends photos, is not touched, and neither is the account.
+  assert.deepEqual(response.headers.getSetCookie(), [`${ADMIN_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`]);
+  assert.deepEqual(account(), { session_version: 1, admin_role: 'owner' });
+
+  // "The site keeps no list of these cookies": a copy of the cookie, sent
+  // after the press, still opens the admin pages.
+  assert.equal(await guard(copy), 'open', 'the press ended a copy; the page says it does not');
+  // "Until signing out ... ends every session": the version moves, and the
+  // same copy is refused.
+  assert.equal(await signOut(db, { accountId: id, version: 1 }), true);
+  assert.deepEqual(account(), { session_version: 2, admin_role: 'owner' });
+  assert.equal(await guard(copy), '/sign-in?admin', 'a copy outlived a sign-out');
 });
 
 test('README\'s owner statement makes nobody the owner who is approved for no team: "or none for an account approved for no team" (#224\'s review)', async () => {

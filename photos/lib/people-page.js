@@ -38,7 +38,7 @@
  */
 import { ROLES } from './accounts.js';
 import { adminPage, escapeHtml, timeElement } from './admin-page.js';
-import { ADMIN_SESSION_HOURS } from './admin-session.js';
+import { ADMIN_SESSION_HOURS, REMEMBERED_SESSION_DAYS } from './admin-session.js';
 import { LINK_DAYS, LOG_SHOWN } from './people.js';
 
 const ROLE_NAMES = { parent: 'Parent', coach: 'Coach', other: 'Other' };
@@ -386,7 +386,8 @@ export function adminPeoplePage({ lists, log, notice = '', viewer }) {
       stops working.</p>
     <p>Any admin can make an approved person an admin. ${removes} An admin
       signs in with their password and a code the site emails them, and the
-      admin pages stay open for ${ADMIN_SESSION_HOURS} hours at a time.</p>
+      admin pages stay open for ${ADMIN_SESSION_HOURS} hours at a time, or
+      ${REMEMBERED_SESSION_DAYS} days on a phone they ask the site to remember.</p>
     <p>Under each person, "Revoke" takes away the ticked teams and signs them
       out on every phone and computer; their approved photos stay up.
       "Hide all their photos" takes down every photo they sent, waiting or

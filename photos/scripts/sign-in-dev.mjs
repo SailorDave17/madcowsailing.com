@@ -90,7 +90,11 @@ README.md, The photo site, Running it locally, says how to make the account.`);
 
 const session = { accountId: adminAccount, version: adminVersion };
 
-// An admin session as the sign-in's code step opens one, issued now.
+// An admin session as the sign-in's code step opens one with "Remember this
+// phone" unticked: 12 hours, issued now, on every request. So through the
+// stand-in the admin home always reads 12 hours from now, and "Forget this
+// phone" (#274) looks as if it did nothing, since the next request carries
+// a fresh cookie again. README.md, Running it locally, says so.
 const adminSession = async () => signAdminSession(vars.SESSION_SIGNING_KEY, session, Math.floor(Date.now() / 1000));
 
 // An account session as /sign-in opens one, issued now (#226).

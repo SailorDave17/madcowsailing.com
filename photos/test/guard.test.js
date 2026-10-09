@@ -12,8 +12,14 @@
 //     account that is gone, is no admin, holds no approved team, or had its
 //     role taken away, an account's own cookie, an upload cookie from before
 //     #226, and an Access token, which opened the admin pages until #224
-//     (criterion 5); and a write (any method but GET and HEAD) answers 403
-//     to the owner's admin session without the site's own Origin (#152);
+//     (criterion 5); and since #274, a remembered (30-day) session past its
+//     30 days, a 12-hour one with its length edited to 30 days, one of a
+//     length the site never issues, one in #224's m1 format, and a
+//     remembered one 13 hours old on a version the account no longer holds
+//     or for an account that is gone. The owner's remembered session at the
+//     same 13 hours gets past the guard, which is what gives those their
+//     meaning. A write (any method but GET and HEAD) answers 403 to the
+//     owner's admin session without the site's own Origin (#152);
 //   - an account route, anything under functions/account/, sends a page to
 //     /sign-in, 303, and answers anything else 401, for every way an account
 //     session can fail to hold, an upload cookie from before #226, an admin
@@ -34,15 +40,18 @@
 // in review.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { nowSeconds, requireUploadSession } from '../lib/session.js';
 import { requireSameOrigin } from '../lib/origin.js';
-import { ACCOUNT_COOKIE, ACCOUNT_SESSION_SECONDS, requireAccount, signAccountSession } from '../lib/account-session.js';
 import {
-  ADMIN_COOKIE, ADMIN_SESSION_SECONDS, ADMIN_SIGN_IN, requireAdmin, signAdminSession,
+  ACCOUNT_COOKIE, ACCOUNT_SESSION_SECONDS, readAccountSession, requireAccount, signAccountSession,
+} from '../lib/account-session.js';
+import {
+  ADMIN_COOKIE, ADMIN_SESSION_SECONDS, ADMIN_SIGN_IN, readAdminSession, requireAdmin, signAdminSession,
 } from '../lib/admin-session.js';
 import { d1, seedCodes } from './d1.js';
 import { UPLOAD_COOKIE, coachCookie, parentCookie } from './legacy-cookies.js';
@@ -192,6 +201,15 @@ const signature = (value) => value.split('.').pop();
 // Alter the signature's FIRST character: the last one of a 32-byte signature
 // carries two padding bits, so A and B there can decode alike.
 const tamper = (value) => value.replace(signature(value), (signature(value)[0] === 'A' ? 'B' : 'A') + signature(value).slice(1));
+// A value without its signature: the payload the signature is over.
+const unsigned = (value) => value.slice(0, value.lastIndexOf('.'));
+// A payload signed as lib/crypto.js's hmac signs one, HMAC-SHA256 with the
+// key, base64url without padding, but through node:crypto, so a cookie in a
+// format the site no longer signs (#224's m1) can still be minted. A test
+// below holds that it gives what the site's own signers give.
+const signedWithKey = (payload) => `${payload}.${createHmac('sha256', KEY).update(payload).digest('base64url')}`;
+// A Request carrying one cookie, for the read functions alone.
+const withCookie = (name, value) => new Request(`${SITE}/admin/`, { headers: { Cookie: `${name}=${value}` } });
 
 // The upload cookie the invite link (a parent's) and the coaches' sign-in (a
 // coach's) set until #226, minted by test/legacy-cookies.js since
@@ -245,6 +263,13 @@ const UPLOAD_ACCOUNT_CASES = {
 // call() seeds. An admin session opens the admin pages and nothing else.
 const ownerSession = await signAdminSession(KEY, { accountId: 10, version: 1 }, now);
 const adminSession = await signAdminSession(KEY, { accountId: 11, version: 1 }, now);
+// #274: the owner's phone, remembered for 30 days at the code step, 13 hours
+// after it was opened. Inside 12 hours a remembered session cannot be told
+// from a 12-hour one, so it and every remembered case below are 13 hours old:
+// a guard holding every session to 12 hours refuses this one, and a guard
+// taking the length on trust passes the edited one below.
+const THIRTEEN_HOURS_AGO = now - 13 * 60 * 60;
+const ownerRemembered = await signAdminSession(KEY, { accountId: 10, version: 1, seconds: 2_592_000 }, THIRTEEN_HOURS_AGO);
 
 test('every PUBLIC entry is a route that exists', () => {
   for (const file of Object.keys(PUBLIC)) assert.ok(routes.includes(file), `PUBLIC names ${file}, which is not a route`);
@@ -402,18 +427,58 @@ test('at least one upload route takes a write, so the Origin checks above check 
 // to hold, each sent to the sign-in by the guard before the route runs. call()
 // seeds the owner (10) and an admin (11) approved for a team; an admin
 // approved for none (12); a former admin (13); and account 1, approved and no
-// admin. Account 3 does not exist. ownerSession and adminSession are above.
-// An account cookie's value is a1.<payload>.<signature>; the same payload
-// under m1. with the account cookie's signature is what a stolen account
-// cookie would try as an admin one. Its signature is over "a1.…", so it fails.
-const asAdminPayload = (value) => value.replace(/^a1\./, 'm1.');
+// admin. Account 3 does not exist. ownerSession, adminSession and
+// ownerRemembered are above.
+//
+// A stolen cookie of one kind would be tried as the other: its fields put in
+// the other cookie's shape, its signature carried over. asAdminPayload turns
+// an account cookie, a1.<account>.<version>.<issued>.<signature>, into the
+// admin cookie's shape, m2.<account>.<version>.<issued>.43200.<signature>,
+// and asAccountPayload turns an admin session the other way. Each value then
+// fails on its signature, which is over the other prefix, and on nothing
+// else: a test below re-signs each with the key and it passes. Until #274
+// these swapped a1. and m1., and the m2 format left both failing on their
+// shape alone, the account one because m1. no longer reads and the admin one
+// because its replace found no m1. to swap; so each throws on a value it
+// cannot relabel rather than pass it through.
+const ACCOUNT_SHAPE = /^a1\.([0-9]+)\.([0-9]+)\.([0-9]+)\.([A-Za-z0-9_-]{43})$/;
+const ADMIN_SHAPE = /^m2\.([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)\.([A-Za-z0-9_-]{43})$/;
+const asAdminPayload = (value) => {
+  const match = ACCOUNT_SHAPE.exec(value);
+  if (!match) throw new Error('asAdminPayload: not an account cookie');
+  const [, accountId, version, issued, carried] = match;
+  return `m2.${accountId}.${version}.${issued}.43200.${carried}`;
+};
+const asAccountPayload = (value) => {
+  const match = ADMIN_SHAPE.exec(value);
+  if (!match) throw new Error('asAccountPayload: not an admin session');
+  const [, accountId, version, issued, , carried] = match;
+  return `a1.${accountId}.${version}.${issued}.${carried}`;
+};
+// An admin session's value with its length field rewritten and its signature
+// kept, which is all an edit in the browser can do without the key.
+const withLength = (value, seconds) => {
+  const match = ADMIN_SHAPE.exec(value);
+  if (!match) throw new Error('withLength: not an admin session');
+  const [, accountId, version, issued, , carried] = match;
+  return `m2.${accountId}.${version}.${issued}.${seconds}.${carried}`;
+};
 const ownerAccount = await signAccountSession(KEY, { accountId: 10, version: 1 }, now);
+// #274, criterion 2: a 12-hour session opened at the same moment as
+// ownerRemembered, its length then edited to 30 days. Its payload is the
+// remembered one's to the character (a test below holds that), so the
+// signature is the only thing that can refuse it.
+const editedTo30Days = withLength(await signAdminSession(KEY, { accountId: 10, version: 1, seconds: 43_200 }, THIRTEEN_HOURS_AGO), 2_592_000);
 const ADMIN_CASES = {
   'no cookie at all': {},
   'a tampered admin session': { admin: tamper(ownerSession) },
   'an admin session past its 12 hours': { admin: await signAdminSession(KEY, { accountId: 10, version: 1 }, now - ADMIN_SESSION_SECONDS) },
   'an admin session signed with another key': { admin: await signAdminSession(`${KEY}-other`, { accountId: 10, version: 1 }, now) },
-  // Signing out, a new password or a revoke has moved the account on.
+  // Signing out or a new password has moved the account on. #225's revoke
+  // adds 1 to the version too, but refuses an account holding the admin role
+  // (lib/people.js, revokeTeams), so it reaches an admin only after Remove
+  // admin has taken the role away, which the guard refuses on its own (the
+  // former admin, 13, below).
   'an admin session on a version the account no longer holds': { admin: await signAdminSession(KEY, { accountId: 10, version: 2 }, now) },
   'an admin session for an account that is no admin': { admin: await signAdminSession(KEY, { accountId: 1, version: 1 }, now) },
   'an admin session for an admin approved for no team': { admin: await signAdminSession(KEY, { accountId: 12, version: 1 }, now) },
@@ -426,7 +491,85 @@ const ADMIN_CASES = {
   // What opened the admin pages until #224: the owner's Access token. Nothing
   // has read one since (#226 deleted lib/access.js).
   'the owner\'s Access token': { token: accessToken(OWNER_EMAIL) },
+  // #274. Each is signed with the key, so it fails on the one thing it names.
+  // A remembered session lasts 30 days and not a second more (criterion 1).
+  'a remembered admin session past its 30 days': { admin: await signAdminSession(KEY, { accountId: 10, version: 1, seconds: 2_592_000 }, now - 2_592_000) },
+  // The length is signed (criterion 2): the edit leaves a signature over
+  // "…43200", which no longer matches.
+  'a 12-hour admin session with its length edited to 30 days': { admin: editedTo30Days },
+  // Signed, and an hour old, but a year long: the site issues 12 hours or 30
+  // days, so a cookie naming anything else came from a leaked key or a test.
+  'an admin session of a length the site never issues': { admin: await signAdminSession(KEY, { accountId: 10, version: 1, seconds: 31_536_000 }, now - 3600) },
+  // #224's cookie, signed with the key and an hour old, is no longer read:
+  // each admin holding one at the release signs in once more (the owner's
+  // choice at #274's pickup, over reading it as a 12-hour cookie).
+  'an admin session in #224\'s m1 format': { admin: signedWithKey(`m1.10.1.${now - 3600}`) },
+  // Sign out or a new password on another device ends a remembered phone's
+  // session, 13 hours in, as it ends a 12-hour one (criterion 3).
+  'a remembered admin session on a version the account no longer holds': { admin: await signAdminSession(KEY, { accountId: 10, version: 2, seconds: 2_592_000 }, THIRTEEN_HOURS_AGO) },
+  'a remembered admin session for an account that does not exist': { admin: await signAdminSession(KEY, { accountId: 3, version: 1, seconds: 2_592_000 }, THIRTEEN_HOURS_AGO) },
 };
+
+test('signedWithKey signs as the site does: over an m2 payload it gives signAdminSession\'s value, over an a1 payload signAccountSession\'s (#274)', async () => {
+  // So the m1 case above, and the re-signed values below, carry the
+  // signature the site would compute, and fail or pass for what they say.
+  const issued = now - 3600;
+  assert.equal(signedWithKey(`m2.10.1.${issued}.43200`), await signAdminSession(KEY, { accountId: 10, version: 1, seconds: 43_200 }, issued));
+  assert.equal(signedWithKey(`m2.10.1.${issued}.2592000`), await signAdminSession(KEY, { accountId: 10, version: 1, seconds: 2_592_000 }, issued));
+  assert.equal(signedWithKey(`a1.10.1.${issued}`), await signAccountSession(KEY, { accountId: 10, version: 1 }, issued));
+});
+
+test('#224\'s m1 cookie fails on its format alone: the same account, version and hour signed as m2 is read (#274)', async () => {
+  const issued = now - 3600;
+  const m2 = signedWithKey(`m2.10.1.${issued}.43200`);
+  assert.deepEqual(await readAdminSession(withCookie(ADMIN_COOKIE, m2), KEY), { accountId: 10, version: 1, issued, seconds: 43_200 });
+  assert.equal(await readAdminSession(withCookie(ADMIN_COOKIE, signedWithKey(`m1.10.1.${issued}`)), KEY), null);
+});
+
+test('the 12-hour session edited to 30 days differs from the remembered one in its signature alone, and only the remembered one is read (#274, criterion 2)', async () => {
+  // The edit kept everything a browser can see: the payload is the
+  // remembered session's to the character, and the signature is the
+  // 12-hour one's.
+  assert.equal(unsigned(editedTo30Days), `m2.10.1.${THIRTEEN_HOURS_AGO}.2592000`);
+  assert.equal(unsigned(editedTo30Days), unsigned(ownerRemembered));
+  assert.notEqual(signature(editedTo30Days), signature(ownerRemembered));
+  assert.deepEqual(
+    await readAdminSession(withCookie(ADMIN_COOKIE, ownerRemembered), KEY),
+    { accountId: 10, version: 1, issued: THIRTEEN_HOURS_AGO, seconds: 2_592_000 },
+  );
+  assert.equal(await readAdminSession(withCookie(ADMIN_COOKIE, editedTo30Days), KEY), null);
+});
+
+test('a cookie carried over to the other kind fails on its signature alone: re-signed with the key, the relabelled value passes its guard (#224, #274)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  // The owner's account cookie in the admin cookie's shape. Re-signed, it is
+  // a current 12-hour admin session for the owner; with the account
+  // cookie's signature, it is refused, by the read and by the whole chain.
+  const carriedAdmin = asAdminPayload(ownerAccount);
+  assert.equal(unsigned(carriedAdmin), `m2.10.1.${now}.43200`);
+  assert.equal(signature(carriedAdmin), signature(ownerAccount));
+  const resignedAdmin = signedWithKey(unsigned(carriedAdmin));
+  assert.deepEqual(await readAdminSession(withCookie(ADMIN_COOKIE, resignedAdmin), KEY), { accountId: 10, version: 1, issued: now, seconds: 43_200 });
+  assert.equal(await readAdminSession(withCookie(ADMIN_COOKIE, carriedAdmin), KEY), null);
+  const adminPassed = await call('admin/index.js', 'GET', undefined, undefined, SITE, undefined, resignedAdmin);
+  assert.equal(adminPassed.status, 200);
+  const adminRefused = await call('admin/index.js', 'GET', undefined, undefined, SITE, undefined, carriedAdmin);
+  assert.equal(adminRefused.status, 303);
+  assert.equal(adminRefused.headers.get('Location'), ADMIN_SIGN_IN);
+
+  // The owner's admin session in the account cookie's shape, the same way.
+  const carriedAccount = asAccountPayload(ownerSession);
+  assert.equal(unsigned(carriedAccount), `a1.10.1.${now}`);
+  assert.equal(signature(carriedAccount), signature(ownerSession));
+  const resignedAccount = signedWithKey(unsigned(carriedAccount));
+  assert.deepEqual(await readAccountSession(withCookie(ACCOUNT_COOKIE, resignedAccount), KEY), { accountId: 10, version: 1, issued: now });
+  assert.equal(await readAccountSession(withCookie(ACCOUNT_COOKIE, carriedAccount), KEY), null);
+  const accountPassed = await call('account/index.js', 'GET', undefined, undefined, SITE, resignedAccount);
+  assert.equal(accountPassed.status, 200);
+  const accountRefused = await call('account/index.js', 'GET', undefined, undefined, SITE, carriedAccount);
+  assert.equal(accountRefused.status, 303);
+  assert.equal(accountRefused.headers.get('Location'), '/sign-in');
+});
 
 for (const file of admin) {
   for (const method of await methodsOf(file)) {
@@ -444,14 +587,22 @@ for (const file of admin) {
         else assert.equal(set, null);
       });
     }
-    for (const [who, session] of [['the owner\'s', ownerSession], ['an admin\'s', adminSession]]) {
-      test(`${method} ${routePath(file)} with ${who} admin session: past the guard`, async () => {
+    for (const [held, session] of [
+      ['the owner\'s admin session', ownerSession],
+      ['an admin\'s admin session', adminSession],
+      // #274: what gives the remembered cases above their meaning. It is 13
+      // hours old, as they are; the edited-length case has its payload with
+      // another signature, and the version and missing-account cases differ
+      // from it in the version or the account alone.
+      ['the owner\'s remembered admin session, 13 hours old (#274, criterion 1)', ownerRemembered],
+    ]) {
+      test(`${method} ${routePath(file)} with ${held}: past the guard`, async () => {
         // The control: the refusals above come from the guard. A route with a
         // [param] in its path names a thing this harness never made (#156's
         // photo sizes), so its own 404 is the route answering, past the guard.
         const res = await call(file, method, undefined, undefined, SITE, undefined, session);
         const reached = res.status < 400 || (file.includes('[') && res.status === 404);
-        assert.ok(reached, `functions/${file} answered ${res.status} to ${who} session`);
+        assert.ok(reached, `functions/${file} answered ${res.status} to ${held}`);
         assert.notEqual(res.headers.get('Location'), ADMIN_SIGN_IN);
       });
     }
@@ -533,9 +684,10 @@ const ACCOUNT_CASES = {
   'only a parent\'s live upload cookie from before #226': { cookie: parentLive },
   'only a coach\'s live upload cookie from before #226': { cookie: coachLive },
   // #224: an admin session is not an account session, and an admin
-  // session's value under the account cookie's name fails its signature.
+  // session put in the account cookie's shape (asAccountPayload, above)
+  // fails on its signature alone, which a test above holds.
   'only the owner\'s admin session': { admin: ownerSession },
-  'the owner\'s admin session carried over as an account one': { account: ownerSession.replace(/^m1\./, 'a1.') },
+  'the owner\'s admin session carried over as an account one': { account: asAccountPayload(ownerSession) },
 };
 
 for (const file of account) {

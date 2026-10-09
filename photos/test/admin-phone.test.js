@@ -14,15 +14,23 @@
 // The pages are rendered by their own functions, over the D1 stand-in where
 // a query builds the list, and read as text, as the rest of the suite reads
 // them.
+//
+// Since #274 the same holds for two more places an admin's thumb lands. The
+// admin home's "Forget this phone" and Sign out are 48 px square, on a
+// 12-hour home and a remembered one alike. The code step's "Remember this
+// phone for 30 days" is a 48 px row on a phone, and the rule doing it wins
+// the cascade over the padded label every sign-in form's choices share,
+// while no other sign-in form's labels change.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { adminAlbumsPage, adminRemovalsPage, albumsNotice } from '../lib/admin-page.js';
+import { adminAlbumsPage, adminHome, adminRemovalsPage, albumsNotice } from '../lib/admin-page.js';
 import { allAlbums, createAlbum, setAlbumOpen } from '../lib/albums.js';
 import { adminPeoplePage, peopleNotice } from '../lib/people-page.js';
+import { codePage } from '../lib/sign-in-page.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -364,4 +372,108 @@ test('#271 criterion 3: the album create and rename forms have a native date pic
   assert.deepEqual(sized(CSS), []);
   // The control: a rule shrinking the date field is found.
   assert.equal(sized(`${CSS}\n.album-form input[type="date"] { font-size: var(--text-sm); }`).length, 1);
+});
+
+// ---- #274: the admin home's buttons, and the code step's remember row ----
+
+test('#274 criterion 4: Forget this phone and Sign out, the admin home\'s only buttons, are in the rule that makes them 48 px square, on a 12-hour home and a remembered one', () => {
+  const body = top('.admin-sign-in .button');
+  assert.ok(body, 'no top-level rule names .admin-sign-in .button');
+  for (const side of ['min-height', 'min-width']) {
+    assert.equal(declared(body, side), '--space-6', `.admin-sign-in .button ${side} is not --space-6`);
+  }
+  assert.equal(tokenPx('--space-6'), 48);
+  // <main> with the section that rule names taken out.
+  const outside = (html) => main(html).replace(/<section class="wrap admin-sign-in"[\s\S]*?<\/section>/, '');
+  // Something waiting on each to-do item, so each is drawn in its everyday class.
+  const summary = { waiting: 1, requests: 1, removals: 1, bytes: 0 };
+  for (const seconds of [43_200, 2_592_000]) {
+    const html = adminHome({ ...VIEWER, seconds }, summary);
+    assert.deepEqual([...main(html).matchAll(/<button\b[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]), ['Forget this phone', 'Sign out'], `at ${seconds} seconds`);
+    assert.doesNotMatch(outside(html), /<button\b/, `at ${seconds} seconds a button is drawn outside .admin-sign-in`);
+    // The rest wearing the button class are the to-do list's links, which
+    // .todo-item makes full width and at least 44 px tall (test/admin-page.test.js).
+    assert.deepEqual([...outside(html).matchAll(/<([a-z]+)\b[^>]*\sclass="(button\b[^"]*)"/g)].map(([, tag, classes]) => `${tag} ${classes}`),
+      ['a button todo-item', 'a button todo-item', 'a button todo-item'], `at ${seconds} seconds`);
+  }
+  // The control: a button planted outside that section is found.
+  const stray = adminHome(VIEWER, summary).replace('</main>', '<p><button type="button" class="button">Stray</button></p></main>');
+  assert.match(outside(stray), /<button\b/);
+});
+
+// Where each rule in `css` naming `selector` starts, as offsets into `css`.
+function starts(css, selector) {
+  const found = [];
+  let at = 0;
+  for (const chunk of css.split('}')) {
+    const [selectors, body] = chunk.split('{');
+    if (body !== undefined && selectors.split(',').map((s) => s.trim()).includes(selector)) found.push(at + selectors.search(/\S/));
+    at += chunk.length + 1;
+  }
+  return found;
+}
+const PHONE_BLOCK = /@media \(max-width: 30rem\) \{([\s\S]*?)\n\}/g;
+// Both as offsets into the uncommented sheet: the top level's with every
+// @media block blanked to spaces of its own length, and each phone block's
+// from where the block's body starts.
+const topStarts = (css, selector) => starts(uncommented(css).replace(/@media[^{]*\{[\s\S]*?\n\}/g, (m) => ' '.repeat(m.length)), selector);
+const phoneStarts = (css, selector) => [...uncommented(css).matchAll(PHONE_BLOCK)]
+  .flatMap((m) => starts(m[1], selector).map((at) => m.index + m[0].indexOf('{') + 1 + at));
+// Whether the remember row's phone rule comes after every top-level rule for
+// `.ask-form .choices label`, which it ties, so that it wins the cascade.
+const rememberWins = (css) => {
+  const own = phoneStarts(css, '.ask-form .code-remember label');
+  const shared = topStarts(css, '.ask-form .choices label');
+  assert.equal(own.length, 1, 'not exactly one phone rule for the remember row');
+  assert.ok(shared.length, 'no top-level .ask-form .choices label');
+  return own[0] > Math.max(...shared);
+};
+
+test('#274 criterion 1: on a phone the code step\'s "Remember this phone" row is 48 px tall, by a rule that follows and so beats the padded label every sign-in choice shares', () => {
+  const form = main(codePage()).match(/<form method="post" action="\/sign-in\/code" class="ask-form">[\s\S]*?<\/form>/)?.[0];
+  assert.ok(form, 'no code form with class ask-form');
+  // The tick box, unticked, inside its label, inside the row the rule names.
+  assert.match(form, /<p class="field choices code-remember">\s*<label><input type="checkbox" id="sign-in-remember" name="remember" value="yes" aria-describedby="sign-in-remember-hint"> Remember this phone for 30 days<\/label>/);
+  assert.equal((form.match(/type="checkbox"/g) ?? []).length, 1);
+  // The row: a flex row 48 px tall, the gap putting back the space a flex
+  // row drops between the box and its words.
+  const body = phone('.ask-form .code-remember label');
+  assert.match(body, /display: flex;/);
+  assert.match(body, /align-items: center;/);
+  assert.match(body, /margin-inline-end: 0;/);
+  assert.equal(declared(body, 'min-height'), '--space-6');
+  assert.equal(tokenPx('--space-6'), 48);
+  assert.ok(declared(body, 'gap'), 'no gap token on the remember row');
+  // The label also matches the top-level `.ask-form .choices label`, an
+  // inline-block with a right margin, at the same specificity (two classes
+  // and an element). The later of two ties wins, so the phone rule must
+  // come after it in the sheet.
+  assert.match(top('.ask-form .choices label'), /display: inline-block;/);
+  assert.equal(rememberWins(CSS), true);
+  // The control: the same block moved to the top of the sheet loses.
+  const flat = uncommented(CSS);
+  const own = [...flat.matchAll(PHONE_BLOCK)].find((m) => m[1].includes('.ask-form .code-remember label'));
+  assert.ok(own);
+  assert.equal(rememberWins(`${own[0]}\n${flat.slice(0, own.index)}${flat.slice(own.index + own[0].length)}`), false);
+});
+
+// Every selector inside a block for narrow screens, at any max-width, since
+// each of those applies on a phone.
+const narrowSelectors = (css) => [...uncommented(css).matchAll(/@media \(max-width: [^)]+\) \{([\s\S]*?)\n\}/g)]
+  .flatMap((m) => m[1].split('}').map((chunk) => chunk.split('{')).filter(([, body]) => body !== undefined))
+  .flatMap(([selectors]) => selectors.split(',').map((s) => s.trim()));
+
+test('#274 criterion 1: no other sign-in form\'s labels change on a phone, and only the code step draws the remember row', () => {
+  const askLabels = (css) => narrowSelectors(css).filter((s) => /\.ask-form\b/.test(s) && /\blabel\b/.test(s));
+  assert.deepEqual(askLabels(CSS), ['.ask-form .code-remember label']);
+  // Nor does a label rule scoped to no form: the only labels a narrow screen
+  // restyles are #271's album-form choices and this row.
+  assert.deepEqual(narrowSelectors(CSS).filter((s) => /\blabel\b/.test(s)).sort(), ['.album-form:not(.move) .choices label', '.ask-form .code-remember label']);
+  // The row's class is drawn once, by the code step, of every page lib/ renders.
+  const drawn = readdirSync(join(ROOT, 'lib')).filter((file) => file.endsWith('.js'))
+    .flatMap((file) => (read('lib', file).match(/class="[^"]*\bcode-remember\b/g) ?? []).map(() => file));
+  assert.deepEqual(drawn, ['sign-in-page.js']);
+  // The control: a phone rule restyling every sign-in choice is found.
+  const planted = `${CSS}\n@media (max-width: 30rem) {\n  .ask-form .choices label {\n    display: block;\n  }\n}\n`;
+  assert.deepEqual(askLabels(planted), ['.ask-form .code-remember label', '.ask-form .choices label']);
 });

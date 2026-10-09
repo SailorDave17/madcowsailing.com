@@ -13,8 +13,9 @@
  *            SESSION_SIGNING_KEY Pages secret every session cookie uses
  *            (README, The photo site, Secrets). The "a1." in front means no
  *            other cookie's payload can be one of these: the admin
- *            session's is m1. (lib/admin-session.js), and the retired
- *            upload cookie's was v1. or c1.
+ *            session's is m2. since #274 (lib/admin-session.js; #224's m1.
+ *            is no longer read), and the retired upload cookie's was v1. or
+ *            c1. lib/admin-session.js lists every prefix signed with the key.
  *
  * It is a cookie of its own, not a third shape of __Host-upload, so a phone
  * could hold both, and #226 retired the upload cookie without touching this

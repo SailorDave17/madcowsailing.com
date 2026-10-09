@@ -1,8 +1,9 @@
 /**
  * Every /admin page passes this guard first: no admin session, no page. Since
  * #224 that is an account holding the admin role, signed in with its
- * password and the code emailed for that sign-in, within its 12 hours
- * (lib/admin-session.js says what passes). It replaced #151's Cloudflare
+ * password and the code emailed for that sign-in, within the session's
+ * length: 12 hours, or 30 days on a phone the admin asked the site to
+ * remember (#274; lib/admin-session.js says what passes). It replaced #151's Cloudflare
  * Access token check. Then any method but GET and HEAD needs the site's own
  * Origin (#152, lib/origin.js), so a page elsewhere cannot post a form into
  * the admin area.
