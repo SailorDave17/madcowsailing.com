@@ -9,7 +9,10 @@
 // env must carry as SESSION_SIGNING_KEY. The guard then runs unchanged: it
 // checks the signature and the age, and reads the account's version, teams
 // and role from the database on every request.
-import { ADMIN_COOKIE, signAdminSession } from '../lib/admin-session.js';
+//
+// Since #274 a session has a length, signed into the cookie: 12 hours unless
+// a test names `seconds` (REMEMBERED_SESSION_SECONDS for a remembered phone).
+import { ADMIN_COOKIE, ADMIN_SESSION_SECONDS, signAdminSession } from '../lib/admin-session.js';
 
 export const ADMIN_KEY = 'test-session-signing-key-0123456789abcdef';
 export const ADMIN_EMAIL = 'owner@example.com';
@@ -29,11 +32,11 @@ export function seedAdmin(db, { email = ADMIN_EMAIL, name = ADMIN_NAME, role = '
   return Number(lastInsertRowid);
 }
 
-/** A Cookie header carrying a current admin session for `accountId`. */
-export async function adminCookieHeader(accountId, { key = ADMIN_KEY, version = 1, issued = Math.floor(Date.now() / 1000) } = {}) {
-  return `${ADMIN_COOKIE}=${await signAdminSession(key, { accountId, version }, issued)}`;
+/** A Cookie header carrying a current admin session for `accountId`, lasting `seconds`. */
+export async function adminCookieHeader(accountId, { key = ADMIN_KEY, version = 1, issued = Math.floor(Date.now() / 1000), seconds = ADMIN_SESSION_SECONDS } = {}) {
+  return `${ADMIN_COOKIE}=${await signAdminSession(key, { accountId, version, seconds }, issued)}`;
 }
 
 /** What a route behind the guard finds on context.data.admin, for a test calling a route directly. */
-export const adminData = (id = 1, { email = ADMIN_EMAIL, name = ADMIN_NAME, role = 'owner', issued = 1 } = {}) =>
-  ({ admin: { id, name, email, role, issued } });
+export const adminData = (id = 1, { email = ADMIN_EMAIL, name = ADMIN_NAME, role = 'owner', issued = 1, seconds = ADMIN_SESSION_SECONDS } = {}) =>
+  ({ admin: { id, name, email, role, issued, seconds } });

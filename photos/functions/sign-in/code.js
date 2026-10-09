@@ -8,6 +8,13 @@
  * GET's answers: the form, or, with no code cookie, a 303 to /sign-in, since
  * there is no sign-in here to finish. It reads nothing and writes nothing.
  *
+ * The form has one more field since #274: "Remember this phone for 30 days",
+ * a tick box, unticked by default. Ticked (remember=yes, and nothing else),
+ * the admin cookie lasts 30 days; unticked, 12 hours, as before
+ * (lib/admin-session.js, sessionLength). The length is signed into the
+ * cookie. Every page that shows the form again keeps the tick as it was
+ * sent (the owner's default at #274's pickup).
+ *
  * POST's answers:
  *
  *   303  to /account, with the account's session cookie and the admin's
@@ -45,7 +52,7 @@
  */
 import { accountCookie, sessionAccount } from '../../lib/account-session.js';
 import { CODE_FORM_BYTES, checkCode, clearCodeCookie, codeCookieToken, readCode, useCode } from '../../lib/admin-code.js';
-import { adminCookie, clearAdminCookie, sessionAdmin } from '../../lib/admin-session.js';
+import { adminCookie, clearAdminCookie, sessionAdmin, sessionLength } from '../../lib/admin-session.js';
 import { readFormParams } from '../../lib/form.js';
 import { sameOrigin } from '../../lib/origin.js';
 import { htmlResponse } from '../../lib/public-page.js';
@@ -80,16 +87,20 @@ export async function onRequestPost({ request, env }) {
   if (!sameOrigin(request)) {
     return Response.json({ error: 'origin' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
   }
+  // The form is read once, first, so each page showing it again keeps the
+  // tick as it was sent (#274).
+  const form = await readFormParams(request, CODE_FORM_BYTES);
+  const remember = form.get('remember') === 'yes';
   if (missing(env).length) {
     // Names what is missing by kind only; no value is ever printed.
     console.error('sign-in code: a binding or secret is not configured, so no code was checked:', missing(env).join(', '));
-    return page(codePage({ problem: 'closed' }), 503);
+    return page(codePage({ problem: 'closed', remember }), 503);
   }
   const token = codeCookieToken(request);
   if (!token) return ended();
 
-  const code = readCode((await readFormParams(request, CODE_FORM_BYTES)).get('code') ?? '');
-  if (code === null) return page(codePage({ errors: [{ field: 'code', message: 'Enter the 6 digits from the email.' }] }), 400);
+  const code = readCode(form.get('code') ?? '');
+  if (code === null) return page(codePage({ errors: [{ field: 'code', message: 'Enter the 6 digits from the email.' }], remember }), 400);
 
   const now = nowSeconds();
   let result;
@@ -108,10 +119,10 @@ export async function onRequestPost({ request, env }) {
     }
   } catch (err) {
     console.error('sign-in code: the database did not answer, so the code was not used:', err instanceof Error ? err.message : String(err));
-    return page(codePage({ problem: 'closed' }), 503);
+    return page(codePage({ problem: 'closed', remember }), 503);
   }
 
-  if (result.outcome === 'wrong' && result.triesLeft > 0) return page(codePage({ problem: 'wrong', triesLeft: result.triesLeft }), 403);
+  if (result.outcome === 'wrong' && result.triesLeft > 0) return page(codePage({ problem: 'wrong', triesLeft: result.triesLeft, remember }), 403);
   if (result.outcome === 'wrong') return ended({ outOfTries: true });
   // Not right; right for an account signed out, given a new password or
   // turned away since the password step; or spent by another post at once.
@@ -122,7 +133,9 @@ export async function onRequestPost({ request, env }) {
   const opened = { accountId: result.accountId, version: result.version };
   const headers = new Headers({ Location: '/account', 'Cache-Control': 'no-store' });
   headers.append('Set-Cookie', await accountCookie(env.SESSION_SIGNING_KEY, opened, now));
-  headers.append('Set-Cookie', admin ? await adminCookie(env.SESSION_SIGNING_KEY, opened, now) : clearAdminCookie());
+  headers.append('Set-Cookie', admin
+    ? await adminCookie(env.SESSION_SIGNING_KEY, { ...opened, seconds: sessionLength(remember) }, now)
+    : clearAdminCookie());
   headers.append('Set-Cookie', clearCodeCookie());
   return new Response(null, { status: 303, headers });
 }

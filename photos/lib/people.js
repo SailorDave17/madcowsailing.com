@@ -250,8 +250,10 @@ const ACTOR_IS = (role) => (role === 'owner'
  * session is renewed when its rights grow). Without it, a demotion only
  * suspended: someone made an admin again within 12 hours of their last admin
  * sign-in found a cookie from before the demotion open again, with no new
- * password and no new code. So the admin pages open, and sending resumes, at
- * their next sign-in, with its code. Throws when D1 fails.
+ * password and no new code. Since #274 a remembered phone's cookie lasts 30
+ * days, so without the bump that window would be 30 days wide. With it, the
+ * admin pages open, and sending resumes, at their next sign-in, with its
+ * code. Throws when D1 fails.
  */
 export async function promoteAdmin(db, { accountId, actorId, admin, now }) {
   const results = await db.batch([

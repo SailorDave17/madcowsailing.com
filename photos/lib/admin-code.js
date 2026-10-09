@@ -53,7 +53,8 @@ const DAY_SECONDS = 24 * 60 * 60;
 
 export const CODE_COOKIE = '__Host-sign-in-code';
 
-// The code form holds six digits, and room for the spaces a copy may bring.
+// The code form holds six digits, and room for the spaces a copy may bring,
+// and since #274 the "Remember this phone" tick (remember=yes).
 export const CODE_FORM_BYTES = 1024;
 
 const cookieLine = (value, maxAge) =>
