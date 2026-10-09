@@ -11,7 +11,7 @@
  *   POST /remove                 the no-JavaScript confirmation page
  *                                (functions/remove.js); changes nothing
  *   POST /api/remove             the takedown itself (functions/api/remove.js)
- *   GET  /admin/removals         the hidden photos, for an admin
+ *   GET  /admin/removals         the hidden photos and clips, for an admin
  *   POST /api/admin/removals/restore   "Put it back"
  *   POST /api/admin/removals/delete    "Delete permanently"
  *
@@ -19,7 +19,8 @@
  * 'approved' (lib/public.js), so its image routes answer 404 from the next
  * request and its album page no longer lists it. Its row and its three
  * objects stay, and the admin image route still serves it (lib/queue.js,
- * storedPhoto), so the removals page can show it.
+ * storedPhoto), so the removals page can show it. A hidden clip's row and
+ * its one object stay too, and the admin clip route plays it (storedClip).
  *
  * "Put it back" keeps hidden_at and the note on the row, as a record (owner,
  * at #158's pickup, 2026-09-30). Not chosen: clearing both. A later takedown
@@ -32,10 +33,15 @@
  * (WAITING_WHEN_HIDDEN), and "Put it back" sends it back to the queue rather
  * than making it public: /policy says every photo is checked first.
  *
- * Clips wait for #286, as every public statement does: every statement here
- * names kind = 'photo'. #198 brought them into the approval queue only.
+ * Since #310 Hide all hides an account's clips too, waiting or approved, so
+ * the list, "Put it back" and "Delete permanently" take a clip as they take
+ * a photo, held to the same placeholder, and a clip's delete takes its one
+ * object. The takedown itself, removablePhoto and requestRemoval, still names
+ * kind = 'photo': nothing public shows a clip to take down until #286. At
+ * #198's pickup the owner kept Hide all, and so this list, to photos; the
+ * owner reversed that on 2026-10-08, splitting #286.
  */
-import { photoObjectKeys } from './photos.js';
+import { objectKeys } from './queue.js';
 
 // 10 takedowns an hour from one address, counting only those that hid a
 // photo: the owner's choice at #158's pickup (2026-09-30), confirming the
@@ -248,45 +254,61 @@ export async function clearExpiredTakedowns(db, now) {
 }
 
 /**
- * Every hidden photo, the oldest takedown first, with its album, when it was
- * hidden and the note, for /admin/removals. One query, by the photos_by_state
- * index; the hidden rows are few, so the sort by hidden_at is cheap. `team`
- * keeps only the photos in that team's albums (#227), for the page's team
- * filter; null keeps every team's. `accountName` is the name of the account
- * that sent it (#223, criterion 3, D17), for the admins alone, or null.
- * `waiting` says it was hidden while still waiting for approval (#225), so
- * "Put it back" returns it to the queue.
+ * Every hidden photo and, since #310, every hidden clip, the oldest takedown
+ * first, with its album, when it was hidden and the note, for
+ * /admin/removals. One query, by the photos_by_state index; the hidden rows
+ * are few, so the sort by hidden_at is cheap. `team` keeps only the rows in
+ * that team's albums (#227), for the page's team filter; null keeps every
+ * team's. `accountName` is the name of the account that sent it (#223,
+ * criterion 3, D17), for the admins alone, or null, and `sender` who sent it
+ * when no account names it (#310: until then this list never read it, so a
+ * coach's photo from a deleted account said nothing). `waiting` says it was
+ * hidden while still waiting for approval (#225), so "Put it back" returns it
+ * to the queue. `kind` says which it is: a photo carries its grid size, a
+ * clip its frame size and how long it runs, in milliseconds, as the queue's
+ * rows do (lib/queue.js, waitingBatches). The list keeps its name, since its
+ * callers read it. A clip is hidden only once checked: 0016 lets one leave
+ * `uploading` only for `pending`.
  */
 export async function hiddenPhotos(db, team = null) {
   const statement = db.prepare(
-    'SELECT p.id, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, p.approved_at, ' +
+    'SELECT p.id, p.kind, p.sender, p.caption, p.hidden_at, p.hidden_note, p.grid_width, p.grid_height, ' +
+    'p.width, p.height, p.duration_ms, p.approved_at, ' +
     'a.title AS album_title, a.address AS album_address, a.team AS album_team, acc.name AS account_name ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
     'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
-    "WHERE p.state = 'hidden' AND p.kind = 'photo' " +
+    "WHERE p.state = 'hidden' " +
     (team === null ? '' : 'AND a.team = ? ') +
     'ORDER BY p.hidden_at, p.id',
   );
   const { results } = await (team === null ? statement : statement.bind(team)).all();
-  return results.map((row) => ({
-    id: row.id,
-    caption: row.caption,
-    hiddenAt: row.hidden_at,
-    note: row.hidden_note,
-    waiting: row.approved_at === WAITING_WHEN_HIDDEN,
-    accountName: row.account_name,
-    grid: { width: row.grid_width, height: row.grid_height },
-    album: { title: row.album_title, address: row.album_address, team: row.album_team },
-  }));
+  return results.map((row) => {
+    const common = {
+      id: row.id,
+      kind: row.kind,
+      sender: row.sender,
+      caption: row.caption,
+      hiddenAt: row.hidden_at,
+      note: row.hidden_note,
+      waiting: row.approved_at === WAITING_WHEN_HIDDEN,
+      accountName: row.account_name,
+      album: { title: row.album_title, address: row.album_address, team: row.album_team },
+    };
+    return row.kind === 'clip'
+      ? { ...common, width: row.width, height: row.height, durationMs: row.duration_ms }
+      : { ...common, grid: { width: row.grid_width, height: row.grid_height } };
+  });
 }
 
 /**
- * "Put it back": make the hidden photo `id` approved again, or, for one hidden
- * while it was still waiting (#225), waiting again, back in the queue with no
- * approval time. Answers the state it went back to, 'approved' or 'pending',
- * or null when it was not hidden. hidden_at and the note stay on the row
- * (owner, at pickup). An approved photo's approved_at is its first approval
- * and is not moved.
+ * "Put it back": make the hidden photo or clip `id` approved again, or, for
+ * one hidden while it was still waiting (#225), waiting again, back in the
+ * queue with no approval time. Answers { state, kind }: the state it went
+ * back to, 'approved' or 'pending', and whether it is a 'photo' or a 'clip'
+ * (#310), or null when it was not hidden. hidden_at and the note stay on the
+ * row (owner, at pickup). An approved one's approved_at is its first approval
+ * and is not moved. An approved clip put back is shown nowhere public until
+ * #286, as any approved clip is.
  */
 export async function restorePhoto(db, id) {
   if (id === null) return null;
@@ -294,37 +316,42 @@ export async function restorePhoto(db, id) {
     .prepare(
       `UPDATE photos SET state = CASE WHEN approved_at = ${WAITING_WHEN_HIDDEN} THEN 'pending' ELSE 'approved' END, ` +
       `approved_at = CASE WHEN approved_at = ${WAITING_WHEN_HIDDEN} THEN NULL ELSE approved_at END ` +
-      "WHERE id = ? AND kind = 'photo' AND state = 'hidden' RETURNING state",
+      "WHERE id = ? AND state = 'hidden' RETURNING state, kind",
     )
     .bind(id)
     .first();
-  return row === null ? null : row.state;
+  return row === null ? null : { state: row.state, kind: row.kind };
 }
 
 /**
- * "Delete permanently": delete the hidden photo `id`'s row, then its three
- * objects. Returns { deleted, kept }: whether the row went, and whether the
- * bucket refused to delete the objects.
+ * "Delete permanently": delete the hidden photo or clip `id`'s row, then its
+ * objects, a photo's three or a clip's one (#310). Returns { deleted, kept,
+ * kind }: whether the row went, whether the bucket refused to delete the
+ * objects, and which kind it was ('photo' or 'clip', null when nothing was
+ * deleted). Only a hidden row is deleted, so a clip still uploading, never
+ * hidden, cannot be reached here, and its open upload is left to
+ * clearStaleClips.
  *
  * Row first, as a reject does (lib/queue.js), so no row ever names objects
  * that are gone. A delete the bucket refuses leaves objects no row names, so
- * the log names the photo's photos/<key>/ prefix in the words the upload and
- * the queue use, and README.md says how to delete them by it.
+ * the log names the row's photos/<key>/ prefix in the words the upload and
+ * the queue use, and README.md says how to delete them by it. A clip's
+ * object sits under the same prefix.
  */
 export async function deletePhoto(db, bucket, id) {
-  if (id === null) return { deleted: false, kept: false };
+  if (id === null) return { deleted: false, kept: false, kind: null };
   const row = await db
-    .prepare("DELETE FROM photos WHERE id = ? AND kind = 'photo' AND state = 'hidden' RETURNING media_key")
+    .prepare("DELETE FROM photos WHERE id = ? AND state = 'hidden' RETURNING media_key, kind")
     .bind(id)
     .first();
-  if (row === null) return { deleted: false, kept: false };
+  if (row === null) return { deleted: false, kept: false, kind: null };
   const mediaKey = row.media_key;
   try {
-    await bucket.delete(Object.values(photoObjectKeys(mediaKey)));
-    return { deleted: true, kept: false };
+    await bucket.delete(objectKeys(row));
+    return { deleted: true, kept: false, kind: row.kind };
   } catch (err) {
     console.error(`removals: bucket did not delete photos/${mediaKey}/ after a delete:`, err instanceof Error ? err.message : String(err));
-    return { deleted: true, kept: true };
+    return { deleted: true, kept: true, kind: row.kind };
   }
 }
 

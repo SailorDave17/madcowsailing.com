@@ -322,8 +322,10 @@ test('the lists sort each account by where its teams stand, oldest request first
   assert.deepEqual(lists.waiting[2], {
     id: mixed, name: 'B Mixed', email: 'b@example.org', role: 'parent', adminRole: null, note: null, requestedAt: NOW + 1,
     teams: [{ team: 'hoover-jrt', name: 'Hoover JRT', state: 'requested' }, { team: 'cohssa', name: 'COHSSA', state: 'approved' }],
-    // #225: the photos "Hide all their photos" would hide.
+    // #225: the photos "Hide all their photos" would hide, and since #310 the
+    // clips it hides with them, each kind counted apart.
     photos: { waiting: 0, approved: 0 },
+    clips: { waiting: 0, approved: 0 },
   });
   // #224: an admin is listed by where their teams stand too, holding the role.
   db.sqlite.prepare("UPDATE accounts SET admin_role = 'owner' WHERE id = ?").run(approved);
@@ -679,7 +681,9 @@ test('the empty page says so in each list, and the log that nothing is logged ye
   assert.match(html, /Nobody is approved yet\./);
   assert.match(html, /Nobody is revoked\./);
   assert.match(html, /Nobody is turned down\./);
-  assert.match(html, /Nothing is logged yet\./);
+  // Since #310 a hidden set holds clips too, and the log says so before it
+  // holds one.
+  assert.match(html, /Nothing is logged yet\. Every approval, turn-down, role change, link sent, admin made or removed, revoke, hidden set of photos and clips, deleted account and address let ask again will be\./);
   assert.doesNotMatch(html, /<ul class="admin-log">/);
 });
 
@@ -701,47 +705,136 @@ test('each label, box and select carries its own account\'s id, so no two forms 
   assert.equal(new Set(ids).size, ids.length, 'an id repeats');
 });
 
-test('#198: the Hide all box counts photos alone and says their waiting clips are not hidden but rejected in the queue, which is where Hide all leaves them', async () => {
-  // Owner, at #198's pickup: Hide all stays photo-only until #286 brings
-  // clips into it and into removals.
-  const db = d1();
-  const id = await ask(db, { name: 'Pat Parent', email: 'pat@example.org', teams: ['hoover-jrt'] });
-  await approveTeams(db, { accountId: id, teams: ['hoover-jrt'], role: 'parent', admin: ADMIN, now: NOW });
+// One row account `account` sent into album `albumId`, as the upload routes
+// leave it for an account (0012's placeholder zeros), under a media key of
+// its own: a photo waiting or public, or a clip waiting, approved or still
+// uploading. A clip still uploading names its upload and nothing the
+// server's check reads yet (0005's CHECKs; 0016). Answers its id.
+let mediaKeys = 0;
+function sent(db, albumId, account, { kind, state }) {
+  const mediaKey = (++mediaKeys).toString(16).padStart(32, '0');
+  const approvedAt = state === 'approved' ? NOW : null;
+  if (kind === 'photo') {
+    return Number(db.sqlite.prepare(
+      'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+      'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, approved_at) ' +
+      "VALUES (?, 'photo', ?, ?, 'b', 'parent', 0, 0, ?, ?, ?, 2560, 1920, 480, 360, 1600, 1200, 1000, ?)",
+    ).run(albumId, state, mediaKey, account, NOW, NOW, approvedAt).lastInsertRowid);
+  }
+  const read = state !== 'uploading';
+  return Number(db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, bytes, content_type, duration_ms, upload_id, approved_at) ' +
+    "VALUES (?, 'clip', ?, ?, 'b', 'parent', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(albumId, state, mediaKey, account, read ? NOW : null, NOW, read ? 1920 : null, read ? 1080 : null, read ? 5000 : null,
+    read ? 'video/mp4' : null, read ? 30000 : null, read ? null : `upload-${mediaKey}`, approvedAt).lastInsertRowid);
+}
+
+// A person's hide form, its box's words, its button, and their disclosure's
+// summary, from a rendered page; undefined where there is none.
+const hideFormOf = (html, id) => item(html, id)?.match(/<form method="post" action="\/api\/admin\/people\/hide"[\s\S]*?<\/form>/)?.[0];
+const hideBox = (html, id) => hideFormOf(html, id)?.match(/<input type="checkbox" name="confirm" value="hide" required> ([^<]*)<\/label>/)?.[1];
+const hideButton = (html, id) => hideFormOf(html, id)?.match(/<button [^>]*>[^<]*<\/button>/)?.[0];
+const summaryOf = (html, id) => item(html, id)?.match(/<summary>([^<]*)<\/summary>/)?.[1];
+
+test('Hide all names what the person sent, photos, clips or both, counting a clip waiting or approved and never one still uploading, and reads as before for a person who sent no clip (#310, criterion 3)', async () => {
+  // The owner, at #310's pickup, reversing #198's photo-only Hide all: the
+  // box, the button and the disclosure name the kinds the person sent; an
+  // approved clip is "approved", never "public", since nothing public shows
+  // a clip until #286; and a person who sent no clip reads exactly as before
+  // clips (#198's rule: photo-only words change only where a clip makes them
+  // wrong). The hint #198 put under the box, that their waiting clips were
+  // not hidden, went with the choice it explained.
+  const { db } = await seeded();
   const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, NOW);
   const albumId = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
-  // A waiting photo and a waiting clip, both theirs, as the upload routes
-  // leave them for an account (0012's placeholder zeros).
-  db.sqlite.prepare(
-    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
-    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes) ' +
-    "VALUES (?, 'photo', 'pending', ?, 'b', 'parent', 0, 0, ?, ?, ?, 2560, 1920, 480, 360, 1600, 1200, 1000)",
-  ).run(albumId, '1'.padStart(32, '0'), id, NOW, NOW);
-  db.sqlite.prepare(
-    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
-    'captured_at, sent_at, width, height, bytes, content_type, duration_ms) ' +
-    "VALUES (?, 'clip', 'pending', ?, 'b', 'parent', 0, 0, ?, ?, ?, 1920, 1080, 5000, 'video/mp4', 30000)",
-  ).run(albumId, '2'.padStart(32, '0'), id, NOW, NOW);
+  const person = async (name, email) => {
+    const id = await ask(db, { name, email, teams: ['hoover-jrt'] });
+    await approveTeams(db, { accountId: id, teams: ['hoover-jrt'], role: 'parent', admin: ADMIN, now: NOW });
+    return id;
+  };
+  const ids = {
+    clips: await person('Cleo Clips', 'cleo@example.org'),
+    both: await person('Bo Both', 'bo@example.org'),
+    photos: await person('Pat Photos', 'pat@example.org'),
+  };
+  // Cleo's only sends are clips: two waiting, one approved, and one still
+  // uploading, the control, which no count includes and Hide all leaves. Each
+  // count differs from every other, so a count read into the wrong place
+  // shows (#310's review: with one of each, swapping a clip's waiting and
+  // approved counts left every test green).
+  sent(db, albumId, ids.clips, { kind: 'clip', state: 'pending' });
+  sent(db, albumId, ids.clips, { kind: 'clip', state: 'pending' });
+  sent(db, albumId, ids.clips, { kind: 'clip', state: 'approved' });
+  const uploading = sent(db, albumId, ids.clips, { kind: 'clip', state: 'uploading' });
+  // Bo: one photo waiting and two public, three clips waiting and one approved.
+  for (const [kind, state, n] of [['photo', 'pending', 1], ['photo', 'approved', 2], ['clip', 'pending', 3], ['clip', 'approved', 1]]) {
+    for (let i = 0; i < n; i += 1) sent(db, albumId, ids.both, { kind, state });
+  }
+  sent(db, albumId, ids.photos, { kind: 'photo', state: 'pending' });
+  sent(db, albumId, ids.photos, { kind: 'photo', state: 'approved' });
+
+  // peopleLists counts each kind apart, and a clip still uploading in neither.
+  const lists = await peopleLists(db);
+  const counts = (id) => (({ photos, clips }) => ({ photos, clips }))(lists.approved.find((p) => p.id === id));
+  assert.deepEqual(counts(ids.clips), { photos: { waiting: 0, approved: 0 }, clips: { waiting: 2, approved: 1 } });
+  assert.deepEqual(counts(ids.both), { photos: { waiting: 1, approved: 2 }, clips: { waiting: 3, approved: 1 } });
+  assert.deepEqual(counts(ids.photos), { photos: { waiting: 1, approved: 1 }, clips: { waiting: 0, approved: 0 } });
+
   const html = await render(db);
-  const person = item(html, id);
-  const form = person?.match(/<form method="post" action="\/api\/admin\/people\/hide"[\s\S]*?<\/form>/)?.[0];
-  assert.ok(form, 'no hide form');
-  // The box counts the photo alone, as Hide all hides photos alone.
-  assert.match(form, /> Hide the 1 photo Pat Parent sent \(1 waiting\)<\/label>/);
-  // Under it, what becomes of their waiting clips and where they are
-  // rejected, which the button's description carries too.
-  assert.match(form, new RegExp(`</label></p>\\s*<p class="hint" id="hide-${id}-clips">Their waiting clips are not hidden\\. Reject those in <a href="/admin/queue">the queue</a>\\.</p>`));
-  assert.match(form, new RegExp(`aria-describedby="hide-${id}-clips">Hide all their photos</button>`));
-  // The control: the sentence is the hide form's own, once, and no other
-  // form under the person carries it.
-  assert.equal(person.match(/Their waiting clips are not hidden/g).length, 1);
-  assert.doesNotMatch(person.replace(form, ''), /hide-\d+-clips/);
-  // What it says holds: Hide all hides the photo and leaves the clip waiting.
-  assert.deepEqual(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 10 }), { hidden: 1, waiting: 1 });
-  assert.deepEqual(rows(db, 'SELECT kind, state FROM photos ORDER BY id'), [{ kind: 'photo', state: 'hidden' }, { kind: 'clip', state: 'pending' }]);
-  // The page with it passes the photo site's config, its ids unique.
+  // Only clips: the box counts the three checked clips, and the button and the
+  // summary name clips alone.
+  assert.equal(hideBox(html, ids.clips), 'Hide the 3 clips Cleo Clips sent (1 approved, 2 waiting)');
+  assert.equal(hideButton(html, ids.clips), '<button type="submit" class="button button-quiet" aria-label="Hide all their clips: Cleo Clips">Hide all their clips</button>');
+  assert.equal(summaryOf(html, ids.clips), 'Revoke, hide their clips or delete');
+  // Both kinds: each named, a public photo apart from an approved clip.
+  assert.equal(hideBox(html, ids.both), 'Hide the 3 photos and 4 clips Bo Both sent (2 public photos, 1 approved clip, 4 waiting)');
+  assert.equal(hideButton(html, ids.both), '<button type="submit" class="button button-quiet" aria-label="Hide all their photos and clips: Bo Both">Hide all their photos and clips</button>');
+  assert.equal(summaryOf(html, ids.both), 'Revoke, hide their photos and clips or delete');
+  // No clip: the words from before #310, written out as they were then.
+  assert.equal(hideBox(html, ids.photos), 'Hide the 2 photos Pat Photos sent (1 public, 1 waiting)');
+  assert.equal(hideButton(html, ids.photos), '<button type="submit" class="button button-quiet" aria-label="Hide all their photos: Pat Photos">Hide all their photos</button>');
+  assert.equal(summaryOf(html, ids.photos), 'Revoke, hide their photos or delete');
+  // The Approved section says what Hide all takes, clips among it.
+  assert.match(section(html, 'people-approved'), /"Hide all their photos", or their clips when they sent any, takes down\s+every photo they sent, waiting or public, and every clip, waiting or\s+approved, to\s+<a href="\/admin\/removals">Removal requests<\/a>\./);
+
+  // The hint and its id are gone from every person, and no button points at
+  // it. Read over each of the seven people seeded() and this test made, so a
+  // page that drew none could not pass.
+  const people = [...html.matchAll(/<li class="person" id="person-(\d+)">/g)].map((m) => item(html, m[1]));
+  assert.equal(people.length, 7);
+  for (const one of people) {
+    assert.ok(one, 'a person\'s item did not end where item() expects');
+    assert.doesNotMatch(one, /Their waiting clips are not hidden|Reject those in|hide-\d+-clips|aria-describedby/);
+  }
+  // The page passes the photo site's config, so no dangling idref came back,
+  // and its ids are unique.
   assert.deepEqual(problems(await validate(html)), []);
-  const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(new Set(ids).size, ids.length, 'an id repeats');
+  const pageIds = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(pageIds).size, pageIds.length, 'an id repeats');
+
+  // What the page says holds: Hide all takes every checked clip with the
+  // photos, leaves the clip still uploading as it was, and logs each kind it
+  // took, a press that took no clip in the sentence from before #310.
+  assert.deepEqual(await hidePhotos(db, { accountId: ids.clips, admin: ADMIN, now: NOW + 10 }), { hidden: 3, waiting: 2, clips: 3 });
+  assert.deepEqual(await hidePhotos(db, { accountId: ids.both, admin: ADMIN, now: NOW + 20 }), { hidden: 7, waiting: 4, clips: 4 });
+  assert.deepEqual(await hidePhotos(db, { accountId: ids.photos, admin: ADMIN, now: NOW + 30 }), { hidden: 2, waiting: 1, clips: 0 });
+  assert.deepEqual(rows(db, 'SELECT id, kind, state FROM photos WHERE account_id = ? ORDER BY id', ids.clips).map(({ id, kind, state }) => [id === uploading, kind, state]), [
+    [false, 'clip', 'hidden'], [false, 'clip', 'hidden'], [false, 'clip', 'hidden'], [true, 'clip', 'uploading'],
+  ]);
+  const after = await render(db);
+  const log = [...section(after, 'admin-log').matchAll(/<li><time [^>]+>[^<]+<\/time>: ([^<]*)<\/li>/g)].map((m) => m[1]);
+  assert.deepEqual(log.slice(0, 3), [
+    'owner@example.com hid every photo Pat Photos (pat@example.org) sent, 2 photos.',
+    'owner@example.com hid every photo and clip Bo Both (bo@example.org) sent, 3 photos and 4 clips.',
+    'owner@example.com hid every clip Cleo Clips (cleo@example.org) sent, 3 clips.',
+  ]);
+  // Nothing is left for a second press to hide: Cleo's clip still uploading
+  // is counted nowhere, so her box goes with the rest.
+  for (const id of Object.values(ids)) {
+    assert.equal(hideFormOf(after, id), undefined, `person ${id} still has a hide form`);
+    assert.equal(summaryOf(after, id), 'Revoke or delete');
+  }
 });
 
 // The rules in a stylesheet whose selector list names `selector`, as their
@@ -765,7 +858,7 @@ test('a name with no spaces wraps rather than widening the page past 320 px (#22
 test('a team key is escaped in its box\'s value, like everything else on the page (#221\'s security audit)', () => {
   const person = {
     id: 7, name: 'Jane', email: 'j@example.org', role: 'parent', adminRole: null, note: null, requestedAt: NOW,
-    teams: [{ team: 'x"><b>y', name: 'X', state: 'requested' }], photos: { waiting: 0, approved: 0 },
+    teams: [{ team: 'x"><b>y', name: 'X', state: 'requested' }], photos: { waiting: 0, approved: 0 }, clips: { waiting: 0, approved: 0 },
   };
   const html = adminPeoplePage({ lists: { ...NO_ONE, waiting: [person] }, log: { entries: [], total: 0 }, viewer: VIEWER });
   assert.match(html, /value="x&quot;&gt;&lt;b&gt;y" checked>/);

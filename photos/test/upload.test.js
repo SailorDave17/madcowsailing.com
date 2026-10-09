@@ -1003,7 +1003,9 @@ test('an album holding a photo sent through this route is not deleted, and the a
   // #198's review): one still being sent, one waiting, one approved and one
   // hidden, each in the shape migrations 0005 and 0016 hold. The landing
   // names the approved one and the one being sent, the two no admin page
-  // shows that the site can make: nothing hides a clip until #286.
+  // shows. A waiting clip is in the queue, and a hidden one needs no word
+  // either: since #310 Hide all takes an account's clips to /admin/removals,
+  // which lists them, to be put back or deleted there.
   const { id: albumId } = env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address);
   const clip = env.DB.sqlite.prepare(
     'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, captured_at, sent_at, ' +

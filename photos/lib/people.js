@@ -19,7 +19,8 @@
  *     and address, so it still names them after their account is deleted, as
  *     /policy says.
  *   - Since #225 an admin revokes an approved person for a team or every team
- *     (revokeTeams), hides every photo an account sent (hidePhotos), deletes
+ *     (revokeTeams), hides every photo an account sent, and since #310 every
+ *     clip (hidePhotos), deletes
  *     an account once a reply from its own address confirms the request
  *     (deleteAccount), and lets a deleted revoked account's address ask again
  *     (allowAddress). Re-approving a revoked team is approveTeams'. Revoke and
@@ -81,10 +82,12 @@ export const teamsText = (teams) => teams.map((team) => TEAM_NAMES[team]).join('
 /**
  * Every account, as the page lists it: { id, name, email, role, adminRole,
  * note, requestedAt, teams: [{ team, name, state }] in TEAMS order, photos:
- * { waiting, approved } }, sorted into the four lists the page shows, each in
- * the order the requests arrived. adminRole is 'admin', 'owner' or null
- * (#224). photos counts the photos the account sent that are waiting or
- * public, the ones "Hide all their photos" would hide (#225).
+ * { waiting, approved }, clips: { waiting, approved } }, sorted into the four
+ * lists the page shows, each in the order the requests arrived. adminRole is
+ * 'admin', 'owner' or null (#224). photos counts the photos the account sent
+ * that are waiting or public, the ones "Hide all" would hide (#225), and
+ * clips its clips that are waiting or approved, which it hides too since
+ * #310. A clip still uploading is neither, so it is never counted.
  *
  *   waiting     a team still waits for an admin
  *   approved    nothing waits, and a team is approved
@@ -99,11 +102,16 @@ export async function peopleLists(db) {
       'FROM accounts AS a JOIN account_teams AS t ON t.account_id = a.id ORDER BY a.requested_at, a.id',
     ).all(),
     db.prepare(
-      "SELECT account_id, SUM(state = 'pending') AS waiting, SUM(state = 'approved') AS approved FROM photos " +
-      "WHERE account_id IS NOT NULL AND kind = 'photo' AND state IN ('pending', 'approved') GROUP BY account_id",
+      "SELECT account_id, SUM(kind = 'photo' AND state = 'pending') AS waiting, SUM(kind = 'photo' AND state = 'approved') AS approved, " +
+      "SUM(kind = 'clip' AND state = 'pending') AS waiting_clips, SUM(kind = 'clip' AND state = 'approved') AS approved_clips FROM photos " +
+      "WHERE account_id IS NOT NULL AND state IN ('pending', 'approved') GROUP BY account_id",
     ).all(),
   ]);
-  const photos = new Map(sent.map((row) => [row.account_id, { waiting: row.waiting, approved: row.approved }]));
+  const counts = new Map(sent.map((row) => [row.account_id, {
+    photos: { waiting: row.waiting, approved: row.approved },
+    clips: { waiting: row.waiting_clips, approved: row.approved_clips },
+  }]));
+  const none = () => ({ photos: { waiting: 0, approved: 0 }, clips: { waiting: 0, approved: 0 } });
   const byId = new Map();
   for (const row of results) {
     if (!byId.has(row.id)) {
@@ -116,7 +124,7 @@ export async function peopleLists(db) {
         note: row.note,
         requestedAt: row.requested_at,
         teams: [],
-        photos: photos.get(row.id) ?? { waiting: 0, approved: 0 },
+        ...(counts.get(row.id) ?? none()),
       });
     }
     byId.get(row.id).teams.push({ team: row.team, name: TEAM_NAMES[row.team] ?? row.team, state: row.state });
@@ -336,8 +344,8 @@ const REVOCABLE = (column) => `EXISTS (SELECT 1 FROM account_teams AS x WHERE x.
  *   4. the teams to `revoked`, which takes them out of the share page's
  *      albums at the next request (criterion 1).
  *
- * Nothing touches the photos the account sent: the approved ones stay public
- * (criterion 3, D17). Hiding them is hidePhotos, a separate press.
+ * Nothing touches the photos or clips the account sent: the approved photos
+ * stay public (criterion 3, D17). Hiding them is hidePhotos, a separate press.
  */
 export async function revokeTeams(db, { accountId, teams, hashKey, admin, now }) {
   if (typeof hashKey !== 'string' || hashKey === '') throw new Error('revokeTeams: no hashKey');
@@ -371,49 +379,67 @@ export async function revokeTeams(db, { accountId, teams, hashKey, admin, now })
   return revoked.length ? TEAM_KEYS.filter((team) => revoked.includes(team)) : null;
 }
 
-// The photos "Hide all their photos" takes down: every one the account sent
-// that is waiting or public. A clip waits for #286, as every public and
-// removals statement does (owner, at #198's pickup): its waiting clips stay
-// in the queue, which /admin/people's box says.
-const HIDEABLE = "account_id = ? AND kind = 'photo' AND state IN ('pending', 'approved')";
+// What "Hide all" takes down: everything the account sent that is waiting or
+// approved, its photos and, since #310, its clips. At #198's pickup the owner
+// kept Hide all to photos until #286; on 2026-10-08, splitting #286, the owner
+// reversed that, so a person an admin hides has no clip left waiting, or
+// approved for when #286 makes approved clips public. The state is the whole
+// test: a clip still `uploading` is neither waiting nor approved, so it is
+// left alone, and 0016 would refuse hiding one anyway, aborting the batch.
+const HIDEABLE = "account_id = ? AND state IN ('pending', 'approved')";
+
+// The log entry's detail, from a count of each kind: "3 photos", "1 clip",
+// "2 photos and 1 clip". A kind at 0 is left out, so an entry that hid only
+// photos reads as entries did before clips (#198's rule for counts).
+const NAMED = (n, one, many) => `CASE ${n} WHEN 0 THEN '' WHEN 1 THEN '1 ${one}' ELSE ${n} || ' ${many}' END`;
+const HIDE_DETAIL = `${NAMED('c.photos', 'photo', 'photos')} || ` +
+  "CASE WHEN c.photos > 0 AND c.clips > 0 THEN ' and ' ELSE '' END || " +
+  NAMED('c.clips', 'clip', 'clips');
 
 /**
- * Hide every photo account `accountId` sent, waiting or public, as the admin
- * whose address is `admin`, at `now` (#225, criterion 4; D17). Answers {
- * hidden, waiting }, how many it hid and how many of those were waiting, or
- * null when there was none to hide or the account is gone, and then nothing
- * changed. Throws when D1 fails.
+ * Hide every photo and clip account `accountId` sent, waiting or approved, as
+ * the admin whose address is `admin`, at `now` (#225, criterion 4; D17; clips
+ * since #310). Answers { hidden, waiting, clips }: how many it hid, how many
+ * of those were waiting, and how many of those were clips. Or null when there
+ * was none to hide or the account is gone, and then nothing changed. Throws
+ * when D1 fails.
  *
- * Through #158's removal mechanism: each photo becomes `hidden`, as "Remove
- * this photo" makes one, with no note, so it waits on /admin/removals to be
+ * Through #158's removal mechanism: each becomes `hidden`, as "Remove this
+ * photo" makes a photo, with no note, so it waits on /admin/removals to be
  * put back or deleted for good, naming the account. No takedown is counted
- * against anyone's limit. A waiting photo keeps its place in that mechanism
- * by a placeholder: 0005's CHECK requires approved_at on a hidden row, so it
- * gets WAITING_WHEN_HIDDEN, 0, which no approval is ever made at, and "Put it
- * back" sends such a photo back to the queue rather than making it public
- * (lib/removals.js, restorePhoto). A photo already hidden keeps its own time
- * and note.
+ * against anyone's limit. A waiting one keeps its place in that mechanism by
+ * a placeholder: 0005's CHECK requires approved_at on a hidden row, so it gets
+ * WAITING_WHEN_HIDDEN, 0, which no approval is ever made at, and "Put it back"
+ * sends it back to the queue rather than approving it (lib/removals.js,
+ * restorePhoto). A clip is held to the same rule. One already hidden keeps its
+ * own time and note.
  *
- * One batch: the log entry, naming how many, then the change, both held by
- * the same set of photos, so of two presses at once the second finds none.
- * Any admin may press it, for any account: it takes no one's access away.
+ * One batch: the log entry, naming how many of each kind, then the change,
+ * both held by the same set of rows, so of two presses at once the second
+ * finds none. Any admin may press it, for any account: it takes no one's
+ * access away.
  */
 export async function hidePhotos(db, { accountId, admin, now }) {
   const results = await db.batch([
     db.prepare(
       'INSERT INTO admin_log (at, admin, action, account_id, name, email, detail) ' +
-      "SELECT ?, ?, 'hide', a.id, a.name, a.email, CASE c.n WHEN 1 THEN '1 photo' ELSE c.n || ' photos' END " +
-      `FROM accounts AS a, (SELECT COUNT(*) AS n FROM photos WHERE ${HIDEABLE}) AS c WHERE a.id = ? AND c.n > 0`,
+      `SELECT ?, ?, 'hide', a.id, a.name, a.email, ${HIDE_DETAIL} FROM accounts AS a, ` +
+      "(SELECT COUNT(CASE WHEN kind = 'photo' THEN 1 END) AS photos, COUNT(CASE WHEN kind = 'clip' THEN 1 END) AS clips " +
+      `FROM photos WHERE ${HIDEABLE}) AS c WHERE a.id = ? AND c.photos + c.clips > 0`,
     ).bind(now, admin, accountId, accountId),
     db.prepare(
       "UPDATE photos SET state = 'hidden', hidden_at = ?, hidden_note = NULL, " +
       `approved_at = CASE WHEN state = 'pending' THEN ${WAITING_WHEN_HIDDEN} ELSE approved_at END ` +
-      `WHERE ${HIDEABLE} AND EXISTS (SELECT 1 FROM accounts WHERE id = ?) RETURNING approved_at`,
+      `WHERE ${HIDEABLE} AND EXISTS (SELECT 1 FROM accounts WHERE id = ?) RETURNING approved_at, kind`,
     ).bind(now, accountId, accountId),
   ]);
   const hidden = results[1].results;
   if (hidden.length === 0) return null;
-  return { hidden: hidden.length, waiting: hidden.filter((row) => row.approved_at === WAITING_WHEN_HIDDEN).length };
+  return {
+    hidden: hidden.length,
+    waiting: hidden.filter((row) => row.approved_at === WAITING_WHEN_HIDDEN).length,
+    clips: hidden.filter((row) => row.kind === 'clip').length,
+  };
 }
 
 /**
@@ -433,10 +459,11 @@ export async function hidePhotos(db, { accountId, admin, now }) {
  * new request from the address is still held back. The admins' log keeps
  * every entry naming the person, this one included, as /policy says.
  *
- * The takedown times are cut because "Hide all their photos" stamps one second
- * on every photo it hides and on the log's 'hide' entry, which names the
+ * The takedown times are cut because "Hide all" stamps one second on every
+ * photo and clip it hides and on the log's 'hide' entry, which names the
  * person. Left whole, matching hidden_at to that entry would still say which
- * photos the deleted person sent, against /policy's "they no longer record
+ * photos and clips the deleted person sent. The cut names no kind, so it
+ * reaches a clip (#310) as it does a photo, against /policy's "they no longer record
  * which account sent them" (the owner's choice at #225's review, 2026-10-07;
  * cairn: a-timestamp-joins-to-the-log-that-names-it). Cut to the start of its
  * UTC day, a photo's hidden_at matches no entry's second. Not chosen: saying

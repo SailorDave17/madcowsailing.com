@@ -1,7 +1,9 @@
 /**
- * GET /admin/removals: the photos taken down with "Remove this photo" (#158),
- * the oldest takedown first, each with its album, when it was hidden and the
- * note. The guards in _middleware.js have already checked the admin session.
+ * GET /admin/removals: the photos taken down with "Remove this photo" (#158)
+ * or hidden with "Hide all" on /admin/people (#225), and since #310 the clips
+ * Hide all hid, the oldest takedown first, each with its album, when it was
+ * hidden and the note. The guards in _middleware.js have already checked the
+ * admin session.
  *
  * Each has "Put it back", which posts to
  * functions/api/admin/removals/restore.js, and "Delete permanently",
@@ -15,8 +17,8 @@
  * Each load also deletes the takedowns more than an hour old, as the admin
  * home does (lib/removals.js, clearExpiredTakedowns).
  *
- * ?team=<team> shows that team's hidden photos only (#227); anything else in
- * it shows every team's, as no ?team= does.
+ * ?team=<team> shows that team's hidden photos and clips only (#227);
+ * anything else in it shows every team's, as no ?team= does.
  */
 import { adminRemovalsPage, removalsNotice } from '../../lib/admin-page.js';
 import { clearExpiredTakedowns, hiddenPhotos } from '../../lib/removals.js';

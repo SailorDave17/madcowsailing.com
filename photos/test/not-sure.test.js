@@ -817,25 +817,32 @@ test('#228 criterion 4: an approve press naming a Not sure photo leaves it waiti
     new RegExp(`<p role="status">Approved photo ${shown}\\. 1 photo was left waiting\\. A photo in "Not sure / other event" has no event`));
 });
 
-test('"Hide all their photos" takes down an account\'s Not sure photo with the rest, and "Put it back" returns it to the queue, still in Not sure', async () => {
+test('"Hide all" takes down an account\'s Not sure photo and, since #310, its Not sure clip with the rest, and "Put it back" returns each to the queue, still in Not sure', async () => {
   // review-fanout at #228's review: the first build of 0015 refused this, so
-  // Hide all rolled back whole and left the person's public photo up.
+  // Hide all rolled back whole and left the person's public photo up. 0015's
+  // triggers name no kind, so a waiting clip in Not sure is hidden only with
+  // the placeholder a waiting photo takes (WAITING_WHEN_HIDDEN, 0): any other
+  // would roll the whole press back the same way.
   const { env, fall } = await site();
   const { sqlite } = env.DB;
   sqlite.prepare("INSERT INTO accounts (id, email, name, role, requested_at) VALUES (2, 'pat@example.org', 'Pat Parent', 'parent', 1)").run();
   const shown = seedPhoto(env, fall, { state: 'approved' });
   const held = seedPhoto(env, NOT_SURE['hoover-jrt']);
   const other = seedPhoto(env, NOT_SURE['hoover-jrt']); // the invite link's, which Hide all leaves alone
-  sqlite.prepare('UPDATE photos SET account_id = 2, code_generation = 0, session_issued = 0 WHERE id IN (?, ?)').run(shown, held);
-  assert.deepEqual(await hidePhotos(env.DB, { accountId: 2, admin: 'owner@example.org', now: T0 + 50 }), { hidden: 2, waiting: 1 });
-  assert.deepEqual([shown, held, other].map((id) => photo(env, id).state), ['hidden', 'hidden', 'pending']);
-  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM admin_log WHERE action = 'hide'").get().n, 1);
-  assert.equal(sqlite.prepare('SELECT approved_at FROM photos WHERE id = ?').get(held).approved_at, WAITING_WHEN_HIDDEN);
+  const heldClip = seedClip(env, NOT_SURE['hoover-jrt'], { sentAt: T0 + 1 });
+  sqlite.prepare('UPDATE photos SET account_id = 2, code_generation = 0, session_issued = 0 WHERE id IN (?, ?, ?)').run(shown, held, heldClip);
+  assert.deepEqual(await hidePhotos(env.DB, { accountId: 2, admin: 'owner@example.org', now: T0 + 50 }), { hidden: 3, waiting: 2, clips: 1 });
+  assert.deepEqual([shown, held, heldClip, other].map((id) => photo(env, id).state), ['hidden', 'hidden', 'hidden', 'pending']);
+  assert.deepEqual(sqlite.prepare("SELECT detail FROM admin_log WHERE action = 'hide'").all().map((row) => row.detail), ['2 photos and 1 clip']);
+  for (const id of [held, heldClip]) assert.equal(sqlite.prepare('SELECT approved_at FROM photos WHERE id = ?').get(id).approved_at, WAITING_WHEN_HIDDEN, `row ${id}`);
   // Nothing in Not sure is public before, during or after.
   assert.equal((await publicGet(env, `/photos/${held}/grid`)).status, 404);
-  assert.equal(await restorePhoto(env.DB, held), 'pending');
+  assert.deepEqual(await restorePhoto(env.DB, held), { state: 'pending', kind: 'photo' });
   assert.deepEqual(photo(env, held), { state: 'pending', caption: null, batch: BATCH_A, address: NOT_SURE['hoover-jrt'] });
-  assert.equal(await restorePhoto(env.DB, shown), 'approved', 'the control: the event photo goes back public');
+  assert.deepEqual(await restorePhoto(env.DB, heldClip), { state: 'pending', kind: 'clip' });
+  assert.deepEqual(photo(env, heldClip), { state: 'pending', caption: null, batch: BATCH_A, address: NOT_SURE['hoover-jrt'] });
+  assert.equal(sqlite.prepare('SELECT approved_at FROM photos WHERE id = ?').get(heldClip).approved_at, null);
+  assert.deepEqual(await restorePhoto(env.DB, shown), { state: 'approved', kind: 'photo' }, 'the control: the event photo goes back public');
   assert.equal((await publicGet(env, `/photos/${held}/grid`)).status, 404);
 });
 
