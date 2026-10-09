@@ -16,9 +16,9 @@
  * signature  HMAC-SHA256 of "m1.<account>.<version>.<issued>", keyed with the
  *            SESSION_SIGNING_KEY secret every session cookie uses. The "m1."
  *            in front means no other cookie's payload can be one of these:
- *            an upload cookie's is v1. or c1., an account cookie's a1.
- *            (lib/session.js, lib/account-session.js), so none of their
- *            signatures can be carried over to this one.
+ *            an account cookie's is a1. (lib/account-session.js), and an
+ *            upload cookie's was v1. or c1. until #226 retired it, so none
+ *            of their signatures can be carried over to this one.
  *
  * It is a cookie of its own beside __Host-account, which the same sign-in
  * sets (owner, at #224's pickup): the account's lasts 90 days and sends

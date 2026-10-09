@@ -2,9 +2,11 @@
  * POST /api/upload: one photo, as its three JPEG sizes, into an open album,
  * stored with every metadata segment removed and waiting for the owner (#154).
  *
- * The directory's guard runs first (_middleware.js): no live upload session
+ * The directory's guard runs first (_middleware.js): no live account session
  * is 401, and a post without the site's own Origin is 403 {"error":"origin"}.
- * By the time this runs, the session is on context.data.session.
+ * By the time this runs, the session is on context.data.session. Every
+ * sender is an account since #226, which retired the invite link and the
+ * coaches' sign-in.
  *
  * The share page (#155) sends multipart/form-data:
  *
@@ -27,22 +29,21 @@
  *                                   a smaller size larger than the next, or a
  *                                   different aspect ratio (lib/photos.js,
  *                                   sizesAgree)
- *   403 {"error": "team"}           from an account (#223), an open album of a
- *                                   team the account is not approved for:
- *                                   nothing stored, none of the cap spent
+ *   403 {"error": "team"}           an open album of a team the account is not
+ *                                   approved for (#223): nothing stored, none
+ *                                   of the cap spent
  *   409 {"error": "album"}          not an open album: unknown, closed, or
- *                                   closed or deleted while this was sent; or,
- *                                   from an account, its team revoked while
+ *                                   closed or deleted while this was sent; or
+ *                                   its team revoked from the account while
  *                                   this was sent
  *   413 {"error": "too-large"}      a body past every cap together
  *   413 {"error": "too-large", "size": s}   one file past its size's bytes or
  *                                   long edge
  *   415 {"error": "not-jpeg", "size": s}    a file that is not a JPEG this
  *                                   site takes, a PNG renamed .jpg among them
- *   429 {"error": "daily-cap"}      this session, or for an account every
- *                                   phone signed in to it together (#223), has
- *                                   sent DAILY_UPLOADS today, with Retry-After
- *                                   to the next UTC day
+ *   429 {"error": "daily-cap"}      the account, every phone signed in to it
+ *                                   together (#223), has sent DAILY_UPLOADS
+ *                                   today, with Retry-After to the next UTC day
  *   503 {"error": "unavailable"}    the database or the bucket did not answer:
  *                                   closed, never open, and nothing stored
  *
@@ -96,8 +97,9 @@ export async function onRequestPost({ request, env, data }) {
     // An account sends to its approved teams' albums only (#223, criterion 2,
     // D16). The guard read its teams on this request. Refused before the cap
     // is spent, so a refusal costs the account nothing; insertPhoto checks
-    // the team again in the statement that writes the row.
-    if (data.session.sender === 'account' && !data.session.teams.includes(album.team)) {
+    // the team again in the statement that writes the row. Until #226 the
+    // invite link and a coach's sign-in, which had no team, skipped this.
+    if (!data.session.teams.includes(album.team)) {
       return answer(403, { error: 'team' });
     }
     if (!(await spendDailyUpload(DB, data.session, now))) {

@@ -7,7 +7,7 @@ repo's name. Two are static; the third runs server code:
 |---|---|---|
 | madcowhq.com | `hq/` | Hiring managers, recruiters, collaborators |
 | madcowsailing.com | `sailing/` | Sailors |
-| photos.madcowsailing.com | `photos/` | The team's families: albums anyone can browse, uploads by invite (epic #147) |
+| photos.madcowsailing.com | `photos/` | The team's families: albums anyone can browse, uploads from approved accounts (epics #147, #216) |
 
 They share `shared/` — tokens, base CSS, the logo files. They share no content.
 The photo site is the one with server code (Pages Functions, D1, R2); see
@@ -263,20 +263,37 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   (50 seats). Both were taken out for #149, $0 unless usage passes the free
   allowances.
 - **Zero Trust team: `madcowsailing`**, team domain
-  `madcowsailing.cloudflareaccess.com`. It is the issuer #151 checks. `madcow`
+  `madcowsailing.cloudflareaccess.com`. It was the issuer #151's admin check
+  trusted until #224, and #192's coach check until #226. Since #226 no code
+  reads an Access token, and the team serves the Pages preview application
+  alone. `madcow`
   was wanted and is taken by another account: the rename answered `409`, while
   the confirmation dialog had already shown `madcow.cloudflareaccess.com`.
-- Two Access applications, read back from Zero Trust → Access controls →
-  Applications on 2026-09-28 (#151) and, for the coach one, 2026-10-01 (#192):
+- One Access application since #226, read back from Zero Trust → Access
+  controls → Applications on 2026-09-28 (#151):
 
-  | | Coach (#192) | Previews (#149) |
-  |---|---|---|
-  | Name | `madcowphotos coach` | `madcowphotos - Cloudflare Pages` |
-  | Destinations | `photos.madcowsailing.com/coach` and `…/coach/*` | `*.madcowphotos.pages.dev` |
-  | Policy | `Coaches - photos coach`: Allow, Include Emails (the coaches' addresses, the same list as `COACH_EMAILS`), Require Login Methods: One-time PIN | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
-  | Identity providers | One-time PIN only, instant authentication on | as #149 left it |
-  | Session | 24 hours | as #149 left it |
-  | AUD tag | `3be126b6…` = `env.production.vars.ACCESS_COACH_AUD` | `da25aceb…` = `env.preview.vars.ACCESS_COACH_AUD` |
+  | | Previews (#149) |
+  |---|---|
+  | Name | `madcowphotos - Cloudflare Pages` |
+  | Destinations | `*.madcowphotos.pages.dev` |
+  | Policy | `Allow Members - Cloudflare Pages`: Allow, Include Emails (the address #149 set, since #151 the admins' addresses, and since #192 the coaches') |
+  | Identity providers | as #149 left it |
+  | Session | as #149 left it |
+  | AUD tag | `da25aceb…`, kept here as the record: `ACCESS_COACH_AUD` held it in the preview's vars until #226 deleted the var |
+
+  **The coach application goes at #226.** `madcowphotos coach` (#192), on
+  `photos.madcowsailing.com/coach` and `…/coach/*` (both, because Access's
+  `/coach/*` does not match `/coach`), with the policy `Coaches - photos
+  coach` (Allow, Include Emails, the same list as `COACH_EMAILS`, One-time
+  PIN only, a 24-hour session) and the tag `3be126b6…`, is deleted by #226
+  once its release is live (The cutover (#226), below), and its policy
+  with it, since deleting an application leaves a reusable policy behind.
+  The `ACCESS_COACH_AUD` and `ACCESS_TEAM_DOMAIN` vars went from
+  `photos/wrangler.jsonc` in the same story. From #226's release `/coach` is
+  no route: it answers the site's 404 page, and a coach is an account with
+  the coach role (Coaches, below). Zero Trust's seat count is read before and after
+  the deletion; a seat belongs to a person, not an application, so it is
+  not expected to drop.
 
   **The admin application is gone.** `madcowphotos admin` (#151), on
   `photos.madcowsailing.com/admin`, `…/admin/*` and `…/api/admin/*`, with the
@@ -289,29 +306,11 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   before and after: a seat belongs to a person who has signed in through
   Access, not to an application.
 
-  Both paths are listed because Access's `/coach/*` does not match `/coach`
-  (the admin application listed `/admin` and `/admin/*` for the same
-  reason). The coach tag was read twice on
-  2026-10-01: in the application's settings, and in the `kid` of the 302 that
-  `https://photos.madcowsailing.com/coach` answers to a visitor with no
-  sign-in, beside `/admin`'s `78d0a143…` as the control.
-  The coach application is its own, not more paths on the admin one, because
-  a policy applies to a whole application: a coach on the admin application
-  would pass Access's sign-in into `/admin` (CLAUDE.md, The photo site,
-  item 20).
-  `madcowphotos.pages.dev`, the project's production address, is behind
-  neither. The admin application's destination list offered it on 2026-09-28,
-  so Access could have covered it too. It was left out, so that address
-  answered the site's own `403`, which is the check #151's criteria read.
-  **For `/coach`, the site's own token check is the lock; Access is the door
-  to it.** `photos/lib/access.js` reads the tag from `ACCESS_COACH_AUD` and
-  the team domain (`https://madcowsailing.cloudflareaccess.com`, issuer and
-  key URL both) from `ACCESS_TEAM_DOMAIN`, both in `photos/wrangler.jsonc`,
-  one pair per environment. It reads the addresses from the `COACH_EMAILS`
-  secret (below), so a coach needs to be in the policy **and** in that
-  environment's secret: the policy alone gets a PIN and then a `403`. A tag
-  changes only if its application is deleted and recreated; then
-  `ACCESS_COACH_AUD` must change with it, or `/coach` refuses everyone.
+  `madcowphotos.pages.dev`, the project's production address, was behind
+  neither application, and is behind none now. The admin application's
+  destination list offered it on 2026-09-28, so Access could have covered it
+  too. It was left out, so that address answered the site's own `403`, which
+  is the check #151's criteria read.
   **`/admin` answers to the site's admin session alone**
   (`photos/lib/admin-session.js`; #224), and since #268 on
   `photos.madcowsailing.com` too: an admin signs in once, with the password
@@ -336,10 +335,12 @@ By name only; a value never goes in this repo.
 
 - **Pages secrets**, one value per environment, set in the dashboard under the
   project's Settings → Variables and Secrets, as type *Secret*:
-  - `SESSION_SIGNING_KEY` (#150) signs the upload session cookie, a parent's
-    and a coach's, and since #222 the account session cookie,
-    `__Host-account`. Changing it ends every session at once, a coach's and
-    an account's included; rotating the code ends only the parents' (#192).
+  - `SESSION_SIGNING_KEY` (#150) signs the account session cookie,
+    `__Host-account` (#222), and the admin session cookie, `__Host-admin`
+    (#224), and keys the hash each admin sign-in code is kept as (#224).
+    Until #226 it also signed the invite link's and the coaches' upload
+    cookie, `__Host-upload`, which nothing reads now. Changing it ends every
+    session at once.
   - `ADDRESS_HASH_KEY` (#150; #158 uses it too) keys the hash a rate limit
     stores instead of a network address. Since #222 it keys a failed
     sign-in's email address too, and since #225 a revoked account's address
@@ -347,36 +348,17 @@ By name only; a value never goes in this repo.
     lifts every revoked address's hold at once**, since no new request's
     hash would match an old one, so a revoked person could ask again. Before
     rotating it, note who was revoked from the admins' log.
-  - `ADMIN_EMAILS` (#151) was the comma-separated list of addresses the
-    admin guard let in. **Since #224 nothing reads it**: the admin pages
-    answer to accounts holding the admin role, and the admins' email about
-    new requests goes to those accounts (`CLAUDE.md`, The photo site, item
-    30). It stays set until #226 deletes it; the Access application whose
-    policy held the same list went first, in #268.
-    **Adding an admin is now "Make admin" on `/admin/people`**, for anyone
-    with an approved account (Approving accounts, below), and since #268
-    nothing else: no Access policy stands in front of `/admin` on
-    `photos.madcowsailing.com`. The `Allow Members - Cloudflare Pages`
-    policy still decides who can open a preview at all.
-  - `COACH_EMAILS` (#192) is the comma-separated list of coaches the coach
-    sign-in at `/coach` lets in, kept as a secret for the same reason as
-    `ADMIN_EMAILS`, and compared the same way. Unset or empty, `/coach`
-    refuses everyone and every coach's session is refused. It held only the
-    owner's address when #192 set it (owner's choice). **Adding a coach is
-    four changes**: `COACH_EMAILS` in production and in preview, the
-    `Coaches - photos coach` policy, and the `Allow Members - Cloudflare
-    Pages` policy (leave that out for a coach meant to have no preview
-    access). **Each coach takes one of Zero Trust Free's 50 seats** once
-    they sign in, and keeps it until removed (CLAUDE.md, The photo site,
-    item 8). **Taking a coach off is the same four, then a redeploy of each
-    environment**: Cloudflare's bindings page says a secret "needs to be done
-    before a deployment that uses those secrets", so the running deployment
-    keeps the old list until a new one is built (Deployments → the newest
-    production deployment → Retry deployment, and the same for `develop`'s
-    preview). From the first request the new deployment serves, the coach's
-    session is refused. *Read from the docs, not yet measured on a
-    deployment.* Taking them off the policy stops a new sign-in at once, but
-    not a session already open.
+  - `ADMIN_EMAILS` (#151) and `COACH_EMAILS` (#192) are **deleted by #226
+    from both environments once its release is live** (The cutover (#226),
+    below). `ADMIN_EMAILS` listed the addresses the admin guard let in, and
+    nothing had read it since #224: accounts holding the admin role replaced
+    it (`CLAUDE.md`, The photo site, item 30), and **adding an admin is
+    "Make admin" on `/admin/people`**, for anyone with an approved account
+    (Approving accounts, below). `COACH_EMAILS` listed the coaches the
+    sign-in at `/coach` let in: an account approved with the coach role
+    replaced it (Coaches, below). Once #226's steps are done, no Access application stands in
+    front of any path on `photos.madcowsailing.com`; the `Allow Members -
+    Cloudflare Pages` policy still decides who can open a preview at all.
   - `RESEND_API_KEY` (#217) is the Resend API key the site sends email
     with: `madcowphotos Pages`, Sending access, for
     `photos.madcowsailing.com` only. One key, the same value in both
@@ -394,19 +376,22 @@ By name only; a value never goes in this repo.
     trust, so requests there would close, and a preview would pass them all.
 
   The first two are 32 random bytes each, base64url-encoded. Preview and production get
-  different values. Without them, `POST /api/join`, `/sign-in` and
+  different values. Without them, `/sign-in` and
   `POST /set-password` answer `503` and open nothing, and without
   `ADDRESS_HASH_KEY`, `POST /api/remove`, `POST /ask` and `/forgot-password`
   answer `503` and change nothing, and Revoke and "Let it ask again" on
-  `/admin/people` change nothing and say why. Check that all six exist in both
-  environments on the dashboard, which shows a secret's name and never its
-  value.
+  `/admin/people` change nothing and say why. (`POST /api/join` needed both
+  until #226; it reads no secret now.) Check on the dashboard, which shows a
+  secret's name and never its value, that all four exist in both
+  environments (`SESSION_SIGNING_KEY`, `ADDRESS_HASH_KEY`, `RESEND_API_KEY`
+  and `TURNSTILE_SECRET_KEY`), and that `ADMIN_EMAILS` and `COACH_EMAILS`
+  exist in neither.
 - **Local only, in `photos/.dev.vars`** (gitignored; `wrangler pages dev` reads
   it): the same two keys, with throwaway values. Make it with
   `node -e "const k=()=>require('crypto').randomBytes(32).toString('base64url');require('fs').writeFileSync('.dev.vars','SESSION_SIGNING_KEY='+k()+'\nADDRESS_HASH_KEY='+k()+'\n')"`
-  from `photos/`, which prints nothing. For the admin pages, make the local
-  admin account and add `ADMIN_DEV_ACCOUNT`; for `/coach`, add the three
-  lines there. Both are under Running it locally.
+  from `photos/`, which prints nothing. For the admin pages and for sending,
+  make the local account and add `ADMIN_DEV_ACCOUNT`, under Running it
+  locally.
 - **Local only, in `photos/.env`** (gitignored; wrangler reads it from
   `photos/`): `CLOUDFLARE_API_TOKEN`, an API token named
   `madcowphotos D1 migrations` with Account → D1 → Edit on this account only,
@@ -424,10 +409,10 @@ npx --no-install wrangler d1 migrations apply madcowphotos-preview --local  # lo
 npx --no-install wrangler pages dev                                        # http://localhost:8788
 ```
 
-It also needs `photos/.dev.vars` (Secrets, above). A local invite code is made
-the way a real one is, on the admin page (below): open
-`http://127.0.0.1:8789/admin/code`, press **Create code**, and open the
-`http://127.0.0.1:8788/share/#code=…` link it shows.
+It also needs `photos/.dev.vars` (Secrets, above). Sending and the admin
+pages both need a signed-in account, which a local run gets from a stand-in
+(below). Until #226 a local run sent through an invite code made on
+`/admin/code`, which is gone.
 
 `GET /api/health` should answer `200` with `"environment":"preview"`, both
 bindings reachable, and the newest migration's name. The local database and
@@ -452,9 +437,10 @@ Then add its id, `1` on a fresh database, to `photos/.dev.vars`, which
 ADMIN_DEV_ACCOUNT=1
 ```
 
-Beside `wrangler pages dev`, run `node scripts/access-dev.mjs` from `photos/`
-and open `http://127.0.0.1:8789/admin/`. It forwards each request to `:8788`
-with that account's admin session added. The guard runs unchanged: it checks
+Beside `wrangler pages dev`, run `node scripts/sign-in-dev.mjs` from `photos/`
+(`scripts/access-dev.mjs` until #226) and open `http://127.0.0.1:8789/admin/`.
+It forwards each request to `:8788` with that account's admin session
+added. The guard runs unchanged: it checks
 the signature and reads the account's role, version and teams on every
 request, so an account that is no admin is still sent to `/sign-in?admin`.
 `/admin/` on `:8788` directly is sent there too, which is the other half
@@ -465,21 +451,14 @@ admin pages' forms get past the site's Origin check (#152); any other Origin
 goes on unchanged, and is refused. A sign-in at `/sign-in` as an admin stops
 at the code, which says it could not be sent.
 
-**The coach sign-in runs locally behind the same stand-in** (#192), on a
-generated key pair it publishes where the guard fetches a team's keys. Add
-three more lines:
-
-```sh
-ACCESS_TEAM_DOMAIN=http://127.0.0.1:8789
-ACCESS_COACH_AUD=local-coach
-COACH_EMAILS=<any address>
-```
-
-Restart both, then open `http://127.0.0.1:8789/coach`. The stand-in signs
-`/coach` and anything under it for the first coach address and
-`ACCESS_COACH_AUD`, so the browser lands on `/share/` able to send. Without
-the three lines it forwards `/coach` with no token, and the guard answers
-`403`.
+**Sending runs locally behind the same stand-in** (#226). On every path
+outside the admin pages it adds the same account's `__Host-account` session,
+at the same version, so `http://127.0.0.1:8789/share/` sends as the local
+account, to the open albums of its approved teams, with no password: a local
+account cannot set one, since the emailed link it would need cannot be sent.
+To send to an event, add one for the account's team on
+`http://127.0.0.1:8789/admin/albums`. Until #226 the stand-in also signed
+`/coach` with a generated key pair, which went with the coach sign-in.
 
 **The request form runs locally on Cloudflare's test keys** (#220). Add two
 lines to `photos/.dev.vars`, the always-pass pair from Turnstile's Testing
@@ -494,13 +473,6 @@ Then open `http://127.0.0.1:8788/ask`. The widget passes with no challenge, on
 any host, and siteverify passes the dummy token it makes. Without the two
 lines, `/ask` answers `503`. The admins' email needs `RESEND_API_KEY`, which
 `.dev.vars` must not hold, so locally it is logged as not configured.
-
-**After restarting the stand-in, `/coach` answers `403` for up to a
-minute.** It makes a new key each time it starts, and the guard fetches a
-team's keys at most once a minute (`REFETCH_GAP_SECONDS` in `lib/access.js`),
-so the new key is unknown until then. On #152, two reads of the admin pages,
-which ran this check until #224, answered `403` after a restart and the
-next, 18 s after the second, `200`. The admin pages need no key now.
 
 **`photos/package.json` is what makes that work.** Wrangler 4.141.0's
 `pages dev` reads `wrangler.jsonc` from the current directory to find the
@@ -549,66 +521,129 @@ a new file is listed here.
 | `0014_revoked_addresses.sql` | #225 | `revoked_addresses`, each revoked account's address as a keyed hash, naming the account until it is deleted (`ON DELETE SET NULL`), so a new request from it is held back; a partial index |
 | `0015_not_sure_albums.sql` | #228 | `holding` on `albums`, 0 for every album made before it; one "Not sure / other event" album per team, the one row a team may have with `holding` 1; six triggers: no photo in one is approved, or hidden other than while waiting, `holding` never changes, and one is never deleted, replaced, or moved to another team. **Apply it just before the code that reads it**, not at the commit gate: the older code reads its rows as events (`CLAUDE.md` item 32) |
 
-### The invite code
+### The invite link, retired by #226
 
-A parent joins by opening `https://photos.madcowsailing.com/share/#code=<code>`.
-The code is made and changed on the admin page, `/admin/code` (#152), signed in
-through Access: `https://photos.madcowsailing.com/admin/code` for production and
-`https://develop.madcowphotos.pages.dev/admin/code` for the preview. **This
-replaces the seed command #150 recorded**; `scripts/seed-code.mjs` is gone.
+Until #226 a parent joined by opening
+`https://photos.madcowsailing.com/share/#code=<code>`, and an admin made and
+rotated the code on `/admin/code` (#150, #152). Accounts replaced the link
+(Account requests, Approving accounts and Signing in, below), and revoking a
+person (#225) replaced rotating the code. `CLAUDE.md`, The photo site, item 11
+keeps the record.
 
-- **Create code.** A database with no code shows only this button, and parents'
-  uploads stay closed until a code exists; a coach who signed in at `/coach`
-  still sends (#192). It makes the first code, and only while there
-  is still none, so a second press changes nothing. **Both remote databases
-  already hold a code**: #150 seeded the preview's, and #151's close seeded
-  production's (2026-09-28), each with the script this page replaced. So on both
-  the page opens on that code, and Create code appears only on a fresh or local
-  database.
-- **Copy code** and **Copy invite link.** The page shows the current code, when
-  it last changed, and the link. In production the link always names
-  `https://photos.madcowsailing.com`. Anywhere else it names the address the
-  page was opened on, so a preview's link opens the preview.
-- **Rotate code.** It opens a dialog, and only the dialog's **Rotate now** makes
-  a new code. Every parent's upload session opened with the old one is refused
-  from its next request, and the old link tells whoever opens it that the
-  invite has changed. Send the new link to the team. A coach's session has no
-  code behind it, so it keeps working (#192, owner's choice); take a coach off
-  the list instead (Secrets, above).
-
-The code is never written to a file or to git; this repo is public.
+- **An old link still opens the share page**, which takes the code out of the
+  address bar at once and sends it nowhere. It says the link has been
+  replaced by accounts: a phone already signed in is told it is set to send,
+  and any other is pointed at signing in or asking for an account.
+- **`POST /api/join` answers `410 {"error":"replaced","ask":"/ask"}`** to
+  every post from the site's own Origin, whatever code it names, without
+  reading the body or the database, and opens no session. Another site's
+  post is `403 {"error":"origin"}`, as before.
+- **Every session the link opened ended with #226's release.** A phone's
+  `__Host-upload` cookie opens nothing, and is deleted the next time the phone
+  opens the share page or sends.
+- **`/admin/code`, its Create and Rotate presses and the admin home's Invite
+  code link are gone.** `invite_codes`, `join_failures` and `join_budget`
+  stay as tables, since migrations are additive (`CLAUDE.md` item 6); nothing
+  reads or writes them. The old codes and the failed-join rows are deleted by
+  hand once the release is live (The cutover (#226), below): with no code
+  left, a build from before #226 put back by a rollback would refuse every
+  old link and every old parent cookie too (`security-audit` at #226's
+  review).
+  No code was ever written to a file or to git; this repo is public.
 
 ### Coaches
 
-A coach sends without the invite link (#192; epic #147, D9). They open
-`https://photos.madcowsailing.com/coach`, sign in through Access with a
-one-time PIN, and land on `/share/` able to send for 90 days. `CLAUDE.md`, The
-photo site, item 20 has the decisions.
+Since #226 a coach is an account approved with the coach role. They ask at
+`/ask` as a coach, and an admin approves their teams on `/admin/people` with
+that role, which emails the link to set a password (Approving accounts,
+below). Signed in, a coach sends from the share page like anyone, to the open
+albums of their approved teams. `CLAUDE.md`, The photo site, item 20 keeps
+the record of the sign-in it replaced.
 
-- **Who can sign in** is whoever is on both the `Coaches - photos coach`
-  policy and `COACH_EMAILS`. Adding and taking off a coach are under Secrets,
-  above, and taking one off needs a redeploy.
-- **A coach's photos wait for approval** like a parent's, and the queue says
-  "sent by a coach" beside each. The row keeps no address and no sign-in
-  time, so it does not say which coach; when it was sent could still be
-  matched against Cloudflare's sign-in log, which `/policy` says.
-- **Opening the invite link keeps a coach's session**: `POST /api/join`
-  answers a listed coach with 204 and leaves their cookie alone. A coach
-  can also send when no invite code exists. The share page links `/coach`
-  for a coach who lands there with no session.
-- **On the preview** a coach opens `https://develop.madcowphotos.pages.dev/coach`,
-  which needs the coach's address on the preview policy as well.
-- `/coach` on `madcowphotos.pages.dev`, which no Access application covers,
-  answers the site's own `403`. `/admin` there answers to the site's own
-  admin sign-in since #224 (Making the owner, below).
+- **A coach account's clips may run 15 minutes**, and everyone else's 3
+  (From an account, under Uploads, below).
+- **A coach's photos wait for approval** like anyone's, and the queue names
+  the account that sent each.
+- **`/coach` is gone** (#192 built it): it is no route, so it answers the
+  site's 404 page from #226's release, and its Access application is
+  deleted once that release is live (What exists in the Cloudflare account,
+  above).
+- **A photo sent through the coaches' Access sign-in before #226** keeps
+  `sender` `coach`, and the queue still says "sent by a coach" beside it and
+  names nobody: that row kept no address and no sign-in time. Production
+  held none on 2026-10-08, and the cutover reads that again once its
+  release is live (below).
 
-To read the current code without the page:
-`npx --no-install wrangler d1 execute <database> --remote --env <env> --command "SELECT generation, code FROM invite_codes ORDER BY generation DESC LIMIT 1"`.
+### The cutover (#226)
+
+#226's code retires the invite link and the coaches' sign-in. What they left
+in Cloudflare's dashboard and in the databases goes by hand, in this order,
+so that nobody is left without a way in and nothing is deleted while a
+running release still reads it (D13, `CLAUDE.md`, The photo site, item 24):
+
+1. **Before #226 merges into `develop`**, since `develop` is promoted whole
+   and any later promotion would carry it. On production, an approved
+   account sends a photo, and an admin signs in with the password and the
+   emailed code (#226's criterion 1). Every address on `ADMIN_EMAILS` and
+   `COACH_EMAILS` has an account approved with its role, the coach role for
+   a coach, and "Make admin" pressed for an admin, and its set-password
+   email has gone (criterion 2; Approving accounts, below). A Pages secret cannot be read
+   back, so the list of addresses is taken before either secret goes;
+   record how many, never an address, since this repo and its issues are
+   public.
+2. **The release.** The owner promotes `develop` to `release`. From its
+   first request every invite-link and coach session is refused, and an old
+   link points to `/ask`. Before going on, check that it is live: a `POST`
+   to `https://photos.madcowsailing.com/api/join` with that address's Origin
+   answers `410`.
+3. **Then, in one sitting**, reading Zero Trust's seat count first (the
+   Zero Trust overview's "Users … of 50"):
+   - read production's photos sent through the coaches' sign-in, which only
+     that sign-in wrote with no code generation:
+     `--command "SELECT COUNT(*) AS rows FROM photos WHERE sender = 'coach' AND code_generation IS NULL"`
+     must say 0. `/policy` dropped #192's sentence about lining a coach's
+     send time up against Access's log because production held none on
+     2026-10-08, and `/coach` stayed open until the release. If it is not 0,
+     stop: the policy owes that sentence back before anything else goes.
+     (`account_id IS NULL` is the wrong test: a deleted coach account's
+     photos read `sender` `coach` with no account too, and generation 0);
+   - delete `ADMIN_EMAILS` and `COACH_EMAILS` from production and preview
+     (Settings → Variables and Secrets). Nothing reads either, so neither
+     deletion needs a redeploy;
+   - delete the `madcowphotos coach` application (Zero Trust → Access
+     controls → Applications), then its `Coaches - photos coach` policy once
+     Policies shows it used by no application, as #268 found the admin
+     one left behind;
+   - delete the failed-join rows, the last scrambled addresses the join
+     route kept, on each database (`madcowphotos --env production`, then
+     `madcowphotos-preview --env preview`), from `photos/` with the D1 token
+     in `photos/.env` (above). Until #226 the next join deleted them;
+     nothing does now:
+
+     ```
+     npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "DELETE FROM join_failures"
+     ```
+
+     Read it back: `--command "SELECT COUNT(*) AS rows FROM join_failures"`
+     must say 0;
+   - delete the old invite codes the same way, on each database, with
+     `--command "DELETE FROM invite_codes"`, and read back
+     `--command "SELECT COUNT(*) AS rows FROM invite_codes"`, which must say 0.
+     Nothing reads them since the release, and no photo row refers to the
+     table. With no current code, a build from before #226, were one rolled
+     back to, would refuse every old link and parent cookie too.
+4. **Read the seat count again**, and record both readings on the issue.
+   Expect no drop: a seat belongs to a person who signed in through Access,
+   not to an application (#268 read 3 of 50 before and after).
+
+The `develop` preview's application and its `Allow Members - Cloudflare
+Pages` policy stay, and are not touched (What exists in the Cloudflare
+account, above).
 
 ### Albums
 
 Parents send photos into an album, one per regatta or practice day, kept on
-`/admin/albums` (#153) behind the same Access sign-in as the code.
+`/admin/albums` (#153) behind the admin sign-in (Signing in, below).
 
 - **Add album** takes a team, Hoover JRT or COHSSA, a title, Regatta or
   Practice, and the date. Nothing is preselected, so the team is a choice
@@ -626,7 +661,8 @@ Parents send photos into an album, one per regatta or practice day, kept on
   approved or hidden, is refused and the page says how many it holds.
 - `GET /api/albums/open` is the list the share page reads, newest first, each
   album with its team's key and name, under which the page groups it (#227).
-  It answers only to a live upload session.
+  It answers only to a signed-in account, and lists only its approved teams'
+  albums (#223; since #226 an account is the only session it takes).
 - **Each team has a "Not sure / other event"** (#228; `CLAUDE.md`, The photo
   site, item 32): an album made by migration 0015, marked `holding`, dated
   0001-01-01, at `0001-01-01-not-sure-<team>`. The share page offers it after
@@ -645,8 +681,9 @@ Parents send photos into an album, one per regatta or practice day, kept on
 
 `POST /api/upload` (#154) takes one photo into an open album, as the three
 JPEG sizes the share page makes, and stores it **pending**: nothing is public
-until the owner approves it. It answers only to a live upload session and the
-site's own Origin. The fields and every answer are in the header comment of
+until the owner approves it. It answers only to a signed-in account (since
+#226 the only upload session) and the site's own Origin. The fields and
+every answer are in the header comment of
 `photos/functions/api/upload/index.js`, and the decisions in `CLAUDE.md`, The
 photo site, item 14.
 
@@ -654,11 +691,14 @@ photo site, item 14.
   `photos/<media_key>/grid.jpg`, `screen.jpg` and `full.jpg`, each rebuilt with
   every metadata segment removed (EXIF, GPS, XMP, the colour profile, comments,
   and anything after the image), and one `photos` row naming the album, the
-  batch, the code generation and each size's dimensions.
+  batch, the account that sent it and each size's dimensions. Its code
+  generation and session time are 0, placeholders migration 0012 holds an
+  account's row to (From an account, below); a row from before #226 may name
+  an invite code's generation instead.
 - **What is refused, and stores nothing.** Anything that is not a JPEG (415), a
   file that breaks off (400), a file over its size's cap (413), three sizes that
   are not one picture's shape (400), a caption over 200 characters or holding a
-  line break (400), an album that is not open (409), and a session's 501st
+  line break (400), an album that is not open (409), and an account's 501st
   stored photo in a UTC day (429, with `Retry-After`). An upload that fails after
   those checks leaves nothing in the bucket and does not count against the cap.
 - **If the log says** `bucket did not delete photos/<key>/ after a failure`,
@@ -667,11 +707,12 @@ photo site, item 14.
 - **The share page sends them** (#155). `/share/` makes each photo's three
   JPEGs on the phone as soon as it is chosen, and sends three at a time. A HEIC
   the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
-  item 15 has the decisions. To try it locally, open the invite link from
-  `/admin/code`, add an album on `/admin/albums`, and choose photos.
-- **From an account** (#223; `CLAUDE.md`, The photo site, item 29). A phone
-  signed in at `/sign-in` sends as the account, even beside an invite link, to
-  the open albums of the teams the account is approved for: the share page
+  item 15 has the decisions. To try it locally, open `/share/` through the
+  local stand-in (Running it locally, above), and choose photos.
+- **From an account** (#223; `CLAUDE.md`, The photo site, item 29), since
+  #226 the only way to send. A phone signed in at `/sign-in` sends as the
+  account, to the open albums of the teams the account is approved for: the
+  share page
   lists only those, and any other album answers `403 {"error":"team"}`,
   storing nothing. Each row names the account in `account_id`, which the
   queue and removals pages show by name; the sender column is the account's
@@ -689,13 +730,15 @@ The photo site, item 22 has the decisions.
   → *Install*. The gallery's Share menu then lists Mad Cow photos for photos
   (not clips, until #198). Shared photos open the app on the share page,
   ready to send. With no session they wait on the phone for a day, and the
-  page says to open the invite link or sign in at `/coach`.
+  page says to sign in (until #226, to open the invite link or sign in at
+  `/coach`).
 - **On an iPhone**, Safari → Share → *Add to Home Screen* should open it on
   the share page, where the photos are chosen with **Add photos**: an
   iPhone's Share menu never lists a web app. **Not read on an iPhone yet**
   (#210 carries it). A Home Screen app on iOS keeps its cookies apart from
-  Safari, and an invite link opens in Safari, so a parent's installed app may
-  not hold a session; until #210 reads it, send from Safari on an iPhone.
+  Safari, so a sign-in made in Safari may not reach the installed app, and
+  the sender signs in again inside it; until #210 reads it, send from Safari
+  on an iPhone.
 - **How a share travels.** The phone posts the photos to `/share/receive`.
   `public/share/sw.js`, the app's worker, takes that one request, keeps each
   photo in the phone's IndexedDB, and sends the browser to `/share/?shared`.
@@ -726,7 +769,7 @@ The photo site, item 22 has the decisions.
 ### Approving
 
 Nothing is public until an admin approves it on `/admin/queue` (#156), behind
-the same Access sign-in as the code and the albums. The admin home says how
+the admin sign-in, as the albums are. The admin home says how
 many photos are waiting and how much of R2's free 10 GB the stored photos take.
 `CLAUDE.md`, The photo site, item 16 has the decisions.
 
@@ -809,8 +852,8 @@ Nothing but an approved photo is ever listed, counted or served.
 `/policy` says who sees a photo, who can send one, what the site keeps and
 how to have a photo taken down (#159). It is a static page,
 `photos/public/policy.html`. Every page's footer links it, and the share page
-links it beside the join step. `CLAUDE.md`, The photo site, item 18 has the
-decisions.
+links it beside the way to sign in (the join step until #226). `CLAUDE.md`,
+The photo site, item 18 has the decisions.
 
 - **It states what the code does.** Its head comment traces every claim to
   the file or decision behind it, so change the page in the same change as
@@ -832,7 +875,20 @@ decisions.
   it is built by later stories, and the head comment names which. #220 to
   #224 each carry a criterion to add their own records to the page, and #223
   the lede and "Who can send a photo". The sentence about matching a coach's
-  send time to Cloudflare's sign-in record stays until the cutover (#226).
+  send time to Cloudflare's sign-in record stayed until the cutover (#226,
+  below).
+- **#226 retired the invite link and the coaches' sign-in on it**: who can
+  send is only an account an admin approved, per team, a coach being an
+  account with the coach role, and the page says what replaced each retired
+  way in. The invite-link and coaches' paragraphs went, with the coaches'
+  list, Cloudflare's record of each sign-in and #192's sentence matching a
+  coach's send time to it, since production held no photo sent through that
+  sign-in; so did the failed-join paragraph, whose last rows are deleted by
+  hand (The cutover (#226), above). A photo sent with the invite link before
+  then keeps, in the past tense, which link it came with and when that phone
+  opened it, and nothing naming who sent it. The phone's old cookie is
+  deleted the next time it opens the share page or sends, and the daily
+  count is per account.
 - **#220 added the request form's records**: when a request was made, which
   teams still wait, whether the admins have been emailed, and the request
   limit, with how long it keeps a scrambled address and that the address's
@@ -863,9 +919,9 @@ decisions.
   300 seconds (`CLAUDE.md`, The photo site, item 3).
 - **10 takedowns an hour from one network address**, then 429. Only a
   takedown that hid a photo counts, in `removal_requests` (migration 0006),
-  which keeps the address as a keyed hash, as the join limit does. A row is
-  deleted once it is over an hour old by the next takedown, or sooner by the
-  next load of `/admin` or `/admin/removals`.
+  which keeps the address as a keyed hash, as the request and sign-in limits
+  do. A row is deleted once it is over an hour old by the next takedown, or
+  sooner by the next load of `/admin` or `/admin/removals`.
 - **An email takedown** (the policy gives `dave@madcowsailing.com`) is done
   the same way: open the photo's album and press the button. The photo's id
   is the number in its link, `/photos/<id>/screen`. When the button is
@@ -900,8 +956,8 @@ stops taking it.
 
 ### Removal requests
 
-Every photo taken down waits on `/admin/removals` (#158), behind the same
-Access sign-in as the queue, the oldest takedown first, with its album, its
+Every photo taken down waits on `/admin/removals` (#158), behind the admin
+sign-in, as the queue is, the oldest takedown first, with its album, its
 team, when it was hidden and the note. The admin home says how many wait.
 
 - **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
@@ -1022,8 +1078,9 @@ set at `/set-password` is stored this way (Signing in, below).
 
 Anyone can ask for an account at `/ask` (#220, the first story of epic #216
 to keep anything about a person; `CLAUDE.md`, The photo site, item 25, has the
-decisions). Nothing links to it yet (owner, at #220's pickup): #226 points the
-old invite link there.
+decisions). Nothing linked to it at first (owner, at #220's pickup). Since
+#226 the share page links it ("No account yet? Ask for one"), and an old
+invite link and `POST /api/join` point to it.
 
 - **The form** takes a name, an email address, parent, coach or other, Hoover
   JRT, COHSSA or both, and an optional note of up to 500 characters. It asks
@@ -1039,8 +1096,9 @@ old invite link there.
   everyone together**, then `429` with Retry-After. Only a request past
   Turnstile counts, and once the site's hour is spent a request writes
   nothing at all. `account_request_log` keeps each address as a keyed hash,
-  as the join and takedown limits do, and a row is deleted once it is over an
-  hour old, by the next request the site takes or the next load of `/admin`.
+  as the takedown and sign-in limits do, and a row is deleted once it is over
+  an hour old, by the next request the site takes or the next load of
+  `/admin`.
 - **One account per email address**, matched without regard to letter case.
   A request from an address the site already has writes nothing, and is
   answered with the same `303` to `/ask?sent` as a new one. That includes a
@@ -1117,12 +1175,8 @@ is under them.
     approved photos stay up, nothing is emailed, and their address is kept
     as a keyed hash (`revoked_addresses`), so a new request from it changes
     nothing. Someone revoked from every team moves to the **Revoked** list.
-    **Until #226 a revoke does not stop the invite link or a coach's
-    sign-in**: someone revoked can still send with the invite link they hold,
-    or join again from it, or through `/coach` if their address is on
-    `COACH_EMAILS`. Those photos wait for approval and name no account, so
-    Hide all their photos cannot find them. Rotate the code on `/admin/code`,
-    or take them off the coaches' list (Coaches, above), to end that.
+    Since #226 an account is the only way to send, so a revoke from every
+    team ends the person's sending.
   - **Taking a revoked person back** is Approve, on the revoked team's
     unticked box. It emails the usual link to set a password, which someone
     who already has one can ignore. Once no team is left revoked, their
@@ -1228,8 +1282,8 @@ An approved person sets a password from their emailed link, signs in at
 `/sign-in`, and resets a forgotten password at `/forgot-password` (#222;
 `CLAUDE.md`, The photo site, item 27, has the decisions). Since #223 the share
 page links `/sign-in` ("Have an account? Sign in"), and `/account` links the
-share page, where an account sends (Uploads, above). Nothing links `/ask`
-until #226.
+share page, where an account sends (Uploads, above). Since #226 the share
+page links `/ask` beside it ("No account yet? Ask for one").
 
 - **The password**: 15 to 256 characters, counted after NFC, with no rules
   about mixing kinds. It is turned down when it is the person's own address
@@ -1444,4 +1498,4 @@ without an error, so the gate refuses it instead.
 | `trace_logo.py` | Re-traces `shared/img/` from `docs/source/madcow-lockup.pdf`. Needs Pillow. |
 | `app_icons.py` | Renders the photo site's four app icons into `photos/public/icons/` from `shared/img/madcow-mark.svg`, with `trace_logo.py`'s fill and the colours from `tokens.css` (#193). Needs Pillow. `photos/test/app.test.js` holds what it writes. |
 | `quality_floor.mjs` | Measures the `CLAUDE.md` quality floor on both **production** domains — Lighthouse at a pinned version, 360px scroll, keyboard reach, contrast pairs — and rewrites the generated block of `docs/quality-floor.md`. Needs Node and Chrome. Not in CI, by decision recorded in that doc. |
-| `h2proxy.mjs` | Serves the photo site from `wrangler pages dev` over HTTP/2, so Lighthouse reads it locally the way production serves it. The photo site's floor is read through it (`CLAUDE.md`, Quality floor; #155). Needs a throwaway self-signed certificate; the header has the recipe. |
+| `h2proxy.mjs` | Serves the photo site from `wrangler pages dev` over HTTP/2, so Lighthouse reads it locally the way production serves it. The photo site's floor is read through it (`CLAUDE.md`, Quality floor; #155). Needs a throwaway self-signed certificate; the header has the recipe, including how to read a page behind a sign-in with an `__Host-account` cookie (from `/sign-in`, or the local stand-in; `__Host-upload` from `POST /api/join` until #226). |

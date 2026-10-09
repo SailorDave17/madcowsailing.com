@@ -9,15 +9,15 @@
  * went, or that the account holds no approved team.
  */
 import { readForm, seeOther } from '../../../../lib/form.js';
-import { inviteSite } from '../../../../lib/invite.js';
 import { readAccountId, sendLink } from '../../../../lib/people.js';
 import { peopleLocation } from '../../../../lib/people-page.js';
 import { nowSeconds } from '../../../../lib/session.js';
+import { siteOrigin } from '../../../../lib/site.js';
 
 export async function onRequestPost({ request, env, data }) {
   const accountId = readAccountId((await readForm(request)).account);
   if (accountId === null) return seeOther(peopleLocation({ error: 'form' }));
-  const mail = await sendLink(env, { accountId, admin: data.admin.email, now: nowSeconds(), site: inviteSite(request, env) });
+  const mail = await sendLink(env, { accountId, admin: data.admin.email, now: nowSeconds(), site: siteOrigin(request, env) });
   if (mail === null) return seeOther(peopleLocation({ error: 'not-approved' }));
   return seeOther(peopleLocation({ done: 'link', account: accountId, mail }));
 }

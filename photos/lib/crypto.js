@@ -1,7 +1,14 @@
 /**
- * The few cryptographic helpers the upload session needs, on Web Crypto
- * alone: the Workers runtime and Node 24 both have crypto.subtle, and the
- * site takes no library (CLAUDE.md, The photo site, item 7).
+ * The few cryptographic helpers the site's sessions, keyed hashes and links
+ * need, on Web Crypto alone: the Workers runtime and Node 24 both have
+ * crypto.subtle, and the site takes no library (CLAUDE.md, The photo site,
+ * item 7). The account and admin sessions sign with hmac and check with
+ * hmacVerify (lib/account-session.js, lib/admin-session.js), as the admin
+ * sign-in's emailed code is kept and checked (lib/admin-code.js);
+ * lib/address.js and lib/sign-in.js key their hashes with hmac; and
+ * lib/password-link.js keeps a link's token as its sha256. Written for the
+ * upload session (#150), which #226 retired, deleting timing.equal with
+ * POST /api/join's code comparison, its only user.
  *
  * Nothing here logs, and nothing here puts a key or a value in an error.
  */
@@ -40,18 +47,3 @@ export async function hmacVerify(secret, message, signature) {
 export async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
 }
-
-/**
- * Whether two byte arrays of the same length are equal, reading every byte of
- * both whatever the first difference: no early exit, so the time taken says
- * nothing about where they differ. Held on an object so a test can watch it
- * being called.
- */
-export const timing = {
-  equal(a, b) {
-    if (a.length !== b.length) return false;
-    let diff = 0;
-    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-    return diff === 0;
-  },
-};

@@ -19,36 +19,6 @@
        Anyone can download one           the album page's Download link (#157)
        Search engines are asked not to   X-Robots-Tag: noindex in _headers and
        list it                           lib/headers.js, and the meta below (D6)
-       The invite link sends, and so do  requireUploadSession in lib/session.js
-       the coaches, who sign in          (#150, #192)
-       Who the link is for               owner, at #159's pickup, 2026-09-30
-       90 days; a new link ends it       CLAUDE.md, The photo site, item 11
-                                         (#150, #152)
-       A coach signs in at /coach with   requireCoach in lib/access.js, run by
-       an address the admins listed      functions/coach/_middleware.js
-                                         against COACH_EMAILS (#192; D9)
-       A coach's phone: 90 days, until   readSession and coachListed in
-       they leave the list; a new link   lib/session.js (#192; owner, at
-       does not end it                   #192's pickup, 2026-10-01)
-       A coach's photo is checked too    insertPhoto in lib/photos.js stores
-                                         it pending (D10)
-       What is kept for a coach          sender in 0005 says coach, and
-                                         insertPhoto in lib/photos.js writes
-                                         no code generation and no session
-                                         time (owner, at #192's review); the
-                                         cookie holds coachTag in
-                                         lib/session.js, a keyed hash, never
-                                         the address; the list is the
-                                         COACH_EMAILS secret and the Access
-                                         policy, both in Cloudflare's
-                                         dashboard (#192)
-       A coach's photo could still be    sent_at in 0005, beside Cloudflare's
-       matched by time                   sign-in record (owner, at #192's
-                                         review)
-       Cloudflare records each sign-in   Cloudflare's Access authentication
-                                         logs: "each login attempt", with the
-                                         user email, IP address and request
-                                         time (read 2026-10-01, #192)
        Every photo and caption checked   D2, D5, D8; the approval queue (#156)
        against its team's release        and README.md, Approving. It states
                                          the check, not a guaranteed outcome
@@ -96,14 +66,6 @@
        Its album, or the event an admin  photos.album_id, which movePhotos in
        moved it into                     lib/queue.js changes and nothing
                                          keeps the old one (#228)
-       A daily count per phone           upload_counts in 0005; DAILY_UPLOADS
-                                         in lib/photos.js (#154)
-       Failed joins, up to a set number  FAILURE_BUDGET_PER_HOUR in
-       each hour                         functions/api/join.js (#177)
-       The scrambled address, an hour    migrations/0002_invite_code.sql and
-                                         functions/api/join.js (#150). Deleted
-                                         by the next join after the hour, so
-                                         it has no upper bound
        What a taken-down photo keeps     hidden_at and hidden_note in 0005,
                                          written by requestRemoval; its three
                                          copies stay in the bucket until an
@@ -127,7 +89,8 @@
        team's albums only, from any      lib/session.js, which reads
        phone signed in to it             readAccountSession and
                                          sessionAccount in
-                                         lib/account-session.js first;
+                                         lib/account-session.js, and since
+                                         #226 no other session;
                                          functions/api/albums/open.js
                                          offers and
                                          functions/api/upload/index.js
@@ -135,14 +98,33 @@
                                          albums, and insertPhoto in
                                          lib/photos.js checks again (#223's
                                          criteria 1 and 2; D16)
-       Signed in, a phone sends from the owner, at #223's pickup, 2026-10-06:
-       account, invite link or not       requireUploadSession takes the
-                                         account's session before the
-                                         upload cookie
+       A coach sends the same way, from  D13 and D16, item 24: a coach is an
+       an account with the coach role    account with the coach role, which
+                                         an admin approves (#221);
+                                         sendsAsCoach in lib/photos.js reads
+                                         it, and senderColumns writes it as
+                                         the photo's sender (#223, #226)
+       Accounts replaced the invite      D13, done at #226 (2026-10-08):
+       link and the coaches' sign-in;    requireUploadSession takes an
+       a link no longer sends            account's session only, and
+                                         POST /api/join, in
+                                         functions/api/join.js, answers 410
+                                         "replaced" with /ask (#226)
+       Ask on "Ask for an account",      the /ask page's title, in
+       named in words, not linked        lib/ask-page.js; no link, as #220
+                                         chose ("Not chosen: a link from
+                                         `/policy`", CLAUDE.md, The photo
+                                         site, item 25; #226)
+       An admin revokes an account for   revokeTeams in lib/people.js
+       a team where the link was once    (#225), which adds 1 to
+       changed                           session_version, so every session
+                                         ends; the invite code's rotation
+                                         went with the link (#226)
        A daily count per account, for    sessionKey and DAILY_UPLOADS in
        every phone signed in to it;      lib/photos.js; upload_counts in
-       cleared the next day anyone       0005 (#223's criterion 5).
-       sends, a deleted account's too    spendDailyUpload deletes every
+       cleared the next day anyone       0005 (#223's criterion 5), keyed
+       sends, a deleted account's too    by the account alone since #226.
+                                         spendDailyUpload deletes every
                                          earlier day's count at anyone's
                                          first upload of a day
        Whether an account's photo was    senderColumns in lib/photos.js
@@ -150,11 +132,27 @@
                                          sender, which 0005's CHECK needs,
                                          and 0012's ON DELETE SET NULL
                                          leaves it (owner, at #223's pickup)
-       A photo sent with the invite      0005 and insertPhoto, as above. Since
-       link, or by a coach, names        #219 the page promises this for those
-       nobody; one sent from an          two ways only (D17, CLAUDE.md, The
-       account records the account       photo site, item 24); #223 stores the
-                                         account
+       A photo sent with the invite      code_generation and session_issued
+       link before #226 keeps the link   in 0005, written by the link's
+       and when the phone opened it,     sessions until #226. Production
+       and names nobody                  held 12 such photos, all hidden,
+                                         and none from the coaches' sign-in
+                                         (read 2026-10-08), so only the
+                                         link's half stays, in the past
+                                         tense (#226). Since #219 the page
+                                         promises anonymity for these alone
+                                         (D17, item 24); senderColumns in
+                                         lib/photos.js names the account on
+                                         every row since #226
+       An old upload cookie: read by     requireUploadSession, which
+       nothing, deleted the next time    functions/api/upload/_middleware.js
+       the phone opens the share page    runs, deletes a __Host-upload
+       or sends                          cookie with every answer
+                                         (clearUploadCookie in
+                                         lib/session.js), and so does
+                                         functions/api/join.js; the share
+                                         page asks GET /api/upload/session
+                                         on load (public/js/share.js) (#226)
        If you ask for an account, for    D13 and D16, item 24; the request form
        one team or both, it keeps        is #220. Worded as a condition so it
                                          is true on every release (owner, at
@@ -406,6 +404,23 @@
                                          (read 2026-10-05; owner, at #219's
                                          review)
 
+     #226 (the cutover) retired the invite link and the coaches' sign-in,
+     with the facts production held on 2026-10-08: 12 photos sent with the
+     link, all hidden, none through the coaches' sign-in, and one failed
+     join's row. The lede and "Who can send a photo" now say only an account
+     an admin approved for the team sends, a coach being an account with
+     the coach role, and what replaced each way in: an account, asked for on
+     the request page, for the link; the coach role for the coaches'
+     sign-in; and an admin revoking an account for changing the link. The
+     paragraphs on the link and the coaches went, with the coaches' list
+     and Cloudflare's record of their sign-ins. #192's sentence matching a
+     coach's send time to who signed in went outright, not into the past
+     tense, since no photo was sent that way. What a photo sent with the
+     link keeps stays, in the past tense; the phone's old cookie is said to
+     be read by nothing and deleted; the daily count is the account's alone;
+     and the failed-join paragraph went, its last row deleted by hand at
+     the cutover (README.md, The cutover (#226)).
+
      #224 (admins) added whether an account is an admin or the owner, the
      code an admin's sign-in emails, kept as a keyed hash with its time for
      a day, its cookie and its limits, the 12-hour cookie for the admin
@@ -414,8 +429,9 @@
 
      #223 (sending from an account) changed the lede, "Who can send a
      photo", what a photo keeps and the daily count, which it counts per
-     account, and added that a signed-in phone sends from the account, and
-     that a deleted account's photos still say whether it was a coach's.
+     account, and added that a signed-in phone sends from the account, which
+     #226 dropped with the link, and that a deleted account's photos still
+     say whether it was a coach's.
 
      #238 (the teams' releases) changed the check: it says which release
      covers which team's photos, keeps Hoover JRT's check against the
@@ -446,12 +462,12 @@
 
      #219 (accounts) changed it: what an account keeps, the two services that
      handle a request, how to have an account deleted, and the sentence that
-     said nothing kept with a photo names who sent it, which now covers the
-     invite link and the coaches only. The records #220 to #224 add, and the
-     lede and "Who can send a photo" once #223 lets accounts send, are each
-     that story's own /policy criterion (owner, at #219's review). The
+     said nothing kept with a photo names who sent it, which then covered
+     the invite link and the coaches only. The records #220 to #224 add, and
+     the lede and "Who can send a photo" once #223 lets accounts send, are
+     each that story's own /policy criterion (owner, at #219's review). The
      sentence about matching a coach's send time to Cloudflare's sign-in
-     record stays until the cutover, #226, which removes it with the
+     record stayed until the cutover, #226, which removed it with the
      coaches' sign-in. #192 (a coach's Access
      sign-in) changed it before that: who can send, the lede, and what is
      kept for a coach. #158 ("Remove this photo") changed it before #192,
@@ -472,7 +488,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=00a78e8efd">
+<link rel="stylesheet" href="/css/site.css?v=be015226bc">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -527,8 +543,7 @@
     <p class="eyebrow">Photos</p>
     <h1>Who sees these photos</h1>
     <p class="lede">Anyone can look at a photo here once it is approved. Only
-      people with an account the site's admins approved for the team, people
-      with the team's invite link, and the team's coaches, who sign in, can
+      people with an account the site's admins approved for the team can
       send one, and nothing shows until one of the site's admins has checked
       it. To take a photo down, press
       "Remove this photo" under it, or email
@@ -553,18 +568,13 @@
       They sign in with their email address and password, and can then send
       photos to that team's albums only, from any phone or computer signed in
       to the account, for as long as an admin leaves the team on the account.
-      A phone signed in to an account sends from the account, even if it has
-      also opened the invite link.</p>
-    <p>Someone holding the team's invite link, which is for the team's
-      parents, sailors and coaches. Opening the link on a phone lets that
-      phone send photos for 90 days, with no account, and no name or email
-      address. When the link is changed, every phone that opened the old one
-      stops sending until it opens the new one.</p>
-    <p>The team's coaches can also send without the link. A coach signs in
-      with their email address, and only an address the site's admins have
-      put on the coaches' list gets in. Their phone can then send for 90 days,
-      until the coach is taken off the list. Changing the invite link does
-      not stop it. A coach's photos are checked like everyone else's.</p>
+      A coach sends the same way, from an account an admin approved with the
+      coach role.</p>
+    <p>Accounts replaced the team's invite link and the coaches' own
+      sign-in. An invite link no longer lets a phone send: ask for an account
+      instead, on the site's "Ask for an account" page. Changing the link
+      used to stop every phone that had opened it. Now an admin stops someone
+      sending by revoking their account for the team.</p>
   </section>
 
   <section class="wrap policy">
@@ -621,45 +631,26 @@
       <li>its caption, if it has one;</li>
       <li>the album it was sent to, or the event an admin moved it into;</li>
       <li>when it was taken, and when it was sent;</li>
-      <li>which invite link it was sent with, and when that phone opened
-        it, or for a coach's photo, only that a coach sent it;</li>
-      <li>for a photo sent from an account, which account sent it, and
-        whether the account is a coach's.</li>
+      <li>which account sent it, and whether the account is a coach's.</li>
     </ul>
-    <p>A photo sent with the invite link, or by a coach, keeps nothing that
-      names who sent it: no name, no account and no email address, and for a
-      coach's photo, not which coach. Someone sending with the invite link
-      gives none of those at all. The phone keeps one small cookie, which is
-      what lets it send for 90 days. A coach's cookie holds their address
-      only in a scrambled form, made with a secret key.</p>
-    <p>A photo sent from an account is different: the site records which
-      account sent it, and only the site's admins see it.</p>
+    <p>Only the site's admins see which account sent a photo.</p>
+    <p>A photo sent with the team's invite link, before accounts replaced
+      it, keeps instead which invite link it was sent with and when that
+      phone opened it, and nothing that names who sent it: no name, no
+      account and no email address. A phone that opened the link, or that a
+      coach signed in on, may still hold the small cookie that let it send.
+      Nothing reads it now, and it is deleted the next time that phone opens
+      the page photos are sent from, or sends a photo.</p>
     <p>Photos shared to the installed app from a phone's gallery wait in this
       site's storage on that phone, exactly as they were shared, location
       included, until each is sent or removed. Only the copies made for
       sending ever leave the phone. One not sent within a day is no longer
       offered, and is deleted the next time the app opens or is shared
       to.</p>
-    <p>The coaches' list itself holds each coach's email address, and only
-      the site's owner can change it, in Cloudflare's dashboard. Cloudflare,
-      which signs a coach in, records each sign-in in the site's account,
-      with the coach's email address and network address, as it does for the
-      admins. So when a coach's photo was sent could still be matched against
-      who signed in shortly before.</p>
     <p>The site also counts how many photos are sent in a day, so no more
-      than 500 come from one account, or from one phone sending with the
-      invite link or a coach's sign-in. An account's count is kept under the
-      account, for every phone and computer signed in to it together. A
-      phone's is kept under the invite link, or a coach's scrambled address,
-      and the time the phone opened it. Each count is cleared the next day
-      anyone sends a photo.</p>
-    <p>An invite link carrying an old or wrong code is refused. So that nobody
-      can try code after code, the site records failed attempts, up to a set
-      number each hour. It keeps the network address each attempt came from
-      only in a scrambled form, made with a secret key, so it can match a
-      repeat attempt without storing the address. An attempt counts for an
-      hour, and is deleted the next time anyone opens an invite link after
-      that.</p>
+      than 500 come from one account. An account's count is kept under the
+      account, for every phone and computer signed in to it together. Each
+      count is cleared the next day anyone sends a photo.</p>
     <p>When someone takes a photo down with "Remove this photo", nothing is
       deleted yet. The site keeps the photo's three copies, when it was taken
       down, and the note left with it, if any, which can hold a name and which
@@ -667,7 +658,8 @@
       if an admin puts it back, and go with it when an admin deletes it.</p>
     <p>So that nobody can take the whole site down at once, one network can
       take down at most 10 photos an hour. The site counts them by the network
-      address each came from, kept only in the same scrambled form. A takedown
+      address each came from, kept only in a scrambled form, made with a
+      secret key. A takedown
       counts for an hour. After that it is deleted the next time anyone takes
       a photo down or one of the site's admins opens the admin pages. Pressing
       it on a photo that is not showing counts for nothing, and nothing is

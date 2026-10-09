@@ -1,8 +1,9 @@
 /**
  * POST /api/admin/albums/reopen: reopen a closed album (#153), reversing
  * close.js: the share page offers it again and uploads naming it are taken.
- * The guards in ../_middleware.js have already required the owner's Access
- * token and the site's own Origin.
+ * The guards in ../_middleware.js have already required an admin's session
+ * (lib/admin-session.js, since #224; an Access token until then) and the
+ * site's own Origin.
  */
 import { setAlbumOpen } from '../../../../lib/albums.js';
 import { readForm, seeOther } from '../../../../lib/form.js';

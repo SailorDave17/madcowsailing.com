@@ -1,8 +1,9 @@
 /**
  * /ask: anyone asks for an account (#220). GET shows the form (lib/ask-page.js)
  * and POST takes a request (lib/accounts.js holds the rules). Nothing on the
- * site links here yet (owner, at #220's pickup); #226 points the old invite
- * link at it.
+ * site linked here until #226 (owner, at #220's pickup), which points the old
+ * invite link at it: the share page links it, and POST /api/join's answer
+ * names it.
  *
  * POST's answers, each a page a person sees, except the forged one:
  *
@@ -36,11 +37,11 @@ import { addressHash } from '../lib/address.js';
 import { ASK_FORM_BYTES, mailAdmins, readRequest, requestAccount } from '../lib/accounts.js';
 import { askClosedPage, askPage, askSentPage } from '../lib/ask-page.js';
 import { readFormParams, seeOther } from '../lib/form.js';
-import { inviteSite } from '../lib/invite.js';
 import { sameOrigin } from '../lib/origin.js';
 import { htmlResponse } from '../lib/public-page.js';
 import { nowSeconds } from '../lib/session.js';
 import { emailHash } from '../lib/sign-in.js';
+import { siteOrigin } from '../lib/site.js';
 import { TOKEN_FIELD, verifyTurnstile } from '../lib/turnstile.js';
 
 // What a request needs, by name. GET checks them too, so a page that could
@@ -116,6 +117,6 @@ export async function onRequestPost(context) {
 
   // Called on the context, which the runtime's own method may need as its
   // `this`.
-  if (result.created) context.waitUntil(mailAdmins(env, { now, site: inviteSite(request, env) }));
+  if (result.created) context.waitUntil(mailAdmins(env, { now, site: siteOrigin(request, env) }));
   return seeOther('/ask?sent');
 }

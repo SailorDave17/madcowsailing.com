@@ -19,7 +19,7 @@ export async function onRequestGet({ request, env }) {
   return new Response(adminAlbumsPage({ albums, notice }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      // Behind Access: no cache between here and the owner may keep it.
+      // Behind the admin guard: no cache between here and the admin may keep it.
       'Cache-Control': 'no-store',
     },
   });

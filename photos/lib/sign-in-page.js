@@ -13,9 +13,10 @@
  * (#ask-problems): the summary keeps that id there for it. The sign-in form
  * has no Turnstile (the owner's choice at pickup, 2026-10-06), so no script.
  *
- * Nothing links to /sign-in or /forgot-password yet, as nothing links to /ask
- * (owner, at #220's pickup): the emails do, and /set-password, /account and
- * each other. Which public page links them is #223's and #226's.
+ * The share page links /sign-in (#223) and, since #226, /ask, which stayed
+ * unlinked until then (owner, at #220's pickup); /sign-in links
+ * /forgot-password, and the emails, /set-password and /account link each
+ * other.
  *
  * Every refusal of a sign-in reads the same, whatever was wrong
  * (criterion 2): it never says whether the address has an account. The limit

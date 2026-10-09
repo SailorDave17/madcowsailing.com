@@ -27,8 +27,8 @@ import {
 import { readFileSync } from 'node:fs';
 import { adminPeoplePage, peopleLocation, peopleNotice } from '../lib/people-page.js';
 import { linkGonePage, setPasswordPage } from '../lib/password-page.js';
-import { PRODUCTION_SITE } from '../lib/invite.js';
 import { nowSeconds } from '../lib/session.js';
+import { PRODUCTION_SITE } from '../lib/site.js';
 import { onRequestGet as peoplePage } from '../functions/admin/people.js';
 import * as approveRoute from '../functions/api/admin/people/approve.js';
 import * as rejectRoute from '../functions/api/admin/people/reject.js';
