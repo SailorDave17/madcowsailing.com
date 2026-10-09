@@ -10,29 +10,33 @@
  * version    accounts.session_version when the session was opened
  * issued     when, in Unix seconds
  * signature  HMAC-SHA256 of "a1.<account>.<version>.<issued>", keyed with the
- *            SESSION_SIGNING_KEY Pages secret the upload session uses
+ *            SESSION_SIGNING_KEY Pages secret every session cookie uses
  *            (README, The photo site, Secrets). The "a1." in front means no
- *            upload cookie's payload can ever be one of these.
+ *            other cookie's payload can be one of these: the admin
+ *            session's is m1. (lib/admin-session.js), and the retired
+ *            upload cookie's was v1. or c1.
  *
  * It is a cookie of its own, not a third shape of __Host-upload, so a phone
- * can hold both, and #226 retires the upload cookie without touching this
+ * could hold both, and #226 retired the upload cookie without touching this
  * one. Since #223 the upload guard (lib/session.js, requireUploadSession)
- * reads it first: a phone holding both sends as the account (owner, at
- * #223's pickup). It holds no password, no email address and no name.
+ * reads it, first until #226 (a phone holding both sent as the account;
+ * owner, at #223's pickup) and alone since. It holds no password, no email
+ * address and no name.
  *
  * The guard refuses it unless the signature holds, it is younger than
- * SESSION_SECONDS, and the account still exists, is approved for a team, and
- * holds exactly the version the cookie names. Setting a password and signing
- * out each add 1 to the version (migration 0009), so every session the
- * account holds ends at its next request, with nothing to look up but the
- * account's own row (criterion 4). An admin's revoke (#225, lib/people.js's
- * revokeTeams) adds 1 too, a single team's included, so re-approving a team
- * cannot bring an old cookie back (#222's review); only an account approved
- * for a team is read besides. Signing out ends every session
- * the account holds, on every device (the owner's choice at #222's pickup,
- * 2026-10-06), and so does a cookie someone copied. The __Host- prefix makes
- * the browser refuse the cookie unless it is Secure, Path=/ and set with no
- * Domain, so no other host under madcowsailing.com can set or read it.
+ * ACCOUNT_SESSION_SECONDS, and the account still exists, is approved for a
+ * team, and holds exactly the version the cookie names. Setting a password
+ * and signing out each add 1 to the version (migration 0009), so every
+ * session the account holds ends at its next request, with nothing to look
+ * up but the account's own row (criterion 4). An admin's revoke (#225,
+ * lib/people.js's revokeTeams) adds 1 too, a single team's included, so
+ * re-approving a team cannot bring an old cookie back (#222's review); only
+ * an account approved for a team is read besides. Signing out ends every
+ * session the account holds, on every device (the owner's choice at #222's
+ * pickup, 2026-10-06), and so does a cookie someone copied. The __Host-
+ * prefix makes the browser refuse the cookie unless it is Secure, Path=/ and
+ * set with no Domain, so no other host under madcowsailing.com can set or
+ * read it.
  *
  * Nothing here logs the cookie, the signature or the key.
  */
@@ -46,14 +50,15 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 export const ACCOUNT_COOKIE = '__Host-account';
 
-// 90 days, as the upload session's SESSION_DAYS (criterion 4, epic #216): a
-// parent signs in about twice a season. test/policy.test.js holds the two
-// equal. The server checks the age itself rather than trusting Max-Age.
+// 90 days (criterion 4, epic #216): a parent signs in about twice a season.
+// It is the figure the upload session's SESSION_DAYS held from #150's pickup
+// (2026-09-27) until #226 retired that session. The server checks the age
+// itself rather than trusting Max-Age.
 export const ACCOUNT_SESSION_DAYS = 90;
 export const ACCOUNT_SESSION_SECONDS = ACCOUNT_SESSION_DAYS * 24 * 60 * 60;
 
 // A cookie issued this far ahead of the server's clock is still accepted, for
-// clock drift between Cloudflare's machines, as lib/session.js allows.
+// clock drift between Cloudflare's machines, as lib/admin-session.js allows.
 const CLOCK_SKEW_SECONDS = 60;
 
 const VERSION = 'a1';

@@ -32,7 +32,7 @@ export async function onRequestGet({ request, env }) {
   return new Response(adminRemovalsPage({ photos, notice, team }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      // Behind Access, and it shows notes a parent wrote: no cache may keep it.
+      // Behind the admin guard, and it shows notes a parent wrote: no cache may keep it.
       'Cache-Control': 'no-store',
     },
   });

@@ -10,7 +10,9 @@
  * normally given. Counting each full address would let one phone step past
  * any limit by changing its last 64 bits, which it may do freely.
  *
- * #150 (the join limit) and #158 (removal requests) use this.
+ * Removal requests (#158, functions/api/remove.js), /ask (#220), /sign-in and
+ * /forgot-password (#222) use this. #150's join limit did until #226 retired
+ * it.
  */
 import { base64url, hmac } from './crypto.js';
 

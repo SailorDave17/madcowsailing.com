@@ -1,5 +1,6 @@
 // The albums (#153): adding, editing, closing, reopening and deleting them on
-// /admin/albums, and the open list an upload session reads. Every request
+// /admin/albums, and the open list a sender's session reads (an account's
+// since #226, the invite link's until then). Every request
 // runs through the chain Pages runs in front of the route (the root
 // middleware, then the directory's guards), against a real SQLite holding
 // the real migrations (test/d1.js), with an admin's session minted by
@@ -24,10 +25,12 @@ import * as reopen from '../functions/api/admin/albums/reopen.js';
 import * as remove from '../functions/api/admin/albums/delete.js';
 import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js';
 import { onRequestGet as openList } from '../functions/api/albums/open.js';
+import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
 import { MAX_SUFFIX, baseAddress, openAlbum, slugify } from '../lib/albums.js';
-import { COOKIE_NAME, nowSeconds, signSession } from '../lib/session.js';
+import { nowSeconds } from '../lib/session.js';
 import { adminCookieHeader, seedAdmin } from './admin.js';
 import { d1, seedCodes } from './d1.js';
+import { UPLOAD_COOKIE, parentCookie } from './legacy-cookies.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIGRATIONS = new URL('../migrations/', import.meta.url);
@@ -38,11 +41,18 @@ const ROUTES = { create, update, close, reopen, delete: remove };
 afterEach(() => mock.restoreAll());
 
 // The owner is account 1, whose admin session every press and page load sends
-// (#224).
+// (#224). Account 2 sends photos, approved for both teams, so the open list
+// offers it every team's albums (an account is offered its approved teams'
+// only, #223). Generation 2 is the current invite code, which nothing reads
+// since #226: it makes the invite link's old cookie one the guard took until
+// then, so the test that it opens nothing would fail if that came back.
+const SENDER = 2;
 function site() {
   const DB = d1();
-  seedCodes(DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB'); // generation 2 is current
+  seedCodes(DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB');
   seedAdmin(DB);
+  DB.sqlite.prepare("INSERT INTO accounts (id, email, name, role, requested_at) VALUES (?, 'sender@example.org', 'Sam Sender', 'parent', 1)").run(SENDER);
+  DB.sqlite.exec(`INSERT INTO account_teams (account_id, team, state) VALUES (${SENDER}, 'hoover-jrt', 'approved'), (${SENDER}, 'cohssa', 'approved')`);
   return { DB, SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY };
 }
 
@@ -83,14 +93,15 @@ async function page(env, query = '') {
   return res.text();
 }
 
-/** GET /api/albums/open through the upload guard, with `cookie` if given. */
-async function openCall(env, cookie) {
-  const headers = cookie ? { Cookie: `${COOKIE_NAME}=${cookie}` } : {};
+/** GET /api/albums/open through the upload guard, with the cookie `name`=`cookie` if given. */
+async function openCall(env, cookie, name = ACCOUNT_COOKIE) {
+  const headers = cookie ? { Cookie: `${name}=${cookie}` } : {};
   const request = new Request(`${SITE}/api/albums/open`, { headers });
   return chain([root, albumsGuard, openList], request, env);
 }
 
-const session = () => signSession(KEY, 2, nowSeconds());
+/** The sender's live session, or one on `version` or signed with `key`. */
+const session = ({ version = 1, key = KEY } = {}) => signAccountSession(key, { accountId: SENDER, version }, nowSeconds());
 const openAddresses = async (env) => (await (await openCall(env, await session())).json()).albums.map((a) => a.address);
 
 // The events: every database also holds one Not sure album per team from
@@ -477,11 +488,19 @@ test('GET /api/albums/open with a session: the open albums, newest first, and no
 test('GET /api/albums/open without a live session: 401, and no album in the answer', async () => {
   const env = site();
   await add(env);
-  for (const cookie of [undefined, await signSession(KEY, 1, nowSeconds()), await signSession('another-key-0123456789abcdef0123', 2, nowSeconds())]) {
-    const res = await openCall(env, cookie);
-    assert.equal(res.status, 401);
-    assert.doesNotMatch(await res.text(), /Fall Regatta/);
+  for (const [what, cookie, name] of [
+    ['no session', undefined],
+    ['a session on another version', await session({ version: 2 })],
+    ['a session signed with another key', await session({ key: 'another-key-0123456789abcdef0123' })],
+    // The invite link's, once valid: #226 retired it.
+    ['the invite link\'s old cookie', await parentCookie(KEY, 2, nowSeconds()), UPLOAD_COOKIE],
+  ]) {
+    const res = await openCall(env, cookie, name);
+    assert.equal(res.status, 401, what);
+    assert.doesNotMatch(await res.text(), /Fall Regatta/, what);
   }
+  // The control: the sender's live session is offered it.
+  assert.match(await (await openCall(env, await session())).text(), /Fall Regatta/);
 });
 
 test('an open list with nothing open is empty, not an error', async () => {

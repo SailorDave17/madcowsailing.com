@@ -365,8 +365,9 @@ export const acted = (ids) => (ids.length === 1 ? { photo: ids[0] } : { n: ids.l
  * among the batches shown.
  *
  * Each photo sent from an account carries the account's name (#223,
- * criterion 3, D17), for the admins alone: `accountName`, null for the
- * invite link, a coach's Access sign-in, or an account since deleted.
+ * criterion 3, D17), for the admins alone: `accountName`, null for an
+ * account since deleted, and for a photo sent with the invite link or a
+ * coach's Access sign-in before #226 retired them.
  *
  * A batch sent to a team's "Not sure / other event" says so (`album.holding`,
  * #228), so the page offers no approval for it.

@@ -396,12 +396,6 @@ export function adminPeoplePage({ lists, log, notice = '', viewer }) {
       their approved photos stay up, and a new request from their address
       changes nothing. To take someone back, tick a team and approve it, which
       emails them a link to set a password as any approval does.</p>
-    <p>Until the invite link and the coaches' sign-in retire, someone revoked
-      can still send through either: with the invite link they hold, or a new
-      join from it, or a coach's sign-in if their address is on the coaches'
-      list. What they send that way waits for approval and names no account.
-      Rotate the invite code on <a href="/admin/code">Invite code</a>, or take
-      them off the coaches' list, to end that.</p>
     ${peopleList(revoked, 'Nobody is revoked.', viewer)}
     <h3 id="ask-again">A deleted account's address</h3>
     <p>When a revoked account is deleted, its address stays held back, kept

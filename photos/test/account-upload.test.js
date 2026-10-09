@@ -1,10 +1,13 @@
 // Uploads from an account (#223, epic #216): the upload guard takes an
-// account's session beside the invite link's and a coach's, an account is
-// offered and may send to its approved teams' open albums only, each photo
-// records the account, admins alone see its name, a coach's clip length goes
-// by role, and the daily cap is the account's. Every request runs through the
-// chain Pages runs (the root middleware, then the directory's guards) against
-// a real SQLite holding the real migrations (test/d1.js) and the R2 stand-in.
+// account's session, an account is offered and may send to its approved
+// teams' open albums only, each photo records the account, admins alone see
+// its name, a coach's clip length goes by role, and the daily cap is the
+// account's. Until #226 the guard also took the invite link's session and a
+// coach's; since then an account's is the only one, and the upload cookie
+// those two set opens nothing and is deleted (test/legacy-cookies.js mints
+// one as the site used to accept it). Every request runs through the chain
+// Pages runs (the root middleware, then the directory's guards) against a
+// real SQLite holding the real migrations (test/d1.js) and the R2 stand-in.
 // The guard's bad-cookie cases for every upload route are in
 // test/guard.test.js, and /policy's in test/policy.test.js.
 import { test } from 'node:test';
@@ -25,12 +28,10 @@ import { createAlbum, setAlbumOpen } from '../lib/albums.js';
 import { CLIP_SECONDS, DAILY_UPLOADS, clipSeconds, sendsAsCoach, sessionKey } from '../lib/photos.js';
 import { waitingBatches } from '../lib/queue.js';
 import { hiddenPhotos } from '../lib/removals.js';
-import {
-  COOKIE_NAME, coachTag, nowSeconds, requireUploadSession, signCoachSession, signSession,
-} from '../lib/session.js';
-import { COACH, accessEnv } from './access.js';
+import { nowSeconds, requireUploadSession } from '../lib/session.js';
 import { d1, seedCodes } from './d1.js';
 import { jpeg } from './jpeg.js';
+import { UPLOAD_COOKIE, coachCookie, parentCookie } from './legacy-cookies.js';
 import { r2 } from './r2.js';
 
 const FUNCTIONS = fileURLToPath(new URL('../functions/', import.meta.url));
@@ -50,14 +51,21 @@ const COACH_ACCOUNT = 2; // a coach, approved for COHSSA
 const OTHER = 3; // 'other', approved for both
 const WAITING = 4; // approved for no team yet
 
+// A coach the coaches' list named until #226, at a reserved example domain.
+const COACH = 'coach@example.com';
+
 /**
- * A site with generation 2 current, one open album per team (COHSSA's the
- * newer), and the four accounts above.
+ * A site with one open album per team (COHSSA's the newer), and the four
+ * accounts above. Also what made an upload cookie valid until #226: the
+ * invite code's generation 2 current, and COACH on the coaches' list. Nothing
+ * reads either now; they are here so a cookie from before #226 is one the
+ * old guard would have let through, and a test that it opens nothing would
+ * fail if that guard came back.
  */
 async function site({ names = {} } = {}) {
   const env = {
     DB: d1(), MEDIA: r2(), SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY, ADDRESS_HASH_KEY: 'test-address-key',
-    TURNSTILE_SITE_KEY: '1x00000000000000000000AA', ...accessEnv(),
+    TURNSTILE_SITE_KEY: '1x00000000000000000000AA', COACH_EMAILS: COACH,
   };
   seedCodes(env.DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB');
   const now = nowSeconds();
@@ -78,8 +86,15 @@ async function site({ names = {} } = {}) {
 
 const account = (accountId, { version = 1, issued = nowSeconds(), key = KEY } = {}) =>
   signAccountSession(key, { accountId, version }, issued);
-const invite = (issued = nowSeconds()) => signSession(KEY, 2, issued);
-const coach = async (issued = nowSeconds()) => signCoachSession(KEY, await coachTag(KEY, COACH), issued);
+// The upload cookies the invite link and a coach's sign-in set until #226,
+// each one the old guard took: the current generation's, and a listed coach's.
+const invite = (issued = nowSeconds()) => parentCookie(KEY, 2, issued);
+const coach = (issued = nowSeconds()) => coachCookie(KEY, COACH, issued);
+
+// The Set-Cookie that deletes the upload cookie (#226). Written out, so a
+// change to it fails here: without Path=/ and Secure a browser would refuse
+// to delete a __Host- cookie.
+const CLEAR = `${UPLOAD_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`;
 
 // Alter the signature's first character, as test/guard.test.js does.
 const tamper = (value) => {
@@ -89,7 +104,7 @@ const tamper = (value) => {
 
 function cookieHeader({ account: held, upload } = {}) {
   const parts = [];
-  if (upload) parts.push(`${COOKIE_NAME}=${upload}`);
+  if (upload) parts.push(`${UPLOAD_COOKIE}=${upload}`);
   if (held) parts.push(`${ACCOUNT_COOKIE}=${held}`);
   return parts.length ? { Cookie: parts.join('; ') } : {};
 }
@@ -124,12 +139,22 @@ async function offered(env, cookies) {
   return (await res.json()).albums.map((album) => album.address);
 }
 
-/** The session the upload guard leaves for a request carrying `cookies`, or the guard's answer. */
-async function guarded(env, cookies) {
+/**
+ * The upload guard's answer to a request carrying `cookies`: its status, the
+ * session it left for the route (null when it left none), and whether it
+ * deleted the upload cookie.
+ */
+async function guard(env, cookies) {
   const data = {};
   const request = new Request(`${SITE}/api/upload/session`, { headers: cookieHeader(cookies) });
   const res = await requireUploadSession({ request, env, data, params: {}, next: () => new Response(null, { status: 204 }) });
-  return res.status === 204 ? data.session : res.status;
+  return { status: res.status, session: data.session ?? null, cleared: res.headers.getSetCookie().includes(CLEAR) };
+}
+
+/** The session the upload guard leaves for a request carrying `cookies`, or the guard's answer. */
+async function guarded(env, cookies) {
+  const { status, session } = await guard(env, cookies);
+  return status === 204 ? session : status;
 }
 
 const photoRows = (env) => env.DB.sqlite.prepare('SELECT * FROM photos ORDER BY id').all().map((r) => ({ ...r }));
@@ -147,50 +172,54 @@ test('an account\'s session passes the upload guard, which leaves the account, i
     { sender: 'account', accountId: OTHER, role: 'other', teams: ['hoover-jrt', 'cohssa'], issued });
   assert.deepEqual(await guarded(env, { account: await account(COACH_ACCOUNT, { issued }) }),
     { sender: 'account', accountId: COACH_ACCOUNT, role: 'coach', teams: ['cohssa'], issued });
-  // Through the route the share page asks: 204, as for the invite link.
+  // Through the route the share page asks: 204.
   const res = await chain([root, ...uploadGuard, sessionRoute], new Request(`${SITE}/api/upload/session`, { headers: cookieHeader({ account: await account(PARENT) }) }), env);
   assert.equal(res.status, 204);
 });
 
-test('a live account session wins over an upload cookie on the same phone, and one that no longer holds leaves the upload cookie to answer (owner, at #223\'s pickup)', async () => {
+test('an upload cookie from before #226 opens nothing: beside a live account the account sends, and every answer deletes it (#226)', async () => {
   const { env } = await site();
   const live = await account(PARENT);
-  const sender = async (cookies) => {
-    const session = await guarded(env, cookies);
-    return typeof session === 'number' ? session : session.sender;
-  };
-  // Both held: the account sends, whichever upload cookie is beside it.
-  assert.equal(await sender({ account: live, upload: await invite() }), 'account');
-  assert.equal(await sender({ account: live, upload: await coach() }), 'account');
-  // An account session that no longer holds is no session: the upload cookie
-  // beside it answers as it would alone.
-  for (const [name, dead] of Object.entries({
-    'another version (signed out, or a new password)': await account(PARENT, { version: 2 }),
-    'an account approved for no team': await account(WAITING),
-    'an account that does not exist': await account(99),
-    'a tampered signature': tamper(live),
-    'another key': await account(PARENT, { key: `${KEY}-other` }),
-  })) {
-    assert.equal(await sender({ account: dead, upload: await invite() }), 'parent', name);
-    assert.equal(await sender({ account: dead, upload: await coach() }), 'coach', name);
-    assert.equal(await sender({ account: dead }), 401, `${name}, with no upload cookie`);
+  const answer = ({ status, session, cleared }) => ({ status, sender: session?.sender ?? null, cleared });
+  for (const [kind, upload] of Object.entries({ 'the invite link\'s': await invite(), 'a coach\'s sign-in\'s': await coach() })) {
+    // Beside a live account session: the account sends (owner, at #223's
+    // pickup), and the answer deletes the old cookie.
+    assert.deepEqual(answer(await guard(env, { account: live, upload })), { status: 204, sender: 'account', cleared: true }, kind);
+    // Beside an account session that no longer holds, or alone: no session.
+    // Until #226 the upload cookie answered here, as a parent or a coach.
+    for (const [name, dead] of Object.entries({
+      'another version (signed out, or a new password)': await account(PARENT, { version: 2 }),
+      'an account approved for no team': await account(WAITING),
+      'an account that does not exist': await account(99),
+      'a tampered signature': tamper(live),
+      'another key': await account(PARENT, { key: `${KEY}-other` }),
+    })) {
+      assert.deepEqual(answer(await guard(env, { account: dead, upload })), { status: 401, sender: null, cleared: true }, `${kind}, ${name}`);
+      assert.deepEqual(answer(await guard(env, { account: dead })), { status: 401, sender: null, cleared: false }, `${name}, with no upload cookie`);
+    }
+    assert.deepEqual(answer(await guard(env, { upload })), { status: 401, sender: null, cleared: true }, `${kind}, alone`);
   }
+  // The control: with no upload cookie, a live account's answer deletes nothing.
+  assert.deepEqual(answer(await guard(env, { account: live })), { status: 204, sender: 'account', cleared: false });
 });
 
-test('a database that does not answer while the account is read: 503, closed, even beside a live upload cookie', async (t) => {
+test('a database that does not answer while the account is read: 503, closed, and an upload cookie beside it is still deleted', async (t) => {
   t.mock.method(console, 'error', () => {});
   const { env } = await site();
   // Only the account's read fails, so the 503 is the account branch's.
   const prepare = env.DB.prepare;
   env.DB = { ...env.DB, prepare: (sql) => { if (/\bFROM accounts\b/.test(sql)) throw new Error('D1 down'); return prepare(sql); } };
-  assert.equal(await guarded(env, { account: await account(PARENT), upload: await invite() }), 503);
-  // The control: the same database still lets the invite link through.
-  assert.equal((await guarded(env, { upload: await invite() })).sender, 'parent');
+  const down = await guard(env, { account: await account(PARENT), upload: await invite() });
+  assert.deepEqual([down.status, down.cleared], [503, true]);
+  // The control: with no account session to read, the same database is never
+  // asked, and the answer is the 401 (until #226 the invite link passed here).
+  const none = await guard(env, { upload: await invite() });
+  assert.deepEqual([none.status, none.cleared], [401, true]);
 });
 
 // ---- Criterion 2: only the approved teams' open events ------------------------
 
-test('the album list offers an account only its approved teams\' open albums, and the invite link and a coach every one (#223, criterion 2)', async () => {
+test('the album list offers an account only its approved teams\' open albums, and an upload cookie from before #226 none (#223, criterion 2)', async () => {
   const { env, hoover, cohssa, now } = await site();
   // A closed album of an approved team is offered to nobody.
   const closed = await createAlbum(env.DB, { team: 'hoover-jrt', title: 'Closed', kind: 'practice', date: '2026-10-06' }, now);
@@ -198,9 +227,10 @@ test('the album list offers an account only its approved teams\' open albums, an
   assert.deepEqual(await offered(env, { account: await account(PARENT) }), [hoover], 'COHSSA still waits for this account');
   assert.deepEqual(await offered(env, { account: await account(COACH_ACCOUNT) }), [cohssa]);
   assert.deepEqual(await offered(env, { account: await account(OTHER) }), [cohssa, hoover], 'both, newest first');
-  // The two ways in that have no team are offered every open album (#227).
-  assert.deepEqual(await offered(env, { upload: await invite() }), [cohssa, hoover]);
-  assert.deepEqual(await offered(env, { upload: await coach() }), [cohssa, hoover]);
+  // The two ways in that had no team were offered every open album (#227)
+  // until #226 retired them; now neither opens the list.
+  assert.equal(await offered(env, { upload: await invite() }), 401);
+  assert.equal(await offered(env, { upload: await coach() }), 401);
   // A phone holding both is offered what its account is.
   assert.deepEqual(await offered(env, { account: await account(COACH_ACCOUNT), upload: await invite() }), [cohssa]);
   // A team revoked leaves the list at the next request.
@@ -212,7 +242,7 @@ test('a send into another team\'s album is refused 403 and stores nothing, spend
   const { env, hoover, cohssa } = await site();
   for (const [name, cookies] of Object.entries({
     'an account approved for Hoover JRT, whose COHSSA request still waits': { account: await account(PARENT) },
-    'the same account, with the invite link beside it': { account: await account(PARENT), upload: await invite() },
+    'the same account, with the invite link\'s old cookie beside it': { account: await account(PARENT), upload: await invite() },
   })) {
     const res = await send(env, cohssa, cookies);
     assert.equal(res.status, 403, name);
@@ -257,10 +287,12 @@ test('a photo from an account records the account, with its role as the sender a
   assert.equal((await send(env, hoover, { account: await account(PARENT, { issued }) })).status, 201);
   assert.equal((await send(env, cohssa, { account: await account(COACH_ACCOUNT, { issued }) })).status, 201);
   assert.equal((await send(env, hoover, { account: await account(OTHER, { issued }) })).status, 201);
-  // A phone holding the invite link as well sends as the account.
+  // A phone holding the invite link's old cookie as well sends as the account.
   assert.equal((await send(env, hoover, { account: await account(PARENT, { issued }), upload: await invite(issued) })).status, 201);
-  // The control: the invite link alone names no account, and its generation.
-  assert.equal((await send(env, hoover, { upload: await invite(issued) })).status, 201);
+  // The old cookie alone sends nothing (until #226 it wrote a row naming no
+  // account, and its code's generation).
+  assert.equal((await send(env, hoover, { upload: await invite(issued) })).status, 401);
+  assert.equal((await send(env, hoover, { upload: await coach(issued) })).status, 401);
   const sent = photoRows(env).map(({ sender, code_generation, session_issued, account_id, state }) =>
     ({ sender, code_generation, session_issued, account_id, state }));
   assert.deepEqual(sent, [
@@ -268,17 +300,32 @@ test('a photo from an account records the account, with its role as the sender a
     { sender: 'coach', code_generation: 0, session_issued: 0, account_id: COACH_ACCOUNT, state: 'pending' },
     { sender: 'parent', code_generation: 0, session_issued: 0, account_id: OTHER, state: 'pending' },
     { sender: 'parent', code_generation: 0, session_issued: 0, account_id: PARENT, state: 'pending' },
-    { sender: 'parent', code_generation: 2, session_issued: issued, account_id: null, state: 'pending' },
   ]);
 });
+
+/**
+ * A row as the invite link (`parent`) or a coach's Access sign-in (`coach`)
+ * wrote one until #226, waiting in the album at `address`. Production keeps
+ * rows of the first kind, so the pages still read them: a parent's names its
+ * code's generation and when the phone opened it, a coach's neither, and
+ * neither names an account (lib/photos.js, senderColumns).
+ */
+function sentBefore226(env, address, sender) {
+  const albumId = env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  const now = nowSeconds();
+  env.DB.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, captured_at, sent_at, ' +
+    "width, height, grid_width, grid_height, screen_width, screen_height, bytes) VALUES (?, 'photo', 'pending', ?, ?, ?, ?, ?, ?, ?, 2560, 1920, 480, 360, 1600, 1200, 10)",
+  ).run(albumId, crypto.randomUUID().replaceAll('-', ''), BATCH, sender, sender === 'coach' ? null : 2, sender === 'coach' ? null : now - 60, 1_790_000_000, now);
+}
 
 test('the queue and removals pages name the account that sent each photo, escaped; the invite link and a deleted account say nothing (#223, criterion 3)', async () => {
   const name = 'Pat <b>Parent</b> & "co"';
   const { env, hoover, cohssa } = await site({ names: { [PARENT]: name } });
   assert.equal((await send(env, hoover, { account: await account(PARENT) })).status, 201);
   assert.equal((await send(env, cohssa, { account: await account(COACH_ACCOUNT) })).status, 201);
-  assert.equal((await send(env, hoover, { upload: await invite() })).status, 201);
-  assert.equal((await send(env, hoover, { upload: await coach() })).status, 201);
+  sentBefore226(env, hoover, 'parent');
+  sentBefore226(env, hoover, 'coach');
   const escaped = 'Pat &lt;b&gt;Parent&lt;/b&gt; &amp; &quot;co&quot;';
   const facts = (html, id) => html.match(new RegExp(`<li class="(?:waiting|removal)" id="photo-${id}">[\\s\\S]*?<p class="(?:waiting|removal)-facts">([\\s\\S]*?)</p>`))?.[1];
 
@@ -286,8 +333,8 @@ test('the queue and removals pages name the account that sent each photo, escape
   assert.match(facts(queue, 1), new RegExp(`· sent by ${escaped}$`));
   assert.ok(!queue.includes('<b>Parent</b>'), 'the name reached the page as markup');
   assert.match(facts(queue, 2), /· sent by Casey Coach$/, 'a coach account is named, not "a coach"');
-  assert.doesNotMatch(facts(queue, 3), /sent by/, 'the invite link names nobody');
-  assert.match(facts(queue, 4), /· sent by a coach$/, 'a coach\'s Access sign-in says only that (#192)');
+  assert.doesNotMatch(facts(queue, 3), /sent by/, 'a photo the invite link sent names nobody');
+  assert.match(facts(queue, 4), /· sent by a coach$/, 'a photo a coach\'s Access sign-in sent says only that (#192)');
 
   env.DB.sqlite.exec("UPDATE photos SET state = 'hidden', approved_at = 5, hidden_at = 6");
   const removals = adminRemovalsPage({ photos: await hiddenPhotos(env.DB) });
@@ -314,7 +361,7 @@ function walk(dir) {
   }
   return out;
 }
-const GUARDED = /^(?:(?:api\/)?admin|coach|account|api\/upload|api\/albums)\//;
+const GUARDED = /^(?:(?:api\/)?admin|account|api\/upload|api\/albums)\//;
 const publicRoutes = walk(FUNCTIONS).filter((f) => f.endsWith('.js') && !/(^|\/)_middleware\.js$/.test(f) && !GUARDED.test(f));
 
 async function stackFor(file, method) {
@@ -407,23 +454,27 @@ test('a coach\'s clip may run 15 minutes and everyone else\'s 3, by role, read f
   assert.deepEqual(CLIP_SECONDS, { coach: 15 * 60, everyone: 3 * 60 });
   const { env } = await site();
   const clip = async (cookies) => clipSeconds(await guarded(env, cookies));
-  assert.equal(await clip({ upload: await invite() }), 180, 'the invite link');
-  assert.equal(await clip({ upload: await coach() }), 900, 'a coach\'s Access sign-in (#192)');
   assert.equal(await clip({ account: await account(COACH_ACCOUNT) }), 900, 'an account with the coach role');
   assert.equal(await clip({ account: await account(PARENT) }), 180, 'a parent\'s account');
   assert.equal(await clip({ account: await account(OTHER) }), 180, 'an account with the other role');
-  // A coach's account beside an invite link sends as the coach it is.
+  // A coach's account beside the invite link's old cookie sends as the coach it is.
   assert.equal(await clip({ account: await account(COACH_ACCOUNT), upload: await invite() }), 900);
+  // A coach's Access sign-in sent 15 minutes until #226 (#192); its cookie
+  // now leaves no session to send with.
+  assert.equal(await guarded(env, { upload: await coach() }), 401);
   // The role is read on every request: changed at approval, it applies next.
   env.DB.sqlite.prepare("UPDATE accounts SET role = 'coach' WHERE id = ?").run(PARENT);
   assert.equal(await clip({ account: await account(PARENT) }), 900);
+  // The role alone decides: the session the coaches' sign-in left until #226,
+  // which said 'coach' as its sender and carried no role, is not a coach's.
   assert.equal(sendsAsCoach({ sender: 'account', role: 'coach' }), true);
-  assert.equal(sendsAsCoach({ sender: 'parent', role: 'coach' }), false, 'only an account carries a role');
+  assert.equal(sendsAsCoach({ sender: 'account', role: 'parent' }), false);
+  assert.equal(sendsAsCoach({ sender: 'coach', coach: 'tag', issued: 1 }), false);
 });
 
 // ---- Criterion 5: the daily cap is the account's ------------------------------
 
-test('an account\'s 500 a day are shared by every phone signed in to it, and kept apart from the invite link\'s and other accounts\' (#223, criterion 5)', async () => {
+test('an account\'s 500 a day are shared by every phone signed in to it, and kept apart from other accounts\' (#223, criterion 5)', async () => {
   const { env, hoover, now } = await site();
   assert.equal(sessionKey({ sender: 'account', accountId: PARENT, issued: now }), `account.${PARENT}`);
   // One short of the cap, spent from the account's first phone.
@@ -436,10 +487,12 @@ test('an account\'s 500 a day are shared by every phone signed in to it, and kep
   assert.equal(capped.status, 429);
   assert.deepEqual(await capped.json(), { error: 'daily-cap' });
   assert.ok(Number(capped.headers.get('Retry-After')) > 0);
-  // The invite link on the same phone is the account's while signed in, and
-  // its own once signed out; another account counts on its own.
+  // The invite link's old cookie on the same phone changes nothing while
+  // signed in, and once signed out sends nothing: until #226 it had a day's
+  // 500 of its own. Another account counts on its own.
   assert.equal((await send(env, hoover, { account: await account(PARENT), upload: await invite() })).status, 429);
-  assert.equal((await send(env, hoover, { upload: await invite() })).status, 201);
+  assert.equal((await send(env, hoover, { upload: await invite() })).status, 401);
   assert.equal((await send(env, hoover, { account: await account(OTHER) })).status, 201);
+  assert.deepEqual(counts(env).map((row) => row.session), [`account.${PARENT}`, `account.${OTHER}`], 'the old cookie was counted');
   assert.deepEqual(counts(env).find((row) => row.session === `account.${PARENT}`), { session: `account.${PARENT}`, sent: DAILY_UPLOADS });
 });

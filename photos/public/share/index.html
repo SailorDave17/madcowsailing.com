@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Send photos — Mad Cow Sailing photos</title>
-<meta name="description" content="Send the team your regatta and practice photos from your account, or from the invite link you were given.">
+<meta name="description" content="Send the team your regatta and practice photos from your account.">
 
-<!-- Story #150: the share page, where an invite link lands. The link is
-     /share/#code=<code>. share.js reads the code from the fragment, which a
-     browser never sends to a server, takes the fragment out of the address
-     bar, and trades the code for an upload session at POST /api/join.
-     #155 added sending photos below the join step, and #159 adds the policy
-     link beside it.
+<!-- Story #150: the share page, where a phone sends photos from. It was
+     where the invite link landed, /share/#code=<code>, until accounts
+     replaced the link (#226). An old one still opens here: share.js takes
+     the code out of the address bar, sends it nowhere, and says the link
+     has been replaced. #155 added sending photos below the status line, and
+     #159 adds the policy link beside it.
 
      The site is never indexed (epic #147, D6). Every response carries
      X-Robots-Tag: noindex, set by public/_headers for static files and by
@@ -36,7 +36,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=a438de2263">
+<link rel="stylesheet" href="/css/site.css?v=be015226bc">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 <!-- #193: the share page is the installed app's start page. The manifest
      names the app, its icons and the Android share target; share.js
@@ -47,7 +47,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-180.png">
 <meta name="apple-mobile-web-app-title" content="Mad Cow photos">
-<script src="/js/share.js?v=8533fc7363" defer></script>
+<script src="/js/share.js?v=e86555b3ed" defer></script>
 </head>
 
 <body>
@@ -92,38 +92,39 @@
 
 <main id="main">
 
-  <!-- The join step (#150). The status line is a live region: share.js
-       replaces its text with each answer from /api/join, and a screen reader
-       reads the new text out. What it says for each answer is in share.js.
-       The text below is what a visitor sees before the script has run, or
-       when they arrive with no code and no session. -->
+  <!-- Where this phone stands (#150; the join step until #226, which keeps
+       its ids). The status line is a live region: share.js replaces its text
+       with the answer of GET /api/upload/session, saying too when an old
+       invite link opened the page, and a screen reader reads the new text
+       out. What it says for each answer is in share.js. The text below is
+       what a visitor sees before the script has run, or when they arrive
+       with no session. -->
 
   <section class="wrap page-head">
     <p class="eyebrow">Photos</p>
     <h1>Send photos</h1>
-    <p class="lede" id="join-status" role="status">Sign in, or open the invite
-      link you were sent, to start sending photos to the team.</p>
-    <noscript><p>This page needs JavaScript to open an invite link. Turn it on,
-      then open the link again.</p></noscript>
+    <p class="lede" id="join-status" role="status">Sign in to start sending
+      photos to the team, or ask for an account if you have none.</p>
+    <noscript><p>This page needs JavaScript to send photos. Turn it on, then
+      reload.</p></noscript>
     <p><button type="button" class="button" id="join-retry" hidden>Try again</button></p>
     <!-- #193: photos shared to the installed app from another app, waiting
          on this phone for a session, or a share that could not be kept.
          share.js writes it; a live region, so a screen reader hears it. -->
     <p id="shared-note" role="status" hidden></p>
-    <!-- #159: the policy, beside the join step, so a sender can read who
-         sees a photo before opening the invite or sending anything. It is
-         always shown: share.js never touches it. -->
+    <!-- #159: the policy, beside the status line, so a sender can read who
+         sees a photo before signing in or sending anything. It is always
+         shown: share.js never touches it. -->
     <p><a href="/policy">Who sees these photos</a></p>
-    <!-- #192: a coach has no invite link (epic #147, D9), and every message
-         above is about the link. So a coach whose session has ended, or who
-         lands here with none, finds the way back here. Always shown:
-         share.js never touches it. -->
-    <p>A coach? <a href="/coach">Sign in at /coach</a> instead.</p>
     <!-- #223: an account sends from this page once signed in, and /account
-         links back here (owner, at #223's pickup). Always shown: share.js
-         never touches it. /ask stays unlinked until #226 (owner, at #220's
-         pickup). -->
+         links back here (owner, at #223's pickup). /ask stayed unlinked
+         until #226 (owner, at #220's pickup), which links it beside Sign in
+         for a sender with no account, now that accounts have replaced the
+         invite link and a coach is an account with the coach role. Plain
+         links for now; #272 is to make them buttons (owner, 2026-10-08).
+         Always shown: share.js never touches them. -->
     <p>Have an account? <a href="/sign-in">Sign in</a>.</p>
+    <p>No account yet? <a href="/ask">Ask for one</a>.</p>
 
     <!-- Sending (#155), shown once this phone holds a session. share.js
          fills the album list from GET /api/albums/open and preselects one,
