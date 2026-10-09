@@ -23,12 +23,16 @@
  *
  * A press from a page filtered to one team posts here with that ?team=
  * (#227), and lands back on the same team's list, as a GET does.
+ *
+ * Since #198 a waiting clip moves as a photo does, keeping its batch, and the
+ * notice names clips apart, as approve.js says, from the kind the move
+ * returns.
  */
 import { albumAt, createAlbum, readAlbumFields } from '../../../../lib/albums.js';
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
   QUEUE_FORM_BYTES, acted, movePhotos, nextWaiting, photoAt, queueLocation, readPress, saveCaptions, unsavedCaptions,
-  waitingOrder, waitingTeams,
+  unsavedFields, waitingOrder, waitingTeams,
 } from '../../../../lib/queue.js';
 import { nowSeconds } from '../../../../lib/session.js';
 import { teamOf } from '../../../../lib/teams.js';
@@ -38,9 +42,9 @@ export async function onRequestPost({ request, env }) {
   const fields = await readForm(request, QUEUE_FORM_BYTES);
   const press = readPress(fields, 'move');
   if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
-  const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
+  const unsaved = unsavedFields(await unsavedCaptions(env.DB, press.captions));
   await saveCaptions(env.DB, press.captions);
-  const back = (params) => seeOther(queueLocation({ ...params, unsaved, team }, press.anchor));
+  const back = (params) => seeOther(queueLocation({ ...params, ...unsaved, team }, press.anchor));
   // Nothing was moved, so the order read now is the order the page showed.
   // The read only places the landing: when it fails, the answer is still
   // the 303 saying what happened, an event made included, at the top
@@ -53,7 +57,7 @@ export async function onRequestPost({ request, env }) {
     } catch (err) {
       console.error('queue: could not read the queue to land a move on:', err instanceof Error ? err.message : String(err));
     }
-    return seeOther(queueLocation({ error: 'gone', ...params, unsaved, team }, at));
+    return seeOther(queueLocation({ error: 'gone', ...params, ...unsaved, team }, at));
   };
 
   // The photos' team: one, for a press made from a fresh page, since a batch
@@ -82,12 +86,12 @@ export async function onRequestPost({ request, env }) {
     address = album.address;
   }
 
-  const moved = await movePhotos(env.DB, press.targets, address);
+  const { moved, clips } = await movePhotos(env.DB, press.targets, address);
   if (!moved.length) return gone({ album: made && address, made });
   // The first moved photo in the page's order, which is the form's: its card
   // is in the event's batch now, in whichever part of it.
   return seeOther(queueLocation(
-    { done: 'moved', ...acted(moved), album: address, made, unsaved, team },
+    { done: 'moved', ...acted(moved, clips), album: address, made, ...unsaved, team },
     photoAt(press.targets.find((id) => moved.includes(id))),
   ));
 }

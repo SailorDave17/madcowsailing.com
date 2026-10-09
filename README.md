@@ -258,7 +258,15 @@ Created for #149 on 2026-09-27 (UTC) and read back from the dashboard.
   public development URL (`r2.dev`) disabled**. That must stay so: photos are
   served only through the site's code, which checks each one's approval first.
   Each bucket carries R2's default lifecycle rule, aborting unfinished multipart
-  uploads after 7 days; the video stories shorten it to 1 day (CLAUDE.md item 10).
+  uploads after 7 days, and since #198 (2026-10-08, about 17:52 UTC) a rule of
+  the site's own beside it: **"Abort unfinished uploads after 1 day"**, with no
+  prefix, so the whole bucket, and no other action. The earlier abort applies.
+  Both were read back after a reload under R2 → the bucket → Settings → Object
+  Lifecycle Rules, where they are added and edited. **The Add dialog opens with
+  "Delete uploaded objects after:" already ticked**: saved that way with a
+  number in it, a rule deletes every object in the bucket after that many days,
+  every approved photo included. Untick it before filling in anything else.
+  Why one day: CLAUDE.md, The photo site, item 33.
 - R2 is on the account's R2 subscription and Zero Trust on its Free plan
   (50 seats). Both were taken out for #149, $0 unless usage passes the free
   allowances.
@@ -520,6 +528,8 @@ a new file is listed here.
 | `0013_admins.sql` | #224 | `admin_role` on `accounts`, NULL, `admin` or `owner`, with at most one owner; seven triggers keeping the owner's role, account and approved teams and the last admin; `admin_codes`, each admin sign-in code kept as a keyed hash, and when it was sent, for a day |
 | `0014_revoked_addresses.sql` | #225 | `revoked_addresses`, each revoked account's address as a keyed hash, naming the account until it is deleted (`ON DELETE SET NULL`), so a new request from it is held back; a partial index |
 | `0015_not_sure_albums.sql` | #228 | `holding` on `albums`, 0 for every album made before it; one "Not sure / other event" album per team, the one row a team may have with `holding` 1; six triggers: no photo in one is approved, or hidden other than while waiting, `holding` never changes, and one is never deleted, replaced, or moved to another team. **Apply it just before the code that reads it**, not at the commit gate: the older code reads its rows as events (`CLAUDE.md` item 32) |
+| `0016_clip_rules.sql` | #198 | Ten triggers on `photos` holding a clip's row to what the clip routes write: its type is `video/mp4` or `video/quicktime`; outside `uploading` it names its type and a length over 0; it names its upload id while uploading and at no other time; it leaves `uploading` only for `pending` and never goes back; and every row keeps its kind, through a `REPLACE` or a moved id too. No column, and no stored row changes |
+| `0017_clip_day_bytes.sql` | #198 | `clip_bytes` on `upload_counts`, the bytes of clips a session started that UTC day, 0 for every row before it and never below 0, read against the day's clip budget (security audit SA-1). **Apply it before the code that writes it**: a clip's start names the column, and so does every upload's give-back, a photo's included |
 
 ### The invite link, retired by #226
 
@@ -657,8 +667,12 @@ Parents send photos into an album, one per regatta or practice day, kept on
   made before #227 is Hoover JRT's (migration 0010).
 - **Close** stops uploads to an album and takes it off the share page's list;
   its approved photos stay public. **Reopen** undoes both.
-- **Delete** works only on an empty album. One holding any photo, waiting,
-  approved or hidden, is refused and the page says how many it holds.
+- **Delete** works only on an empty album. One holding any photo or clip,
+  waiting, approved or hidden, is refused and the page says how many of each
+  it holds. A clip no admin page shows yet is named with where it goes: an
+  approved one is deleted by hand ([Deleting a clip by
+  hand](#deleting-a-clip-by-hand)), and one still being sent is cleared a day
+  after it started.
 - `GET /api/albums/open` is the list the share page reads, newest first, each
   album with its team's key and name, under which the page groups it (#227).
   It answers only to a signed-in account, and lists only its approved teams'
@@ -703,12 +717,41 @@ photo site, item 14.
   those checks leaves nothing in the bucket and does not count against the cap.
 - **If the log says** `bucket did not delete photos/<key>/ after a failure`,
   `after a reject` or `after a delete` (below), objects were left in the
-  bucket with no row. Delete them by that prefix.
+  bucket with no row. Delete them by that prefix. For a clip, `clips: bucket
+  did not delete photos/<key>/` means the same of its one object,
+  `photos/<key>/clip`. `clips: bucket did not abort photos/<key>/` needs
+  nothing: the bucket's lifecycle rule (above) aborts the upload within a day.
+- **Clips** (#198; `CLAUDE.md`, The photo site, items 10 and 33). A clip goes
+  into the bucket as an R2 multipart upload, in parts of 25 MiB sent one at a
+  time, through four routes: `POST /api/upload/clips` starts it,
+  `PUT /api/upload/clips/<id>/parts/<n>` sends a part,
+  `POST /api/upload/clips/<id>/complete` joins the parts and checks the clip,
+  and `DELETE /api/upload/clips/<id>` abandons it. Each after the first
+  answers only to the session that started the upload, by the token the start
+  answers, sent back in a `Clip-Upload` header. The fields and every answer
+  are in each route's header comment. **What is stored**: one object,
+  `photos/<media_key>/clip`, as the page sent it, its location and camera
+  details already overwritten with zeros, and a `photos` row of kind `clip`,
+  `uploading` while its parts arrive and `pending` once the server has
+  checked it. **What is refused**: a clip over 3 minutes or 1 GiB, or 15
+  minutes or 4 GiB from a coach (413, before any part is stored); one that is
+  not an MP4 or MOV (415); one still holding anything outside the keep-list,
+  which is deleted (422); an account's 501st upload in a UTC day (429
+  `daily-cap`), a clip counting as one; and a clip that would take an
+  account's clips past 10 GiB in a UTC day, or 40 GiB from a coach (429
+  `clip-bytes`; `CLIP_DAY_BYTES` in `lib/photos.js`, kept in
+  `upload_counts.clip_bytes`), both with `Retry-After` and both before any
+  part is stored. An upload never stored gives its one and its size back. An
+  upload left unfinished is deleted a day after it started, by the next
+  clip's start or the next load of `/admin`.
 - **The share page sends them** (#155). `/share/` makes each photo's three
   JPEGs on the phone as soon as it is chosen, and sends three at a time. A HEIC
-  the browser cannot open says so and is left out. `CLAUDE.md`, The photo site,
-  item 15 has the decisions. To try it locally, open `/share/` through the
-  local stand-in (Running it locally, above), and choose photos.
+  the browser cannot open says so and is left out. Since #198 it sends clips
+  too, one at a time, in parts: it overwrites a clip's location and camera
+  details first, and refuses one over its sender's caps before sending any of
+  it. `CLAUDE.md`, The photo site, item 15 has the decisions. To try it
+  locally, open `/share/` through the local stand-in (Running it locally,
+  above), and choose photos or clips.
 - **From an account** (#223; `CLAUDE.md`, The photo site, item 29), since
   #226 the only way to send. A phone signed in at `/sign-in` sends as the
   account, to the open albums of the teams the account is approved for: the
@@ -718,8 +761,10 @@ photo site, item 14.
   queue and removals pages show by name; the sender column is the account's
   role (`coach`, else `parent`), and the code generation and session time are
   0. An account's 500 a day are shared by every phone signed in to it
-  (`upload_counts` under `account.<id>`). A coach account's clips may run 15
-  minutes and everyone else's 3 (`clipSeconds` in `lib/photos.js`, for #198).
+  (`upload_counts` under `account.<id>`), and so is its day's clip budget. A
+  coach account's clips may run 15 minutes and be 4 GiB, 40 GiB a day, and
+  everyone else's 3 minutes and 1 GiB, 10 GiB a day (`clipSeconds`,
+  `clipBytes` and `clipDayBytes` in `lib/photos.js`).
 
 ### The installed app
 
@@ -727,11 +772,22 @@ The share page installs to a phone as **Mad Cow photos** (#193). `CLAUDE.md`,
 The photo site, item 22 has the decisions.
 
 - **On Android**, in Chrome on `/share/`: menu → *Install and create shortcut*
-  → *Install*. The gallery's Share menu then lists Mad Cow photos for photos
-  (not clips, until #198). Shared photos open the app on the share page,
-  ready to send. With no session they wait on the phone for a day, and the
-  page says to sign in (until #226, to open the invite link or sign in at
-  `/coach`).
+  → *Install*. The gallery's Share menu then lists Mad Cow photos for photos,
+  and since #198 the share target takes `video/*` as well, so a clip can be
+  shared to it too: *measured* at #198 on the owner's Samsung, a fresh
+  install from a local server, where Samsung Gallery's Share listed the app
+  for a video and the clip arrived ready to send. Shared files open the app
+  on the share page, ready to send. With no session they wait on the phone
+  for a day, and the page says to sign in (until #226, to open the invite
+  link or sign in at `/coach`).
+- **An app installed before #198 is offered for photos only until Chrome
+  updates it.** The types a share target takes are built into the installed
+  app. Chrome checks the manifest when the app is opened, if it has not
+  checked in 24 hours, and builds the new app once every window of it is
+  closed and the phone is plugged in on Wi-Fi ([web.dev, manifest
+  updates](https://web.dev/articles/manifest-updates), updated 2024-09-19);
+  *Update* on `about://webapks` asks for it sooner, on the same conditions.
+  Meanwhile **Add photos** in the app takes clips.
 - **On an iPhone**, Safari → Share → *Add to Home Screen* should open it on
   the share page, where the photos are chosen with **Add photos**: an
   iPhone's Share menu never lists a web app. **Not read on an iPhone yet**
@@ -741,7 +797,7 @@ The photo site, item 22 has the decisions.
   on an iPhone.
 - **How a share travels.** The phone posts the photos to `/share/receive`.
   `public/share/sw.js`, the app's worker, takes that one request, keeps each
-  photo in the phone's IndexedDB, and sends the browser to `/share/?shared`.
+  photo or clip in the phone's IndexedDB, and sends the browser to `/share/?shared`.
   Nothing reaches the server until Send, and a photo stays on the phone until
   it is sent or removed, so a reload or a second share offers it again. If the
   phone has no worker (its site data was cleared), `functions/share/receive.js`
@@ -750,6 +806,8 @@ The photo site, item 22 has the decisions.
   share sends `Origin: null`.
 - **The worker never caches.** Every other request goes to the network, so a
   takedown and a deploy both reach an installed app the next time it asks.
+  The share target's list of types is the exception: it changes only when
+  Chrome updates the installed app (above).
   Its scope is `/share/`, so the public pages never meet it.
 - **A share from Chrome itself arrives empty** (measured on a Samsung,
   Chrome 154): Web Share hands the app a form with no files, and the page
@@ -770,7 +828,8 @@ The photo site, item 22 has the decisions.
 
 Nothing is public until an admin approves it on `/admin/queue` (#156), behind
 the admin sign-in, as the albums are. The admin home says how
-many photos are waiting and how much of R2's free 10 GB the stored photos take.
+many photos and clips are waiting and how much of R2's free 10 GB everything
+stored takes.
 `CLAUDE.md`, The photo site, item 16 has the decisions.
 
 - **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
@@ -813,8 +872,17 @@ many photos are waiting and how much of R2's free 10 GB the stored photos take.
   its event. A press naming one anyway (an old or forged page) approves
   nothing for it and says so, and migration 0015 refuses the change in the
   database too. Reject works on it as on any batch.
+- **Clips wait here too** (#198; `CLAUDE.md`, The photo site, item 33). A
+  clip is a card in its batch, "Clip <id>", with how long it runs and its
+  frame size, and plays when Play is pressed; nothing of it loads before.
+  Approve, Move, Reject and its caption work as a photo's do, and every count
+  and notice names photos and clips apart. **An approved clip is kept, and
+  shown nowhere public yet** (#286 adds clips to the albums); the queue says
+  so while it shows one. Rejecting a clip deletes its row and its one file.
+  A clip still being sent is not shown.
 - The pictures come from `GET /api/admin/photos/<id>/<size>` (`grid`, `screen`
-  or `full`), which answers only to an admin.
+  or `full`), and the clips from `GET /api/admin/clips/<id>`, which answers a
+  player's byte ranges (`206`). Both answer only to an admin.
 
 ### The public albums
 
@@ -895,6 +963,11 @@ The photo site, item 18 has the decisions.
   time matches the account's, to the second, for that hour (owner, at
   #220's review). `npm test` holds its 10 and 100 an hour to the code, and
   that the two times are equal.
+- **#198 added clips**: the clip half of the location paragraph, the Clips
+  section (the caps, the day's clip budget, what is kept for a clip and while
+  one is sent, and how to have one deleted while there is no button), and
+  clips in the daily count. Each claim has its own row in the head comment's
+  clips' block. `npm test` holds its minutes and GB to `lib/photos.js`.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
   `photos/lib/admin-page.js`. The header's nav holds one link, **Team
@@ -953,6 +1026,44 @@ The photo then waits on `/admin/removals` like any other, with no note, and
 no takedown is counted against anyone's limit. `photos/test/policy.test.js`
 runs the step-2 statement against the real schema, so it fails if the schema
 stops taking it.
+
+### Deleting a clip by hand
+
+A clip has no **Remove this photo** button while no public page shows clips
+(#198; #286 brings them onto the album pages). `/policy` tells the sender to
+email the address at the top of the page instead, and an admin deletes it for
+good. A waiting clip is deleted with **Reject** under it on `/admin/queue`.
+An approved one, which no page lists, is deleted by hand. From `photos/`,
+with the D1 token in `photos/.env` (above):
+
+1. Find it. This lists the approved clips, newest first, with each one's
+   album, when it was sent and how many seconds it runs:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "SELECT photos.id, photos.media_key, albums.title, albums.held_on, datetime(photos.sent_at, 'unixepoch') AS sent, photos.duration_ms / 1000 AS seconds, photos.account_id FROM photos JOIN albums ON albums.id = photos.album_id WHERE photos.kind = 'clip' AND photos.state = 'approved' ORDER BY photos.sent_at DESC LIMIT 50"
+   ```
+
+   Signed in as an admin, `https://photos.madcowsailing.com/api/admin/clips/<id>`
+   plays one, to match it by eye. Note its `media_key`.
+2. Delete its row:
+
+   ```
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "DELETE FROM photos WHERE id = <id> AND kind = 'clip' AND state = 'approved'"
+   ```
+
+3. Delete its file. In the Cloudflare dashboard, R2 → `madcowphotos` →
+   Objects, search for `photos/<media_key>/`, tick `clip` and delete it. The
+   row goes first, as a reject's does (`CLAUDE.md`, The photo site, item 16):
+   a file with no row is served by nothing, while a row whose file is gone
+   would still be listed.
+4. Read it back: step 1's statement no longer lists it,
+   `/api/admin/clips/<id>` answers 404, and step 3's search finds nothing.
+
+`photos/test/policy.test.js` runs the step-1 and step-2 statements against
+the real schema, and fails if step 2 deletes anything but the approved clip
+it names. The file is gone for good at step 3. The row stays in the
+database's restore points for up to 30 days, as every deleted row does
+(`/policy`, the end of Having an account deleted).
 
 ### Removal requests
 

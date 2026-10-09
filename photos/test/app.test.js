@@ -241,7 +241,7 @@ test('the share page registers the worker it is served beside, for /share/, past
   assert.match(SHARE_JS, /navigator\.serviceWorker\.register\('\/share\/sw\.js', \{ scope: '\/share\/', updateViaCache: 'none' \}\)/);
 });
 
-// ---- Criterion 2: the Android share target, photos only until #198 -------
+// ---- Criterion 2: the Android share target, photos and, since #198, clips -
 
 test('the share target posts the chosen photos as a form to /share/receive, inside the app\'s scope', () => {
   const target = manifest.share_target;
@@ -258,8 +258,11 @@ test('the share target\'s field is the one the worker reads, and its address the
   assert.equal(WORKER.match(/const RECEIVE = '([^']+)';/)[1], manifest.share_target.action);
 });
 
-test('the share target takes photos only, until #198 lets a clip be sent (owner, at pickup)', () => {
-  assert.deepEqual(manifest.share_target.params.files.map((f) => f.accept), [['image/*']]);
+// Photos only until #198 (owner, at #193's pickup); clips since, in the one
+// field. A second entry under another name would be dropped unread, since
+// the worker keeps only FIELD's files, so the test holds there to be one.
+test('the share target takes photos and clips, in its one field (#198)', () => {
+  assert.deepEqual(manifest.share_target.params.files.map((f) => f.accept), [['image/*', 'video/*']]);
 });
 
 // ---- Criterion 4: on an iPhone the photos are chosen in the page -----------

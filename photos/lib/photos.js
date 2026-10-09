@@ -10,8 +10,8 @@
  * pending, so no row ever names objects that are not there. A failure after
  * the objects are stored deletes them again.
  *
- * The same table holds clips (item 10). Their routes belong to the clip
- * story, #198; nothing here writes one.
+ * The same table holds clips (item 10). Their caps and their object's key
+ * are here beside a photo's; lib/clips.js writes them (#198).
  */
 import { CONTROL } from './albums.js';
 import { concat } from './jpeg.js';
@@ -58,6 +58,30 @@ export const sendsAsCoach = (session) => session.role === 'coach';
 /** The longest clip, in seconds, a session may send (D11). */
 export const clipSeconds = (session) => (sendsAsCoach(session) ? CLIP_SECONDS.coach : CLIP_SECONDS.everyone);
 
+// How large a clip may be, by who sends it: the owner's figures at #198's
+// pickup (2026-10-08), a coach's 4 GiB and everyone else's 1 GiB, beside
+// D11's minutes. Three minutes at almost any phone setting fit in 1 GiB, and
+// 4 GiB holds fifteen minutes of a phone's 1080p or about five of an action
+// camera's 4K60 (typical bitrates, not measured here). Not chosen: 512 MiB
+// and 2 GiB; one 4 GiB cap for everyone. A clip over its cap is refused
+// before any part of it is stored.
+export const CLIP_BYTES = Object.freeze({ coach: 4 * 1024 ** 3, everyone: 1024 ** 3 });
+
+/** The largest clip, in bytes, a session may send. */
+export const clipBytes = (session) => (sendsAsCoach(session) ? CLIP_BYTES.coach : CLIP_BYTES.everyone);
+
+// How many bytes of clips a session may send in a UTC day, beside the day's
+// 500 (owner, at #198's review, after the security audit's SA-1): a coach's
+// 40 GiB and everyone else's 10 GiB. The 500 alone bounded a day of photos at
+// about 2.2 GB, and let a day of clips reach 500 GiB, or 2 TB from a coach,
+// billed until an admin rejected them. Ten parents' 1 GiB clips, or ten of a
+// coach's 4 GiB, fit a day. Not chosen: leaving the count as the only bound,
+// which a misused invite link turns into storage billing; a story after #198.
+export const CLIP_DAY_BYTES = Object.freeze({ coach: 40 * 1024 ** 3, everyone: 10 * 1024 ** 3 });
+
+/** How many bytes of clips a session may send in a UTC day. */
+export const clipDayBytes = (session) => (sendsAsCoach(session) ? CLIP_DAY_BYTES.coach : CLIP_DAY_BYTES.everyone);
+
 // A batch is what one press of Send carries, so the approval queue (#156)
 // can show it together. The page names it with crypto.randomUUID().
 const BATCH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -74,6 +98,15 @@ export const photoObjectKeys = (mediaKey) => ({
   screen: `photos/${mediaKey}/screen.jpg`,
   full: `photos/${mediaKey}/full.jpg`,
 });
+
+/**
+ * The R2 key of a clip's one object (#198), under the same photos/<key>/
+ * prefix as a photo's three, so README's delete-by-prefix recipe and every
+ * log line naming a prefix cover clips too. It carries no extension: the
+ * object's type is set when its upload is created, and the row records the
+ * type the server read from the file.
+ */
+export const clipObjectKey = (mediaKey) => `photos/${mediaKey}/clip`;
 
 /** 128 random bits as 32 hex digits, naming a row's objects. */
 export function newMediaKey() {
@@ -159,28 +192,67 @@ export async function spendDailyUpload(db, session, now) {
     .bind(sessionKey(session), day, DAILY_UPLOADS)
     .first();
   if (spent === null) return false;
-  if (spent.sent === 1) {
-    try {
-      await db.prepare('DELETE FROM upload_counts WHERE day < ?').bind(day).run();
-    } catch (err) {
-      console.error('upload: could not clear the counts of earlier days:', err instanceof Error ? err.message : String(err));
-    }
-  }
+  if (spent.sent === 1) await clearEarlierDays(db, day);
   return true;
 }
 
+/** Delete every day's counts before `day`, which no cap reads any more; best effort. */
+async function clearEarlierDays(db, day) {
+  try {
+    await db.prepare('DELETE FROM upload_counts WHERE day < ?').bind(day).run();
+  } catch (err) {
+    console.error('upload: could not clear the counts of earlier days:', err instanceof Error ? err.message : String(err));
+  }
+}
+
 /**
- * Give back the upload spendDailyUpload took, when the photo was then not
- * stored: the bucket failed, the database failed, or the album closed while
- * it was sent. So the cap counts photos stored, not attempts. Guarded so the
- * count never goes below 0, and a failure here is logged and left: at worst
- * the session has one fewer upload that day.
+ * Spend one of the session's uploads for this UTC day for a clip of `bytes`
+ * (#198), and `bytes` of the day's clip budget with it (clipDayBytes). One
+ * statement, as spendDailyUpload's: it makes the day's row at 1 and `bytes`,
+ * or adds to both while the count is under its cap and the bytes stay within
+ * the budget, so two clips starting together cannot both take the last of
+ * either. Answers null when it spent, or which limit refused: 'daily-cap',
+ * the 500, or 'clip-bytes', the budget. Reading which is one statement more,
+ * made only on a refusal. A clip is never larger than the day's budget
+ * (CLIP_BYTES), so a day's first row always fits.
  */
-export async function refundDailyUpload(db, session, now) {
+export async function spendDailyClip(db, session, now, bytes) {
+  const day = Math.floor(now / DAY_SECONDS);
+  const key = sessionKey(session);
+  const spent = await db
+    .prepare(
+      'INSERT INTO upload_counts (session, day, sent, clip_bytes) VALUES (?, ?, 1, ?) ' +
+      'ON CONFLICT (session, day) DO UPDATE SET sent = sent + 1, clip_bytes = clip_bytes + excluded.clip_bytes ' +
+      'WHERE sent < ? AND clip_bytes + excluded.clip_bytes <= ? ' +
+      'RETURNING sent',
+    )
+    .bind(key, day, bytes, DAILY_UPLOADS, clipDayBytes(session))
+    .first();
+  if (spent !== null) {
+    if (spent.sent === 1) await clearEarlierDays(db, day);
+    return null;
+  }
+  const row = await db.prepare('SELECT sent FROM upload_counts WHERE session = ? AND day = ?').bind(key, day).first();
+  return row && row.sent >= DAILY_UPLOADS ? 'daily-cap' : 'clip-bytes';
+}
+
+/**
+ * Give back the upload spendDailyUpload or spendDailyClip took, when what it
+ * was spent on was then not stored: the bucket failed, the database failed,
+ * the album closed while it was sent, or a clip was abandoned or refused. So
+ * the cap counts what was stored, not attempts. A clip's `bytes` go back to
+ * the day's clip budget with it. Guarded so neither goes below 0, and a
+ * failure here is logged and left: at worst the session has one fewer upload,
+ * and that much less of its budget, that day.
+ */
+export async function refundDailyUpload(db, session, now, bytes = 0) {
   try {
     await db
-      .prepare('UPDATE upload_counts SET sent = sent - 1 WHERE session = ? AND day = ? AND sent > 0')
-      .bind(sessionKey(session), Math.floor(now / DAY_SECONDS))
+      .prepare(
+        'UPDATE upload_counts SET sent = sent - 1, clip_bytes = MAX(clip_bytes - ?, 0) ' +
+        'WHERE session = ? AND day = ? AND sent > 0',
+      )
+      .bind(bytes, sessionKey(session), Math.floor(now / DAY_SECONDS))
       .run();
   } catch (err) {
     console.error('upload: could not give the count back:', err instanceof Error ? err.message : String(err));

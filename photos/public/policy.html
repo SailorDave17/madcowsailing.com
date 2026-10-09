@@ -124,9 +124,10 @@
        every phone signed in to it;      lib/photos.js; upload_counts in
        cleared the next day anyone       0005 (#223's criterion 5), keyed
        sends, a deleted account's too    by the account alone since #226.
-                                         spendDailyUpload deletes every
-                                         earlier day's count at anyone's
-                                         first upload of a day
+                                         spendDailyUpload (or spendDailyClip,
+                                         #198) deletes every earlier day's
+                                         count at anyone's first upload of a
+                                         day
        Whether an account's photo was    senderColumns in lib/photos.js
        a coach's, kept after a delete    writes the account's role as
                                          sender, which 0005's CHECK needs,
@@ -404,6 +405,76 @@
                                          (read 2026-10-05; owner, at #219's
                                          review)
 
+     The clips' rows (#198), each read by CLIP_ROWS in test/policy.test.js:
+
+       A clip is sent the same ways,     functions/api/upload/clips/index.js,
+       and checked the same way          behind the upload directory's
+                                         requireUploadSession in
+                                         lib/session.js; insertClip and
+                                         finishClip in lib/clips.js store it
+                                         uploading, then pending (D10)
+       Up to 3 minutes and 1 GB, or 15   CLIP_SECONDS (D11) and CLIP_BYTES
+       and 4 GB from a coach; refused    (owner, at #198's pickup,
+       before any of it is sent          2026-10-08) in lib/photos.js, by
+                                         clipSeconds and clipBytes, which
+                                         functions/api/albums/open.js gives
+                                         the page and the start route
+                                         checks. A GB is 1,024 MB, the
+                                         generous reading item 9 uses
+       Not shown on the site yet; only   lib/public.js reads approved photos
+       the admins watch one              only (kind = 'photo'); admins play a
+                                         clip through the admin clip route
+                                         (#198, owner at pickup); #286 puts
+                                         clips in the albums
+       A clip turned down is deleted     rejectPhotos in lib/queue.js deletes
+       for good                          a clip's row, then its object (#198)
+       Overwritten on the phone, not     planClip in public/js/clip.js, which
+       made again, the times included    public/js/share.js runs before
+                                         sending; the times, owner at #198's
+                                         design questions, 2026-10-08
+                                         (CLAUDE.md, The photo site, item 10)
+       Checked again, and deleted if     checkClip in public/js/clip.js, run
+       anything is left                  by checkStored in lib/clips.js when
+                                         the parts are joined; dropClip
+                                         deletes a refused clip (#198)
+       A location track's data rests on  item 10: the check reads box
+       the page                          headers, and a blanked track's
+                                         samples have none
+       What is kept for a clip           migrations/0005_photos.sql's clip
+                                         columns, held by
+                                         migrations/0016_clip_rules.sql;
+                                         finishClip in lib/clips.js fills
+                                         them from the server's own reading
+       While it is sent: its upload's    upload_id in 0005, which finishClip
+       number                            clears (0016 requires it then)
+       An unfinished clip: the parts a   the buckets' lifecycle rule, abort
+       day after it started, its record  after 1 day (both read back
+       at the next start or admin home   2026-10-08); clearStaleClips in
+                                         lib/clips.js, run by
+                                         functions/api/upload/clips/index.js
+                                         and functions/admin/index.js
+       Shared clips wait as photos do    public/share/sw.js keeps any shared
+                                         file, and the manifest's share
+                                         target takes video/* (#198)
+       A clip counts toward the day's    spendDailyClip in lib/photos.js,
+       500                               from the start route (#198)
+       Up to 10 GB of clips a day, or    CLIP_DAY_BYTES (owner, at #198's
+       40 GB from a coach                review, after security-audit
+                                         SA-1) in lib/photos.js, by
+                                         clipDayBytes; spendDailyClip adds
+                                         a clip's size to clip_bytes
+                                         (migrations/0017_clip_day_bytes.sql)
+                                         in the statement that spends one of
+                                         the 500
+       Deleted on request, by email,     README.md, Deleting a clip by hand
+       with no button while not shown    (#198); the address at the top
+
+     #198 (clips) added the clip paragraph under the location heading, the
+     Clips section, clips in the daily count and the day's clip sizes kept
+     with it (SA-1, at its review), in what an account keeps and in what
+     stays after a delete. #286, which shows clips in the albums,
+     changes who sees one and how to have one taken down.
+
      #226 (the cutover) retired the invite link and the coaches' sign-in,
      with the facts production held on 2026-10-08: 12 photos sent with the
      link, all hidden, none through the coaches' sign-in, and one failed
@@ -488,7 +559,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=be015226bc">
+<link rel="stylesheet" href="/css/site.css?v=6f5caedcfc">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -620,6 +691,53 @@
       of the original's other hidden details. When a photo arrives, the site strips any such
       details again, in case a copy carried some. Your original stays on your
       phone as it was.</p>
+    <p>A clip is sent as it was recorded, not made again. Before any of it
+      leaves the phone, the page overwrites with zeros every part of the file
+      that playing it does not need: its location, the camera's make, model
+      and lens, the software that made it, and the times it was recorded. The
+      picture and sound are unchanged. When a clip arrives, the site checks
+      it again, and deletes it before anyone can approve it if any of those
+      parts still holds anything. One kind the site cannot check: some
+      cameras record their location among the picture and sound, as a track
+      of its own, and for that the site relies on the page, which overwrites
+      that track's data as well. Your original stays on your phone as it
+      was.</p>
+  </section>
+
+  <section class="wrap policy">
+    <h2>Clips</h2>
+    <p>A clip is sent the same ways as a photo, and checked the same way
+      before anything happens to it. It can run for up to 3 minutes and be
+      up to 1 GB, or 15 minutes and 4 GB from a coach. A clip that runs longer
+      or is larger is refused before any of it is sent. An account can send
+      up to 10 GB of clips in a day, or 40 GB from a coach's.</p>
+    <p>Clips are not shown on the site yet. A clip one of the site's admins
+      approves is kept, and only the site's admins can watch it, until clips
+      are added to the albums. A clip that is turned down is deleted for
+      good.</p>
+    <p>For each clip sent, the site keeps:</p>
+    <ul>
+      <li>the clip, as the page sent it;</li>
+      <li>its caption, if it has one;</li>
+      <li>the album it was sent to, or the event an admin moved it into;</li>
+      <li>how long it runs, the size of its picture, and whether it is an
+        MP4 or a MOV;</li>
+      <li>when it was recorded, and when it was sent;</li>
+      <li>who sent it, kept as for a photo.</li>
+    </ul>
+    <p>A clip goes in parts, one after another. While it is still being sent,
+      the site also keeps the number Cloudflare's storage gave the parts. If
+      a clip is never finished, because the page was closed or the phone lost
+      its connection, Cloudflare's storage deletes the parts a day after it
+      started, and the site deletes its record the next time anyone starts
+      sending a clip or one of the site's admins opens the admin home page
+      after that.</p>
+    <p>Clips shared to the installed app from a phone's gallery wait on the
+      phone as photos do, and leave it only as the page sends them, with
+      those parts overwritten.</p>
+    <p>A clip has no "Remove this photo" button while clips are not shown.
+      To have one deleted, email the address at the top of this page, and
+      one of the site's admins deletes it for good.</p>
   </section>
 
   <section class="wrap policy">
@@ -647,10 +765,12 @@
       sending ever leave the phone. One not sent within a day is no longer
       offered, and is deleted the next time the app opens or is shared
       to.</p>
-    <p>The site also counts how many photos are sent in a day, so no more
-      than 500 come from one account. An account's count is kept under the
-      account, for every phone and computer signed in to it together. Each
-      count is cleared the next day anyone sends a photo.</p>
+    <p>The site also counts how many photos and clips are sent in a day, so
+      no more than 500 come from one account. With that count it keeps how
+      large the day's clips are together, for the limit on clips above. An
+      account's count is kept under the account, for every phone and
+      computer signed in to it together. Each count is cleared the next day
+      anyone sends one.</p>
     <p>When someone takes a photo down with "Remove this photo", nothing is
       deleted yet. The site keeps the photo's three copies, when it was taken
       down, and the note left with it, if any, which can hold a name and which
@@ -689,7 +809,7 @@
         hash, which can check the link but cannot be turned back into it;</li>
       <li>if you are an admin, each code emailed to you to sign in, only as a
         hash made with a secret key, and when it was sent;</li>
-      <li>which photos you sent from it.</li>
+      <li>which photos and clips you sent from it.</li>
     </ul>
     <p>On the site, only its admins see any of it. Every admin sees every
       account, for both teams. No public page, photo or download shows who
@@ -804,19 +924,20 @@
       and ask. An admin writes to the address on the account to check the
       request came from you, and deletes the account once you confirm: your
       name, email address, role, teams, note and password hash all go.</p>
-    <p>The photos you sent stay, approved or still waiting, and are checked
+    <p>The photos and clips you sent stay, approved or still waiting, and are checked
       as usual, but they no longer record which account sent them, only
       whether it was a coach's. One that had been taken down keeps only the
       day it was taken down, not the time. To have
-      them taken down as well, press "Remove this photo" under each, or say
+      them taken down as well, press "Remove this photo" under each photo, or say
       so in the same email.</p>
     <p>Some things stay. The admins' log keeps its entries about your
       account, and they still name you. If an admin had revoked the account,
       the site keeps its email address in a scrambled form, made with a
       secret key, so that a new request from it is still held back, until an
       admin lets it ask again. The
-      count of photos the account sent that day stays, under the account's
-      number, until the next day anyone sends a photo. Emails
+      count of photos and clips the account sent that day, with how large its
+      clips were together, stays, under the account's number, until the next
+      day anyone sends one. Emails
       already sent are not deleted with it: Resend keeps each for its 30
       days, and the email telling the admins about your request stays in
       their mailboxes.</p>

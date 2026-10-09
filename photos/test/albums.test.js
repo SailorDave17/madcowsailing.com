@@ -27,7 +27,13 @@ import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js
 import { onRequestGet as openList } from '../functions/api/albums/open.js';
 import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
 import { MAX_SUFFIX, baseAddress, openAlbum, slugify } from '../lib/albums.js';
+import { CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS } from '../lib/photos.js';
 import { nowSeconds } from '../lib/session.js';
+
+// A parent's clip caps, which the list also answers since #198 so the share
+// page can refuse an over-cap clip before sending any of it, and the day's
+// clip budget, which the page names when the start refuses one past it.
+const PARENT_CLIP = { seconds: CLIP_SECONDS.everyone, bytes: CLIP_BYTES.everyone, dayBytes: CLIP_DAY_BYTES.everyone };
 import { adminCookieHeader, seedAdmin } from './admin.js';
 import { d1, seedCodes } from './d1.js';
 import { UPLOAD_COOKIE, parentCookie } from './legacy-cookies.js';
@@ -133,6 +139,28 @@ function photos(env, address, states) {
   );
   for (const state of states) {
     insert.run(id, state, `photo-${++madePhotos}`, state === 'pending' ? null : 5, state === 'hidden' ? 6 : null);
+  }
+}
+
+// Clips in the same table (#198), one per state given, as the clip routes
+// leave them: one still uploading names its upload and nothing read from it
+// yet; one in any other state was checked, so its type, length and frame
+// size are there (migrations 0005 and 0016).
+let madeClips = 0;
+function clips(env, address, states) {
+  const { sqlite } = env.DB;
+  const { id } = sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address);
+  const insert = sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+    'captured_at, sent_at, width, height, bytes, content_type, duration_ms, upload_id, approved_at, hidden_at) ' +
+    "VALUES (?, 'clip', ?, ?, 'batch', 'parent', 2, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  for (const state of states) {
+    const n = ++madeClips;
+    const read = state !== 'uploading';
+    insert.run(id, state, `clip-${n}`, read ? 1 : null, nowSeconds(), read ? 1920 : null, read ? 1080 : null,
+      read ? 10 : null, read ? 'video/mp4' : null, read ? 30_000 : null, read ? null : `upload-${n}`,
+      state === 'pending' || state === 'uploading' ? null : 5, state === 'hidden' ? 6 : null);
   }
 }
 
@@ -345,6 +373,39 @@ test('an album holding a photo in any state is not deleted, and the page says ho
   assert.match(await page(env, `?error=not-empty&album=${practice}&photos=1`), /Tuesday practice was not deleted: it holds 1 photo\./);
 });
 
+// The notice's words after what an album holds: today's, and since #198 where
+// a clip goes that no admin page shows (owner, at #198's review).
+const KEPT = 'Only an empty album can be deleted. Close it instead to stop uploads to it.';
+const APPROVED_CLIP = 'An approved clip is not on any admin page yet: the site\'s owner deletes it by hand.';
+const SENDING_CLIP = 'A clip still being sent is cleared a day after it started if it is never finished.';
+
+test('#198: an album holding a clip is not deleted either; the page counts photos and clips apart and says where a clip goes that no admin page shows, and photos alone land and read as before', async () => {
+  const env = site();
+  // Each album is titled for what it holds: [its photos' states, its clips'
+  // states, the landing's counts, what the notice says it holds, the words
+  // after]. A waiting clip has no word: the queue shows it.
+  const cases = {
+    'Photos only': [['pending', 'hidden'], [], { photos: '2' }, '2 photos', ''],
+    'A waiting clip': [[], ['pending'], { photos: '0', clips: '1' }, '1 clip', ''],
+    'Both kinds': [['approved'], ['pending', 'pending'], { photos: '1', clips: '2' }, '1 photo and 2 clips', ''],
+    'An approved clip': [['pending', 'approved'], ['approved'], { photos: '2', clips: '1', 'approved-clips': '1' }, '2 photos and 1 clip', ` ${APPROVED_CLIP}`],
+    'A clip being sent': [[], ['uploading', 'pending'], { photos: '0', clips: '2', 'uploading-clips': '1' }, '2 clips', ` ${SENDING_CLIP}`],
+    'Clips no page shows': [['hidden'], ['approved', 'uploading', 'approved', 'pending'],
+      { photos: '1', clips: '4', 'approved-clips': '2', 'uploading-clips': '1' }, '1 photo and 4 clips', ` ${APPROVED_CLIP} ${SENDING_CLIP}`],
+  };
+  for (const [title, [photoStates, clipStates, counts, holds, after]] of Object.entries(cases)) {
+    const address = await add(env, { ...FALL, title });
+    photos(env, address, photoStates);
+    clips(env, address, clipStates);
+    const where = landing(await post(env, 'delete', { address }));
+    assert.deepEqual(where, { error: 'not-empty', album: address, ...counts }, title);
+    const html = await page(env, `?${new URLSearchParams(where)}`);
+    const notice = `<p role="status">${title} was not deleted: it holds ${holds}. ${KEPT}${after}</p>`;
+    assert.ok(html.includes(notice), `${title}: ${html.match(/<p role="status">[^<]*<\/p>/)?.[0]}`);
+  }
+  assert.equal(rows(env).length, Object.keys(cases).length, 'an album was deleted');
+});
+
 test('the refusal is the database\'s own, so no route and no race can get past it', async () => {
   // D1 enforces foreign keys in every query, as node:sqlite does here. A
   // DELETE sent straight to the database fails the same way, which is what
@@ -446,6 +507,21 @@ test('the not-empty notice shows the title as text too, and never text from the 
     assert.doesNotMatch(await page(env, query), /role="status"/, query);
   }
   assert.match(await page(env, `?error=not-empty&album=${address}&photos=<b>9</b>`), /was not deleted: it holds photos\./);
+  // #198's counts are read the same way. A clip count that is no number reads
+  // as no clip, so the words are today's, and a pointer is a known sentence
+  // said only beside a clip count, for a count of its own that is a number.
+  const said = async (query) => (await page(env, `?error=not-empty&album=${address}${query}`))
+    .match(/<p role="status">([^<]*)<\/p>/)[1];
+  for (const [query, holds, after] of [
+    ['&photos=0', 'photos', ''],
+    ['&photos=1&clips=<b>1</b>&approved-clips=1', '1 photo', ''],
+    ['&photos=1&clips=1e3&uploading-clips=1', '1 photo', ''],
+    ['&photos=1&approved-clips=1&uploading-clips=1', '1 photo', ''],
+    ['&photos=1&clips=1&approved-clips=<b>1</b>&uploading-clips=-1', '1 photo and 1 clip', ''],
+    ['&photos=1&clips=1&approved-clips=0&uploading-clips=1', '1 photo and 1 clip', ` ${SENDING_CLIP}`],
+  ]) {
+    assert.equal(await said(query), `${ESCAPED} was not deleted: it holds ${holds}. ${KEPT}${after}`, query);
+  }
 });
 
 test('/api/albums/open gives a title as the text it is, in JSON, for the share page to set as text', async () => {
@@ -482,6 +558,7 @@ test('GET /api/albums/open with a session: the open albums, newest first, and no
       { address: '0001-01-01-not-sure-hoover-jrt', team: 'hoover-jrt', teamName: 'Hoover JRT' },
       { address: '0001-01-01-not-sure-cohssa', team: 'cohssa', teamName: 'COHSSA' },
     ],
+    clip: PARENT_CLIP,
   });
 });
 
@@ -509,7 +586,7 @@ test('an open list with nothing open is empty, not an error', async () => {
   assert.deepEqual((await (await openCall(env, await session())).json()).albums, []);
   // ...and with those closed too, both lists are empty.
   for (const team of ['hoover-jrt', 'cohssa']) await post(env, 'close', { address: `0001-01-01-not-sure-${team}` });
-  assert.deepEqual(await (await openCall(env, await session())).json(), { albums: [], other: [] });
+  assert.deepEqual(await (await openCall(env, await session())).json(), { albums: [], other: [], clip: PARENT_CLIP });
 });
 
 // ---- The page itself ------------------------------------------------------

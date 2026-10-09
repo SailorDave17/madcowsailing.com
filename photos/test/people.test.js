@@ -22,8 +22,10 @@ import {
 } from '../lib/password-link.js';
 import { STAND_IN_HASH, setPassword as storePassword } from '../lib/sign-in.js';
 import {
-  ACTIONS, LINK_DAYS, LOG_SHOWN, adminLog, approveTeams, linkEmail, peopleLists, readAccountId, readTeams, rejectTeams, sendLink,
+  ACTIONS, LINK_DAYS, LOG_SHOWN, adminLog, approveTeams, hidePhotos, linkEmail, peopleLists, readAccountId, readTeams, rejectTeams,
+  sendLink,
 } from '../lib/people.js';
+import { createAlbum } from '../lib/albums.js';
 import { readFileSync } from 'node:fs';
 import { adminPeoplePage, peopleLocation, peopleNotice } from '../lib/people-page.js';
 import { linkGonePage, setPasswordPage } from '../lib/password-page.js';
@@ -695,6 +697,49 @@ test('the rendered page is valid under the photo site\'s html-validate config, a
 test('each label, box and select carries its own account\'s id, so no two forms share one', async () => {
   const { db } = await seeded();
   const html = await render(db);
+  const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'an id repeats');
+});
+
+test('#198: the Hide all box counts photos alone and says their waiting clips are not hidden but rejected in the queue, which is where Hide all leaves them', async () => {
+  // Owner, at #198's pickup: Hide all stays photo-only until #286 brings
+  // clips into it and into removals.
+  const db = d1();
+  const id = await ask(db, { name: 'Pat Parent', email: 'pat@example.org', teams: ['hoover-jrt'] });
+  await approveTeams(db, { accountId: id, teams: ['hoover-jrt'], role: 'parent', admin: ADMIN, now: NOW });
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, NOW);
+  const albumId = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  // A waiting photo and a waiting clip, both theirs, as the upload routes
+  // leave them for an account (0012's placeholder zeros).
+  db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes) ' +
+    "VALUES (?, 'photo', 'pending', ?, 'b', 'parent', 0, 0, ?, ?, ?, 2560, 1920, 480, 360, 1600, 1200, 1000)",
+  ).run(albumId, '1'.padStart(32, '0'), id, NOW, NOW);
+  db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, bytes, content_type, duration_ms) ' +
+    "VALUES (?, 'clip', 'pending', ?, 'b', 'parent', 0, 0, ?, ?, ?, 1920, 1080, 5000, 'video/mp4', 30000)",
+  ).run(albumId, '2'.padStart(32, '0'), id, NOW, NOW);
+  const html = await render(db);
+  const person = item(html, id);
+  const form = person?.match(/<form method="post" action="\/api\/admin\/people\/hide"[\s\S]*?<\/form>/)?.[0];
+  assert.ok(form, 'no hide form');
+  // The box counts the photo alone, as Hide all hides photos alone.
+  assert.match(form, /> Hide the 1 photo Pat Parent sent \(1 waiting\)<\/label>/);
+  // Under it, what becomes of their waiting clips and where they are
+  // rejected, which the button's description carries too.
+  assert.match(form, new RegExp(`</label></p>\\s*<p class="hint" id="hide-${id}-clips">Their waiting clips are not hidden\\. Reject those in <a href="/admin/queue">the queue</a>\\.</p>`));
+  assert.match(form, new RegExp(`aria-describedby="hide-${id}-clips">Hide all their photos</button>`));
+  // The control: the sentence is the hide form's own, once, and no other
+  // form under the person carries it.
+  assert.equal(person.match(/Their waiting clips are not hidden/g).length, 1);
+  assert.doesNotMatch(person.replace(form, ''), /hide-\d+-clips/);
+  // What it says holds: Hide all hides the photo and leaves the clip waiting.
+  assert.deepEqual(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 10 }), { hidden: 1, waiting: 1 });
+  assert.deepEqual(rows(db, 'SELECT kind, state FROM photos ORDER BY id'), [{ kind: 'photo', state: 'hidden' }, { kind: 'clip', state: 'pending' }]);
+  // The page with it passes the photo site's config, its ids unique.
+  assert.deepEqual(problems(await validate(html)), []);
   const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(new Set(ids).size, ids.length, 'an id repeats');
 });

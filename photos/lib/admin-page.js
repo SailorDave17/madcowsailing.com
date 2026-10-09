@@ -22,7 +22,9 @@
  * /admin/people, is lib/people-page.js, which takes adminPage() from here.
  * #228 added the queue's Move to event and the albums page's section for
  * each team's "Not sure / other event". #269 made the home a to-do list:
- * TODO, then the links to the other sections and the storage figure.
+ * TODO, then the links to the other sections and the storage figure. #198
+ * added the clips to the queue (waitingClip) and to the home's count, every
+ * count and notice naming the two kinds apart (owner, at #198's pickup).
  */
 import { ADMIN_SESSION_SECONDS } from './admin-session.js';
 import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
@@ -59,7 +61,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=be015226bc">
+<link rel="stylesheet" href="/css/site.css?v=6f5caedcfc">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -69,8 +71,10 @@ export const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ESCA
 // a count from adminHome()'s summary, shown as a full-width button to the page
 // where it is dealt with, a zero included. The queue and the removal requests
 // are reached through these alone; People is a link below them as well.
+// `clips` names the summary's count of waiting clips, which the queue's item
+// adds to its photos (#198).
 export const TODO = [
-  { href: '/admin/queue', count: 'waiting', one: 'photo waiting for approval', many: 'photos waiting for approval' },
+  { href: '/admin/queue', count: 'waiting', clips: 'clips', one: 'photo waiting for approval', many: 'photos waiting for approval' },
   { href: '/admin/people', count: 'requests', one: 'account request waiting', many: 'account requests waiting' },
   { href: '/admin/removals', count: 'removals', one: 'removal request waiting', many: 'removal requests waiting' },
 ];
@@ -112,6 +116,20 @@ ${FOOTER}
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+// Photos and clips counted together (owner, at #198's pickup): "3 photos and
+// 1 clip", "1 clip" when no photo is among them, and today's "2 photos" when
+// no clip is. A count of 0 is left out; the callers never pass two.
+const both = (photos, clips) => [photos && plural(photos, 'photo', 'photos'), clips && plural(clips, 'clip', 'clips')]
+  .filter(Boolean).join(' and ');
+
+// The queue's item when a clip waits (#198), as the count it opens on and the
+// words after it: "3" and "photos and 1 clip waiting for approval", or "1"
+// and "clip waiting for approval" when no photo waits (owner, at #198's
+// pickup). With no clip waiting the item keeps TODO's words.
+const withClips = (photos, clips) => (photos
+  ? [photos, `${photos === 1 ? 'photo' : 'photos'} and ${plural(clips, 'clip', 'clips')} waiting for approval`]
+  : [clips, `${clips === 1 ? 'clip' : 'clips'} waiting for approval`]);
+
 /**
  * One item of the admin home's to-do list (#269), `n` of `item` (a TODO
  * entry): a full-width button to its page, the count first. A zero is still
@@ -119,12 +137,15 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
  * list reads as done rather than as missing. The counts are lib/queue.js's
  * queueSummary() (photos waiting; removal requests, each one hidden photo,
  * #158) and lib/accounts.js's waitingRequests() (people with a team an admin
- * has not yet approved or turned down, #220).
+ * has not yet approved or turned down, #220). `clips` is the queue's count
+ * of waiting clips (#198), which only the queue's item is given: with one
+ * waiting the item names both kinds, and is not quiet even with no photo.
  */
-export function todoItem({ href, one, many }, n) {
-  const what = n === 1 ? one : many;
-  const words = n === 0 ? `${what}. Nothing to do.` : what;
-  return `<li><a class="button${n === 0 ? ' button-quiet' : ''} todo-item" href="${href}"><span class="todo-count">${n}</span> <span>${words}</span></a></li>`;
+export function todoItem({ href, one, many }, n, clips = 0) {
+  const total = n + clips;
+  const [count, what] = clips ? withClips(n, clips) : [n, n === 1 ? one : many];
+  const words = total === 0 ? `${what}. Nothing to do.` : what;
+  return `<li><a class="button${total === 0 ? ' button-quiet' : ''} todo-item" href="${href}"><span class="todo-count">${count}</span> <span>${words}</span></a></li>`;
 }
 
 /**
@@ -146,8 +167,9 @@ export function storageText(bytes) {
 /**
  * The admin home for `admin`, lib/admin-session.js's context.data.admin:
  * { name, email, role, issued }. `summary` is lib/queue.js's queueSummary():
- * how many photos wait, how many removal requests wait, and the bytes stored;
- * and, since #220, `requests`, lib/accounts.js's waitingRequests().
+ * how many photos wait, how many clips wait (since #198), how many removal
+ * requests wait, and the bytes stored; and, since #220, `requests`,
+ * lib/accounts.js's waitingRequests().
  *
  * Since #269 it opens on what is waiting, TODO's three buttons in order,
  * then links to the other sections and the storage figure. Last, since #224,
@@ -156,9 +178,9 @@ export function storageText(bytes) {
  * holds (lib/sign-in.js, signOut). Until #269 that came first, and on a
  * phone it filled the first screen.
  */
-export function adminHome({ name, email, role, issued }, { waiting = 0, removals = 0, bytes, requests = 0 }) {
-  const counts = { waiting, requests, removals };
-  const todo = TODO.map((item) => `      ${todoItem(item, counts[item.count])}`).join('\n');
+export function adminHome({ name, email, role, issued }, { waiting = 0, clips = 0, removals = 0, bytes, requests = 0 }) {
+  const counts = { waiting, clips, requests, removals };
+  const todo = TODO.map((item) => `      ${todoItem(item, counts[item.count], item.clips ? counts[item.clips] : 0)}`).join('\n');
   const links = SECTIONS.map(({ href, name: section, what }) =>
     `      <li><a href="${href}">${escapeHtml(section)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   const as = role === 'owner' ? 'the owner' : 'an admin';
@@ -264,6 +286,37 @@ const ERRORS = {
   'not-sure': `Nothing was changed: a team's "${NOT_SURE_TITLE}" is only closed and reopened, never edited or deleted.`,
 };
 
+// A count a refused delete's landing carries (functions/api/admin/albums/
+// delete.js): a whole number, 0 included, or null for anything else the
+// address bar holds, which never reaches the page.
+const landingCount = (params, name) =>
+  (/^(?:0|[1-9][0-9]{0,8})$/.test(params.get(name) ?? '') ? Number(params.get(name)) : null);
+
+// What a refused delete says the album holds. With no clip among the rows,
+// the words from before #198: "it holds 3 photos", or "it holds photos" for a
+// count that is not one. With a clip, both kinds (owner, at #198's review):
+// "it holds 2 photos and 1 clip", or "it holds 1 clip".
+function albumHolds(params) {
+  const photos = landingCount(params, 'photos');
+  const clips = landingCount(params, 'clips');
+  if (clips && photos !== null) return `it holds ${both(photos, clips)}`;
+  return photos ? `it holds ${plural(photos, 'photo', 'photos')}` : 'it holds photos';
+}
+
+// Where a clip goes that no admin page shows (owner, at #198's review), said
+// only of the kinds the album holds. An approved clip is listed nowhere until
+// #286, and README.md's "Deleting a clip by hand" is the owner's to run; one
+// still being sent is cleared by lib/clips.js's clearStaleClips. A waiting
+// clip needs no word: it is in the queue, where Reject deletes it.
+const UNLISTED_CLIPS = [
+  ['approved-clips', 'An approved clip is not on any admin page yet: the site\'s owner deletes it by hand.'],
+  ['uploading-clips', 'A clip still being sent is cleared a day after it started if it is never finished.'],
+];
+
+const unlistedClips = (params) => (landingCount(params, 'clips')
+  ? UNLISTED_CLIPS.filter(([name]) => landingCount(params, name)).map(([, words]) => ` ${words}`).join('')
+  : '');
+
 /**
  * The notice for the page's query string, as HTML, or '' for none. `albums`
  * is the list the page shows, which the named album is looked up in. A
@@ -286,9 +339,7 @@ export function albumsNotice(params, albums) {
   } else if (Object.hasOwn(DONE, done) && album) {
     text = DONE[done](album);
   } else if (error === 'not-empty' && album) {
-    const n = /^[1-9][0-9]{0,8}$/.test(params.get('photos') ?? '') ? Number(params.get('photos')) : null;
-    const holds = n === null ? 'it holds photos' : `it holds ${plural(n, 'photo', 'photos')}`;
-    text = `${album.title} was not deleted: ${holds}. Only an empty album can be deleted. Close it instead to stop uploads to it.`;
+    text = `${album.title} was not deleted: ${albumHolds(params)}. Only an empty album can be deleted. Close it instead to stop uploads to it.${unlistedClips(params)}`;
   } else if (Object.hasOwn(ERRORS, error)) {
     text = ERRORS[error];
   }
@@ -489,7 +540,7 @@ const pressPath = (path, team) => (team === null ? path : `${path}?team=${team}`
 // The queue's script, stamped by hand for the same reason as the stylesheets
 // above: tools/assetver.py never sees this file. test/queue.test.js fails
 // until the ?v= is the script's own sha256.
-export const QUEUE_SCRIPT = '<script src="/js/admin-queue.js?v=d888c4fa39" defer></script>';
+export const QUEUE_SCRIPT = '<script src="/js/admin-queue.js?v=d93fc8295a" defer></script>';
 
 // What the queue says after a press. Every press in
 // functions/api/admin/queue/ answers 303 back with ?done= or ?error=, and a
@@ -510,43 +561,69 @@ const QUEUE_ERRORS = {
 
 // Why a photo in a team's "Not sure / other event" is not approved (#228,
 // criterion 4): said on each such batch, and in the notice after a press
-// that named one anyway.
-const NOT_SURE_WHY = `A photo in "${NOT_SURE_TITLE}" has no event to be public in, so it cannot be approved. Move it into its event below, then approve it there.`;
+// that named one anyway. Since #198 it names what is there, given how many
+// photos and clips: a photo, a clip, or either, and a photo when it is not
+// told.
+const notSureWhy = (photos, clips) => {
+  const what = photos && clips ? 'photo or clip' : clips ? 'clip' : 'photo';
+  return `A ${what} in "${NOT_SURE_TITLE}" has no event to be public in, so it cannot be approved. Move it into its event below, then approve it there.`;
+};
 
 /**
  * The notice for the queue's query string, as HTML, or '' for none. `albums`
  * is the list the page shows in its "Move to event" choices (#228), which a
  * moved-to album's title is looked up in, so the title comes from the
  * database, never from the address bar.
+ *
+ * Since #198 a press names clips apart (lib/queue.js, acted): `clip` is one
+ * clip as `photo` is one photo, and beside each count of photos (`n`,
+ * `kept`, `unsaved`, `not-sure`) a count of clips (`clips`, `kept-clips`,
+ * `unsaved-clips`, `not-sure-clips`). A press that acted on photos alone
+ * reads as it did before clips (owner, at #198's pickup).
  */
 export function queueNotice(params, albums = []) {
   const count = (name) => (/^[1-9][0-9]{0,14}$/.test(params.get(name) ?? '') ? Number(params.get(name)) : null);
   const photo = count('photo');
+  const clip = count('clip');
   const n = count('n');
+  const clips = count('clips');
   const kept = count('kept');
+  const keptClips = count('kept-clips');
   const unsaved = count('unsaved');
+  const unsavedClips = count('unsaved-clips');
   const notSure = count('not-sure');
+  const notSureClips = count('not-sure-clips');
   const done = params.get('done');
   const error = params.get('error');
   const address = params.get('album');
   const album = isAddress(address) ? albums.find((a) => a.address === address && !a.holding) : undefined;
   const event = album && `${escapeHtml(album.title)} (${escapeHtml(teamName(album.team))}, ${dayText(album.date)})`;
   const made = params.get('made') === '1' && event ? `Added ${event} to the events. ` : '';
+  // What an approve, move or reject acted on: one photo or clip by its id,
+  // else how many of each.
+  const one = photo ? `photo ${photo}` : clip ? `clip ${clip}` : null;
+  const what = one ?? (n || clips ? both(n, clips) : null);
   let text = null;
-  if (done === 'approved' && (photo || n)) {
-    text = photo ? `Approved photo ${photo}.` : `Approved ${plural(n, 'photo', 'photos')}.`;
-    if (notSure) text += ` ${plural(notSure, 'photo was', 'photos were')} left waiting. ${NOT_SURE_WHY}`;
-  } else if (done === 'moved' && (photo || n) && event) {
-    text = `${made}${photo ? `Moved photo ${photo}` : `Moved ${plural(n, 'photo', 'photos')}`} to ${event}. ${photo ? 'It waits' : 'They wait'} there, ready to approve.`;
+  if (done === 'approved' && what) {
+    text = `Approved ${what}.`;
+    if (notSure || notSureClips) {
+      text += ` ${both(notSure, notSureClips)} ${(notSure ?? 0) + (notSureClips ?? 0) === 1 ? 'was' : 'were'} left waiting. ${notSureWhy(notSure, notSureClips)}`;
+    }
+  } else if (done === 'moved' && what && event) {
+    text = `${made}Moved ${what} to ${event}. ${one ? 'It waits' : 'They wait'} there, ready to approve.`;
   } else if (error === 'not-sure') {
-    text = `Nothing was approved. ${NOT_SURE_WHY}`;
+    text = `Nothing was approved. ${notSureWhy(n, clips)}`;
   } else if (error === 'gone' && made) {
     text = `${made}No photo was moved into it: those photos are no longer waiting, so another admin may have got to them first.`;
-  } else if (done === 'rejected' && (photo || n)) {
-    text = photo
-      ? `Rejected photo ${photo}. It is deleted, with its three sizes.`
-      : `Rejected ${plural(n, 'photo', 'photos')}. They are deleted, with their three sizes.`;
-    if (kept) text += ` The storage did not delete the files of ${plural(kept, 'photo', 'photos')}; the log names each one's folder.`;
+  } else if (done === 'rejected' && what) {
+    // A photo goes with its three sizes; a clip is one file.
+    const deleted = photo ? 'It is deleted, with its three sizes.'
+      : clip ? 'It is deleted.'
+        : !clips ? 'They are deleted, with their three sizes.'
+          : !n ? 'They are deleted.'
+            : 'They are deleted, each photo with its three sizes.';
+    text = `Rejected ${what}. ${deleted}`;
+    if (kept || keptClips) text += ` The storage did not delete the files of ${both(kept, keptClips)}; the log names each one's folder.`;
   } else if (done === 'saved') {
     text = n ? `Saved ${plural(n, 'caption', 'captions')}.` : 'No caption had changed.';
   } else if (error === 'caption' && photo) {
@@ -560,10 +637,14 @@ export function queueNotice(params, albums = []) {
   // whatever it then refused (#228's move saves them before checking its
   // choice).
   const saved = done || ['gone', 'not-sure', 'target', 'teams'].includes(error) || /^new-/.test(error ?? '');
-  if (text && unsaved && saved) {
+  if (text && (unsaved || unsavedClips) && saved) {
     // Approved, or since #225 hidden by "Hide all their photos": a waiting
     // photo leaves the queue either way, and only approving makes it public.
-    text += ` ${plural(unsaved, 'caption was', 'captions were')} not saved: ${unsaved === 1 ? 'its photo was' : 'their photos were'} approved or hidden after this page was loaded.`;
+    // A clip's caption is counted apart (#198).
+    const total = (unsaved ?? 0) + (unsavedClips ?? 0);
+    const whose = total === 1 ? `its ${unsavedClips ? 'clip' : 'photo'} was`
+      : `their ${unsaved && unsavedClips ? 'photos and clips' : unsavedClips ? 'clips' : 'photos'} were`;
+    text += ` ${plural(total, 'caption was', 'captions were')} not saved: ${whose} approved or hidden after this page was loaded.`;
   }
   return text ? `\n    <p role="status">${text}</p>` : '';
 }
@@ -632,6 +713,50 @@ function waitingPhoto(photo, album, formId, first, team, notice) {
         </li>`;
 }
 
+const clipUrl = (id) => `/api/admin/clips/${id}`;
+
+/**
+ * How long a clip runs, from its milliseconds, as m:ss: "0:30", "15:00".
+ * Rounded up, so no clip reads 0:00 and one at its cap reads the cap.
+ */
+export function clipLength(ms) {
+  const seconds = Math.ceil(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+// A clip (#198), on the card a photo has: its event and team, then when it
+// was taken, how long it runs and its frame size, before who sent it, which
+// ends the line as it does a photo's. Then the clip, through the admin clip
+// route (functions/api/admin/clips/[id].js), which answers the ranges a
+// player asks for. It loads nothing until Play (owner, at #198's pickup):
+// preload="none", so a queue of clips costs no request until one is played,
+// and its width and height hold its place, as a photo's do. The link inside
+// shows only where a browser has no video element. The caption field and the
+// buttons are a photo's, by name and value, so every press takes a clip as it
+// takes a photo; each button's name says "clip". Its card keeps a photo's id,
+// so a press lands on it as on a photo (#270).
+function waitingClip(clip, album, formId, team, notice) {
+  const { id } = clip;
+  const approve = album.holding ? '' : `
+            <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="${id}" aria-label="Approve clip ${id}">Approve</button>`;
+  return `<li class="waiting" id="photo-${id}">${notice ? `\n          ${notice}` : ''}
+          <h3>Clip ${id}</h3>
+          <p class="waiting-album">${escapeHtml(album.title)} · ${escapeHtml(teamName(album.team))}</p>
+          <p class="waiting-facts">Taken ${timeElement(clip.capturedAt)} · ${clipLength(clip.durationMs)} long · ${clip.width} × ${clip.height}${sentBy(clip)}</p>
+          <div class="waiting-clip">
+            <video controls preload="none" width="${clip.width}" height="${clip.height}" src="${clipUrl(id)}"><a href="${clipUrl(id)}">Open clip ${id}</a></video>
+          </div>
+          <p class="field">
+            <label for="caption-${id}">Caption for clip ${id}</label>
+            <input id="caption-${id}" name="caption-${id}" type="text" autocomplete="off" value="${escapeHtml(clip.caption ?? '')}">
+          </p>
+          <p class="actions">${approve}
+            <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="${id}" aria-label="Move clip ${id} to the event chosen above">Move</button>
+            <button type="button" class="button button-quiet" data-reject="${id}" data-kind="clip" data-form="${formId}" aria-label="Reject clip ${id}">Reject</button>
+          </p>
+        </li>`;
+}
+
 /**
  * The batch's "Move to event" choices (#228): its team's events, newest
  * first, open or closed, never a Not sure album and never the album the
@@ -684,10 +809,15 @@ function moveFields(batch, formId, albums) {
 //
 // `at` is where a press landed (#270): this batch's section, or one of its
 // photos' cards, which then shows `notice` (adminQueuePage).
+//
+// Since #198 a batch holds its clips too, each a card of its own among the
+// photos (waitingClip). The facts count each kind, and Reject all tells the
+// dialog how many of its rows are clips (data-clips), so it names both.
 function batchSection(batch, total, team, albums, at, notice) {
   const index = batch.number;
   const part = batch.parts > 1 ? `, part ${batch.part} of ${batch.parts}` : '';
   const n = batch.photos.length;
+  const clips = batch.photos.filter((item) => item.kind === 'clip').length;
   const notSure = batch.album.holding;
   // The batch is a UUID wherever the upload route wrote it (lib/photos.js,
   // isBatch), but the column has no CHECK and later stories add writers
@@ -700,14 +830,14 @@ function batchSection(batch, total, team, albums, at, notice) {
         <button type="submit" class="button" formaction="${pressPath('/api/admin/queue/approve', team)}" name="approve" value="all" aria-label="Approve all ${n} in batch ${index}${part}, ${title}">Approve all ${n}</button>`;
   const all = n > 1 ? `${approveAll}
         <button type="submit" class="button button-quiet" formaction="${pressPath('/api/admin/queue/move', team)}" name="move" value="all" aria-label="Move all ${n} in batch ${index}${part}, ${title}, to the event chosen below">Move all ${n}</button>
-        <button type="button" class="button button-quiet" data-reject="all" data-count="${n}" data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
-  const why = notSure ? `\n    <p class="batch-why">${NOT_SURE_WHY}</p>` : '';
+        <button type="button" class="button button-quiet" data-reject="all" data-count="${n}"${clips ? ` data-clips="${clips}"` : ''} data-form="${formId}" aria-label="Reject all ${n} in batch ${index}${part}, ${title}">Reject all ${n}</button>` : '';
+  const why = notSure ? `\n    <p class="batch-why">${notSureWhy(n - clips, clips)}</p>` : '';
   const landed = at === batch.id ? `\n    ${notice}` : '';
   // Labelled by the facts as well as the title: two batches sent to one
   // album would otherwise be two regions with one name.
   return `<section class="wrap batch" id="${id}" aria-labelledby="${id}-title ${id}-facts">
     <h2 id="${id}-title">${title}</h2>
-    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${plural(n, 'photo', 'photos')} · sent ${timeElement(batch.sentAt)}</p>${why}${landed}
+    <p class="batch-facts" id="${id}-facts">${escapeHtml(teamName(batch.album.team))} · Batch ${index} of ${total}${batch.parts > 1 ? ` · part ${batch.part} of ${batch.parts}` : ''} · ${both(n - clips, clips)} · sent ${timeElement(batch.sentAt)}</p>${why}${landed}
     <form method="post" action="${pressPath('/api/admin/queue/captions', team)}" id="${formId}" class="batch-form">
       <input type="hidden" name="ids" value="${batch.photos.map((p) => p.id).join(' ')}">
       <input type="hidden" name="anchor" value="${id}">
@@ -716,8 +846,12 @@ function batchSection(batch, total, team, albums, at, notice) {
       </p>
       ${moveFields(batch, formId, albums)}
       <ul class="queue">
-        ${batch.photos.map((photo, i) => waitingPhoto(photo, batch.album, formId, index === 1 && batch.part === 1 && i === 0, team,
-    at === photoAt(photo.id) ? notice : '')).join('\n        ')}
+        ${batch.photos.map((item, i) => {
+    const here = at === photoAt(item.id) ? notice : '';
+    return item.kind === 'clip'
+      ? waitingClip(item, batch.album, formId, team, here)
+      : waitingPhoto(item, batch.album, formId, index === 1 && batch.part === 1 && i === 0, team, here);
+  }).join('\n        ')}
       </ul>
     </form>
   </section>`;
@@ -749,18 +883,27 @@ function batchSection(batch, total, team, albums, at, notice) {
  * the notice shows there, once, where an admin on a phone can see it (owner,
  * at #270's pickup), and at the top only when `at` names nothing the page
  * shows: nothing waits, or another admin took that photo meanwhile.
+ *
+ * Since #198 the waiting clips are here too, in their batches (waitingClip).
+ * The summary counts each kind, the media-release reminder names clips while
+ * the page shows one, and so, once, does the line saying an approved clip is
+ * kept but not shown on the site yet (#286 shows it). The reject dialog's
+ * words are a photo's until a clip's Reject rewrites them
+ * (public/js/admin-queue.js).
  */
 export function adminQueuePage({ batches, notice = '', team = null, albums = [], at = null }) {
-  const waiting = batches.reduce((sum, batch) => sum + batch.photos.length, 0);
+  const items = batches.flatMap((batch) => batch.photos);
+  const clips = items.filter((item) => item.kind === 'clip').length;
   const landed = notice && batches.some((batch) => batch.id === at || batch.photos.some((photo) => photoAt(photo.id) === at));
   const where = landed ? at : null;
   const said = notice.trim();
   // A batch in parts is several entries with one number.
   const total = new Set(batches.map((batch) => batch.number)).size;
   const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
-  const summary = waiting
-    ? `${plural(waiting, 'photo', 'photos')}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
+  const summary = items.length
+    ? `${both(items.length - clips, clips)}${from} in ${plural(total, 'batch', 'batches')}, oldest first.`
     : `No photo${from} is waiting. What parents send appears here, oldest first.`;
+  const kept = clips ? '\n    <p>An approved clip is kept, but not shown on the site yet.</p>' : '';
   const list = batches.map((batch) => batchSection(batch, total, team, albums, where, said)).join('\n\n  ');
   return adminPage({
     title: 'Waiting for approval',
@@ -769,8 +912,8 @@ export function adminQueuePage({ batches, notice = '', team = null, albums = [],
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Waiting for approval</h1>
-    <p class="lede">Check each photo against the families who opted out of the media release before you approve it.</p>
-    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>
+    <p class="lede">Check each ${clips ? 'photo and clip' : 'photo'} against the families who opted out of the media release before you approve it.</p>
+    <p>${summary} Nothing here is public until it is approved, and a rejected photo is deleted for good. Every button in a batch saves the captions typed in it; an emptied caption publishes none.</p>${kept}
     <p>A photo sent to the wrong event, or to "${NOT_SURE_TITLE}", moves into one of its team's events with Move, or into a new one.</p>${landed ? '' : notice}${teamFilter('/admin/queue', team)}
     <noscript><p>Rejecting needs JavaScript. Approving and saving captions do not.</p></noscript>
   </section>
@@ -778,7 +921,7 @@ ${list ? `\n  ${list}\n` : ''}
   <dialog id="reject-dialog" class="confirm" aria-labelledby="reject-title">
     <form method="dialog">
       <h2 id="reject-title">Reject this photo?</h2>
-      <p>A rejected photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
+      <p id="reject-text">A rejected photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
       <p class="actions">
         <button type="submit" class="button" autofocus>Cancel</button>
         <button type="submit" class="button button-accent" id="reject-confirm" formaction="${pressPath('/api/admin/queue/reject', team)}" formmethod="post" name="reject">Reject</button>

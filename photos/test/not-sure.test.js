@@ -34,7 +34,7 @@ import * as cohssaRoute from '../functions/cohssa/index.js';
 import { queueNotice } from '../lib/admin-page.js';
 import { NOT_SURE_TITLE, createAlbum, isDate, openAlbum, readAlbumFields } from '../lib/albums.js';
 import { hidePhotos } from '../lib/people.js';
-import { photoObjectKeys } from '../lib/photos.js';
+import { clipObjectKey, photoObjectKeys } from '../lib/photos.js';
 import { PART_PHOTOS, movePhotos } from '../lib/queue.js';
 import { WAITING_WHEN_HIDDEN, restorePhoto } from '../lib/removals.js';
 import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
@@ -335,6 +335,10 @@ test('#228 criterion 5: photos.album_id keeps its reference, so an event holding
   const [batch] = batches(await queue(env));
   landing(await move(env, batch, id, fall));
   assert.deepEqual(landing(await admin(env, '/api/admin/albums/delete', { address: fall })).query, { error: 'not-empty', album: fall, photos: '1' });
+  // #198: a clip moved in holds it too, counted apart from the photo.
+  const clip = seedClip(env, NOT_SURE['hoover-jrt'], { batch: BATCH_B });
+  landing(await move(env, batches(await queue(env)).find((b) => b.ids === String(clip)), clip, fall));
+  assert.deepEqual(landing(await admin(env, '/api/admin/albums/delete', { address: fall })).query, { error: 'not-empty', album: fall, photos: '1', clips: '1' });
   for (const address of Object.values(NOT_SURE)) {
     assert.deepEqual(landing(await admin(env, '/api/admin/albums/delete', { address })).query, { error: 'not-sure' }, address);
   }
@@ -596,15 +600,17 @@ test('#228 criterion 3: a move never crosses a team or lands in a Not sure album
   assert.equal(photo(env, hoover).caption, 'kept');
   assert.match(await queue(env, '?error=teams'), /<p role="status">No photo was moved: those photos are in two teams' events now, since this page was loaded\. Reload the page and move each batch from there\. The captions typed were saved\.<\/p>/);
   env.DB.sqlite.prepare('UPDATE photos SET caption = NULL WHERE id = ?').run(hoover);
-  // The statement holds it too, whatever a route checked first.
-  assert.deepEqual(await movePhotos(env.DB, [hoover], districts), []);
-  assert.deepEqual(await movePhotos(env.DB, [inFall], NOT_SURE['hoover-jrt']), []);
+  // The statement holds it too, whatever a route checked first. Since #198 it
+  // answers the ids moved and which of them are clips.
+  const none = { moved: [], clips: [] };
+  assert.deepEqual(await movePhotos(env.DB, [hoover], districts), none);
+  assert.deepEqual(await movePhotos(env.DB, [inFall], NOT_SURE['hoover-jrt']), none);
   env.DB.sqlite.prepare("UPDATE albums SET team = 'cohssa' WHERE address = ?").run(fall);
-  assert.deepEqual(await movePhotos(env.DB, [hoover], fall), [], 'an event moved to the other team meanwhile takes nothing');
+  assert.deepEqual(await movePhotos(env.DB, [hoover], fall), none, 'an event moved to the other team meanwhile takes nothing');
   assert.equal(photo(env, hoover).address, NOT_SURE['hoover-jrt']);
   // The control: the same call into its own team's event moves it.
   env.DB.sqlite.prepare("UPDATE albums SET team = 'hoover-jrt' WHERE address = ?").run(fall);
-  assert.deepEqual(await movePhotos(env.DB, [hoover], fall), [hoover]);
+  assert.deepEqual(await movePhotos(env.DB, [hoover], fall), { moved: [hoover], clips: [] });
 });
 
 test('#228 criterion 3: a photo no longer waiting is not moved, and the queue says so', async () => {
@@ -612,14 +618,14 @@ test('#228 criterion 3: a photo no longer waiting is not moved, and the queue sa
   const id = seedPhoto(env, fall);
   const [batch] = batches(await queue(env));
   // The statement moves no photo already in that event, and the control: it moves this one elsewhere.
-  assert.deepEqual(await movePhotos(env.DB, [id], fall), []);
+  assert.deepEqual(await movePhotos(env.DB, [id], fall), { moved: [], clips: [] });
   env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = 5 WHERE id = ?").run(id);
   assert.equal(landing(await move(env, batch, id, spring)).query.error, 'gone');
   assert.equal(photo(env, id).address, fall);
   // The statement holds it too, not only the route's read before it.
-  assert.deepEqual(await movePhotos(env.DB, [id], spring), []);
+  assert.deepEqual(await movePhotos(env.DB, [id], spring), { moved: [], clips: [] });
   env.DB.sqlite.prepare("UPDATE photos SET state = 'pending', approved_at = NULL WHERE id = ?").run(id);
-  assert.deepEqual(await movePhotos(env.DB, [id], spring), [id], 'the control: waiting, it moves');
+  assert.deepEqual(await movePhotos(env.DB, [id], spring), { moved: [id], clips: [] }, 'the control: waiting, it moves');
   env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = 5, album_id = ? WHERE id = ?").run(albumId(env, fall), id);
   assert.match(await queue(env, '?error=gone'), /No photo was approved, rejected or moved: those photos are no longer waiting/);
   // Nor is a new event made for it: the photos are read before the event is.
@@ -857,4 +863,82 @@ test('each #228 notice is a known sentence, and an album named in the address ba
   }
   // "made" without an album the page lists says nothing of an event.
   assert.match(say('error=gone&made=1&album=2026-10-09-nothing'), /^No photo was approved, rejected or moved/);
+});
+
+// ---- #198: a clip in Not sure, and a clip moved -------------------------------
+
+/** A waiting clip (#198), as the clip routes leave it once checked, with its one object. */
+function seedClip(env, address, { batch = BATCH_A, sentAt = T0, caption = null } = {}) {
+  const mediaKey = (++keys).toString(16).padStart(32, '0');
+  const { lastInsertRowid } = env.DB.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, caption, ' +
+    'captured_at, sent_at, width, height, bytes, content_type, duration_ms) ' +
+    "VALUES (?, 'clip', 'pending', ?, ?, 'parent', 1, ?, ?, ?, ?, 1920, 1080, 4, 'video/mp4', 30000)",
+  ).run(albumId(env, address), mediaKey, batch, sentAt - 60, caption, sentAt - 3600, sentAt);
+  env.MEDIA.objects.set(clipObjectKey(mediaKey), { body: new Uint8Array([0, 0, 0, 8]), httpMetadata: { contentType: 'video/mp4' } });
+  return Number(lastInsertRowid);
+}
+
+const notSureWhy = (what) => `A ${what} in "${NOT_SURE_TITLE}" has no event to be public in, so it cannot be approved. Move it into its event below, then approve it there.`;
+
+test('#198: a clip in Not sure has no Approve, and its batch says why in a clip\'s words, or a photo\'s or clip\'s beside a photo; an event\'s clip keeps its Approve', async () => {
+  const { env, fall } = await site();
+  const held = seedClip(env, NOT_SURE['hoover-jrt']);
+  seedPhoto(env, NOT_SURE.cohssa, { batch: BATCH_B, sentAt: T0 + 1 });
+  seedClip(env, NOT_SURE.cohssa, { batch: BATCH_B, sentAt: T0 + 2 });
+  const shown = seedClip(env, fall, { batch: BATCH_B, sentAt: T0 + 3 });
+  const html = await queue(env);
+  const [clipOnly, mixed, inFall] = batches(html);
+  assert.ok(clipOnly.inner.includes(`<p class="batch-why">${notSureWhy('clip')}</p>`), clipOnly.inner);
+  assert.ok(mixed.inner.includes(`<p class="batch-why">${notSureWhy('photo or clip')}</p>`), mixed.inner);
+  assert.deepEqual([clipOnly, mixed].map((b) => b.buttons.filter((x) => x.name === 'approve')), [[], []]);
+  // Move stays, to take it into its event.
+  assert.ok(clipOnly.buttons.some((b) => b.name === 'move' && b.value === String(held)));
+  // The control: an event's clip has its Approve, named for a clip, and no why.
+  assert.deepEqual(inFall.buttons.filter((b) => b.name === 'approve').map((b) => [b.value, b.label]), [[String(shown), `Approve clip ${shown}`]]);
+  assert.doesNotMatch(inFall.inner, /batch-why/);
+  assert.deepEqual(await problems(html), []);
+});
+
+test('#198: an approve naming a Not sure clip leaves it waiting and says so in a clip\'s words; beside an event\'s photo it approves only the photo', async () => {
+  const { env, fall } = await site();
+  const held = seedClip(env, NOT_SURE['hoover-jrt']);
+  const shown = seedPhoto(env, fall, { batch: BATCH_B });
+  let where = landing(await admin(env, '/api/admin/queue/approve', { ids: String(held), approve: String(held) }));
+  assert.deepEqual(where.query, { error: 'not-sure', clips: '1' });
+  assert.equal(photo(env, held).state, 'pending');
+  assert.ok((await queue(env, `?${new URLSearchParams(where.query)}`)).includes(`<p role="status">Nothing was approved. ${notSureWhy('clip')}</p>`));
+  where = landing(await admin(env, '/api/admin/queue/approve', { ids: `${held} ${shown}`, approve: 'all' }));
+  // It lands on the clip left waiting (#270).
+  assert.deepEqual(where.query, { done: 'approved', photo: String(shown), 'not-sure-clips': '1', at: `photo-${held}` });
+  assert.deepEqual([held, shown].map((id) => photo(env, id).state), ['pending', 'approved']);
+  assert.ok((await queue(env, `?${new URLSearchParams(where.query)}`)).includes(`<p role="status">Approved photo ${shown}. 1 clip was left waiting. ${notSureWhy('clip')}</p>`));
+  // The database refuses it too, whatever the statement checks: 0015's
+  // triggers name no kind.
+  assert.throws(() => env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = 5 WHERE id = ?").run(held), /never approved/);
+});
+
+test('#198: Move takes a clip into its team\'s event, still waiting, with its caption and its batch, lands on its card and names it a clip; Move all names each kind', async () => {
+  const { env, fall } = await site();
+  const clip = seedClip(env, NOT_SURE['hoover-jrt'], { caption: 'old' });
+  const still = seedPhoto(env, NOT_SURE['hoover-jrt'], { sentAt: T0 + 1 });
+  const other = seedClip(env, NOT_SURE['hoover-jrt'], { sentAt: T0 + 2 });
+  let [batch] = batches(await queue(env));
+  let where = landing(await move(env, batch, clip, fall, { [`caption-${clip}`]: 'Start line' }));
+  assert.deepEqual(where.query, { done: 'moved', clip: String(clip), album: fall, at: `photo-${clip}` });
+  assert.equal(where.hash, `#photo-${clip}`);
+  assert.deepEqual(photo(env, clip), { state: 'pending', caption: 'Start line', batch: BATCH_A, address: fall });
+  const html = await queue(env, `?${new URLSearchParams(where.query)}`);
+  assert.ok(html.includes(`<p role="status">Moved clip ${clip} to Fall Regatta (Hoover JRT, 4 October 2026). It waits there, ready to approve.</p>`));
+  // A batch of its event now, where it can be approved.
+  const moved = batches(html).find((b) => b.ids === String(clip));
+  assert.equal(moved.title, 'Fall Regatta');
+  assert.ok(moved.buttons.some((b) => b.name === 'approve' && b.value === String(clip)));
+  // Move all on what is left in Not sure: a photo and a clip, each named.
+  [batch] = batches(html).filter((b) => b.title === NOT_SURE_TITLE);
+  where = landing(await move(env, batch, 'all', fall));
+  assert.deepEqual(where.query, { done: 'moved', n: '1', clips: '1', album: fall, at: `photo-${still}` });
+  assert.ok((await queue(env, `?${new URLSearchParams(where.query)}`))
+    .includes('<p role="status">Moved 1 photo and 1 clip to Fall Regatta (Hoover JRT, 4 October 2026). They wait there, ready to approve.</p>'));
+  assert.deepEqual([clip, still, other].map((id) => photo(env, id).address), [fall, fall, fall]);
 });

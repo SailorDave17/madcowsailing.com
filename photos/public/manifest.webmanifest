@@ -20,7 +20,7 @@
     "enctype": "multipart/form-data",
     "params": {
       "files": [
-        { "name": "photos", "accept": ["image/*"] }
+        { "name": "photos", "accept": ["image/*", "video/*"] }
       ]
     }
   }

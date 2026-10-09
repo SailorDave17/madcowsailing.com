@@ -32,8 +32,8 @@
  * (WAITING_WHEN_HIDDEN), and "Put it back" sends it back to the queue rather
  * than making it public: /policy says every photo is checked first.
  *
- * Clips wait for #198, as everywhere else: every statement here names kind =
- * 'photo'.
+ * Clips wait for #286, as every public statement does: every statement here
+ * names kind = 'photo'. #198 brought them into the approval queue only.
  */
 import { photoObjectKeys } from './photos.js';
 

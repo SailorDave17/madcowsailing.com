@@ -9,6 +9,9 @@
 // takedown is re-run here with the worker in front of it (criterion 5).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { onRequest as root } from '../functions/_middleware.js';
 import * as albumRoute from '../functions/albums/[address]/index.js';
@@ -56,15 +59,22 @@ test('a new worker takes over at once: install skips waiting, and activate claim
 // ---- Criterion 5: it never caches, and lets every other request go by -------
 
 // Every kind of request criterion 5 names, and the share page's own, each in
-// the method a page or a browser would use. A clip's address is not built
-// yet (#198), so the shapes it could take are all here. Since #226 retired
-// the invite link and the coaches' sign-in, POST /api/join only says the
-// link was replaced, and /admin/code and /coach are gone; they stay here
-// because a tab left open across the release, or an old bookmark, can still
-// send them. /sign-in and /ask are the share page's links.
+// the method a page or a browser would use, with the headers it carries. A
+// clip is played with a Range header. #198's clip routes are the real ones:
+// the share page's four, sending a clip in parts with its upload token, and
+// the admin queue's player. A public clip's address is #286's and not built
+// yet, so the shapes it could take are here too. Since #226 retired the
+// invite link and the coaches' sign-in, POST /api/join only says the link
+// was replaced, and /admin/code and /coach are gone; they stay here because
+// a tab left open across the release, or an old bookmark, can still send
+// them. /sign-in and /ask are the share page's links.
+const RANGE = { Range: 'bytes=0-1048575' };
+const TOKEN = { 'Clip-Upload': `clip1.12.4096.${'A'.repeat(43)}` };
 const PASSES = [
   ['GET', '/photos/12/grid'], ['GET', '/photos/12/screen'], ['GET', '/photos/12/full'], ['HEAD', '/photos/12/full'],
-  ['GET', '/photos/12/clip'], ['GET', '/photos/12/video'], ['GET', '/clips/12'], ['GET', '/clips/12/play'],
+  ['POST', '/api/upload/clips'], ['PUT', '/api/upload/clips/12/parts/1', TOKEN], ['POST', '/api/upload/clips/12/complete', TOKEN],
+  ['DELETE', '/api/upload/clips/12', TOKEN], ['GET', '/api/admin/clips/12', RANGE], ['HEAD', '/api/admin/clips/12', RANGE],
+  ['GET', '/photos/12/clip', RANGE], ['GET', '/photos/12/video', RANGE], ['GET', '/clips/12', RANGE], ['GET', '/clips/12/play', RANGE],
   ['GET', '/albums/2026-10-04-fall-regatta/'], ['GET', '/albums/2026-10-04-fall-regatta'], ['GET', '/'],
   ['POST', '/api/upload'], ['GET', '/api/upload/session'], ['POST', '/api/join'], ['GET', '/api/albums/open'],
   ['POST', '/api/remove'], ['GET', '/api/health'], ['POST', '/api/admin/queue/approve'], ['GET', '/api/admin/photos/12/screen'],
@@ -79,12 +89,12 @@ const PASSES = [
   ['POST', '/share/receive/'], ['POST', '/share/receive2'], ['POST', '/api/share/receive'],
 ];
 
-for (const [method, path] of PASSES) {
+for (const [method, path, headers = {}] of PASSES) {
   test(`${method} ${path}: the worker lets it go by, answering nothing and touching no storage`, async () => {
     const w = worker();
     const request = new Request(new URL(path, SITE), {
       method,
-      headers: path.includes('/clips/') || path.endsWith('/clip') ? { Range: 'bytes=0-1048575' } : {},
+      headers,
       body: ['GET', 'HEAD'].includes(method) ? undefined : 'x',
     });
     assert.equal(await w.fetch(request), null, 'the worker answered it');
@@ -93,6 +103,44 @@ for (const [method, path] of PASSES) {
     assert.equal(w.db.state.opens, 0, 'the worker opened its storage for it');
   });
 }
+
+const FUNCTIONS = fileURLToPath(new URL('../functions/', import.meta.url));
+
+/**
+ * The Functions file Pages answers `path` from, or null: each segment a
+ * folder or file of its own name, else a [param] one, the last as <name>.js
+ * or <name>/index.js.
+ */
+function routeFile(path) {
+  let dir = FUNCTIONS;
+  const parts = path.split('/').filter(Boolean);
+  for (const [i, part] of parts.entries()) {
+    const names = readdirSync(dir);
+    const choices = [part, ...names.filter((n) => /^\[\w+\](\.js)?$/.test(n)).map((n) => n.replace(/\.js$/, ''))];
+    if (i === parts.length - 1) {
+      const file = choices.flatMap((c) => [join(dir, `${c}.js`), join(dir, c, 'index.js')]).find((f) => existsSync(f));
+      return file ?? null;
+    }
+    const next = choices.find((c) => names.includes(c) && statSync(join(dir, c)).isDirectory());
+    if (!next) return null;
+    dir = join(dir, next);
+  }
+  return null;
+}
+
+test('#198: the clip addresses that list holds are the real routes, each answering its method', async () => {
+  const clips = PASSES.filter(([, path]) => /^\/api\/(upload|admin)\/clips\b/.test(path));
+  assert.equal(clips.length, 6);
+  for (const [method, path] of clips) {
+    const file = routeFile(path);
+    assert.ok(file, `${path} is no Function's`);
+    const handler = `onRequest${method[0]}${method.slice(1).toLowerCase()}`;
+    assert.equal(typeof (await import(pathToFileURL(file)))[handler], 'function', `${path} has no ${handler}`);
+  }
+  // The control: an address no Function answers is found to be none.
+  assert.equal(routeFile('/api/upload/clips/12/abort'), null);
+  assert.equal(routeFile('/api/admin/clips'), null);
+});
 
 test('the control: the share target\'s POST is the one request the worker answers', async () => {
   const w = worker();

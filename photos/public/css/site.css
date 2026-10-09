@@ -310,6 +310,16 @@
   background: var(--hull);
 }
 
+/* A clip (#198) is a card's width too, its shape from the frame size the row
+   records. It loads nothing until Play, so until then it is this ground,
+   night water, under the player's own controls. */
+.waiting video {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--deep);
+}
+
 .waiting-sizes {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -479,6 +489,17 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* A clip's square holds its name and length as text (#198): nothing of a
+   clip is decoded on the phone, and the CSP refuses a blob: video. */
+.clip-frame {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 
 .photo-state {
@@ -1032,7 +1053,10 @@
     padding-inline: 0;
   }
 
-  .waiting > :not(.waiting-screen) {
+  /* The clip's box (#198) is left out as the photo's link is. One :not()
+     with a list, not two chained: two would outrank .waiting > .actions
+     below, and put the sticky buttons back inside the margin. */
+  .waiting > :not(.waiting-screen, .waiting-clip) {
     margin-inline: var(--space-4);
   }
 
@@ -1054,6 +1078,44 @@
   .waiting-screen:focus-visible img {
     outline: calc(var(--space-1) / 2) solid var(--deep);
     outline-offset: calc(-1 * var(--space-1));
+  }
+
+  /* A clip runs edge to edge as a photo does (#198), so it takes the same
+     two rings inside it: --chalk on the edge of the box around it, and
+     --deep, the clip's own ring, just inside that. The clip is what takes
+     the focus, so the box finds it with :has(). The box's ring is a layer
+     laid over the clip, not an outline on the box: Chrome paints the
+     player above its box's outline, so that ring never showed, and the
+     --deep ring alone read 1.2:1 on the player's #333 (measured at 390 px
+     in Chrome, at #198's review). Not chosen: one --blue ring, the photo's
+     1.14:1 on deep water again once the clip plays. */
+  .waiting-clip {
+    position: relative;
+  }
+
+  .waiting-clip:has(video:focus-visible)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: calc(var(--space-1) / 2) solid var(--chalk);
+    pointer-events: none;
+  }
+
+  .waiting-clip video:focus-visible {
+    outline-color: var(--deep);
+    outline-offset: calc(-1 * var(--space-1));
+  }
+
+  /* A browser without :has() rings the box on any focus inside it, as
+     .pick does: a ring after a tap beats none after a Tab. */
+  @supports not selector(:has(*)) {
+    .waiting-clip:focus-within::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border: calc(var(--space-1) / 2) solid var(--chalk);
+      pointer-events: none;
+    }
   }
 
   /* Approve and Move, or a batch's other buttons, fill their rows; Reject
