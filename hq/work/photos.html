@@ -75,8 +75,20 @@
        decision I'd defend, outcome. Same five <h2>s in the same order as the
        other case studies. Added by #230.
 
-       SOURCES. Every claim traces to this repo at origin/release 53b06b6
-       (whose tree equals develop a037a7e), read 2026-10-01: CLAUDE.md's
+       SOURCES. Every claim traces to this repo. The page was written from
+       origin/release 53b06b6 (whose tree equals develop a037a7e), read
+       2026-10-01, and the sentences #226 changed (Stack, the paragraph on
+       accounts under What I built, the privacy fault's last two sentences,
+       Outcome's last paragraph) were read again on 2026-10-08 at
+       feature/226-cutover, cut from develop 4c9d778: CLAUDE.md's photo-site
+       items 23 (scrypt, the strongest hash the runtime carries), 25 to 27 and
+       30 (asking, approval per team, Turnstile on /ask and /forgot-password,
+       the emailed admin code), 24's D13 and the #226 leads of items 11, 12
+       and 20 (what retired, what replaced it, and the order: accounts working
+       on production first), 18's #226 entry (the matching sentence dropped,
+       production holding no photo sent through the coaches' sign-in), 28 (a
+       section per team, #227) and 10 with #198 (clips, next).
+       From the 2026-10-01 read: CLAUDE.md's
        photo-site section, items 2-3 (every image through a function, 300 s
        private cache), 9 and 14 (the three sizes, the allow-list rebuild, the
        ten Pillow variants and Chrome's canvas, the spliced GPS read back as
@@ -116,8 +128,10 @@
         encoding, the tests, and the production checks.</dd>
       <dt>Stack</dt>
       <dd>Cloudflare Pages Functions, D1 and a private R2 bucket; plain HTML,
-        CSS and JavaScript with no framework and no library; Cloudflare Access
-        for sign-in; Resend for email; Node&rsquo;s built-in test runner.</dd>
+        CSS and JavaScript with no framework and no library; email-and-password
+        accounts hashed with scrypt from the runtime&rsquo;s own crypto module;
+        Cloudflare Turnstile on the request and reset forms; Resend for email;
+        Node&rsquo;s built-in test runner.</dd>
       <dt>Timeframe</dt>
       <dd>Decided on 26 September 2026, with public albums on production four
         days later. Still in progress.</dd>
@@ -167,17 +181,27 @@
       serving a byte, and a browser may keep its copy for 300 seconds at most.
       Each public photo carries a control that hides it at once and queues it
       for review, so a takedown does not wait for me.</p>
-    <p>Coaches sign in through Cloudflare Access rather than an invite link, a
-      policy page says who sees the photos, and the site can now send email
-      from its own domain.</p>
+    <p>The first release let people in two ways: a shared invite link for
+      families, and a separate Cloudflare Access sign-in for coaches. Both
+      have since been replaced by accounts. A sender asks for one, an admin
+      approves it one team at a time, and the password is hashed with scrypt,
+      the strongest password hash the runtime carries without a library. Admins
+      also enter a code emailed for each sign-in. The old routes stayed open
+      until accounts worked on production, so nobody was left without a way
+      in, and a coach is now simply an account with the coach role. A policy
+      page says who sees the
+      photos, and the site sends its own email from its own domain.</p>
     <p>One privacy fault is worth telling, because its test passed. A
       coach&rsquo;s upload row kept the second that coach signed in. The same
       second sits beside the coach&rsquo;s address in the sign-in
       provider&rsquo;s log, so the two together name the coach. A test that
       searched the row for the coach&rsquo;s identity passed throughout,
-      because the identity was never in the row; the join was. The row no
-      longer keeps that time, and the policy says plainly that the time a
-      photo was sent could still be matched.</p>
+      because the identity was never in the row; the join was. The row stopped
+      keeping that time, and for as long as that sign-in existed the policy
+      admitted that a send time could still be lined up against the
+      provider&rsquo;s log. Read on 2026-10-08, just before accounts replaced
+      it, production held no photo sent that way, so the caveat went with the
+      route instead of being kept as history.</p>
   </section>
 
   <section class="wrap">
@@ -241,9 +265,10 @@
       on purpose before they were trusted: 26 mutations, every one red exactly
       as predicted.</p>
     <p>There are no usage numbers here, because none have been recorded yet,
-      and this page will not estimate them. Next are accounts that replace
-      the invite link, and a section for a second program. Still in
-      progress.</p>
+      and this page will not estimate them. Since those readings, accounts
+      have replaced the invite link and the coaches&rsquo; sign-in, and each
+      team&rsquo;s albums have a section of their own. Video clips come next.
+      Still in progress.</p>
   </section>
 
   <section class="wrap page-foot">

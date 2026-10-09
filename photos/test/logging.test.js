@@ -1,10 +1,12 @@
-// No logging call in the site's code is handed the invite code, the cookie,
-// a key or a request's contents (#150, criterion 8).
+// No logging call in the site's code is handed a code, a cookie, a key or a
+// request's contents (#150, criterion 8, first written for the invite code,
+// which #226 retired).
 //
-// test/join.test.js runs the join route and scans what it logged. This reads
-// every console call in functions/ and lib/ instead, so a route written later
-// is held too, before any test drives it. It strips string literals (keeping
-// a template's ${…} expressions) and looks for the names that carry secrets.
+// Until #226, test/join.test.js also ran the join route and scanned what it
+// logged. This reads every console call in functions/ and lib/, so a route
+// written later is held too, before any test drives it. It strips string
+// literals (keeping a template's ${…} expressions) and looks for the names
+// that carry secrets.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';

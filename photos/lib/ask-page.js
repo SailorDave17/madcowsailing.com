@@ -19,8 +19,9 @@
  * form, or at once on a page sent back with a reason (owner, at #220's
  * review: at load it put the page under the performance floor). lib/headers.js
  * widens the CSP for this path only, by the two values Turnstile's CSP page
- * lists. No address on the site links here yet (owner, at #220's pickup:
- * #226 points the old invite link at it).
+ * lists. No address on the site linked here until #226 pointed the old
+ * invite link at it (owner, at #220's pickup): the share page links it, and
+ * POST /api/join's answer names it.
  *
  * The send button is the page's one accent (base.css's budget), so the
  * reasons are drawn in --deep, never in --ensign.
@@ -35,7 +36,7 @@ import { renderPage } from './public-page.js';
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
 
 // The page's own script, which adds Turnstile's. Stamped by hand, as
-// CODE_SCRIPT is in lib/admin-page.js, since tools/assetver.py stamps HTML
+// QUEUE_SCRIPT is in lib/admin-page.js, since tools/assetver.py stamps HTML
 // files only: test/ask.test.js fails until the ?v= is the file's own hash.
 export const ASK_SCRIPT = '<script src="/js/ask.js?v=1508a3f9de" defer></script>';
 

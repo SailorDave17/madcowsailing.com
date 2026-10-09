@@ -107,7 +107,8 @@ export async function verifyTurnstile(env, token, remoteip) {
     return 'passed';
   }
   // Named reasons, not codes: test/logging.test.js keeps "codes" for the
-  // invite code's, which no log line may hold.
+  // admin sign-in's emailed codes (lib/admin-code.js), which no log line may
+  // hold, as it kept them for the invite code's until #226.
   const reasons = loggable(result['error-codes']);
   if (reasons.length > 0 && reasons.every((reason) => TOKEN_ERRORS.has(reason))) return 'refused';
   console.error('turnstile: siteverify could not check a token:', reasons.join(', ') || 'no error code');

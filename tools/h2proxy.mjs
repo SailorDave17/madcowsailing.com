@@ -20,9 +20,12 @@
  *     --screenEmulation.mobile --chrome-flags="--headless=new --ignore-certificate-errors"
  *
  * Keep the certificate out of the repo (a scratch directory): it is
- * self-signed and throwaway. A page behind the upload session needs its
- * cookie: pass `--extra-headers=<file>` holding {"Cookie": "__Host-upload=..."},
- * taken from a POST to /api/join.
+ * self-signed and throwaway. A page behind a sign-in needs its cookie: pass
+ * `--extra-headers=<file>` holding {"Cookie": "__Host-account=..."}, taken
+ * from the Set-Cookie of a sign-in at /sign-in. Or give the proxy the local
+ * stand-in's port, 8789, in place of wrangler's: photos/scripts/sign-in-dev.mjs
+ * adds a fresh __Host-account cookie to every request outside the admin
+ * pages. Until #226 the cookie was __Host-upload, from a POST to /api/join.
  *
  * The site checks a write's Origin against the host it is served on, which
  * wrangler sees as plain http, so the proxy rewrites Origin to match. Nothing

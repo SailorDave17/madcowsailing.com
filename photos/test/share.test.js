@@ -1,4 +1,4 @@
-// The share page's script (#155, with #150's join step): making each chosen
+// The share page's script (#155, with #150's status line): making each chosen
 // photo's three JPEGs and sending them. public/js/share.js runs here in
 // node:vm against hand-written stand-ins for the DOM, the canvas and the
 // browser's image decoder, the repo's way with a page script since #152. Its
@@ -11,6 +11,12 @@
 // The stand-ins cannot show pixels. The browser runs on #155's pull request
 // do: Chrome 154 against a local copy of the site, the stored JPEGs read back
 // and their corners checked for colour.
+//
+// The phone sends from an account (#223) unless a test says otherwise: since
+// #226 that is the only session there is. Until then the page opened with an
+// invite link (/share/#code=…) and joined through POST /api/join, and these
+// tests did too; an old link now only says it was replaced (#226, criterion
+// 3).
 //
 // "Today" on the page is the phone's own date, and a capture time without an
 // offset is read in the phone's own zone. Chatham is 12:45 or 13:45 ahead of
@@ -29,7 +35,6 @@ import vm from 'node:vm';
 import { onRequest as root } from '../functions/_middleware.js';
 import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js';
 import { onRequestGet as openAlbumsRoute } from '../functions/api/albums/open.js';
-import { onRequestPost as joinRoute } from '../functions/api/join.js';
 import { onRequest as uploadGuard } from '../functions/api/upload/_middleware.js';
 import { onRequestPost as uploadRoute } from '../functions/api/upload/index.js';
 import { onRequestGet as sessionRoute } from '../functions/api/upload/session.js';
@@ -37,11 +42,11 @@ import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
 import { createAlbum } from '../lib/albums.js';
 import { readJpeg } from '../lib/jpeg.js';
 import { CAPTION_MAX, DAILY_UPLOADS, SIZES, sizesAgree } from '../lib/photos.js';
-import { COOKIE_NAME, coachTag, nowSeconds, signCoachSession } from '../lib/session.js';
-import { COACH } from './access.js';
-import { d1, seedCodes } from './d1.js';
+import { nowSeconds } from '../lib/session.js';
+import { d1 } from './d1.js';
 import { idb } from './idb.js';
 import { exif, exifWith, jpeg, metadataMarkers, withSegments, xmp } from './jpeg.js';
+import { UPLOAD_COOKIE, parentCookie } from './legacy-cookies.js';
 import { r2 } from './r2.js';
 import { share, worker } from './worker.js';
 
@@ -51,9 +56,8 @@ const SCRIPT = read('public', 'js', 'share.js');
 const HTML = read('public', 'share', 'index.html');
 
 const SITE = 'https://photos.madcowsailing.com';
-const OLD = 'Q2WE-R4TY-V6PA';
+// An old invite link's code, as /share/#code=<code> carried it until #226.
 const CODE = 'K7QM-3XRD-9FWB';
-const NEXT = 'M4TR-7KXW-2PHD';
 const KEYS = {
   SESSION_SIGNING_KEY: 'test-session-signing-key-0123456789abcdef',
   ADDRESS_HASH_KEY: 'test-address-hash-key-fedcba9876543210',
@@ -260,26 +264,30 @@ function canvasMaker(encoder, canvases) {
  * their EXIF as it decodes them (Chrome 154 does), `intercept` answers an
  * upload instead of the route.
  *
+ * `session` is the session this browser already holds when the page opens:
+ * 'account' (the default), signed in at /sign-in to account 1, approved for
+ * `accountTeams` with `role` (#223), or null for none. Both teams by
+ * default, so every album a test makes is offered, as the invite link
+ * offered every one until #226. `upload` puts the upload cookie the invite
+ * link or a coach's sign-in set until #226 in the browser's jar too.
+ *
  * For the installed app (#193): `search` is the address's query (share/sw.js
  * sends ?shared), `db` the browser's IndexedDB (none by default, as in a
- * browser without it), `session` a session this browser already holds when
- * the page opens ('parent', from an earlier invite link, 'coach', from
- * /coach, or 'account', signed in at /sign-in to an account approved for
- * `accountTeams`, #223), `register` how the browser answers the worker's registration
- * ('ok', 'refused', or 'absent' for a browser with no service workers at
- * all), and `holdJoin` holds POST /api/join until page.releaseJoin().
+ * browser without it), `register` how the browser answers the worker's
+ * registration ('ok', 'refused', or 'absent' for a browser with no service
+ * workers at all), and `holdSession` holds GET /api/upload/session until
+ * page.releaseSession().
  *
  * Every database holds each team's "Not sure / other event" album, open
  * (migration 0015, #228); `made.notSure` names them by team. `notSure: false`
  * closes both before the page opens, for a site with nothing open at all.
  */
 async function load({
-  hash = `#code=${CODE}`, albums = null, turns = true, encoder = {}, hold = false, slow = false,
-  search = '', db = null, session = null, register = 'ok', holdJoin = false, accountTeams = ['hoover-jrt'],
-  notSure = true,
+  hash = '', albums = null, turns = true, encoder = {}, hold = false, slow = false,
+  search = '', db = null, session = 'account', register = 'ok', holdSession = false,
+  accountTeams = ['hoover-jrt', 'cohssa'], role = 'parent', upload = null, notSure = true,
 } = {}) {
-  const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', COACH_EMAILS: COACH, ...KEYS };
-  seedCodes(env.DB, OLD, CODE);
+  const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', ...KEYS };
   const now = Math.floor(Date.now() / 1000);
   const made = {};
   // Hoover JRT's unless an album names its team (#227).
@@ -352,9 +360,13 @@ async function load({
   }
 
   // fetch: through the chain Pages runs in front of each route, with a
-  // browser's cookie jar and its Origin on a POST.
+  // browser's cookie jar and its Origin on a POST. It serves only the routes
+  // the page may ask for; anything else, POST /api/join among them since
+  // #226, throws, and every request is in net.calls either way.
   const jar = new Map();
-  const net = { posted: [], inFlight: 0, maxInFlight: 0, waiting: [], hold, intercept: null, albumsAnswer: null, calls: [] };
+  const net = {
+    posted: [], inFlight: 0, maxInFlight: 0, waiting: [], hold, intercept: null, albumsAnswer: null, sessionAnswer: null, calls: [], cookies: [],
+  };
   const run = (handlers, request) => {
     const data = {};
     const step = (i) => handlers[i]({ request, env, data, params: {}, waitUntil() {}, next: () => step(i + 1) });
@@ -367,6 +379,7 @@ async function load({
     if (method !== 'GET') headers.set('Origin', SITE);
     headers.set('CF-Connecting-IP', '203.0.113.7');
     if (jar.size) headers.set('Cookie', [...jar].map(([k, v]) => `${k}=${v}`).join('; '));
+    net.cookies.push(headers.get('Cookie'));
     const request = new Request(`${SITE}${path}`, { method, headers, body: init.body });
     let response;
     if (path === '/api/upload') {
@@ -382,48 +395,37 @@ async function load({
       } finally {
         net.inFlight -= 1;
       }
-    } else if (path === '/api/join') {
-      if (holdJoin) await new Promise((resolve) => { net.joinHeld = resolve; });
-      response = await run([root, joinRoute], request);
-    }
-    else if (path === '/api/upload/session') response = await run([root, ...uploadGuard, sessionRoute], request);
-    else if (path === '/api/albums/open') {
+    } else if (path === '/api/upload/session') {
+      if (holdSession) await new Promise((resolve) => { net.sessionHeld = resolve; });
+      const canned = net.sessionAnswer?.();
+      if (canned === 'network') throw new TypeError('Failed to fetch');
+      response = canned ?? await run([root, ...uploadGuard, sessionRoute], request);
+    } else if (path === '/api/albums/open') {
       const canned = net.albumsAnswer?.();
       if (canned === 'network') throw new TypeError('Failed to fetch');
       response = canned ?? await run([root, albumsGuard, openAlbumsRoute], request);
     }
     else throw new Error(`the page fetched ${path}, which this stand-in does not serve`);
-    const cookie = response.headers.get('Set-Cookie');
-    if (cookie) {
-      const [pair] = cookie.split(';');
+    // Each Set-Cookie as a browser takes it: Max-Age=0 deletes the cookie.
+    for (const line of response.headers.getSetCookie()) {
+      const [pair, ...attributes] = line.split(';');
       const at = pair.indexOf('=');
-      jar.set(pair.slice(0, at), pair.slice(at + 1));
+      if (attributes.some((a) => /^\s*Max-Age=0\s*$/i.test(a))) jar.delete(pair.slice(0, at));
+      else jar.set(pair.slice(0, at), pair.slice(at + 1));
     }
     return response;
   }
 
-  // A session this browser already holds: a parent's from an earlier invite
-  // link, through the real join route, or a coach's, as /coach sets it.
-  if (session === 'parent') {
-    const answer = await run([root, joinRoute], new Request(`${SITE}/api/join`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: SITE, 'CF-Connecting-IP': '203.0.113.7' },
-      body: JSON.stringify({ code: CODE }),
-    }));
-    assert.equal(answer.status, 204);
-    const [pair] = answer.headers.get('Set-Cookie').split(';');
-    jar.set(pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1));
-  } else if (session === 'coach') {
-    jar.set(COOKIE_NAME, await signCoachSession(KEYS.SESSION_SIGNING_KEY, await coachTag(KEYS.SESSION_SIGNING_KEY, COACH), nowSeconds()));
-  } else if (session === 'account') {
-    // Account 1, a parent, approved for `accountTeams` (#223), as /sign-in
-    // leaves the cookie.
-    env.DB.sqlite.prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES ('pat@example.org', 'Pat Parent', 'parent', 1)").run();
+  // A session this browser already holds: account 1, approved for
+  // `accountTeams` with `role` (#223), as /sign-in leaves the cookie.
+  if (session === 'account') {
+    env.DB.sqlite.prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES ('pat@example.org', 'Pat Parent', ?, 1)").run(role);
     for (const team of accountTeams) {
       env.DB.sqlite.prepare("INSERT INTO account_teams (account_id, team, state) VALUES (1, ?, 'approved')").run(team);
     }
     jar.set(ACCOUNT_COOKIE, await signAccountSession(KEYS.SESSION_SIGNING_KEY, { accountId: 1, version: 1 }, nowSeconds()));
-  }
+  } else assert.equal(session, null, `no such session: ${session}`);
+  if (upload) jar.set(UPLOAD_COOKIE, upload);
 
   // The browser's service workers: each registration the page asks for,
   // answered as `register` says.
@@ -490,7 +492,10 @@ async function load({
       for (let i = 0; i < n && net.waiting.length; i++) net.waiting.shift()();
     },
     decode: () => decoder.waiting.shift()(),
-    releaseJoin: () => net.joinHeld(),
+    releaseSession: () => net.sessionHeld(),
+    // Signed in again elsewhere, as another tab at /sign-in would leave this
+    // browser's jar: account 1 at `version`.
+    signIn: async (version) => jar.set(ACCOUNT_COOKIE, await signAccountSession(KEYS.SESSION_SIGNING_KEY, { accountId: 1, version }, nowSeconds())),
     rows: () => env.DB.sqlite.prepare('SELECT p.*, a.address FROM photos p JOIN albums a ON a.id = p.album_id ORDER BY p.id').all().map((r) => ({ ...r })),
     summary: () => $('send-status').textContent,
   };
@@ -519,10 +524,21 @@ const settled = (page) => until(
   () => page.net.inFlight === 0 && page.items().every((i) => !['preparing', 'queued', 'sending'].includes(i.state)),
   'every photo settled, nothing in flight',
 );
+// The phone holds a session and the albums are listed. Named for #150's join
+// step, whose element ids the status line keeps (#226).
 const joined = async (page) => {
-  await until(() => page.$('join-status').textContent.startsWith("You're set"), 'joined');
+  await until(() => page.$('join-status').textContent.startsWith("You're set"), 'ready to send');
   await until(() => page.$('album').options.some((o) => o.value), 'albums listed');
 };
+
+// What the status line says (share.js, MESSAGES), written out so a change to
+// the words shows here. Since #226: no session, an old invite link with none
+// and with one, and a session that ended.
+const NONE = 'Sign in to start sending photos to the team, or ask for an account if you have none.';
+const REPLACED = "The team's invite link has been replaced by accounts. Sign in, or ask for an account below, to send photos.";
+const READY_REPLACED = "That invite link has been replaced by accounts. This phone is signed in, so you're set to send photos.";
+const ENDED = 'Your sign-in has ended. Sign in again, then send again.';
+const FAILED_ENDED = 'Failed. Your sign-in has ended. Sign in again, then try again.';
 
 // ---- The harness ------------------------------------------------------
 
@@ -549,9 +565,9 @@ test('the orientation probe in the script is test/jpeg.js\'s build, and the serv
   assert.deepEqual([probe.width, probe.height], [2, 1]);
 });
 
-// ---- Criterion 1: link, "Add photos", choose, "Send", nothing typed ----
+// ---- Criterion 1: "Add photos", choose, "Send", nothing typed ----------
 
-test('a first-time parent sends 10 photos with the link, "Add photos", choosing them and "Send": today\'s album, nothing typed', async () => {
+test('a parent signed in sends 10 photos with "Add photos", choosing them and "Send": today\'s album, nothing typed', async () => {
   const page = await load({
     albums: [
       { key: 'future', title: 'Fall Regatta', kind: 'regatta', date: dayOffset(5) },
@@ -560,7 +576,6 @@ test('a first-time parent sends 10 photos with the link, "Add photos", choosing 
     ],
   });
   await joined(page);
-  assert.equal(page.location.hash, '', 'the code was left in the address bar');
   assert.equal(page.$('sender').hidden, false);
   assert.equal(page.$('album').value, page.made.today, 'today\'s album is preselected over the future one');
 
@@ -578,7 +593,11 @@ test('a first-time parent sends 10 photos with the link, "Add photos", choosing 
   assert.match(rows[0].batch, BATCH);
   assert.equal(page.env.MEDIA.objects.size, 30);
   assert.equal(page.summary(), "Sent 10 photos. They'll appear in the album once they're reviewed.");
-  assert.deepEqual(page.net.calls.filter((c) => c.startsWith('POST')).slice(0, 1), ['POST /api/join']);
+  // The session is asked about first, and every post is a photo: the page
+  // posted to /api/join first until #226.
+  assert.equal(page.net.calls[0], 'GET /api/upload/session');
+  assert.deepEqual([...new Set(page.net.calls.filter((c) => c.startsWith('POST')))], ['POST /api/upload']);
+  assert.ok(page.rows().every((r) => r.account_id === 1), 'sent as the account');
 });
 
 test('the preselect: an album held today, else the latest past one, never a future one', async () => {
@@ -749,7 +768,7 @@ test('with no album open, the page says so and offers to check again, which list
 test('an album list that cannot be read says so, and the list stops saying it is loading', async () => {
   for (const [answer, status] of [
     [() => 'network', 'You\'re set to send photos from this phone.'],
-    [() => Response.json({ error: 'session' }, { status: 401 }), 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then send again.'],
+    [() => Response.json({ error: 'session' }, { status: 401 }), 'Your sign-in has ended. Sign in again, then send again.'],
   ]) {
     const page = await load();
     page.net.albumsAnswer = answer;
@@ -761,11 +780,132 @@ test('an album list that cannot be read says so, and the list stops saying it is
   }
 });
 
-test('with no code and no session, nothing to send is shown', async () => {
-  const page = await load({ hash: '' });
-  await until(() => page.$('join-status').textContent.startsWith('Sign in, or open the invite'), 'no session');
+test('with no session, nothing to send is shown, and the page says to sign in or ask for an account', async () => {
+  const page = await load({ session: null });
+  await until(() => page.$('join-status').textContent === NONE, 'no session');
   assert.equal(page.$('sender').hidden, true);
+  assert.equal(page.$('join-retry').hidden, true);
   assert.deepEqual(page.net.calls, ['GET /api/upload/session']);
+});
+
+// ---- #226 criterion 3: an old invite link says it has been replaced ---
+//
+// /share/#code=<code> was how a parent joined until #226. The links live on
+// in group chats and bookmarks, so the page still knows one: it takes the
+// code out of the address bar, sends it nowhere, and says the link has been
+// replaced, pointing to the request page (/ask) and the sign-in.
+
+test('an old invite link with no session: the code leaves the address bar at once, goes nowhere, and the page says the link was replaced (#226, criterion 3)', async () => {
+  const page = await load({ hash: `#code=${CODE}`, session: null });
+  // Taken out as the script starts, before it has waited on anything.
+  assert.equal(page.location.hash, '', 'the code was left in the address bar');
+  await until(() => page.$('join-status').textContent === REPLACED, 'replaced');
+  assert.equal(page.$('sender').hidden, true);
+  assert.equal(page.$('join-retry').hidden, true);
+  // One request, the session check, which carries no code: until #226 the
+  // page posted the code to /api/join. Nothing set a cookie.
+  assert.deepEqual(page.net.calls, ['GET /api/upload/session']);
+  assert.equal(page.jar.size, 0);
+  assert.deepEqual(page.rows(), []);
+});
+
+test('an old invite link on a phone signed in: the page says the link was replaced, and the phone sends as its account (#226, criterion 3)', async () => {
+  const page = await load({ hash: `#code=${CODE}` });
+  assert.equal(page.location.hash, '', 'the code was left in the address bar');
+  await until(() => page.$('join-status').textContent === READY_REPLACED, 'replaced, and ready');
+  await until(() => page.$('album').options.some((o) => o.value), 'albums listed');
+  assert.equal(page.$('sender').hidden, false);
+  page.choose(photoFile());
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(page.rows().map((r) => [r.address, r.account_id]), [[page.made.today, 1]]);
+  assert.deepEqual(page.net.calls.filter((c) => !c.startsWith('POST /api/upload') && c !== 'GET /api/albums/open'), ['GET /api/upload/session']);
+});
+
+test('an old invite link opened in a tab already on the page is answered the same way; a change after # with no code is not (#226)', async () => {
+  for (const [session, before, after] of [[null, NONE, REPLACED], ['account', "You're set to send photos from this phone.", READY_REPLACED]]) {
+    const page = await load({ session });
+    await until(() => page.$('join-status').textContent === before, `${session}: first answer`);
+    const calls = page.net.calls.filter((c) => c === 'GET /api/upload/session').length;
+    // A fragment with no code: nothing is asked, and the address is left alone.
+    page.location.hash = '#main';
+    page.fireWindow('hashchange');
+    for (let i = 0; i < 20; i++) await tick();
+    assert.equal(page.location.hash, '#main', `${session}: a fragment with no code was taken out`);
+    assert.equal(page.net.calls.filter((c) => c === 'GET /api/upload/session').length, calls, `${session}: asked again for no code`);
+    assert.equal(page.$('join-status').textContent, before);
+    // An old link: taken out at once, and the session asked about again.
+    page.location.hash = `#code=${CODE}`;
+    page.fireWindow('hashchange');
+    assert.equal(page.location.hash, '', `${session}: the code was left in the address bar`);
+    await until(() => page.$('join-status').textContent === after, `${session}: replaced`);
+    assert.equal(page.net.calls.filter((c) => c === 'GET /api/upload/session').length, calls + 1);
+    assert.ok(!page.net.calls.some((c) => c.includes('/api/join')), `${session}: the page posted to /api/join`);
+  }
+});
+
+test('an old invite link whose session check cannot reach the site offers Try again, which still says the link was replaced (#226)', async () => {
+  const page = await load({ hash: `#code=${CODE}`, session: null, holdSession: true });
+  page.net.sessionAnswer = () => 'network';
+  page.releaseSession();
+  await until(() => page.$('join-status').textContent === "Couldn't reach the photo site. Check your signal, then try again.", 'offline');
+  assert.equal(page.$('join-retry').hidden, false);
+  page.net.sessionAnswer = null;
+  page.click(page.$('join-retry'));
+  await until(() => page.net.calls.length === 2, 'asked again');
+  page.releaseSession();
+  await until(() => page.$('join-status').textContent === REPLACED, 'replaced, after Try again');
+  assert.equal(page.$('join-retry').hidden, true);
+});
+
+test('a signed-in phone whose session check meets the guard\'s 503 is told to try again, never to sign in, and Try again opens the sender (#226 review)', async () => {
+  // The guard answers 503 only to a phone holding an account's session whose
+  // account it could not read (lib/session.js). Telling that phone to sign in,
+  // or that its old link was replaced and it should ask for an account, is
+  // wrong; it is signed in, and the site is what failed.
+  const UNAVAILABLE = "The photo site isn't answering right now. Try again in a few minutes.";
+  for (const [hash, after] of [['', "You're set to send photos from this phone."], [`#code=${CODE}`, READY_REPLACED]]) {
+    const page = await load({ hash, holdSession: true });
+    page.net.sessionAnswer = () => Response.json({ error: 'unavailable' }, { status: 503 });
+    page.releaseSession();
+    await until(() => page.$('join-status').textContent === UNAVAILABLE, `unavailable${hash ? ', old link' : ''}`);
+    assert.equal(page.$('join-retry').hidden, false, 'no Try again on a 503');
+    assert.equal(page.$('sender').hidden, true);
+    page.net.sessionAnswer = null;
+    page.click(page.$('join-retry'));
+    await until(() => page.net.calls.filter((c) => c === 'GET /api/upload/session').length === 2, 'asked again');
+    page.releaseSession();
+    await until(() => page.$('join-status').textContent === after, `${after}, after Try again`);
+    assert.equal(page.$('join-retry').hidden, true);
+    assert.equal(page.$('sender').hidden, false);
+  }
+});
+
+test('a phone still holding the old upload cookie loses it the first time the page opens, signed in or not (#226)', async () => {
+  // /policy: the phone's old cookie is deleted the next time it opens the
+  // sending page. Valid or not, the session check's answer deletes it.
+  for (const [session, status] of [[null, NONE], ['account', "You're set to send photos from this phone."]]) {
+    const page = await load({ session, upload: await parentCookie(KEYS.SESSION_SIGNING_KEY, 2, nowSeconds()) });
+    await until(() => page.$('join-status').textContent === status, `${session}: answered`);
+    // The session check carried it, and its answer deleted it.
+    assert.match(page.net.cookies[0], new RegExp(`(^|; )${UPLOAD_COOKIE}=v1\\.`), `${session}: the phone never sent the old cookie`);
+    assert.equal(page.jar.has(UPLOAD_COOKIE), false, `${session}: the old cookie was kept`);
+    assert.equal(page.jar.has(ACCOUNT_COOKIE), session !== null, `${session}: the account's cookie went with it`);
+    // Nothing after it carries the old cookie.
+    assert.ok(page.net.cookies.slice(1).every((cookie) => !cookie?.includes(UPLOAD_COOKIE)), `${session}: sent again`);
+  }
+});
+
+test('the page links /sign-in and /ask and no longer /coach, and says before its script runs what the script says with no session (#226)', () => {
+  assert.match(HTML, /<p>Have an account\? <a href="\/sign-in">Sign in<\/a>\.<\/p>/);
+  assert.match(HTML, /<p>No account yet\? <a href="\/ask">Ask for one<\/a>\.<\/p>/);
+  assert.doesNotMatch(HTML, /href="\/coach"/);
+  const lede = HTML.match(/<p class="lede" id="join-status" role="status">([^<]*)<\/p>/)?.[1];
+  assert.equal(lede?.replace(/\s+/g, ' '), NONE);
+  assert.match(HTML, /<noscript><p>This page needs JavaScript to send photos\. Turn it on, then\s+reload\.<\/p><\/noscript>/);
+  // Nothing a visitor reads names the invite link, comments aside.
+  assert.doesNotMatch(HTML.replace(/<!--[\s\S]*?-->/g, ''), /invite/i);
 });
 
 // ---- Criterion 2: capture time, upright, three JPEGs through canvas -----
@@ -1196,8 +1336,8 @@ test('after an album closes mid-send, nothing is preselected: Try again asks for
   assert.equal(page.rows()[0].address, page.made.past);
 });
 
-// #223: a phone signed in to an account. The page has no code of its own for
-// it: the session route answers 204 and the album list is the account's.
+// #223: a phone signed in to an account. The session route answers 204 and
+// the album list is the account's: its approved teams' albums only.
 const BOTH_TEAMS = [
   { key: 'hoover', title: 'Tuesday practice', kind: 'practice', date: dayOffset(0), team: 'hoover-jrt' },
   { key: 'cohssa', title: 'COHSSA scrimmage', kind: 'regatta', date: dayOffset(0), team: 'cohssa' },
@@ -1206,7 +1346,7 @@ const TEAM_REFUSED = "Failed. Your account can't send to that team's albums. Cho
 const signedIn = (page) => until(() => !page.$('sender').hidden && page.$('album').options.some((o) => o.value), 'signed in, albums listed');
 
 test('signed in to an account, the page lists only its approved teams\' albums, and a photo sent records the account (#223, criteria 2 and 3)', async () => {
-  const page = await load({ hash: '', session: 'account', albums: BOTH_TEAMS });
+  const page = await load({ albums: BOTH_TEAMS, accountTeams: ['hoover-jrt'] });
   await signedIn(page);
   assert.equal(page.$('join-status').textContent, "You're set to send photos from this phone.");
   // Its own team's Not sure choice too (#228), and not COHSSA's.
@@ -1220,14 +1360,14 @@ test('signed in to an account, the page lists only its approved teams\' albums, 
   assert.deepEqual({ address: row.address, account_id: row.account_id, sender: row.sender, code_generation: row.code_generation },
     { address: page.made.hoover, account_id: 1, sender: 'parent', code_generation: 0 });
   // The control: an account approved for both teams is offered both.
-  const both = await load({ hash: '', session: 'account', albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'] });
+  const both = await load({ albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'] });
   await signedIn(both);
   assert.deepEqual(both.$('album').options.map((o) => o.value).filter(Boolean).sort(),
     [both.made.cohssa, both.made.hoover, ...Object.values(both.made.notSure)].sort());
 });
 
 test('a team taken off the account while sending: every photo queued for its album stops with the team\'s words, and the list reloads without it (#223)', async () => {
-  const page = await load({ hash: '', session: 'account', albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'], hold: true });
+  const page = await load({ albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'], hold: true });
   await signedIn(page);
   page.$('album').value = page.made.cohssa;
   page.choose(...Array.from({ length: 4 }, (_, i) => photoFile({ width: 3000 + i, height: 2000 })));
@@ -1246,28 +1386,33 @@ test('a team taken off the account while sending: every photo queued for its alb
   assert.equal(page.items()[0].tryAgain.hidden, false);
 });
 
-test('an invite rotated mid-send: every queued photo stops at once, the status says why, and the new link carries on', async () => {
+// The account signed out everywhere, or set a new password (#222): its
+// version moves, and every session on the old one ends at its next request.
+// Until #226 the same test rotated the invite code.
+const endSession = (page) => page.env.DB.sqlite.prepare('UPDATE accounts SET session_version = 2 WHERE id = 1').run();
+
+test('a sign-in ended mid-send: every queued photo stops at once, the status says why, and signing in again carries on', async () => {
   const page = await load({ hold: true });
   await joined(page);
   page.choose(...Array.from({ length: 6 }, (_, i) => photoFile({ width: 3000 + i, height: 2000 })));
   page.click(page.$('send'));
   await until(() => page.net.waiting.length === 3, 'three held');
-  page.env.DB.sqlite.prepare('INSERT INTO invite_codes (generation, code, created_at) VALUES (3, ?, 1790000100)').run(NEXT);
+  endSession(page);
   page.net.hold = false;
   page.release();
   await settled(page);
   assert.equal(page.net.posted.length, 3, 'the three queued behind a 401 were sent anyway');
-  assert.ok(page.items().every((i) => i.text === 'Failed. Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.'));
-  assert.equal(page.$('join-status').textContent, 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then send again.');
+  assert.ok(page.items().every((i) => i.text === FAILED_ENDED));
+  assert.equal(page.$('join-status').textContent, ENDED);
 
-  // The new link, opened in this tab, joins without a reload; the photos wait.
-  page.location.hash = `#code=${NEXT}`;
-  page.fireWindow('hashchange');
-  await until(() => page.$('join-status').textContent.startsWith("You're set"), 'joined again');
+  // Signed in again in another tab, which leaves the new session in this
+  // browser: each Try again sends, with no reload, and the photos waited.
+  // Until #226 the new invite link opened in this tab did this.
+  await page.signIn(2);
   for (const item of page.items()) page.click(item.tryAgain);
   await settled(page);
   assert.equal(page.rows().length, 6);
-  assert.ok(page.rows().every((r) => r.code_generation === 3));
+  assert.ok(page.rows().every((r) => r.account_id === 1));
 });
 
 test('a photo failed while it was still being made ready keeps its failure and its Try again once it is ready', async () => {
@@ -1279,7 +1424,7 @@ test('a photo failed while it was still being made ready keeps its failure and i
   page.choose(photoFile(), photoFile({ width: 3000, height: 2000 }));
   page.click(page.$('send'));
   await until(() => page.decoder.waiting.length === 1, 'the first decode waiting');
-  page.env.DB.sqlite.prepare('INSERT INTO invite_codes (generation, code, created_at) VALUES (3, ?, 1790000100)').run(NEXT);
+  endSession(page);
   page.decode();
   await until(() => page.items()[0].state === 'failed', 'the first sent and refused');
   const second = page.items()[1];
@@ -1290,18 +1435,16 @@ test('a photo failed while it was still being made ready keeps its failure and i
   await tick();
   const after = page.items()[1];
   assert.equal(after.state, 'failed');
-  assert.equal(after.text, 'Failed. Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.');
+  assert.equal(after.text, FAILED_ENDED);
   assert.equal(after.tryAgain.hidden, false);
 
-  page.location.hash = `#code=${NEXT}`;
-  page.fireWindow('hashchange');
-  await until(() => page.$('join-status').textContent.startsWith("You're set"), 'joined again');
+  await page.signIn(2);
   for (const item of page.items()) page.click(item.tryAgain);
   await settled(page);
   assert.equal(page.rows().length, 2);
 });
 
-test('a phone at the day\'s cap: the photo and every queued one fail, and nothing more is sent', async () => {
+test('an account at the day\'s cap: the photo and every queued one fail, and nothing more is sent', async () => {
   const page = await load({ hold: true });
   await joined(page);
   page.net.intercept = () => Response.json({ error: 'daily-cap' }, { status: 429, headers: { 'Retry-After': '3600' } });
@@ -1313,7 +1456,9 @@ test('a phone at the day\'s cap: the photo and every queued one fail, and nothin
   await settled(page);
   assert.equal(page.net.posted.length, 3);
   // The number is the server's own cap, so the message cannot drift from it.
-  assert.ok(page.items().every((i) => i.text === `Failed. This phone, or your account, has sent today's limit of ${DAILY_UPLOADS} photos. Try again tomorrow.`));
+  // Every sender is an account since #226, whose 500 are shared by its
+  // phones (#223), so the words name the account and not "this phone".
+  assert.ok(page.items().every((i) => i.text === `Failed. Your account has sent today's limit of ${DAILY_UPLOADS} photos. Try again tomorrow.`));
 });
 
 test('the summary is a live region written once per change: choosing is one write, Send one, then each photo done', async () => {
@@ -1544,7 +1689,7 @@ const SHARED_FAILED = "The photos you shared couldn't be kept on this phone. Sha
 const SHARED_EMPTY = "No photos arrived with that share. Share them from your phone's gallery or Files app instead.";
 const waiting = (n, noun = n === 1 ? 'it' : 'they') =>
   `${n} photo${n === 1 ? '' : 's'} you shared ${n === 1 ? 'is' : 'are'} waiting on this phone. ` +
-  `Open your invite link, or sign in as a coach, and ${noun} will be ready to send. Shared photos are kept here for a day.`;
+  `Sign in, and ${noun} will be ready to send. Shared photos are kept here for a day.`;
 
 /** A gallery's share, kept by the worker on the page's clock: its answer. */
 async function shareFrom(db, files, now = CLOCK) {
@@ -1568,7 +1713,7 @@ test('#193 criterion 2: photos shared from the gallery arrive ready to send, wit
   assert.equal(answer.headers.get('Location'), 'https://photos.madcowsailing.com/share/?shared');
 
   // The browser follows the 303 to the share page, holding a session.
-  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  const page = await load({ search: '?shared', db });
   await joined(page);
   assert.equal(page.location.search, '', '?shared was left in the address bar');
   await until(() => page.items().length === 3 && page.items().every((i) => i.state === 'ready'), 'three ready');
@@ -1592,18 +1737,20 @@ test('#193 criterion 3: with no session the shared photos wait and the page says
   await shareFrom(db, shaped(SHAPES.slice(0, 2)));
 
   // No session: /api/upload/session answers 401.
-  const before = await load({ hash: '', search: '?shared', db });
+  const before = await load({ search: '?shared', db, session: null });
   await until(() => note(before) !== null, 'the note');
-  assert.equal(before.$('join-status').textContent, 'Sign in, or open the invite link you were sent, to start sending photos to the team.');
+  assert.equal(before.$('join-status').textContent, NONE);
   assert.equal(note(before), waiting(2));
   assert.equal(before.$('sender').hidden, true);
   assert.equal(before.items().length, 0);
   assert.equal(inboxFiles(db).length, 2, 'the photos stayed in storage');
-  assert.match(HTML, /<a href="\/coach">Sign in at \/coach<\/a>/, 'the page carries the way to sign in');
+  // The way to sign in, at /sign-in since #226 (at /coach until then).
+  assert.match(HTML, /<a href="\/sign-in">Sign in<\/a>/, 'the page carries the way to sign in');
   assert.match(HTML, /<p id="shared-note" role="status" hidden><\/p>/, 'the note is a live region, hidden until written');
 
-  // /coach signs the coach in and sends the browser back to /share/, with no ?shared.
-  const after = await load({ hash: '', db, session: 'coach' });
+  // /sign-in signs the coach in to an account with the coach role (#223),
+  // and /account links back to /share/, with no ?shared.
+  const after = await load({ db, role: 'coach' });
   await joined(after);
   await until(() => after.items().length === 2 && after.items().every((i) => i.state === 'ready'), 'two ready');
   assert.equal(note(after), null);
@@ -1611,22 +1758,31 @@ test('#193 criterion 3: with no session the shared photos wait and the page says
   after.click(after.$('send'));
   await settled(after);
   assert.deepEqual(stored(after), [[1920, 2560], [2560, 1920]]);
-  assert.ok(after.rows().every((r) => r.sender === 'coach'), 'sent as the coach');
+  assert.ok(after.rows().every((r) => r.sender === 'coach' && r.account_id === 1), 'sent as the coach\'s account');
   await until(() => inboxFiles(db).length === 0, 'records deleted once stored');
 });
 
-test('#193 criterion 3, a parent: opening the invite link in the same tab takes the waiting photos in', async () => {
+test('#193 criterion 3, a parent: an old invite link opened in the same tab says it was replaced, and the shared photos keep waiting (#226)', async () => {
+  // Until #226 the link joined here and took the waiting photos in.
   const db = idb();
   await shareFrom(db, shaped([SHAPES[0]]));
-  const page = await load({ hash: '', search: '?shared', db });
+  const page = await load({ search: '?shared', db, session: null });
   await until(() => note(page) !== null, 'the note');
   assert.equal(note(page), waiting(1));
+  const closes = page.db.state.closes;
   page.location.hash = `#code=${CODE}`;
   page.fireWindow('hashchange');
-  await joined(page);
-  await until(() => page.items().length === 1 && page.items()[0].state === 'ready', 'one ready');
-  assert.equal(note(page), null);
-  assert.equal(inboxFiles(db).length, 1, 'listed, and kept until sent');
+  await until(() => page.$('join-status').textContent === REPLACED, 'replaced');
+  assert.equal(page.location.hash, '', 'the code was left in the address bar');
+  // Read again for the new answer, and still only waiting: by the store
+  // closing after that read, then the page's turns to act on it.
+  await until(() => page.db.state.closes > closes, 'the second read finished');
+  for (let i = 0; i < 20; i++) await tick();
+  assert.equal(note(page), waiting(1));
+  assert.equal(page.items().length, 0);
+  assert.equal(page.$('sender').hidden, true);
+  assert.equal(inboxFiles(db).length, 1, 'kept until sent');
+  assert.deepEqual(page.net.calls, ['GET /api/upload/session', 'GET /api/upload/session']);
 });
 
 test('#193: two shares are taken in the order they were shared, oldest first, and each share\'s files in order', async () => {
@@ -1642,17 +1798,17 @@ test('#193: two shares are taken in the order they were shared, oldest first, an
     { id: 'eeeeeeee-eeee-4eee-beee-eeeeeeeeeeee', share: 'a', index: 1, at: CLOCK - 120_000, file: second },
     { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', share: 'a', index: 0, at: CLOCK - 120_000, file: first },
   ]);
-  const page = await load({ hash: '', db, session: 'parent' });
+  const page = await load({ db });
   await until(() => page.items().length === 3 && page.items().every((i) => i.state === 'ready'), 'three ready');
   assert.deepEqual(madeOrder(page), SHAPES);
 });
 
 test('#193: a share over a day old is forgotten, not offered, with or without a session', async () => {
-  for (const session of [null, 'parent']) {
+  for (const session of [null, 'account']) {
     const db = idb();
     await shareFrom(db, shaped([SHAPES[0]]), CLOCK - DAY - 1);
     await shareFrom(db, shaped([SHAPES[1]]), CLOCK - DAY);
-    const page = await load({ hash: '', db, session });
+    const page = await load({ db, session });
     if (session) {
       await joined(page);
       await until(() => page.items().length === 1 && page.items()[0].state === 'ready', 'one ready');
@@ -1667,12 +1823,12 @@ test('#193: a share over a day old is forgotten, not offered, with or without a 
 });
 
 test('#193: ?shared=failed says to share again, with or without a session, and nothing else is claimed', async () => {
-  const lone = await load({ hash: '', search: '?shared=failed', db: idb() });
+  const lone = await load({ search: '?shared=failed', db: idb(), session: null });
   await until(() => note(lone) !== null, 'the note');
   assert.equal(note(lone), SHARED_FAILED);
   assert.equal(lone.location.search, '');
 
-  const signed = await load({ hash: '', search: '?shared=failed', db: idb(), session: 'coach' });
+  const signed = await load({ search: '?shared=failed', db: idb(), role: 'coach' });
   await joined(signed);
   await until(() => note(signed) !== null, 'the note');
   assert.equal(note(signed), SHARED_FAILED);
@@ -1681,7 +1837,7 @@ test('#193: ?shared=failed says to share again, with or without a session, and n
 
 test('#193: storage that cannot be read after a share says to share again; without a share it says nothing', async () => {
   const broken = () => idb({ fail: { open: new DOMException('Blocked', 'UnknownError') } });
-  const shared = await load({ hash: '', search: '?shared', db: broken(), session: 'parent' });
+  const shared = await load({ search: '?shared', db: broken() });
   await joined(shared);
   await until(() => note(shared) !== null, 'the note');
   assert.equal(note(shared), SHARED_FAILED);
@@ -1694,18 +1850,18 @@ test('#193: storage that cannot be read after a share says to share again; witho
     await until(() => page.db.state.answered >= 1, 'the storage read answered');
     for (let i = 0; i < 20; i++) await tick();
   };
-  const plain = await load({ hash: '', db: broken(), session: 'parent' });
+  const plain = await load({ db: broken() });
   await joined(plain);
   await settledRead(plain);
   assert.equal(note(plain), null);
   assert.equal(plain.$('sender').hidden, false, 'the page still sends');
 
   // The same two, with no session: the note is written while the page waits.
-  const waitingShared = await load({ hash: '', search: '?shared', db: broken() });
+  const waitingShared = await load({ search: '?shared', db: broken(), session: null });
   await until(() => note(waitingShared) !== null, 'the note');
   assert.equal(note(waitingShared), SHARED_FAILED);
-  const waitingPlain = await load({ hash: '', db: broken() });
-  await until(() => waitingPlain.$('join-status').textContent.startsWith('Sign in, or open the invite link'), 'no session');
+  const waitingPlain = await load({ db: broken(), session: null });
+  await until(() => waitingPlain.$('join-status').textContent === NONE, 'no session');
   await settledRead(waitingPlain);
   assert.equal(note(waitingPlain), null);
 });
@@ -1717,7 +1873,7 @@ test('#193: the page registers the worker for /share/ only, checked for updates 
   assert.deepEqual(JSON.parse(JSON.stringify(page.registrations)), [{ url: '/share/sw.js', options: { scope: '/share/', updateViaCache: 'none' } }]);
 });
 
-test('#193: a browser that refuses the worker, has no service workers at all, or has no IndexedDB, still joins and sends', async () => {
+test('#193: a browser that refuses the worker, has no service workers at all, or has no IndexedDB, still opens the sender and sends', async () => {
   for (const options of [{ register: 'refused' }, { register: 'absent' }, {}]) {
     const page = await load(options);
     await joined(page);
@@ -1734,8 +1890,8 @@ test('#193: a share that carried no photos (Chrome\'s own) says to share from th
   const db = idb();
   const answer = await worker({ db, now: CLOCK }).fetch(share([]));
   assert.equal(answer.headers.get('Location'), 'https://photos.madcowsailing.com/share/?shared=empty');
-  for (const session of [null, 'coach']) {
-    const page = await load({ hash: '', search: '?shared=empty', db, session });
+  for (const session of [null, 'account']) {
+    const page = await load({ search: '?shared=empty', db, session });
     if (session) await joined(page);
     await until(() => note(page) !== null, 'the note');
     assert.equal(note(page), SHARED_EMPTY, String(session));
@@ -1747,11 +1903,11 @@ test('#193: a share that carried no photos (Chrome\'s own) says to share from th
 test('#193 (review): a second share before Send keeps the first: the new page offers both, oldest first, and Send stores them all', async () => {
   const db = idb();
   await shareFrom(db, shaped([SHAPES[0]]), CLOCK - 60_000);
-  const first = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  const first = await load({ search: '?shared', db });
   await until(() => first.items().length === 1 && first.items()[0].state === 'ready', 'the first share ready');
   // A second share navigates the app: a new page on the same storage.
   await shareFrom(db, shaped(SHAPES.slice(1)), CLOCK - 30_000);
-  const second = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  const second = await load({ search: '?shared', db });
   await until(() => second.items().length === 3 && second.items().every((i) => i.state === 'ready'), 'both shares ready');
   assert.deepEqual(madeOrder(second), SHAPES);
   second.click(second.$('send'));
@@ -1763,11 +1919,11 @@ test('#193 (review): a second share before Send keeps the first: the new page of
 test('#193 (review): Remove deletes a shared photo\'s record, so the next load does not offer it; the other stays', async () => {
   const db = idb();
   await shareFrom(db, shaped(SHAPES.slice(0, 2)));
-  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  const page = await load({ search: '?shared', db });
   await until(() => page.items().length === 2 && page.items().every((i) => i.state === 'ready'), 'two ready');
   page.click(page.items()[0].remove);
   await until(() => inboxFiles(db).length === 1, 'the removed photo\'s record deleted');
-  const again = await load({ hash: '', db, session: 'parent' });
+  const again = await load({ db });
   await until(() => again.items().length === 1 && again.items()[0].state === 'ready', 'one offered again');
   assert.deepEqual(madeOrder(again), [SHAPES[1]]);
 });
@@ -1775,7 +1931,7 @@ test('#193 (review): Remove deletes a shared photo\'s record, so the next load d
 test('#193 (review): a shared photo whose upload fails stays in storage, and the next load offers it again', async () => {
   const db = idb();
   await shareFrom(db, shaped([SHAPES[0]]));
-  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  const page = await load({ search: '?shared', db });
   await until(() => page.items()[0]?.state === 'ready', 'ready');
   page.net.intercept = () => new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
   page.click(page.$('send'));
@@ -1783,15 +1939,17 @@ test('#193 (review): a shared photo whose upload fails stays in storage, and the
   assert.equal(page.items()[0].state, 'failed');
   // The next load's read is queued behind anything the failure started on
   // the store, so it sees the store as the failure left it.
-  const again = await load({ hash: '', db, session: 'parent' });
+  const again = await load({ db });
   await until(() => again.items()[0]?.state === 'ready', 'offered again');
   assert.equal(inboxFiles(db).length, 1);
 });
 
-test('#193 (review): joining again on an open page does not list a shared photo twice', async () => {
+test('#193 (review): an old invite link opened on an open page does not list a shared photo twice', async () => {
+  // A rejoin until #226; since then the link starts a second session check
+  // (share.js, takeOldLink), whose answer asks for the shared photos again.
   const db = idb();
   await shareFrom(db, shaped(SHAPES.slice(0, 2)));
-  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  const page = await load({ search: '?shared', db });
   await until(() => page.items().length === 2 && page.items().every((i) => i.state === 'ready'), 'two ready');
   // Waited for by the store closing, after the read's transaction commits:
   // the read opening is too early, since a duplicate would be added only
@@ -1800,20 +1958,21 @@ test('#193 (review): joining again on an open page does not list a shared photo 
   const closes = page.db.state.closes;
   page.location.hash = `#code=${CODE}`;
   page.fireWindow('hashchange');
-  await until(() => page.db.state.closes > closes, 'the rejoin read finished');
+  await until(() => page.db.state.closes > closes, 'the second read finished');
   for (let i = 0; i < 20; i++) await tick();
+  assert.equal(page.$('join-status').textContent, READY_REPLACED);
   assert.equal(page.items().length, 2);
 });
 
-test('#193 (review): two sessions answering at once (the stored one, and an invite opened in the same moment) list a shared photo once', async () => {
+test('#193 (review): two session checks answering at once (the page\'s own, and an old invite link\'s opened in the same moment) list a shared photo once', async () => {
   const db = idb();
   await shareFrom(db, shaped(SHAPES.slice(0, 2)));
   const closes = db.state.closes;
-  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
-  // The invite link is opened before the page's own session check answers,
-  // so two "ready"s arrive close together and each asks for the shared
-  // photos. IndexedDB runs the two reads in order (test/idb.js keeps that),
-  // and the dedupe is what stops the second listing them again.
+  const page = await load({ search: '?shared', db });
+  // The old link is opened before the page's own session check answers, so
+  // two answers that open the sender arrive close together and each asks for
+  // the shared photos. IndexedDB runs the two reads in order (test/idb.js
+  // keeps that), and the dedupe is what stops the second listing them again.
   page.location.hash = `#code=${CODE}`;
   page.fireWindow('hashchange');
   await until(() => page.items().length >= 2 && page.items().every((i) => i.state === 'ready'), 'ready');
@@ -1822,18 +1981,20 @@ test('#193 (review): two sessions answering at once (the stored one, and an invi
   assert.equal(page.items().length, 2);
 });
 
-test('#193: while an invite is opening, the page does not read the store or describe a share as waiting', async () => {
+test('#193: while the session check is out, the page does not read the store or describe a share as waiting', async () => {
+  // Until #226 this held the join an invite link started; an old link now
+  // starts the session check, and the page waits on that the same way.
   const db = idb();
   await shareFrom(db, shaped([SHAPES[0]]));
   const opensBefore = db.state.opens;
-  const page = await load({ hash: `#code=${CODE}`, db, holdJoin: true });
-  await until(() => page.$('join-status').textContent === 'Opening your invite…', 'joining');
+  const page = await load({ hash: `#code=${CODE}`, db, holdSession: true });
+  await until(() => page.net.calls.length === 1, 'the session check sent');
   // A read would open the store synchronously, and a note would follow it
   // within a few of the stand-in's timer turns; 100 ms outlasts both.
   await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(db.state.opens, opensBefore, 'the page read the store while joining');
+  assert.equal(db.state.opens, opensBefore, 'the page read the store before the session check answered');
   assert.equal(note(page), null);
-  page.releaseJoin();
-  await joined(page);
-  await until(() => page.items()[0]?.state === 'ready', 'taken in once joined');
+  page.releaseSession();
+  await until(() => page.$('join-status').textContent === READY_REPLACED, 'answered');
+  await until(() => page.items()[0]?.state === 'ready', 'taken in once answered');
 });

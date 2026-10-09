@@ -267,7 +267,7 @@ test('the site takes REQUEST_BUDGET_PER_HOUR an hour; past it a request is refus
   assert.deepEqual(await take(db, { email: 'over@example.org' }), { outcome: 'busy', retryAfter: 1800 });
   // A spent hour writes nothing at all, not even a row it then deletes: the
   // budget is read before the address is claimed (the owner's choice at
-  // #220's review), as #177's join budget is.
+  // #220's review), as #177's join budget was until #226.
   const ran = db.statements.slice(mark);
   assert.ok(ran.length > 0 && ran.every((sql) => /^SELECT\b/.test(sql)), `a spent hour ran ${ran.join(' | ')}`);
   assert.equal(count(db, 'account_request_log'), 1, 'the refused request kept its address unit');

@@ -1,19 +1,23 @@
-/* The share page: joining (#150), then sending photos (#155).
+/* The share page: where this phone stands (#150, #223, #226), then sending
+ * photos (#155).
  *
- * Joining. An invite link is /share/#code=<code>. A browser never sends the
- * part after # to a server, in the request or in a Referer, so the code
- * travels once, in the body of POST /api/join, and never in a URL a log could
- * hold. On load, and whenever the part after # changes: if the address
- * carries a code, take it out of the address bar at once (so it is not left
- * there, in the history entry or in a screenshot), then trade it for an
- * upload session. With no code, ask the server whether this browser already
- * holds a session. Either way, say plainly where this phone stands, in the
- * page's live region.
+ * Where this phone stands. A phone sends from an account (#223): signed in at
+ * /sign-in, it holds a session, and GET /api/upload/session answers it 204.
+ * On load the page asks that route, and says plainly where this phone stands,
+ * in the page's live region. With a session, the album list holds only the
+ * account's approved teams' albums. Without one, the page's own links to
+ * /sign-in and /ask are the way in.
  *
- * Accounts (#223). A phone signed in at /sign-in holds a session too, and
- * GET /api/upload/session answers it the same 204, so the page needs no code
- * of its own for it: the album list then holds only the account's approved
- * teams' albums, and the page links /sign-in beside the invite link's words.
+ * The old invite link (#150 until #226). Until accounts replaced it, a parent
+ * joined with /share/#code=<code>, and the page traded the code for a session
+ * at POST /api/join. Those links live on in group chats and bookmarks, so the
+ * page still knows one, for good (#226): on load, and whenever the part after
+ * # changes, it takes the code out of the address bar at once (so it is not
+ * left there, in the history entry or in a screenshot) and sends it nowhere.
+ * A browser never sends the part after # to a server either, so the code
+ * stays on the phone. The page then asks the same session question, and says
+ * the link has been replaced: to a phone already signed in, that it is set to
+ * send; to any other, how to sign in or ask for an account.
  *
  * Sending. Once the phone holds a session, the page lists the open albums and
  * preselects one, so a parent sends with four taps and nothing typed: the
@@ -32,33 +36,35 @@
  * menu. share/sw.js keeps the photos a gallery shares to it in this phone's
  * browser storage and opens this page with ?shared. With a session they go
  * straight into the list, ready to send, with nothing chosen again. Without
- * one they wait, and the page says so, until the sender signs in or opens the
- * invite link (owner, #193's pickup). Each stays in storage until it is sent
- * or removed, so a reload or a second share offers it again (owner, #193's
- * review). */
+ * one they wait, and the page says so, until the sender signs in (owner,
+ * #193's pickup). Each stays in storage until it is sent or removed, so a
+ * reload or a second share offers it again (owner, #193's review). */
 (() => {
   'use strict';
 
-  // ---- Joining (#150) ------------------------------------------------
+  // ---- Where this phone stands (#150, #226) --------------------------
 
+  // The ids are the join step's (#150), kept when #226 retired it.
   const status = document.getElementById('join-status');
   const retry = document.getElementById('join-retry');
 
-  // One message per answer. A code that was once right says the invite has
-  // changed, never that it is wrong: the parent did nothing wrong, the owner
-  // rotated it (#152). Since #223 a phone can send from an account as well,
-  // and the server does not say which kind of session ended, so the messages
-  // with no session name both ways back in.
+  // One message per answer. Since #226 a phone sends from an account only,
+  // so a phone with no session is told to sign in, or to ask for an account,
+  // and the page's own links go to both. An old invite link has two of its
+  // own: 'replaced' with no session, and 'readyReplaced' with one, which
+  // opens the sender as 'ready' does. The join step's own answers (the code
+  // rotated, wrong, tried too often, or sending closed) went with it.
+  // 'unavailable' is the guard's 503: the phone holds an account's session
+  // and the database did not answer, so it is told to try again, never to
+  // sign in (review-fanout at #226's review).
   const MESSAGES = {
-    joining: 'Opening your invite…',
     ready: "You're set to send photos from this phone.",
-    rotated: 'This invite has changed. Ask whoever sent it to you for the new link.',
-    wrong: "This invite link doesn't work. Check you opened the whole link, or ask whoever sent it for a new one.",
-    tooMany: 'Too many tries from this network. Wait an hour, then open the link again.',
-    closed: "Sending photos isn't open right now. Try again later.",
+    readyReplaced: "That invite link has been replaced by accounts. This phone is signed in, so you're set to send photos.",
+    replaced: "The team's invite link has been replaced by accounts. Sign in, or ask for an account below, to send photos.",
     offline: "Couldn't reach the photo site. Check your signal, then try again.",
-    none: 'Sign in, or open the invite link you were sent, to start sending photos to the team.',
-    ended: 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then send again.',
+    unavailable: "The photo site isn't answering right now. Try again in a few minutes.",
+    none: 'Sign in to start sending photos to the team, or ask for an account if you have none.',
+    ended: 'Your sign-in has ended. Sign in again, then send again.',
   };
 
   let again = null;
@@ -67,14 +73,17 @@
     status.textContent = MESSAGES[message];
     again = retryWith;
     retry.hidden = retryWith === null;
-    if (message === 'ready') openSender();
-    else if (message !== 'joining') waitShared();
+    if (message === 'ready' || message === 'readyReplaced') openSender();
+    else waitShared();
   }
 
-  function takeCode() {
-    const code = new URLSearchParams(location.hash.slice(1)).get('code');
-    if (code !== null) history.replaceState(history.state, '', location.pathname + location.search);
-    return code;
+  // Whether the address carries an old invite link's code (#226). The code
+  // is taken out of the address bar at once, and the page keeps nothing of
+  // it, so no request carries it.
+  function takeOldLink() {
+    if (new URLSearchParams(location.hash.slice(1)).get('code') === null) return false;
+    history.replaceState(history.state, '', location.pathname + location.search);
+    return true;
   }
 
   async function errorOf(response) {
@@ -85,38 +94,20 @@
     }
   }
 
-  async function join(code) {
-    say('joining');
-    let response;
-    try {
-      response = await fetch('/api/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
-        credentials: 'same-origin',
-        cache: 'no-store',
-      });
-    } catch {
-      say('offline', () => join(code));
-      return;
-    }
-    if (response.status === 204) say('ready');
-    else if (response.status === 429) say('tooMany');
-    else if (response.status === 403 || response.status === 400) {
-      say((await errorOf(response)) === 'rotated' ? 'rotated' : 'wrong');
-    } else if (response.status === 503) say('closed', () => join(code));
-    else say('offline', () => join(code));
-  }
-
-  async function check() {
+  // Asks whether this browser holds a session, and says so. `replaced` is
+  // true when an old invite link opened the page, so the answer says the
+  // link has been replaced, whichever it is; Try again keeps it.
+  async function check(replaced = false) {
     let response;
     try {
       response = await fetch('/api/upload/session', { credentials: 'same-origin', cache: 'no-store' });
     } catch {
-      say('offline', check);
+      say('offline', () => check(replaced));
       return;
     }
-    say(response.status === 204 ? 'ready' : 'none');
+    if (response.status === 204) say(replaced ? 'readyReplaced' : 'ready');
+    else if (response.status === 503) say('unavailable', () => check(replaced));
+    else say(replaced ? 'replaced' : 'none');
   }
 
   retry.addEventListener('click', () => {
@@ -188,13 +179,13 @@
   // Why a photo did not send, by the answer POST /api/upload gave.
   const FAILURES = {
     offline: "Couldn't reach the photo site. Check your signal, then try again.",
-    ended: 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.',
+    ended: 'Your sign-in has ended. Sign in again, then try again.',
     album: 'That album has closed. Choose another album above, then try again.',
     // #223: an account sends to its approved teams' albums only, so this is
     // an album the list offered before a team was taken off the account.
     team: "Your account can't send to that team's albums. Choose another album above, then try again.",
     // An account's 500 are shared by every phone signed in to it (#223).
-    cap: "This phone, or your account, has sent today's limit of 500 photos. Try again tomorrow.",
+    cap: "Your account has sent today's limit of 500 photos. Try again tomorrow.",
     unavailable: "The photo site isn't taking photos right now. Try again in a few minutes.",
     refused: "The photo site couldn't take this photo. Try again, and if it fails again, leave it out.",
   };
@@ -319,7 +310,7 @@
     albumAgain.hidden = albumNote.hidden;
     albumNote.textContent = albums === null
       ? "Couldn't load the albums. Check your signal, then press Check again."
-      : 'No album is taking photos right now. Check again later, or ask whoever sent you the link.';
+      : 'No album is taking photos right now. Check again later.';
     // Check again hidden under the keyboard's focus hands it to the list.
     if (focused === albumAgain && albumAgain.hidden) albumField.focus();
     if (albums === null) {
@@ -615,7 +606,7 @@
     preview.hidden = false;
     // Only a photo nobody has acted on becomes ready. One Send queued while
     // it was being made ready stays queued, and one that has failed since
-    // (an invite that ended fails every queued photo) keeps its failure and
+    // (a session that ended fails every queued photo) keeps its failure and
     // its Try again.
     if (photo.state === 'preparing') set(photo, 'ready');
     pump();
@@ -828,7 +819,7 @@
     }
     if (response.status === 401) {
       // The session has ended: every queued photo would get the same answer,
-      // so none of them is sent until the parent opens the new link.
+      // so none of them is sent until the sender signs in again.
       fail(photo, 'ended');
       for (const waiting of photos.filter((one) => one.state === 'queued')) fail(waiting, 'ended');
       say('ended');
@@ -1017,12 +1008,13 @@
   const trouble = (waiting) => (sharedFlag === 'failed' || sharedFlag === 'empty' ? sharedFlag : waiting === null && sharedFlag ? 'failed' : null);
 
   // With a session: every waiting photo not already in the list joins it,
-  // ready to send. Two calls close together (a rejoin) cannot both add one
-  // photo: each read is a readwrite transaction on one store, which IndexedDB
-  // runs strictly in order, so the second read answers only after the first
-  // has committed and listed its photos. (#193's mutation round found a
-  // promise chain doing the same job here could be deleted with nothing
-  // going red; the platform was the guard.)
+  // ready to send. Two calls close together (a second session check, which
+  // an old invite link opened in this tab starts; a rejoin until #226)
+  // cannot both add one photo: each read is a readwrite transaction on one
+  // store, which IndexedDB runs strictly in order, so the second read
+  // answers only after the first has committed and listed its photos.
+  // (#193's mutation round found a promise chain doing the same job here
+  // could be deleted with nothing going red; the platform was the guard.)
   async function takeShared() {
     const waiting = await shared();
     const fresh = (waiting ?? []).filter(({ id }) => !photos.some((photo) => photo.stored === id));
@@ -1042,7 +1034,7 @@
     sharedNote.hidden = state === null;
     if (state === 'waiting') {
       sharedNote.textContent = `${plural(n)} you shared ${n === 1 ? 'is' : 'are'} waiting on this phone. ` +
-        `Open your invite link, or sign in as a coach, and ${n === 1 ? 'it' : 'they'} will be ready to send. ` +
+        `Sign in, and ${n === 1 ? 'it' : 'they'} will be ready to send. ` +
         'Shared photos are kept here for a day.';
     } else sharedNote.textContent = SHARED_NOTES[state] ?? '';
   }
@@ -1057,18 +1049,16 @@
     navigator.serviceWorker.register('/share/sw.js', { scope: '/share/', updateViaCache: 'none' }).catch(() => {});
   }
 
-  const code = takeCode();
-  if (code !== null) join(code);
-  else check();
+  check(takeOldLink());
 
   // A link that differs from the open page only after # does not reload it:
-  // pasting a new invite into a tab already on /share/ changes the hash and
-  // nothing else. Without this, the code would sit in the address bar and
-  // the page would go on showing the last answer. Measured on #150. It is
-  // also how a parent whose invite ended mid-send carries on: the new link
-  // opened in this tab joins, and the photos are still here to try again.
+  // opening an old invite link in a tab already on /share/ changes the hash
+  // and nothing else. Without this, the code would sit in the address bar
+  // and the page would go on showing the last answer. Measured on #150, when
+  // it was also how a parent whose invite ended mid-send carried on, by
+  // opening the new link in this tab; since #226 that tab is told the link
+  // has been replaced, as a fresh load is.
   window.addEventListener('hashchange', () => {
-    const next = takeCode();
-    if (next !== null) join(next);
+    if (takeOldLink()) check(true);
   });
 })();

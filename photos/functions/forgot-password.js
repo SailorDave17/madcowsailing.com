@@ -28,13 +28,13 @@
  */
 import { addressHash } from '../lib/address.js';
 import { readFormParams, seeOther } from '../lib/form.js';
-import { inviteSite } from '../lib/invite.js';
 import { isEmailAddress } from '../lib/mail.js';
 import { sameOrigin } from '../lib/origin.js';
 import { htmlResponse } from '../lib/public-page.js';
 import { RESET_FORM_BYTES, claimResetRequest, sendReset } from '../lib/reset.js';
 import { nowSeconds } from '../lib/session.js';
 import { closedPage, forgotPage, forgotSentPage } from '../lib/sign-in-page.js';
+import { siteOrigin } from '../lib/site.js';
 import { TOKEN_FIELD, verifyTurnstile } from '../lib/turnstile.js';
 
 const NEEDS = ['DB', 'ADDRESS_HASH_KEY', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'];
@@ -95,6 +95,6 @@ export async function onRequestPost(context) {
 
   // Called on the context, which the runtime's own method may need as its
   // `this`.
-  context.waitUntil(sendReset(env, { email, now, site: inviteSite(request, env) }));
+  context.waitUntil(sendReset(env, { email, now, site: siteOrigin(request, env) }));
   return seeOther('/forgot-password?sent');
 }

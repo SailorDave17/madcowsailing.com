@@ -45,13 +45,13 @@ import { accountCookie } from '../lib/account-session.js';
 import { codeCookie, startCode } from '../lib/admin-code.js';
 import { clearAdminCookie } from '../lib/admin-session.js';
 import { readFormParams } from '../lib/form.js';
-import { inviteSite } from '../lib/invite.js';
 import { normalizePassword } from '../lib/password-rules.js';
 import { sameOrigin } from '../lib/origin.js';
 import { htmlResponse } from '../lib/public-page.js';
 import { nowSeconds } from '../lib/session.js';
 import { SIGN_IN_FORM_BYTES, emailHash, signIn } from '../lib/sign-in.js';
 import { signInPage } from '../lib/sign-in-page.js';
+import { siteOrigin } from '../lib/site.js';
 
 const NEEDS = ['DB', 'SESSION_SIGNING_KEY', 'ADDRESS_HASH_KEY'];
 const missing = (env) => NEEDS.filter((name) => !env[name]);
@@ -136,7 +136,7 @@ async function startAdminCode({ request, env, email, result, now }) {
   let started;
   try {
     started = await startCode(env, {
-      accountId: result.accountId, version: result.version, email: result.email, now, site: inviteSite(request, env),
+      accountId: result.accountId, version: result.version, email: result.email, now, site: siteOrigin(request, env),
     });
   } catch (err) {
     console.error('sign-in: the database did not answer, so no admin code was made:', err instanceof Error ? err.message : String(err));

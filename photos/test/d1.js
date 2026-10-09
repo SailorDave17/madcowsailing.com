@@ -70,6 +70,11 @@ export function d1() {
   };
 }
 
+// Invite codes, generation 1 first, the last one current. Nothing has read
+// invite_codes since #226 retired the invite link, and the table stays (a
+// migration never drops one). A test seeds it so an upload cookie from
+// before #226 is one the old guard would have let through, and a test that
+// it now opens nothing would fail if that guard came back.
 export function seedCodes(db, ...codes) {
   const insert = db.sqlite.prepare('INSERT INTO invite_codes (generation, code, created_at) VALUES (?, ?, ?)');
   codes.forEach((code, i) => insert.run(i + 1, code, 1_790_000_000 + i));

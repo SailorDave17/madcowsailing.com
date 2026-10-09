@@ -22,7 +22,7 @@ export async function onRequestPost({ request, env }) {
 
 /**
  * GET changes nothing and goes back to the page, which says so. A press can
- * arrive as a GET when the Access sign-in ran out while the page was open
- * (functions/api/admin/code/rotate.js says how), and GET needs no Origin.
+ * arrive as a GET (lib/admin-page.js says how, beside pressPath), and GET
+ * needs no Origin.
  */
 export const onRequestGet = () => seeOther('/admin/albums?error=unchanged');

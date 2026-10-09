@@ -12,10 +12,10 @@
  */
 import { ROLES } from '../../../../lib/accounts.js';
 import { readFormParams, seeOther } from '../../../../lib/form.js';
-import { inviteSite } from '../../../../lib/invite.js';
 import { approveTeams, readAccountId, readTeams, sendLink } from '../../../../lib/people.js';
 import { peopleLocation } from '../../../../lib/people-page.js';
 import { nowSeconds } from '../../../../lib/session.js';
+import { siteOrigin } from '../../../../lib/site.js';
 
 export async function onRequestPost({ request, env, data }) {
   const form = await readFormParams(request);
@@ -30,13 +30,13 @@ export async function onRequestPost({ request, env, data }) {
   // sendLink never throws. Its null means the account held no approved team
   // by the time it looked, which only a delete by hand in between can cause;
   // the page says so rather than blaming Resend (#221's review).
-  const mail = (await sendLink(env, { accountId, admin, now, site: inviteSite(request, env) })) ?? 'not-approved';
+  const mail = (await sendLink(env, { accountId, admin, now, site: siteOrigin(request, env) })) ?? 'not-approved';
   return seeOther(peopleLocation({ done: 'approved', account: accountId, mail }));
 }
 
 /**
  * GET changes nothing and goes back to the page, which says so. A press can
- * arrive as a GET when the Access sign-in ran out while the page was open
- * (functions/api/admin/code/rotate.js says how), and GET needs no Origin.
+ * arrive as a GET (lib/admin-page.js says how, beside pressPath), and GET
+ * needs no Origin.
  */
 export const onRequestGet = () => seeOther(peopleLocation({ error: 'unchanged' }));

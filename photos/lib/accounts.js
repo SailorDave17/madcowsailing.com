@@ -59,7 +59,8 @@ export const NOTE_MAX = 500;
 // Wi-Fi fit under the first. Not chosen: 5 and 30, which an email to every
 // COHSSA family could hit, turning real parents away for the rest of the
 // hour; 20 and 200. The address counts IPv4 whole and IPv6 by its /64
-// (lib/address.js), as the join and takedown limits do.
+// (lib/address.js), as the takedown limit does, and the join limit did until
+// #226 retired it.
 export const REQUEST_LIMIT = 10;
 export const REQUEST_WINDOW_SECONDS = 60 * 60;
 export const REQUEST_BUDGET_PER_HOUR = 100;
@@ -149,8 +150,8 @@ async function recentRequests(db, address, since) {
 }
 
 // Whether this clock hour's budget is spent, read before anything is written,
-// so a spent hour writes nothing, as #177's join budget does (the owner's
-// choice at #220's review, 2026-10-05). spendBudget still decides: two
+// so a spent hour writes nothing, as #177's join budget did until #226 (the
+// owner's choice at #220's review, 2026-10-05). spendBudget still decides: two
 // requests can both read the last unit as free.
 async function budgetSpent(db, hour) {
   const row = await db.prepare('SELECT requested FROM account_request_budget WHERE hour = ?').bind(hour).first();
@@ -159,11 +160,12 @@ async function budgetSpent(db, hour) {
 
 /**
  * Spend one unit of this clock hour's budget, and say whether there was one.
- * One statement, as join.js's spendBudget is (#177): it makes the hour's row
- * at 1, or adds 1 while the row is under the budget, and RETURNING gives a
- * row only when it did either. Rows over a day old are deleted when a new
- * hour's row is made; that delete's failure is logged and left, since only
- * how long the old counts are kept is at stake, never this request.
+ * One statement, as join.js's spendBudget was (#177, until #226): it makes
+ * the hour's row at 1, or adds 1 while the row is under the budget, and
+ * RETURNING gives a row only when it did either. Rows over a day old are
+ * deleted when a new hour's row is made; that delete's failure is logged and
+ * left, since only how long the old counts are kept is at stake, never this
+ * request.
  */
 async function spendBudget(db, now) {
   const hour = Math.floor(now / HOUR_SECONDS);
@@ -400,12 +402,13 @@ export async function adminAddresses(db) {
  * address a send of its own (lib/mail.js takes one address): since #224 the
  * accounts holding the admin role (adminAddresses), the owner's included,
  * where until then it was each address on the ADMIN_EMAILS secret, the
- * Access guard's list, which nothing reads now. Once at least one admin's
- * email is sent, the requests it names are marked as named. If none is sent,
- * the hour is given back and the requests stay unnamed, so the next request
- * tries again: an email that never went cannot be "the last one". With no
- * admin at all, no hour is claimed. An admin can be named a request twice
- * when Resend times out on a send it made, which is better than never.
+ * Access guard's list, which nothing read after #224 and #226 deletes. Once
+ * at least one admin's email is sent, the requests it names are marked as
+ * named. If none is sent, the hour is given back and the requests stay
+ * unnamed, so the next request tries again: an email that never went cannot
+ * be "the last one". With no admin at all, no hour is claimed. An admin can
+ * be named a request twice when Resend times out on a send it made, which is
+ * better than never.
  *
  * Never throws: it runs after the answer, where nobody would see an error.
  * Returns what happened, for the tests: 'waiting' (inside the hour),

@@ -46,7 +46,8 @@ import { r2 } from './r2.js';
 
 // The page's time text is UTC and the script rewrites it into the reader's
 // zone. Pinned to Chatham, which differs from UTC in date, hour and minutes,
-// as test/admin-code.test.js pins it; the first test checks the pin took.
+// as test/removals.test.js and test/share.test.js pin it (and the invite code
+// page's test did until #226); the first test checks the pin took.
 process.env.TZ = 'Pacific/Chatham';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -1382,7 +1383,8 @@ test('the admin home links to the queue', () => {
 // ---- The script (public/js/admin-queue.js) ------------------------------------
 //
 // Run as the browser runs it, against hand-written stand-ins for the few DOM
-// calls it makes, as test/admin-code.test.js runs its page's script.
+// calls it makes, as test/removals.test.js runs its page's scripts (and the
+// invite code page's test ran its until #226).
 
 const SCRIPT = read('public', 'js', 'admin-queue.js');
 

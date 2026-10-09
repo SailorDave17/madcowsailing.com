@@ -12,9 +12,10 @@
  * The CSP has no 'unsafe-inline', so nothing here may carry an inline style
  * or script. Every URL is root-relative, as on every photos page.
  *
- * #152 added the invite-code page, adminCodePage(), and its script. #153 added
- * the albums page, adminAlbumsPage(), which needs no script. #156 added the
- * approval queue, adminQueuePage(), and its script, and the home's counts.
+ * #152 added the invite-code page, adminCodePage(), and its script, which
+ * #226 removed when accounts replaced the invite link. #153 added the albums
+ * page, adminAlbumsPage(), which needs no script. #156 added the approval
+ * queue, adminQueuePage(), and its script, and the home's counts.
  * #158 added the removal requests, adminRemovalsPage(), and its script, and
  * the home's count of them. #217 added the test email, adminMailPage(). #220
  * added the home's count of requests for an account. #221's page for them,
@@ -25,7 +26,6 @@
  */
 import { ADMIN_SESSION_SECONDS } from './admin-session.js';
 import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
-import { inviteLink } from './invite.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
 import { CAPTION_MAX } from './photos.js';
 import { FREE_STORAGE_BYTES, photoAt } from './queue.js';
@@ -59,7 +59,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=00a78e8efd">
+<link rel="stylesheet" href="/css/site.css?v=be015226bc">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -76,19 +76,13 @@ export const TODO = [
 ];
 
 // The other sections, linked under the to-do list in this order. Each path
-// is the one its story names. The invite code stays until #226 retires the
-// invite link (owner, at #269's pickup).
+// is the one its story names. The invite code was first until #226 retired
+// the invite link (owner, at #269's pickup).
 export const SECTIONS = [
-  { href: '/admin/code', name: 'Invite code', what: 'the link parents join with, and changing it' },
   { href: '/admin/albums', name: 'Albums', what: 'one for each regatta and practice' },
   { href: '/admin/people', name: 'People', what: 'requests for an account, approved or turned down for each team, who the admins are, and the admins\' log' },
   { href: '/admin/mail', name: 'Email', what: 'a test message, to check that email from the site reaches an inbox' },
 ];
-
-// The invite-code page's script (#152), stamped by hand for the same reason
-// as the stylesheets above: tools/assetver.py never sees this file.
-// test/admin-page.test.js fails until the ?v= is the script's own sha256.
-export const CODE_SCRIPT = '<script src="/js/admin-code.js?v=0c722e1793" defer></script>';
 
 /**
  * A whole admin page: the site's head, header and footer around `main`, with
@@ -220,7 +214,8 @@ export function utcText(seconds) {
 
 /**
  * A moment as a <time>: the machine-readable instant, and utcText(), which
- * public/js/admin-code.js rewrites into the reader's own time zone.
+ * public/js/admin-queue.js and public/js/admin-removals.js rewrite into the
+ * reader's own time zone on their pages.
  */
 export function timeElement(seconds) {
   return `<time datetime="${new Date(seconds * 1000).toISOString()}">${utcText(seconds)}</time>`;
@@ -238,103 +233,6 @@ export function dayElement(date) {
 export function dayText(date) {
   const [year, month, day] = date.split('-').map(Number);
   return `${day} ${MONTHS[month - 1]} ${year}`;
-}
-
-// What the page says when a press arrived as a GET and changed nothing
-// (functions/api/admin/code/rotate.js). Each shows only in the state its
-// button lives in, so a stale ?unchanged= cannot contradict the page.
-const UNCHANGED = {
-  rotate: 'The code was not rotated. The press reached the site as a page load, which never changes it; this can happen when your sign-in has run out. Press Rotate code again to rotate it.',
-  create: 'No code was made. The press reached the site as a page load, which never makes one; this can happen when your sign-in has run out. Press Create code again.',
-};
-
-const notice = (key) => (UNCHANGED[key] ? `\n    <p role="status">${UNCHANGED[key]}</p>` : '');
-
-/**
- * /admin/code (#152). `current` is lib/invite.js's currentCode(), or null
- * when the database holds no code; `site` is where the invite link points;
- * `unchanged` is the ?unchanged= value, if any.
- *
- * Rotating is a form POST from inside a native <dialog>. The page's "Rotate
- * code" button only opens it (public/js/admin-code.js), its Cancel closes it
- * through method="dialog", and only its "Rotate now" button posts. Cancel
- * comes first, so Enter in the dialog cancels, and it takes the focus when
- * the dialog opens.
- */
-export function adminCodePage({ current, site, unchanged = null }) {
-  const head = (key) => `<section class="wrap page-head">
-    <p class="eyebrow">Admin</p>
-    <h1>Invite code</h1>
-    <p class="lede">Parents open the invite link to send photos to the team.
-      Anyone holding it can send, so rotate the code when the link has
-      travelled further than the team.</p>${notice(key)}
-  </section>`;
-
-  if (!current) {
-    return adminPage({
-      title: 'Invite code',
-      head: CODE_SCRIPT,
-      main: `<main id="main">
-  ${head(unchanged === 'create' ? 'create' : null)}
-
-  <section class="wrap" aria-labelledby="no-code">
-    <h2 id="no-code">No code yet</h2>
-    <p>There is no invite code, so no parent can send photos. Coaches who
-      signed in at /coach still can. Create one, then send its link to the
-      team.</p>
-    <form method="post" action="/api/admin/code/create">
-      <p><button type="submit" class="button">Create code</button></p>
-    </form>
-  </section>
-</main>`,
-    });
-  }
-
-  const changed = current.generation > 1
-    ? `Last rotated ${timeElement(current.createdAt)}.`
-    : `Created ${timeElement(current.createdAt)}. It has never been rotated.`;
-
-  return adminPage({
-    title: 'Invite code',
-    head: CODE_SCRIPT,
-    main: `<main id="main">
-  ${head(unchanged === 'rotate' ? 'rotate' : null)}
-
-  <section class="wrap" aria-labelledby="current-code">
-    <h2 id="current-code">The current code</h2>
-    <p class="invite-code"><code id="invite-code">${escapeHtml(current.code)}</code></p>
-    <p>${changed}</p>
-    <p class="invite-link"><code id="invite-link">${escapeHtml(inviteLink(site, current.code))}</code></p>
-    <p class="actions">
-      <button type="button" class="button" data-copy="invite-code">Copy code</button>
-      <button type="button" class="button" data-copy="invite-link">Copy invite link</button>
-    </p>
-    <p id="copy-status" role="status"></p>
-    <noscript><p>Copying and rotating need JavaScript. The code and the link
-      above can still be selected and copied by hand.</p></noscript>
-  </section>
-
-  <section class="wrap" aria-labelledby="rotate-heading">
-    <h2 id="rotate-heading">Rotate the code</h2>
-    <p>Rotating makes a new code at once. The old link stops working, and every
-      phone signed in to upload with it has to open the new link.</p>
-    <p><button type="button" class="button" id="rotate-open">Rotate code</button></p>
-  </section>
-
-  <dialog id="rotate-dialog" class="confirm" aria-labelledby="rotate-title">
-    <form method="post" action="/api/admin/code/rotate">
-      <h2 id="rotate-title">Rotate the invite code?</h2>
-      <p>Every parent signed in to upload will need the new link. The old link stops
-        working at once, and so does every phone that joined with it. Coaches
-        who signed in at /coach keep sending.</p>
-      <p class="actions">
-        <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
-        <button type="submit" class="button button-accent">Rotate now</button>
-      </p>
-    </form>
-  </dialog>
-</main>`,
-  });
 }
 
 // ---- /admin/albums (#153) ----------------------------------------------
@@ -565,16 +463,32 @@ function teamFilter(path, team) {
 // Where a press on a filtered page posts: its route with the page's ?team=,
 // so the press lands back on the same team's list (lib/queue.js,
 // queueLocation; lib/removals.js, removalsLocation). In the address rather
-// than a hidden field, so a press that arrives as a GET, after the Access
-// sign-in ran out, keeps it too (review-fanout at #227's review). Nothing is
-// added when the page shows every team. A team's key is lowercase letters
-// and hyphens (lib/teams.js), so it needs no escaping.
+// than a hidden field, so a press that arrives as a GET keeps it too
+// (review-fanout at #227's review). Nothing is added when the page shows
+// every team. A team's key is lowercase letters and hyphens (lib/teams.js),
+// so it needs no escaping.
+//
+// A press arriving as a GET: every admin press is a form POST, and every
+// press route also answers GET, changing nothing and going back to its page
+// with ?error=unchanged, which says so, rather than to the site's 404. A GET
+// never changes anything, because GET needs no Origin, so a page elsewhere
+// could send one. The likely way one arrived was the Access sign-in that
+// guarded /admin until #224 (its application stood in front of the pages
+// until #268): when it ran out while the page was
+// open, Access sent the browser to sign in again and then back to the
+// press's address, and the post's body did not survive that (reasoned, not
+// measured; #152 wrote this down on the invite code's rotate route, which
+// #226 deleted). Since #224 a press made after the admin session ran out is
+// sent to the sign-in instead (lib/admin-session.js, requireAdmin), so a GET
+// now comes from the press's address opened as a page, from the browser's
+// history, say. The routes keep answering it.
 const pressPath = (path, team) => (team === null ? path : `${path}?team=${team}`);
 
 // ---- /admin/queue (#156) -----------------------------------------------
 
-// The queue's script, stamped by hand as CODE_SCRIPT is.
-// test/queue.test.js fails until the ?v= is the script's own sha256.
+// The queue's script, stamped by hand for the same reason as the stylesheets
+// above: tools/assetver.py never sees this file. test/queue.test.js fails
+// until the ?v= is the script's own sha256.
 export const QUEUE_SCRIPT = '<script src="/js/admin-queue.js?v=d888c4fa39" defer></script>';
 
 // What the queue says after a press. Every press in
@@ -666,8 +580,11 @@ function sizeImage(photo, size, lazy) {
 // Who sent a photo, as the queue and removals pages say it, per photo rather
 // than per batch, so it stays true whatever a batch holds. A photo from an
 // account names it (#223, criterion 3, D17): the name the person gave, as
-// typed, so escaped. A coach's Access sign-in says only that a coach sent it
-// (#192). The invite link, and an account since deleted, say nothing.
+// typed, so escaped. One whose account was deleted since says only that a
+// coach sent it when the account was a coach's, and nothing for anyone else,
+// as /policy promises. Photos sent before #226 retired the invite link and
+// the coaches' Access sign-in (#192) are read the same way: a coach's says a
+// coach sent it, and the invite link's says nothing.
 const sentBy = (photo) => {
   if (photo.accountName != null) return ` · sent by ${escapeHtml(photo.accountName)}`;
   return photo.sender === 'coach' ? ' · sent by a coach' : '';
@@ -874,7 +791,7 @@ ${list ? `\n  ${list}\n` : ''}
 
 // ---- /admin/removals (#158) ---------------------------------------------
 
-// The removals page's script, stamped by hand as CODE_SCRIPT is.
+// The removals page's script, stamped by hand as QUEUE_SCRIPT is.
 // test/removals.test.js fails until the ?v= is the script's own sha256.
 export const REMOVALS_SCRIPT = '<script src="/js/admin-removals.js?v=5655a624bb" defer></script>';
 
