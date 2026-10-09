@@ -33,33 +33,17 @@
   --hq-narrow:        46rem;   /* one-column breakpoint */
 }
 
-/* ---- Shell ---------------------------------------------------------- */
+/* ---- Shell ----------------------------------------------------------
+   The header shell (.site-header, .header-inner, .lockup) and .footer-inner
+   live in shared/css/base.css since #169, once for all three sites. Two of
+   their values are this site's own, and base.css reads them from these
+   properties: a 1.5rem header mark against the other sites' 2rem, and a
+   footer spread to both edges rather than left-aligned. */
 
-.site-header {
-  border-bottom: var(--border-hair);
-  padding-block: var(--space-3);
+:root {
+  --lockup-mark-height: var(--space-4);
+  --footer-justify:     space-between;
 }
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.lockup {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--blue);
-  text-decoration: none;
-}
-
-/* Inlined rather than <img>: an <img>-loaded SVG has no parent to inherit
-   currentColor from and renders black. */
-.lockup-mark { height: var(--space-4); width: auto; }
-.lockup-word { height: var(--space-3); width: auto; }
 
 /* ---- Hero ------------------------------------------------------------
    Must answer "who is this, should I keep reading" without a scroll, at
@@ -204,19 +188,13 @@ section p + p { margin-top: var(--space-3); }
   overflow-wrap: break-word;
 }
 
-/* ---- Footer ----------------------------------------------------------- */
+/* ---- Footer -----------------------------------------------------------
+   .footer-inner is in shared/css/base.css since #169; --footer-justify,
+   set under Shell above, spreads it to both edges here. */
 
 .site-footer {
   border-top: var(--border-hair);
   margin-top: var(--space-6);
-}
-
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  justify-content: space-between;
-  align-items: baseline;
 }
 
 .footer-links {

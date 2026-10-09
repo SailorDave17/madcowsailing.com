@@ -16,6 +16,11 @@
  *
  * ?team=<team> shows that team's batches only (#227); anything else in it
  * shows every team's, as no ?team= does.
+ *
+ * ?at= is where a press landed (#270, lib/queue.js, queueLocation): a waiting
+ * photo's card or a batch's section, where the notice then shows. The page
+ * only compares it with the ids it renders, so anything else shows the notice
+ * at the top, as before.
  */
 import { adminQueuePage, queueNotice } from '../../lib/admin-page.js';
 import { allAlbums } from '../../lib/albums.js';
@@ -28,7 +33,7 @@ export async function onRequestGet({ request, env }) {
   const batches = await waitingBatches(env.DB, team);
   const albums = await allAlbums(env.DB);
   const notice = queueNotice(params, albums);
-  return new Response(adminQueuePage({ batches, notice, team, albums }), {
+  return new Response(adminQueuePage({ batches, notice, team, albums, at: params.get('at') }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       // Behind Access: no cache between here and the owner may keep it.

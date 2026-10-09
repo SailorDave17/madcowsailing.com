@@ -31,12 +31,12 @@ import { onRequestGet as captionsGet, onRequestPost as captionsPost } from '../f
 import { onRequestGet as image } from '../functions/api/admin/photos/[id]/[size].js';
 import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import {
-  QUEUE_SCRIPT, adminHome, adminQueuePage, queueNotice, storageText, waitingText,
+  QUEUE_SCRIPT, TODO, adminHome, adminQueuePage, queueNotice, storageText, todoItem,
 } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
 import { photoObjectKeys } from '../lib/photos.js';
 import {
-  FREE_STORAGE_BYTES, PART_PHOTOS, QUEUE_FORM_BYTES, readPress, rejectPhotos, waitingBatches,
+  FREE_STORAGE_BYTES, PART_PHOTOS, QUEUE_FORM_BYTES, nextWaiting, readPress, rejectPhotos, waitingBatches,
 } from '../lib/queue.js';
 import { nowSeconds } from '../lib/session.js';
 import { ADMIN_KEY, adminCookieHeader, adminData, seedAdmin } from './admin.js';
@@ -301,8 +301,8 @@ test('#227: ?team= shows that team\'s batches only, the filter marks it, and an 
 test('#227: every press on a filtered queue lands back on the same team, and one on the whole queue names no team', async () => {
   const { env, fall } = await site();
   const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
-  const ids = [1, 2, 3, 4].map((i) => seedPhoto(env, districts, { batch: BATCH_B, sentAt: T0 + i }));
-  seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 });
+  const ids = [1, 2, 3, 4, 5].map((i) => seedPhoto(env, districts, { batch: BATCH_B, sentAt: T0 + i }));
+  const hoover = seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 });
   const at = async (query) => (await admin(env, 'GET', `/admin/queue${query}`, { origin: null })).text();
   const cohssa = await at('?team=cohssa');
   // Every place a press posts to carries the team in its address: the form's
@@ -312,10 +312,21 @@ test('#227: every press on a filtered queue lands back on the same team, and one
   assert.ok(form.buttons.filter((b) => b.name === 'approve').every((b) => b.formaction === '/api/admin/queue/approve?team=cohssa'));
   assert.equal(confirmButton(cohssa).formaction, '/api/admin/queue/reject?team=cohssa');
   assert.ok(!form.fields.some(([name]) => name === 'team'), 'one source for the team: the address, not a field');
-  const anchor = `#batch-${BATCH_B}-${env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(districts).id}`;
-  assert.equal((await press(env, cohssa, 0, 'save', { [ids[0]]: 'Start' })).location, `/admin/queue?done=saved&n=1&team=cohssa${anchor}`);
-  assert.equal((await press(env, await at('?team=cohssa'), 0, { approve: ids[0] })).location, `/admin/queue?done=approved&photo=${ids[0]}&team=cohssa${anchor}`);
-  assert.equal((await press(env, await at('?team=cohssa'), 0, { reject: ids[1] })).location, `/admin/queue?done=rejected&photo=${ids[1]}&team=cohssa${anchor}`);
+  const batch = `batch-${BATCH_B}-${env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(districts).id}`;
+  const lands = (where) => `&at=${where}#${where}`;
+  // Save captions lands on the caption it changed, or at its batch when it
+  // changed none, and Approve and Reject at the next photo (#270), each on
+  // the same team's list.
+  assert.equal((await press(env, cohssa, 0, 'save', { [ids[0]]: 'Start' })).location, `/admin/queue?done=saved&n=1&team=cohssa${lands(`photo-${ids[0]}`)}`);
+  assert.equal((await press(env, await at('?team=cohssa'), 0, 'save')).location, `/admin/queue?done=saved&n=0&team=cohssa${lands(batch)}`);
+  assert.equal((await press(env, await at('?team=cohssa'), 0, { approve: ids[0] })).location, `/admin/queue?done=approved&photo=${ids[0]}&team=cohssa${lands(`photo-${ids[1]}`)}`);
+  assert.equal((await press(env, await at('?team=cohssa'), 0, { reject: ids[1] })).location, `/admin/queue?done=rejected&photo=${ids[1]}&team=cohssa${lands(`photo-${ids[2]}`)}`);
+  // #270: the team's last photo goes round to the team's earliest still
+  // waiting, never to Hoover's, though Hoover's was sent first. Approve and
+  // Reject each read the order by the team (review-fanout at #270's review:
+  // only Approve's was held).
+  assert.equal((await press(env, await at('?team=cohssa'), 0, { approve: ids[4] })).location, `/admin/queue?done=approved&photo=${ids[4]}&team=cohssa${lands(`photo-${ids[2]}`)}`);
+  assert.equal((await press(env, await at('?team=cohssa'), 0, { reject: ids[3] })).location, `/admin/queue?done=rejected&photo=${ids[3]}&team=cohssa${lands(`photo-${ids[2]}`)}`);
   // A refused press keeps the team too.
   const refused = await admin(env, 'POST', '/api/admin/queue/approve?team=cohssa', { body: 'ids=x&approve=1' });
   assert.equal(refused.headers.get('Location'), '/admin/queue?error=form&team=cohssa');
@@ -327,7 +338,8 @@ test('#227: every press on a filtered queue lands back on the same team, and one
   const all = await at('');
   assert.ok(forms(all).every((f) => !f.action.includes('?') && f.buttons.every((b) => !(b.formaction ?? '').includes('?'))));
   assert.equal(confirmButton(all).formaction, '/api/admin/queue/reject');
-  assert.doesNotMatch((await press(env, all, 1, { approve: ids[2] })).location, /team=/);
+  // And go round the whole queue, to Hoover's.
+  assert.equal((await press(env, all, 1, { approve: ids[2] })).location, `/admin/queue?done=approved&photo=${ids[2]}${lands(`photo-${hoover}`)}`);
 });
 
 test('#227: a press that arrives as a GET, after the sign-in ran out, still lands on its team, and changes nothing', async () => {
@@ -508,11 +520,32 @@ test('"Save captions", which Enter presses, saves every changed caption in the b
   const html = await page(env);
   const res = await press(env, html, 0, 'save', { [a]: 'uno', [b]: '' });
   assert.equal(res.status, 303);
-  assert.equal(res.location, `/admin/queue?done=saved&n=2#batch-${BATCH_A}-${row(env, a).album_id}`);
+  // On the card of the last caption it changed, where Enter was pressed
+  // (owner, at #270's review).
+  assert.equal(res.location, `/admin/queue?done=saved&n=2&at=photo-${b}#photo-${b}`);
   assert.deepEqual([a, b, c].map((id) => [row(env, id).caption, row(env, id).state]),
     [['uno', 'pending'], [null, 'pending'], ['three', 'pending']]);
-  // Nothing changed the second time: it says so.
-  assert.equal((await press(env, await page(env), 0, 'save')).location.split('#')[0], '/admin/queue?done=saved&n=0');
+  // Nothing changed the second time: it says so, at the batch.
+  const batch = `batch-${BATCH_A}-${row(env, a).album_id}`;
+  assert.equal((await press(env, await page(env), 0, 'save')).location, `/admin/queue?done=saved&n=0&at=${batch}#${batch}`);
+});
+
+test('#270: Save captions lands on the last caption it changed in the page\'s order, not the order the database returns them', async () => {
+  // Sent out of id order, so the page shows x, z, y: the last changed on the
+  // page is y, the middle id, which neither end of an id order is.
+  const { env, fall } = await site();
+  const x = seedPhoto(env, fall, { sentAt: T0 });
+  const y = seedPhoto(env, fall, { sentAt: T0 + 2 });
+  const z = seedPhoto(env, fall, { sentAt: T0 + 1 });
+  const html = await page(env);
+  assert.deepEqual(Object.fromEntries(forms(html)[0].fields).ids, `${x} ${z} ${y}`);
+  const res = await press(env, html, 0, 'save', { [x]: 'one', [y]: 'two', [z]: 'three' });
+  assert.equal(res.location, `/admin/queue?done=saved&n=3&at=photo-${y}#photo-${y}`);
+  // A caption typed for a photo approved meanwhile is not saved, so it is
+  // not where the press lands: y is passed over for z.
+  env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(T0 + 9, y);
+  const stale = await press(env, html, 0, 'save', { [x]: 'uno', [y]: 'dos', [z]: 'tres' });
+  assert.equal(stale.location, `/admin/queue?done=saved&n=2&unsaved=1&at=photo-${z}#photo-${z}`);
 });
 
 test('any press saves the captions typed in its batch: approving one photo saves another\'s caption, and that photo keeps waiting (owner, pickup)', async () => {
@@ -551,7 +584,7 @@ test('a tab or other control character in a caption becomes a space rather than 
   const b = seedPhoto(env, fall, { sentAt: T0 + 1 });
   const sep = String.fromCharCode(0x2028);
   const res = await press(env, await page(env), 0, 'save', { [a]: `Sam\tand Alex`, [b]: `Jo${sep}and\u0007Kit` });
-  assert.match(res.location, /^\/admin\/queue\?done=saved&n=2#batch-/);
+  assert.equal(res.location, `/admin/queue?done=saved&n=2&at=photo-${b}#photo-${b}`);
   assert.deepEqual([row(env, a).caption, row(env, b).caption], ['Sam and Alex', 'Jo and Kit']);
 });
 
@@ -560,14 +593,15 @@ test('a tab or other control character in a caption becomes a space rather than 
 test('"Approve" on one photo approves it, with the time, and nothing else in the table changes', async () => {
   const { env, fall } = await site();
   const a = seedPhoto(env, fall, { caption: 'one' });
-  seedPhoto(env, fall, { sentAt: T0 + 1 });
+  const next = seedPhoto(env, fall, { sentAt: T0 + 1 });
   seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 2 });
   const before = rows(env);
   const html = await page(env);
   const start = nowSeconds();
   const res = await press(env, html, 0, { approve: a });
   assert.equal(res.status, 303);
-  assert.equal(res.location, `/admin/queue?done=approved&photo=${a}#batch-${BATCH_A}-${row(env, a).album_id}`);
+  // #270: it lands on the next waiting photo.
+  assert.equal(res.location, `/admin/queue?done=approved&photo=${a}&at=photo-${next}#photo-${next}`);
   const after = rows(env);
   const approved = after.find((r) => r.id === a);
   assert.equal(approved.state, 'approved');
@@ -582,7 +616,8 @@ test('"Approve all" approves one batch while a second batch waits untouched', as
   const before = rows(env);
   const html = await page(env);
   const res = await press(env, html, 0, { approve: 'all' });
-  assert.match(res.location, /^\/admin\/queue\?done=approved&n=2#batch-/);
+  // #270: on the next batch's first photo.
+  assert.equal(res.location, `/admin/queue?done=approved&n=2&at=photo-${b[0]}#photo-${b[0]}`);
   assert.deepEqual(a.map((id) => row(env, id).state), ['approved', 'approved']);
   assert.ok(a.every((id) => row(env, id).approved_at !== null));
   assert.deepEqual(rows(env).filter((r) => b.includes(r.id)), before.filter((r) => b.includes(r.id)));
@@ -647,12 +682,14 @@ test('a press naming a photo outside its batch, or no batch at all, changes noth
 test('the anchor a press carries back must be a batch\'s own id, or the answer has none', async () => {
   const { env, fall } = await site();
   const a = seedPhoto(env, fall);
-  const b = seedPhoto(env, fall, { sentAt: T0 + 1 });
   const albumId = row(env, a).album_id;
-  const location = async (anchor, id) =>
-    (await admin(env, 'POST', '/api/admin/queue/approve', { body: `ids=${id}&approve=${id}&anchor=${encodeURIComponent(anchor)}` })).headers.get('Location');
-  assert.equal(await location('evil"><b>', a), `/admin/queue?done=approved&photo=${a}`);
-  assert.equal(await location(`batch-${BATCH_A}-${albumId}-part-2`, b), `/admin/queue?done=approved&photo=${b}#batch-${BATCH_A}-${albumId}-part-2`);
+  // Save captions lands at its batch, by the anchor; since #270 Approve and
+  // Reject land on a photo, whatever the anchor.
+  const location = async (anchor) =>
+    (await admin(env, 'POST', '/api/admin/queue/captions', { body: `ids=${a}&anchor=${encodeURIComponent(anchor)}` })).headers.get('Location');
+  assert.equal(await location('evil"><b>'), '/admin/queue?done=saved&n=0');
+  const part = `batch-${BATCH_A}-${albumId}-part-2`;
+  assert.equal(await location(part), `/admin/queue?done=saved&n=0&at=${part}#${part}`);
 });
 
 test('an approve for photos no longer waiting says another admin got there first, and changes nothing, the caption included', async () => {
@@ -664,13 +701,14 @@ test('an approve for photos no longer waiting says another admin got there first
   // The same stale page, with the caption changed: a public caption changes
   // only through a waiting photo's approval.
   const again = await press(env, html, 0, { approve: a }, { [a]: 'changed on a stale page' });
-  assert.match(again.location, /^\/admin\/queue\?error=gone&unsaved=1#batch-/);
+  // Nothing waits, so it lands at the top (#270).
+  assert.equal(again.location, '/admin/queue?error=gone&unsaved=1');
   assert.deepEqual(rows(env), before, 'the approved row changed');
   const saved = await press(env, html, 0, 'save', { [a]: 'changed on a stale page' });
-  assert.match(saved.location, /^\/admin\/queue\?done=saved&n=0&unsaved=1#batch-/);
+  assert.match(saved.location, /^\/admin\/queue\?done=saved&n=0&unsaved=1&at=batch-/);
   assert.deepEqual(rows(env), before, 'Save changed an approved photo\'s caption');
   // Its caption left as it was is no unsaved caption.
-  assert.match((await press(env, html, 0, 'save', { [a]: 'as approved' })).location, /^\/admin\/queue\?done=saved&n=0#batch-/);
+  assert.match((await press(env, html, 0, 'save', { [a]: 'as approved' })).location, /^\/admin\/queue\?done=saved&n=0&at=batch-/);
 });
 
 test('a caption typed for a photo approved since the page loaded is not saved, and the notice says so (review finding 7)', async () => {
@@ -682,15 +720,17 @@ test('a caption typed for a photo approved since the page loaded is not saved, a
   // Another admin approves a and b.
   env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id IN (?, ?)").run(T0 + 9, a, b);
   const res = await press(env, html, 0, 'save', { [a]: 'uno', [b]: 'dos', [c]: 'tres' });
-  assert.match(res.location, /^\/admin\/queue\?done=saved&n=1&unsaved=2#batch-/);
+  // On c's card, the one caption saved.
+  assert.equal(res.location, `/admin/queue?done=saved&n=1&unsaved=2&at=photo-${c}#photo-${c}`);
   assert.deepEqual([a, b, c].map((id) => row(env, id).caption), ['one', 'two', 'tres']);
   const notice = queueNotice(new URLSearchParams(res.location.split('?')[1].split('#')[0]));
   assert.match(notice, /Saved 1 caption\. 2 captions were not saved: their photos were approved or hidden after this page was loaded\./);
   // An approve counts before its own approval: approving a photo with its
-  // caption changed is not an unsaved caption.
+  // caption changed is not an unsaved caption. Nothing waits after d, so it
+  // lands back on c, the one photo still waiting (#270).
   const d = seedPhoto(env, fall, { caption: 'four', sentAt: T0 + 3 });
   const ok = await press(env, await page(env), 0, { approve: d }, { [d]: 'cuatro' });
-  assert.match(ok.location, /^\/admin\/queue\?done=approved&photo=\d+#batch-/);
+  assert.equal(ok.location, `/admin/queue?done=approved&photo=${d}&at=photo-${c}#photo-${c}`);
   assert.equal(row(env, d).caption, 'cuatro');
   // And a reject says so too: e is approved behind the page's back.
   const e = seedPhoto(env, fall, { caption: 'five', sentAt: T0 + 4 });
@@ -698,7 +738,7 @@ test('a caption typed for a photo approved since the page loaded is not saved, a
   const html3 = await page(env);
   env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(T0 + 9, e);
   const gone = await press(env, html3, 0, { reject: f }, { [e]: 'cinco' });
-  assert.match(gone.location, new RegExp(`^/admin/queue\\?done=rejected&photo=${f}&unsaved=1#batch-`));
+  assert.equal(gone.location, `/admin/queue?done=rejected&photo=${f}&unsaved=1&at=photo-${c}#photo-${c}`);
 });
 
 test('a clip\'s id posted in a press is neither approved nor rejected, and its caption is not changed', async () => {
@@ -728,7 +768,8 @@ test('"Reject" on one photo, confirmed, deletes its row and its three objects, a
   const others = rows(env).filter((r) => r.id !== gone);
   const html = await page(env);
   const res = await press(env, html, 0, { reject: gone });
-  assert.equal(res.location, `/admin/queue?done=rejected&photo=${gone}#batch-${BATCH_A}-${others[0].album_id}`);
+  // #270: on the next waiting photo, never the approved one between.
+  assert.equal(res.location, `/admin/queue?done=rejected&photo=${gone}&at=photo-${kept}#photo-${kept}`);
   assert.equal(row(env, gone), undefined);
   // Reading the storage back finds no object under those keys.
   for (const key of goneKeys) assert.equal(await env.MEDIA.get(key), null, key);
@@ -754,7 +795,7 @@ test('"Reject all", confirmed, deletes the batch\'s rows and objects while anoth
   const keysA = a.flatMap((id) => Object.values(photoObjectKeys(row(env, id).media_key)));
   const html = await page(env);
   const res = await press(env, html, 0, { reject: 'all' });
-  assert.match(res.location, /^\/admin\/queue\?done=rejected&n=3#batch-/);
+  assert.equal(res.location, `/admin/queue?done=rejected&n=3&at=photo-${b}#photo-${b}`);
   assert.deepEqual(rows(env).map((r) => r.id), [b]);
   for (const key of keysA) assert.equal(await env.MEDIA.get(key), null, key);
   assert.equal(objectsOf(env, b).length, 3);
@@ -796,7 +837,8 @@ test('a bucket that refuses the delete: the rows still go, the page says the fil
   const logged = [];
   t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
   const res = await press(env, await page(env), 0, { reject: 'all' });
-  assert.match(res.location, /^\/admin\/queue\?done=rejected&n=2&kept=2#batch-/);
+  // Nothing waits after, so the top of the queue (#270).
+  assert.equal(res.location, '/admin/queue?done=rejected&n=2&kept=2');
   assert.deepEqual(rows(env), []);
   assert.equal(logged.length, 2);
   prefixes.forEach((prefix, i) => assert.match(logged[i], new RegExp(`^queue: bucket did not delete ${prefix} after a reject:`)));
@@ -853,8 +895,10 @@ test('a stored batch holding markup is escaped wherever the page names it (secur
   const html = await page(env);
   assert.ok(!html.includes('<script>alert(1)'), 'the batch is on the page as markup');
   assert.match(html, /<section class="wrap batch" id="batch-x&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;-\d+"/);
-  // The press still works: the anchor it carries back is refused as not a
-  // batch's id, so the answer has no fragment.
+  // The presses still work. Save captions lands by the anchor, which is
+  // refused as not a batch's id, so the answer has no fragment; an approve
+  // lands by photo ids (#270), and nothing waits after this one.
+  assert.equal((await press(env, html, 0, 'save')).location, '/admin/queue?done=saved&n=0');
   const res = await press(env, html, 0, { approve: id });
   assert.equal(res.location, `/admin/queue?done=approved&photo=${id}`);
 });
@@ -876,14 +920,15 @@ test('the admin home shows how many photos wait and the storage every stored row
   env.DB.sqlite.prepare("UPDATE photos SET state = 'hidden', hidden_at = ? WHERE id = ?").run(T0 + 9, seedPhoto(env, fall, { sentAt: T0 + 4, state: 'approved' }));
   setBytes.run(1_000_000_000, rows(env).at(-1).id);
   const html = await (await admin(env, 'GET', '/admin', { origin: null })).text();
-  assert.match(block(html, 'main'), /<p>3 photos are waiting for approval\.<\/p>/);
-  assert.match(block(html, 'main'), /<p>Storage used: 3\.01 GB of the free 10 GB \(30\.1%\)\.<\/p>/);
+  assert.match(block(html, 'main'), /<a class="button todo-item" href="\/admin\/queue"><span class="todo-count">3<\/span> <span>photos waiting for approval<\/span><\/a>/);
+  assert.match(block(html, 'main'), /<p class="admin-storage">Storage used: 3\.01 GB of the free 10 GB \(30\.1%\)\.<\/p>/);
 });
 
 test('the counts read right at their edges', () => {
-  assert.equal(waitingText(0), 'No photo is waiting for approval.');
-  assert.equal(waitingText(1), '1 photo is waiting for approval.');
-  assert.equal(waitingText(2), '2 photos are waiting for approval.');
+  const queue = TODO.find((t) => t.href === '/admin/queue');
+  assert.match(todoItem(queue, 0), /<span class="todo-count">0<\/span> <span>photos waiting for approval\. Nothing to do\.<\/span>/);
+  assert.match(todoItem(queue, 1), /<span class="todo-count">1<\/span> <span>photo waiting for approval<\/span>/);
+  assert.match(todoItem(queue, 2), /<span class="todo-count">2<\/span> <span>photos waiting for approval<\/span>/);
   assert.equal(FREE_STORAGE_BYTES, 10_000_000_000);
   assert.equal(storageText(0), 'Storage used: 0 KB of the free 10 GB (0.0%).');
   assert.equal(storageText(999_499), 'Storage used: 999 KB of the free 10 GB (0.0%).');
@@ -951,7 +996,7 @@ for (const route of ['approve', 'reject', 'captions']) {
 // (the first mutation round: an approve that skipped saving the captions
 // passed here, because a Save press before it had saved them).
 for (const which of ['save', { approve: 'all' }, { reject: 'all' }]) {
-  test(`${JSON.stringify(which)} on a batch of 60 with every caption at 200 characters: at most three statements beside the guard's one, since D1 allows 50 a request on the free plan, and a form far past the albums' 4,096 bytes`, async () => {
+  test(`${JSON.stringify(which)} on a batch of 60 with every caption at 200 characters: at most four statements beside the guard's one, since D1 allows 50 a request on the free plan, and a form far past the albums' 4,096 bytes`, async () => {
     const { env, fall } = await site();
     for (let i = 0; i < 60; i++) seedPhoto(env, fall, { sentAt: T0 + i, caption: `photo ${i}` });
     const html = await page(env);
@@ -962,12 +1007,13 @@ for (const which of ['save', { approve: 'all' }, { reject: 'all' }]) {
     env.DB.statements.length = 0;
     const res = await press(env, html, 0, which, edits);
     assert.equal(res.status, 303);
-    // Since #224 the admin guard reads the admin once a request, so the whole
-    // request is at most four; the press's own stay at three, whatever the
-    // batch's size.
+    // Since #224 the admin guard reads the admin once a request. The press's
+    // own were three, whatever the batch's size, until #270 added the read
+    // of the queue's order that an approve or reject lands by: four now, and
+    // Save captions, which lands at its batch, still two.
     assert.equal(env.DB.statements.filter((sql) => GUARD_READ.test(sql)).length, 1);
     const own = env.DB.statements.filter((sql) => !GUARD_READ.test(sql)).length;
-    assert.ok(own <= 3, `made ${own} statements`);
+    assert.equal(own, which === 'save' ? 2 : 4, `made ${own} statements`);
     if (which === 'save') assert.ok(rows(env).every((r) => r.state === 'pending' && r.caption === long(r.id)));
     if (which.approve) assert.ok(rows(env).every((r) => r.state === 'approved' && r.caption === long(r.id)));
     if (which.reject) assert.deepEqual([rows(env).length, env.MEDIA.objects.size], [0, 0]);
@@ -1010,7 +1056,9 @@ test('a batch over 200 photos is shown in parts of 200, each its own form, and "
   assert.equal(new Set(parts.map((f) => f.id)).size, 4, 'two parts share a form id');
   assert.match(html, /aria-label="Approve all 200 in batch 1, part 2 of 3, Fall Regatta">Approve all 200</);
   const res = await press(env, html, 1, { approve: 'all' });
-  assert.match(res.location, new RegExp(`^/admin/queue\\?done=approved&n=200#batch-${BATCH_A}-\\d+-part-2$`));
+  // #270: on part 3's first photo, the next waiting.
+  const next = rows(env)[400].id;
+  assert.equal(res.location, `/admin/queue?done=approved&n=200&at=photo-${next}#photo-${next}`);
   const states = rows(env).map((r) => r.state);
   assert.deepEqual([states.slice(0, 200), states.slice(200, 400), states.slice(400)].map((s) => [...new Set(s)]),
     [['pending'], ['approved'], ['pending']]);
@@ -1025,7 +1073,7 @@ test('the worst part a parent can fill, 200 photos each captioned with 200 emoji
   // The cap is held between this body and the 512 KiB refusal above it.
   assert.ok(body.length > 480_000 && body.length < QUEUE_FORM_BYTES, `the form is ${body.length} characters`);
   const res = await press(env, html, 0, { approve: 'all' });
-  assert.match(res.location, /^\/admin\/queue\?done=approved&n=200#batch-/);
+  assert.equal(res.location, '/admin/queue?done=approved&n=200');
 });
 
 // ---- The notices -----------------------------------------------------------------
@@ -1058,6 +1106,211 @@ test('the page shows the notice from its address', async () => {
   assert.match(block(html, 'main'), /<p role="status">Approved 2 photos\.<\/p>/);
 });
 
+// ---- #270: the queue on a phone ------------------------------------------------
+
+// A waiting photo's card, as the page renders it.
+const card = (html, id) => html.match(new RegExp(`<li class="waiting" id="photo-${id}">[\\s\\S]*?</li>`))?.[0];
+const get = async (env, location) => (await admin(env, 'GET', location.split('#')[0], { origin: null })).text();
+
+test('#270 criterion 1: each waiting photo names its event and team, its sender where the site knows one, and has its caption field', async () => {
+  const { env, fall } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  const named = seedPhoto(env, fall);
+  const linked = seedPhoto(env, fall, { sentAt: T0 + 1 });
+  const cohssa = seedPhoto(env, districts, { batch: BATCH_B, sentAt: T0 + 2 });
+  env.DB.sqlite.prepare("INSERT INTO accounts (id, email, name, role, requested_at) VALUES (2, 'pat@example.org', 'Pat Parent', 'parent', 1)").run();
+  env.DB.sqlite.prepare('UPDATE photos SET account_id = 2, code_generation = 0, session_issued = 0 WHERE id = ?').run(named);
+  const html = await page(env);
+  const facts = (id) => [...card(html, id).matchAll(/<p class="waiting-(album|facts)">([\s\S]*?)<\/p>/g)].map((m) => m[2].replace(/<time[^>]*>[^<]*<\/time>/, 'T'));
+  // Each card says it, under its own heading, so a photo landed on far below
+  // its batch's heading is still placed.
+  assert.deepEqual(facts(named), ['Fall Regatta · Hoover JRT', 'Taken T · sent by Pat Parent']);
+  assert.deepEqual(facts(linked), ['Fall Regatta · Hoover JRT', 'Taken T'], 'the invite link names nobody (#223, D17)');
+  assert.deepEqual(facts(cohssa), ['Districts · COHSSA', 'Taken T']);
+  for (const id of [named, linked, cohssa]) {
+    assert.match(card(html, id), new RegExp(`<label for="caption-${id}">Caption for photo ${id}</label>\\s*<input id="caption-${id}" name="caption-${id}" type="text"`));
+  }
+  // A photo in a team's Not sure album says so.
+  const notSure = env.DB.sqlite.prepare("SELECT address FROM albums WHERE holding = 1 AND team = 'hoover-jrt'").get().address;
+  const held = seedPhoto(env, notSure, { batch: BATCH_A, sentAt: T0 + 3 });
+  assert.match(card(await page(env), held), /<p class="waiting-album">Not sure \/ other event · Hoover JRT<\/p>/);
+});
+
+test('#270 criterion 1: every button on the queue is at least 44 px by the stylesheet, and on a phone each picture runs edge to edge and Reject sits alone at the end of its row', () => {
+  const css = read('public', 'css', 'site.css');
+  const tokens = read('..', 'shared', 'css', 'tokens.css');
+  const px = (token) => Number(tokens.match(new RegExp(`${token}:\\s*([0-9.]+)rem;`))?.[1]) * 16;
+  const rule = (text, selector) => text.match(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.()[\]:]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
+  const buttons = rule(css, '.batch .button,\n#reject-dialog .button');
+  for (const side of ['min-height', 'min-width']) {
+    const token = buttons.match(new RegExp(`${side}: var\\((--[a-z0-9-]+)\\);`))?.[1];
+    assert.ok(token, `no ${side} token on the queue's buttons`);
+    assert.ok(px(token) >= 44, `${side} ${token} is ${px(token)} px, under 44`);
+  }
+  // The phone block, 320 to 430 inside it.
+  const phone = css.match(/@media \(max-width: 30rem\) \{([\s\S]*?)\n\}/g)?.find((m) => m.includes('.waiting-screen'));
+  assert.ok(phone, 'no phone block for the queue');
+  assert.ok(Number(phone.match(/max-width: ([0-9.]+)rem/)[1]) * 16 >= 430);
+  // Edge to edge: the list steps out by exactly the page's own margin.
+  assert.match(rule(read('..', 'shared', 'css', 'base.css'), '.wrap'), /padding-inline: var\(--space-4\);/);
+  assert.match(rule(phone, '.queue'), /margin-inline: calc\(-1 \* var\(--space-4\)\);/);
+  assert.match(rule(phone, '.waiting'), /padding-inline: 0;/);
+  // Reject on its own row, at the end, after a full-width break, by order
+  // alone. Its rule is the fill rule's selector and an attribute more, so it
+  // outranks that rule wherever either sits in the file: it keeps its own
+  // width rather than filling the row (review-fanout at #270's review: the
+  // pair rested on rule order the file did not state).
+  assert.match(rule(phone, '.batch .actions .button'), /flex: 1 1 auto;/);
+  assert.match(rule(phone, '.batch .actions .button[data-reject]'), /order: 2;[\s\S]*flex: 0 0 auto;[\s\S]*margin-inline-start: auto;/);
+  assert.match(rule(phone, '.batch .actions:has([data-reject])::after'), /content: '';[\s\S]*flex-basis: 100%;[\s\S]*order: 1;/);
+  // Each photo's buttons stay at the bottom of the screen while its card is
+  // on it (owner, at #270's review), on a ground of their own, and a focused
+  // field is scrolled clear of them (WCAG 2.4.11).
+  assert.match(rule(phone, '.waiting > .actions'), /position: sticky;[\s\S]*bottom: 0;[\s\S]*background: var\(--chalk\);/);
+  assert.match(rule(phone, 'html:has(.queue)'), /scroll-padding-bottom: calc\(/);
+  // The picture's focus ring is two rings, --chalk outside and --deep inside,
+  // at least 9:1 against each other, so one of them reads 3:1 on any photo
+  // (WCAG C40; review-fanout at #270's review: one --blue ring read 1.14:1
+  // on deep water).
+  const ring = rule(phone, '.waiting-screen:focus-visible').match(/outline-color: var\((--[a-z]+)\);/)?.[1];
+  const inner = rule(phone, '.waiting-screen:focus-visible img').match(/outline: [^;]* solid var\((--[a-z]+)\);/)?.[1];
+  assert.deepEqual([ring, inner], ['--chalk', '--deep']);
+  const lum = (token) => {
+    const hex = tokens.match(new RegExp(`${token}:\\s*#([0-9A-Fa-f]{6});`))[1];
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (p, q) => (Math.max(lum(p), lum(q)) + 0.05) / (Math.min(lum(p), lum(q)) + 0.05);
+  assert.ok(ratio(ring, inner) >= 9, `the rings read ${ratio(ring, inner).toFixed(2)}:1`);
+  // The control: the one --blue ring the review measured falls short.
+  assert.ok(ratio('--blue', '--chalk') < 9);
+  // The new event's fieldset may be narrower than its title field.
+  assert.match(rule(css, '.move fieldset'), /min-inline-size: 0;/);
+  // The control: the matcher reads a rule's body, and a rule that is not there reads empty.
+  assert.equal(rule(css, '.no-such-rule'), '');
+});
+
+test('#270 criterion 2: nextWaiting lands on the photo after the press, then the next batch, then the earliest still waiting', () => {
+  // Two batches as the page shows them: [1, 2, 3] then [4, 5].
+  const order = [1, 2, 3, 4, 5];
+  assert.equal(nextWaiting(order, [1, 2, 3], [1], [1]), 2, 'the next in its batch');
+  assert.equal(nextWaiting(order, [1, 2, 3], [2], [2]), 3, 'on down the batch, not back to 1, which waits');
+  assert.equal(nextWaiting(order, [1, 2, 3], [3], [3]), 4, 'the last of its batch: the next batch\'s first');
+  assert.equal(nextWaiting(order, [1, 2, 3], [1, 2, 3], [1, 2, 3]), 4, 'all of a batch: the next batch\'s first');
+  assert.equal(nextWaiting(order, [4, 5], [5], [5]), 1, 'nothing after it: the earliest still waiting');
+  assert.equal(nextWaiting([1, 2], [1, 2], [2], [2]), 1, 'going round never lands on what the press did');
+  assert.equal(nextWaiting([5], [4, 5], [5], [5]), null, 'nothing waits: the top');
+  // Taken by another admin before the press: the order lacks them.
+  assert.equal(nextWaiting([1, 3, 4, 5], [1, 2, 3], [2], []), 3, 'the next the batch showed');
+  assert.equal(nextWaiting([1, 3, 4, 5], [1, 2, 3], [1], [1]), 3,
+    'the one after it taken meanwhile: on past it, which the page will not show (review-fanout at #270\'s review)');
+  assert.equal(nextWaiting([1, 4, 5], [1, 2, 3], [1], [1]), 4, 'and every one after it: the next batch');
+  assert.equal(nextWaiting([4, 5], [1, 2, 3], [1, 2, 3], []), 4, 'the whole batch gone: the earliest');
+  // A named photo the press left waiting (a Not sure one) is passed over too.
+  assert.equal(nextWaiting([1, 2, 3], [1, 2, 3], [1, 2], [2]), 3);
+  // A part of a batch: [3, 4] of the order's six.
+  assert.equal(nextWaiting([1, 2, 3, 4, 5, 6], [3, 4], [3, 4], [3, 4]), 5);
+});
+
+test('#270 criterion 2: after a press the page lands on the next waiting photo, the notice in its card, and the captions typed in the batch survive it', async () => {
+  const { env, fall } = await site();
+  const [a, b, c] = [0, 1, 2].map((i) => seedPhoto(env, fall, { sentAt: T0 + i }));
+  const d = seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 10 });
+  // Approve a, with captions typed for b and c (#156: every press saves them).
+  let res = await press(env, await page(env), 0, { approve: a }, { [b]: 'Mark rounding', [c]: 'Finish' });
+  assert.equal(res.location, `/admin/queue?done=approved&photo=${a}&at=photo-${b}#photo-${b}`);
+  let html = await get(env, res.location);
+  assert.match(card(html, b), new RegExp(`^<li class="waiting" id="photo-${b}">\\s*<p role="status">Approved photo ${a}\\.</p>\\s*<h3>Photo ${b}</h3>`));
+  assert.equal(html.match(/role="status"/g).length, 1, 'the notice shows once, in the card');
+  assert.match(card(html, b), /name="caption-\d+" type="text" autocomplete="off" value="Mark rounding">/);
+  assert.match(card(html, c), /value="Finish">/);
+  assert.deepEqual([b, c].map((id) => row(env, id).caption), ['Mark rounding', 'Finish']);
+  // Reject b, from that page, with c's caption changed again: on to c.
+  res = await press(env, html, 0, { reject: b }, { [c]: 'Finish line' });
+  assert.equal(res.location, `/admin/queue?done=rejected&photo=${b}&at=photo-${c}#photo-${c}`);
+  html = await get(env, res.location);
+  assert.match(card(html, c), new RegExp(`<p role="status">Rejected photo ${b}\\. It is deleted, with its three sizes\\.</p>`));
+  assert.match(card(html, c), /value="Finish line">/);
+  // Approve c, the last of its batch: on to d, the next batch's first.
+  res = await press(env, html, 0, { approve: c });
+  assert.equal(res.location, `/admin/queue?done=approved&photo=${c}&at=photo-${d}#photo-${d}`);
+  assert.match(card(await get(env, res.location), d), new RegExp(`<p role="status">Approved photo ${c}\\.</p>`));
+  // Approve d, the last: nothing waits, so the top, which says so.
+  res = await press(env, await page(env), 0, { approve: d });
+  assert.equal(res.location, `/admin/queue?done=approved&photo=${d}`);
+  assert.match(block(await get(env, res.location), 'section'), /<p role="status">Approved photo \d+\.<\/p>/);
+});
+
+test('#270 criterion 2: Approve all and Reject all on a later batch land on the batch after it, not back on one skipped above', async () => {
+  // The order is read before the press: read after it, the pressed batch is
+  // gone from it, and the earliest photo still waiting, the skipped one, would
+  // look like the next.
+  const { env, fall } = await site();
+  const skipped = seedPhoto(env, fall, { batch: BATCH_A });
+  const b = [1, 2].map((i) => seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + i }));
+  const c = [3, 4].map((i) => seedPhoto(env, fall, { batch: 'c0c0c0c0-0000-4000-8000-000000000003', sentAt: T0 + i }));
+  const d = seedPhoto(env, fall, { batch: 'd0d0d0d0-0000-4000-8000-000000000004', sentAt: T0 + 5 });
+  let res = await press(env, await page(env), 1, { approve: 'all' });
+  assert.equal(res.location, `/admin/queue?done=approved&n=2&at=photo-${c[0]}#photo-${c[0]}`);
+  res = await press(env, await page(env), 1, { reject: 'all' });
+  assert.equal(res.location, `/admin/queue?done=rejected&n=2&at=photo-${d}#photo-${d}`);
+  // The control: with nothing after it, the skipped one is next.
+  res = await press(env, await page(env), 1, { approve: d });
+  assert.equal(res.location, `/admin/queue?done=approved&photo=${d}&at=photo-${skipped}#photo-${skipped}`);
+  assert.deepEqual([skipped, ...b, d].map((id) => row(env, id).state), ['pending', 'approved', 'approved', 'approved']);
+});
+
+test('#270: an Approve or Reject on photos no longer waiting lands on the next that is, past those taken meanwhile, not at the top', async () => {
+  // review-fanout at #270's review: every gone fixture had nothing else
+  // waiting, so a gone press landing at the top, or on a card the page no
+  // longer shows, passed.
+  const { env, fall } = await site();
+  const [a, b, c] = [0, 1, 2].map((i) => seedPhoto(env, fall, { sentAt: T0 + i }));
+  const d = seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 10 });
+  const html = await page(env);
+  // Another admin approves a and b behind this page's back.
+  const take = (...ids) => ids.forEach((id) => env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(T0 + 9, id));
+  take(a, b);
+  assert.equal((await press(env, html, 0, { approve: a })).location, `/admin/queue?error=gone&at=photo-${c}#photo-${c}`);
+  assert.equal((await press(env, html, 0, { reject: a })).location, `/admin/queue?error=gone&at=photo-${c}#photo-${c}`);
+  assert.match(card(await get(env, `/admin/queue?error=gone&at=photo-${c}`), c),
+    /<p role="status">No photo was approved, rejected or moved: those photos are no longer waiting/);
+  // c taken too: on to the next batch's first.
+  take(c);
+  assert.equal((await press(env, html, 0, { approve: b })).location, `/admin/queue?error=gone&at=photo-${d}#photo-${d}`);
+  assert.equal((await press(env, html, 0, { reject: 'all' })).location, `/admin/queue?error=gone&at=photo-${d}#photo-${d}`);
+  assert.deepEqual([a, b, c, d].map((id) => row(env, id).state), ['approved', 'approved', 'approved', 'pending']);
+});
+
+test('#270: Save captions shows its notice in the card it changed, or in its batch when it changed none, and a ?at= the page does not show puts it at the top, unechoed', async () => {
+  const { env, fall } = await site();
+  const a = seedPhoto(env, fall);
+  seedPhoto(env, fall, { sentAt: T0 + 1 });
+  const res = await press(env, await page(env), 0, 'save', { [a]: 'Start' });
+  assert.equal(res.location, `/admin/queue?done=saved&n=1&at=photo-${a}#photo-${a}`);
+  let html = await get(env, res.location);
+  assert.match(card(html, a), new RegExp(`^<li class="waiting" id="photo-${a}">\\s*<p role="status">Saved 1 caption\\.</p>\\s*<h3>`));
+  assert.equal(html.match(/role="status"/g).length, 1, 'the notice shows once, in the card');
+  const nothing = await press(env, html, 0, 'save');
+  const batch = `batch-${BATCH_A}-${row(env, a).album_id}`;
+  assert.equal(nothing.location, `/admin/queue?done=saved&n=0&at=${batch}#${batch}`);
+  html = await get(env, nothing.location);
+  const section = html.match(new RegExp(`<section class="wrap batch" id="${batch}"[\\s\\S]*?</section>`))[0];
+  assert.match(section, /<p class="batch-facts"[^>]*>[\s\S]*?<\/p>\s*<p role="status">No caption had changed\.<\/p>\s*<form /);
+  assert.doesNotMatch(block(html, 'section'), /role="status"/);
+  // Anything else in ?at= shows the notice at the top: a photo not waiting,
+  // a batch not on the page, an id the page has that is neither, and markup.
+  for (const at of ['photo-999', `batch-${BATCH_B}-1`, 'main', 'reject-dialog', `photo-${a}"><b>x</b>`]) {
+    const other = await get(env, `/admin/queue?done=saved&n=1&at=${encodeURIComponent(at)}`);
+    assert.match(block(other, 'section'), /<p role="status">Saved 1 caption\.<\/p>/, at);
+    assert.equal(other.match(/role="status"/g).length, 1, at);
+    assert.ok(!other.includes('<b>x</b>'), 'the address is echoed');
+  }
+  // With no notice there is nothing to place, whatever ?at= says.
+  assert.doesNotMatch(await get(env, `/admin/queue?at=photo-${a}`), /role="status"/);
+});
+
 // ---- The page itself ---------------------------------------------------------------
 
 const validator = new HtmlValidate(new FileSystemConfigLoader());
@@ -1072,8 +1325,14 @@ test('every state of the page passes the photo site\'s html-validate config, and
   // Two batches in one album: two regions, which need two names.
   seedPhoto(env, practice, { batch: BATCH_A, sentAt: T0 + 3 });
   const full = await page(env);
-  const noticed = adminQueuePage({ batches: await waitingBatches(env.DB), notice: queueNotice(new URLSearchParams('done=approved&n=2')) });
-  for (const html of [empty, full, noticed]) {
+  const batches = await waitingBatches(env.DB);
+  const notice = queueNotice(new URLSearchParams('done=approved&n=2'));
+  const noticed = adminQueuePage({ batches, notice });
+  // #270: the notice in a photo's card, and in a batch's section.
+  const inCard = adminQueuePage({ batches, notice, at: `photo-${batches[1].photos[1].id}` });
+  const inBatch = adminQueuePage({ batches, notice, at: batches[1].id });
+  assert.ok([inCard, inBatch].every((html) => !block(html, 'section').includes('role="status"')), 'a landed notice left at the top');
+  for (const html of [empty, full, noticed, inCard, inBatch]) {
     const report = await validate(html);
     assert.deepEqual(report.results.flatMap((r) => r.messages.map((m) => `${m.ruleId}: ${m.message}`)), []);
     // The control plants a second h1 beside the lede. Not before the first
@@ -1117,7 +1376,7 @@ test('its chrome and stylesheets are the admin home\'s, and its one script is st
 });
 
 test('the admin home links to the queue', () => {
-  assert.match(block(adminHome(adminData().admin, { waiting: 0, bytes: 0 }), 'main'), /<a href="\/admin\/queue">Waiting for approval<\/a>/);
+  assert.match(block(adminHome(adminData().admin, { waiting: 0, bytes: 0 }), 'main'), /<a class="button button-quiet todo-item" href="\/admin\/queue">/);
 });
 
 // ---- The script (public/js/admin-queue.js) ------------------------------------

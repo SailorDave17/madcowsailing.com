@@ -76,14 +76,19 @@ site**, on those accounts; #194 recorded the decisions behind both epics
 `/hoover-jrt/` and `/cohssa/`, each listing its own team's albums (item 28).
 #228 gave each team a "Not sure / other event" for photos from an event
 nobody has added yet, which an admin moves into its event on `/admin/queue`
-before approving them (item 32). Epics #147, #216 and #191 build the rest. The `develop` preview sits behind
-Access. The domain has served the site since release `50992c3` (2026-09-27),
-and each story reaches it with the next promotion, so read `release`, not this
+before approving them (item 32). #268, the first of epic #267's, deleted
+the Access application in front of `/admin` on production, so an admin
+signs in once, with the password and the emailed code (item 30). #269 made
+the admin home open on what is waiting, each count a full-width button to
+its page (item 30). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+(2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
+Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
-The remaining open work is refinement rather than construction — self-hosted
-fonts, a second app's pages, copy sharpening — and it is
-tracked on the board, not here.
+The open work is still construction: epics #147 (the photo site), #216
+(accounts) and #191 (the COHSSA section) have stories open. Beside them, #163
+keeps the app pages true to the apps and #175 carries the plumbing the three
+sites share. All of it is tracked on the board, not here.
 
 *This section read "Greenfield … No page of either site is built yet" until
 2026-09-04, by which point eleven stories had shipped and both domains were
@@ -99,7 +104,8 @@ story, this is the paragraph to check.*
 ├── shared/
 │   ├── css/
 │   │   ├── tokens.css        Colour, type, space. Single source of truth.
-│   │   └── base.css          Reset, nav, buttons, cards — used by both sites
+│   │   └── base.css          Reset, header and footer shell (#169), nav, buttons,
+│   │                         cards — used by all three sites
 │   ├── img/                  madcow-*.svg, madcow-*.png
 │   └── js/gallery.js         The trip-log lightbox. The only script file; the Race
 │                             Timer product page carries one inline (#40)
@@ -788,8 +794,10 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   every Function route outside its `PUBLIC` list with seven bad cookies, a parent's
   and a coach's (#192), and requires 401, and holds every upload write to 403
   without the site's Origin.
-  An admin route (#151) answers to the admin guard instead (item 12). The test knows
-  admin routes by directory and holds them to 403, rather than listing them as public.
+  An admin route (#151) answers to the admin guard instead: #151's Access check
+  (item 12), since #224 the site's admin session (item 30), and since #268 with no
+  Access application in front of it on any hostname. The test knows admin routes by
+  directory and holds them to the guard's refusal, rather than listing them as public.
 - **The admin page makes and changes the code** (#152, `/admin/code`). "Create code"
   makes generation 1 only while the database holds none, so a second press, or a page
   left open, never ends a session. "Rotate code" opens a native `<dialog>`, and only
@@ -807,13 +815,15 @@ Secrets, and where the code is created and rotated, are in README.md, The photo 
 
 ### 12. The admin guard
 
-**Replaced in code by #224, 2026-10-06 (item 30).** Both admin directories
-now run `requireAdmin`, an account's 12-hour admin session opened by its
-password and an emailed code, and `requireOwner` is gone, with the admins'
-`ACCESS_AUD` and `ADMIN_EMAILS` it read (the owner's choice at #224's
-pickup: replace outright). The Access application in front of `/admin`
-stays until #226 removes it. What follows is #151's record as built: the
-token check it describes still guards `/coach` (item 20) until #226.
+**Replaced in code by #224, 2026-10-06 (item 30), and at the door by #268,
+2026-10-07.** Both admin directories now run `requireAdmin`, an account's
+12-hour admin session opened by its password and an emailed code, and
+`requireOwner` is gone, with the admins' `ACCESS_AUD` and `ADMIN_EMAILS` it
+read (the owner's choice at #224's pickup: replace outright). #268 deleted
+the Access application in front of `/admin` on `photos.madcowsailing.com`,
+and the `ACCESS_AUD` var that still held its tag (epic #267: the owner moved
+it ahead of #226). What follows is #151's record as built: the token check
+it describes still guards `/coach` (item 20) until #226.
 
 **Built in #151, 2026-09-28.** Every `/admin` page and admin API passes
 `requireOwner` in `lib/access.js`. Since #192 the same check also guards
@@ -1194,13 +1204,70 @@ here; an approved one leaves the public page through #158.
   the upload's objects-first, so no row ever names objects that are gone. A
   delete the bucket refuses leaves objects no row names, and the log names
   each one's `photos/<key>/` prefix (README, The photo site).
-- **A press is at most three statements, whatever the batch holds.** D1 allows
+- **A press is a fixed handful of statements, whatever the batch holds**,
+  besides the admin guard's own read: two for Save captions, four for Reject,
+  four for Approve or five when it approves fewer than it named, and five for
+  Move into an event, six when the move finds none of its photos still
+  waiting. Into a new event, `createAlbum`'s
+  tries for a free address take the place of the event's read, so five at the
+  first address. #270 added the read of the queue's order (below) to Approve
+  and Reject, and to Move when nothing moves, and took two reads off Move's
+  success. `test/queue.test.js` and `test/not-sure.test.js` count them. *(This
+  said "at most three" until #270's review, which counted.)*
+  D1 allows
   50 queries a request on the free plan and 100 bound parameters a query
   ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/), read
   2026-09-30), so the ids and the captions each travel as one JSON value, read
   with `json_each()`. A queue form may be 512 KiB, far past the albums' 4 KB,
   since it carries a caption for every photo in the batch. R2 deletes at most
   1,000 keys a call, so a reject deletes 333 photos' objects a call.
+- **A press lands on the next waiting photo** (#270), so an admin on a phone
+  carries on down the queue rather than starting again at the top: the next
+  photo in its batch that still waits, else the next batch's first, else the
+  earliest photo still waiting, which is one the admin skipped (owner, at
+  #270's pickup; not chosen: the top of the queue). Approve and Reject read
+  the queue's order first (`waitingOrder`, the page's own query, so a
+  filtered page stays on its team), which reads every waiting row once more
+  a press, as the page's load after it does. **Save captions lands on the
+  card of the last caption it changed**, in the page's order, and at the
+  batch when none changed (owner, at #270's review): Enter in a caption field
+  presses it, and landing at the batch's heading sent an admin typing in
+  photo 150 back up past 149 cards. Not chosen: the script naming the
+  focused card, which needs JavaScript; the batch. A Move refused for its
+  choice, and an approve naming only Not sure photos, land at the batch,
+  where the Move choices are. **The
+  notice shows where the page lands** (owner, at pickup), in that photo's
+  card or that batch's section, once; the address carries `?at=` because the
+  fragment never reaches the server, and the page puts the notice at the top
+  only when `?at=` names nothing it shows. Not chosen: the top only, out of
+  sight on a phone; a bar pinned to the screen, which costs height all
+  evening and can cover a focused caption field (WCAG 2.4.11).
+- **On a phone the queue is laid out for one hand** (#270; the owner's choices
+  at pickup). Up to 30rem wide, each photo's screen size runs edge to edge,
+  the most a phone can give a face; its words, caption field and buttons keep
+  the page's margin. Not chosen: the card inside the margins (272 px of
+  picture at 320) or as it was (238 px). Each photo names its event and team
+  under its heading as well as its batch does, since a press lands far below
+  that heading. Every button on the page is at least 48 px square
+  (`--space-6`), at every width. **Reject and Reject all sit alone on the
+  last row of their buttons, at its end**, apart from Approve, with Approve
+  and Move filling the row above. Not chosen: one row with Reject at its far
+  end (it drops to a second row at 320 anyway, and sits 13 px from Move at
+  360); Approve alone across the full width with Move and Reject below it.
+  **Each photo's buttons stick to the bottom of the screen while its card is
+  on it** (owner, at #270's review), so after a press they are under the
+  thumb: landing on an upright photo had put Approve 211 to 418 px below the
+  screen at every phone size, a landscape one on it from 360 px up. The row
+  covers about 128 px of the photo while scrolling, and the page's
+  `scroll-padding-bottom` keeps a focused caption above it (WCAG 2.4.11).
+  Not chosen: filing it for #276's real-phone check; one scroll per upright
+  photo. **The picture's focus ring is two rings**, `--chalk` then `--deep`
+  inside it, since an edge-to-edge picture puts the ring on the photo, where
+  one `--blue` ring read 1.14:1 on deep water; the pair reads 14.87:1, so one
+  of them reads 3:1 on any photo (WCAG technique C40).
+  Before #270 the page was 717 px wide on every phone from 320 to 430: the
+  new event's fieldset was as wide as its 65-character title field, as a
+  fieldset is unless given `min-inline-size: 0`.
 - **The admin home shows how many photos wait and the storage used**, the sum
   of every stored row's `bytes` in any state, against item 8's free 10
   GB-month. R2's pricing page does not say which GB it means
@@ -1600,8 +1667,9 @@ lands on the share page able to send, having typed and followed no code
   does not match `/coach`. Not chosen: adding those paths to the admin
   application. Access applies a policy to a whole application, so a coach
   would then pass Access's sign-in into `/admin`, with the code's 403 the
-  only thing stopping them. Its tag differs from the admin one's, so a token
-  signed for either never passes the other's check. On a preview, the Pages
+  only thing stopping them. Its tag differed from the admin one's, so a token
+  signed for either never passed the other's check, until #268 deleted the
+  admin application. On a preview, the Pages
   preview application signs every path, so there the two tags are equal and
   the lists alone tell admin from coach. README, The photo site, has the
   application, its policy and the four places a new coach goes.
@@ -2761,13 +2829,15 @@ decisions at pickup, through the question tool:
 - **Replace outright** (the recommendation). Both admin directories run
   `[requireAdmin, requireSameOrigin]`; `requireOwner` and the admins' pair
   of names it read (`ACCESS_AUD`, `ADMIN_EMAILS`) are gone from the code.
-  The Access application still stands in front of `/admin` on
-  `photos.madcowsailing.com` until #226 (criterion 7), so there an admin
-  meets Access's PIN and then the site's sign-in, and an admin not on its
-  policy uses `madcowphotos.pages.dev/admin/` until #226. The accepted cost:
-  the second address on `ADMIN_EMAILS` cannot open `/admin` from the
-  release that carries #224 until it has an account and an admin makes it
-  one. Not chosen: either lock opening `/admin` until #226; both required.
+  The Access application stayed in front of `/admin` on
+  `photos.madcowsailing.com` (criterion 7), so there an admin met Access's
+  PIN and then the site's sign-in, and an admin not on its policy used
+  `madcowphotos.pages.dev/admin/`, until #268 deleted it on 2026-10-07
+  (epic #267: the owner moved it ahead of #226). The accepted cost: the
+  second address on `ADMIN_EMAILS` cannot open `/admin` from the release
+  that carries #224 until it has an account and an admin makes it one. Not
+  chosen: either lock opening `/admin` alone while Access stood; both
+  required.
 
 The rest are defaults, taken while building and recorded on #224's pull
 request:
@@ -2833,13 +2903,24 @@ request:
 - **The admins' email about new requests goes to the admin accounts**
   (`adminAddresses` in `lib/accounts.js`), the owner's included, where it
   went to `ADMIN_EMAILS` (item 25). So nothing reads `ADMIN_EMAILS` now, and
-  #226 deletes it with the Access application. `ACCESS_AUD` stays in
-  `wrangler.jsonc`, read by nothing, as the record of that application's
-  tag until #226.
+  #226 deletes it. `ACCESS_AUD` stayed in `wrangler.jsonc`, read by nothing,
+  as the record of the Access application's tag, until #268 deleted the
+  application and the var; README's Access section keeps the tag.
 - **The admin home says who is signed in, as the owner or an admin, until
   when, and has Sign out**, which ends every session the account holds, as
   `/account`'s does (#222). `/sign-out` now ends a session from either
-  cookie and deletes both.
+  cookie and deletes both. Since #269 that is the page's last section.
+- **Since #269 the admin home opens on what is waiting** (epic #267). Under
+  its head come photos waiting for approval, account requests and removal
+  requests, in that order (`TODO` in `lib/admin-page.js`), each a
+  full-width button 48 px tall to its page with its count first. A zero is
+  shown too, in the quiet button, saying "Nothing to do.". Then the links:
+  Invite code, Albums, People and Email, and the storage figure as a line
+  of text. The owner's choices at pickup: keep the Invite code link, which
+  the criterion's list left out, until #226 retires the invite link; and
+  storage stays text, since there is no page for it to link to. The counts
+  are unchanged: `queueSummary` and `waitingRequests`, whole-site, photos
+  only.
 - **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
   so `scripts/access-dev.mjs` signs an admin session for the local account
   `ADMIN_DEV_ACCOUNT` names, with the local key, on every request it
@@ -2850,13 +2931,14 @@ owner chose to fix all 11. The owner's choices on the three it escalated,
 and on its one escalation, through the question tool:
 
 - **The right code lands on `/account`, which links the admin pages** (the
-  recommendation). Until #226, Access stands in front of `/admin` on
-  `photos.madcowsailing.com` and answers a browser without its cookie with a
+  recommendation). Until #268, Access stood in front of `/admin` on
+  `photos.madcowsailing.com` and answered a browser without its cookie with a
   302 to its login on another origin. The code page's CSP says `form-action
   'self'`, which Chromium and WebKit apply to every redirect of a form's
   post, so the 303 to `/admin/` was stopped there with no error page, after
-  the code was spent; Firefox follows it. A link is not a form's post. #226
-  may go back to the direct redirect. Not chosen: allowing Access's origin
+  the code was spent; Firefox follows it. A link is not a form's post. With
+  Access gone, a direct redirect to `/admin/` would stay on the site's
+  origin; no story has taken that up. Not chosen: allowing Access's origin
   in `form-action` on `/sign-in/code`; documenting "open `/admin` first".
 - **Making an admin ends every session the account holds** (the
   recommendation): `promoteAdmin` adds 1 to the session version, the
@@ -3144,8 +3226,10 @@ The rest were taken while building:
   `holding = 0` and to the photo's own team in the same statement, so an
   album moved to the other team meanwhile takes nothing. It moves waiting
   photos only and keeps their batch, so the queue shows them as a batch of
-  the event they are in now, and the press lands there (on its first part,
-  when the batch now holds more than 200 there). The captions typed are
+  the event they are in now, and the press lands on the first photo it
+  moved, there, ready to approve (owner, at #270's pickup; until then at the
+  batch, on its first part when it held more than 200 there). The captions
+  typed are
   saved first, as every press saves them, and before the choice is checked,
   so a press with no event chosen loses nothing typed. A press whose photos
   now sit in two teams' events, from a stale page, moves nothing and says so

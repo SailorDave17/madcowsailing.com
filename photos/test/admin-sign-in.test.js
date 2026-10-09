@@ -217,9 +217,9 @@ test('the right code opens the account\'s 90-day session and a 12-hour admin ses
   assert.match(page.html, /<input id="sign-in-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"/);
   const { response } = await postCode(env, token, code);
   assert.equal(response.status, 303);
-  // /account, which links the admin pages: until #226, a form's redirect
-  // into Access in front of /admin is stopped by form-action 'self' in
-  // Chromium and WebKit, and a link is not (#224's review).
+  // /account, which links the admin pages: until #268, a form's redirect
+  // into Access in front of /admin was stopped by form-action 'self' in
+  // Chromium and WebKit, and a link was not (#224's review).
   assert.equal(response.headers.get('Location'), '/account');
   const landing = await call(env, '/account', { cookies: { [ACCOUNT_COOKIE]: setValue(response, ACCOUNT_COOKIE) } });
   assert.equal(landing.response.status, 200);

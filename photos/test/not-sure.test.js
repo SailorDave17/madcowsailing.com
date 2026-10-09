@@ -497,8 +497,9 @@ test('#228 criterion 3: Move takes one photo, then the rest, into the chosen eve
   const three = seedPhoto(env, NOT_SURE['hoover-jrt']);
   let [batch] = batches(await queue(env));
   const where = landing(await move(env, batch, one, fall, { [`caption-${one}`]: 'Start line', [`caption-${two}`]: 'Mark rounding' }));
-  assert.deepEqual(where.query, { done: 'moved', photo: String(one), album: fall });
-  assert.equal(where.hash, `#batch-${BATCH_A}-${albumId(env, fall)}`);
+  // On the moved photo, ready to approve in its event (owner, at #270's pickup).
+  assert.deepEqual(where.query, { done: 'moved', photo: String(one), album: fall, at: `photo-${one}` });
+  assert.equal(where.hash, `#photo-${one}`);
   assert.deepEqual(photo(env, one), { state: 'pending', caption: 'Start line', batch: BATCH_A, address: fall });
   // Every press saves the batch's captions; the photo not moved keeps waiting where it was.
   assert.deepEqual(photo(env, two), { state: 'pending', caption: 'Mark rounding', batch: BATCH_A, address: NOT_SURE['hoover-jrt'] });
@@ -510,7 +511,8 @@ test('#228 criterion 3: Move takes one photo, then the rest, into the chosen eve
   assert.ok(moved.buttons.some((b) => b.name === 'approve' && b.value === String(one)));
   [batch] = batches(html).filter((b) => b.title === 'Not sure / other event');
   const all = landing(await move(env, batch, 'all', fall));
-  assert.deepEqual(all.query, { done: 'moved', n: '2', album: fall });
+  // Move all lands on the first photo it moved.
+  assert.deepEqual(all.query, { done: 'moved', n: '2', album: fall, at: `photo-${two}` });
   assert.deepEqual([one, two, three].map((id) => photo(env, id).address), [fall, fall, fall]);
 });
 
@@ -518,7 +520,7 @@ test('#228 criterion 3: any waiting photo moves, from an event too, and into a c
   const { env, fall, spring } = await site();
   const id = seedPhoto(env, fall);
   const [batch] = batches(await queue(env));
-  assert.deepEqual(landing(await move(env, batch, id, spring)).query, { done: 'moved', photo: String(id), album: spring });
+  assert.deepEqual(landing(await move(env, batch, id, spring)).query, { done: 'moved', photo: String(id), album: spring, at: `photo-${id}` });
   assert.deepEqual(photo(env, id), { state: 'pending', caption: null, batch: BATCH_A, address: spring });
 });
 
@@ -528,7 +530,7 @@ test('#228 criterion 3: "A new event" adds the batch\'s team\'s event from the q
   const [batch] = batches(await queue(env));
   const before = albumCount(env);
   const where = landing(await move(env, batch, 'all', 'new', { 'new-title': 'League day', 'new-kind': 'practice', 'new-date': '2026-10-03' }));
-  assert.deepEqual(where.query, { done: 'moved', n: '2', album: '2026-10-03-league-day', made: '1' });
+  assert.deepEqual(where.query, { done: 'moved', n: '2', album: '2026-10-03-league-day', made: '1', at: `photo-${ids[0]}` });
   assert.equal(albumCount(env), before + 1);
   const made = env.DB.sqlite.prepare('SELECT team, title, kind, held_on, closed_at, holding FROM albums WHERE address = ?').get('2026-10-03-league-day');
   assert.deepEqual({ ...made }, { team: 'cohssa', title: 'League day', kind: 'practice', held_on: '2026-10-03', closed_at: null, holding: 0 });
@@ -553,6 +555,9 @@ test('#228 criterion 3: no event chosen, or a new one with a wrong field, moves 
   for (const [to, extra, error] of cases) {
     const where = landing(await move(env, batch, id, to, { ...extra, [`caption-${id}`]: `typed ${error}` }));
     assert.equal(where.query.error, error, JSON.stringify(extra));
+    // At the batch, where its Move choices are (#270; review-fanout at #270's
+    // review: held by no test).
+    assert.deepEqual([where.query.at, where.hash], [batch.id, `#${batch.id}`], JSON.stringify(extra));
     assert.deepEqual(photo(env, id), { state: 'pending', caption: `typed ${error}`, batch: BATCH_A, address: NOT_SURE['hoover-jrt'] });
   }
   assert.equal(albumCount(env), before);
@@ -621,8 +626,110 @@ test('#228 criterion 3: a photo no longer waiting is not moved, and the queue sa
     /<p role="status">Added League day \(Hoover JRT, 3 October 2026\) to the events\. No photo was moved into it: those photos are no longer waiting/);
 });
 
-test('#228 criterion 3: a move that leaves the batch over PART_PHOTOS in its event lands on the first part, a section the page has', async () => {
-  // review-fanout at #228's review: the unsplit id named no section.
+test('#270: a Move on photos no longer waiting lands on the next that is, past those taken meanwhile, not at the top', async () => {
+  // review-fanout at #270's review: every gone fixture had nothing else waiting.
+  const { env, fall, spring } = await site();
+  const [a, b, c] = [0, 1, 2].map((i) => seedPhoto(env, fall, { sentAt: T0 + i }));
+  const d = seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 10 });
+  const [batch] = batches(await queue(env));
+  const take = (...ids) => ids.forEach((id) => env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = 5 WHERE id = ?").run(id));
+  take(a, b);
+  assert.deepEqual(landing(await move(env, batch, a, spring)), { path: '/admin/queue', query: { error: 'gone', at: `photo-${c}` }, hash: `#photo-${c}` });
+  take(c);
+  assert.deepEqual(landing(await move(env, batch, 'all', spring)), { path: '/admin/queue', query: { error: 'gone', at: `photo-${d}` }, hash: `#photo-${d}` });
+  assert.deepEqual([a, b, c, d].map((id) => photo(env, id).address), [fall, fall, fall, fall]);
+});
+
+test('#270: when the read that places a Move\'s landing fails, the answer is still the 303 saying what happened, the event it made included', async (t) => {
+  // review-fanout at #270's review: uncaught, that read turned the notice
+  // into a 500 after createAlbum had committed the event.
+  const { env, fall } = await site();
+  const id = seedPhoto(env, fall);
+  const later = seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 10 });
+  const [batch] = batches(await queue(env));
+  const before = albumCount(env);
+  const NEW = { 'new-title': 'League day', 'new-kind': 'regatta', 'new-date': '2026-10-03' };
+  const boom = async () => { throw new Error('transient D1 error'); };
+  // Another admin approves the photo while the event is being made, after
+  // the press read it as waiting; and, when `orderFails`, the queue's order
+  // cannot be read.
+  const raced = (orderFails) => ({
+    ...env.DB,
+    prepare: (sql) => {
+      if (/^INSERT INTO albums/.test(sql)) env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = 5 WHERE id = ?").run(id);
+      if (orderFails && /^SELECT p\.id, p\.batch, p\.sender/.test(sql)) return { bind: () => ({ all: boom }), all: boom };
+      return env.DB.prepare(sql);
+    },
+  });
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
+  const where = landing(await move({ ...env, DB: raced(true) }, batch, id, 'new', NEW));
+  assert.deepEqual(where, { path: '/admin/queue', query: { error: 'gone', album: '2026-10-03-league-day', made: '1' }, hash: '' });
+  assert.equal(albumCount(env), before + 1);
+  assert.deepEqual(logged, ['queue: could not read the queue to land a move on: transient D1 error']);
+  // The control: the same race with the read working lands on the photo
+  // still waiting, and logs nothing.
+  logged.length = 0;
+  env.DB.sqlite.prepare("UPDATE photos SET state = 'pending', approved_at = NULL WHERE id = ?").run(id);
+  assert.deepEqual(landing(await move({ ...env, DB: raced(false) }, batch, id, 'new', NEW)),
+    { path: '/admin/queue', query: { error: 'gone', album: '2026-10-03-league-day-2', made: '1', at: `photo-${later}` }, hash: `#photo-${later}` });
+  assert.deepEqual(logged, []);
+});
+
+// The admin guard's one read a request (lib/admin-session.js), which the
+// count below leaves out, as test/queue.test.js's does.
+const GUARD_READ = /^SELECT a\.id, a\.name, a\.email, a\.admin_role FROM accounts AS a /;
+
+test('#270: a Move is five statements into an event, its read traded for createAlbum\'s tries into a new one, as CLAUDE.md counts them', async () => {
+  // review-fanout at #270's review: CLAUDE.md's counts were reasoned, and
+  // wrong. Every press sends each photo's caption, as the page's form does.
+  const { env, fall, districts } = await site();
+  const count = async (fn) => {
+    env.DB.statements.length = 0;
+    await fn();
+    return env.DB.statements.filter((sql) => !GUARD_READ.test(sql)).length;
+  };
+  const press = async (which, to, extra = {}) => {
+    const [batch] = batches(await queue(env));
+    const captions = Object.fromEntries(batch.ids.split(' ').map((id) => [`caption-${id}`, '']));
+    return count(() => move(env, batch, which, to, { ...captions, ...extra }));
+  };
+  const NEW = { 'new-title': 'League day', 'new-kind': 'regatta', 'new-date': '2026-10-03' };
+  const id = () => seedPhoto(env, NOT_SURE['hoover-jrt']);
+  let one = id();
+  assert.equal(await press(one, fall), 5, 'into an event');
+  env.DB.sqlite.prepare('DELETE FROM photos').run();
+  one = id();
+  assert.equal(await press(one, 'new', NEW), 5, 'into a new event at its first address');
+  env.DB.sqlite.prepare('DELETE FROM photos').run();
+  one = id();
+  assert.equal(await press(one, 'new', NEW), 6, 'into a new event whose first address is held: one more try');
+  env.DB.sqlite.prepare('DELETE FROM photos').run();
+  one = id();
+  assert.equal(await press(one, districts), 4, 'another team\'s event, refused: the event read, and nothing moved');
+  assert.equal(await press(one, '<b>'), 3, 'no address at all is refused unread (albumAt)');
+  // Rejected between the teams read and the move: the move finds none, then
+  // the order is read to land on.
+  let [batch] = batches(await queue(env));
+  const raced = {
+    ...env.DB,
+    prepare: (sql) => {
+      if (/^UPDATE photos SET album_id/.test(sql)) env.DB.sqlite.prepare('DELETE FROM photos WHERE id = ?').run(one);
+      return env.DB.prepare(sql);
+    },
+  };
+  assert.equal(await count(() => move({ ...env, DB: raced }, batch, one, fall, { [`caption-${one}`]: '' })), 6, 'gone at the move');
+  // Rejected before the press: the teams read finds none, then the order.
+  one = id();
+  [batch] = batches(await queue(env));
+  env.DB.sqlite.prepare('DELETE FROM photos WHERE id = ?').run(one);
+  assert.equal(await count(() => move(env, batch, one, fall, { [`caption-${one}`]: '' })), 4, 'gone at the teams read');
+});
+
+test('#228 criterion 3: a move that leaves the batch over PART_PHOTOS in its event lands on the moved photo, in whichever part the page shows it', async () => {
+  // review-fanout at #228's review: the unsplit id named no section. Since
+  // #270 a move lands on the photo's card, which has one id whatever part it
+  // is in.
   const { env, fall } = await site();
   for (let i = 0; i <= PART_PHOTOS; i++) seedPhoto(env, NOT_SURE['hoover-jrt'], { sentAt: T0 + i });
   // One of the batch already approved in Fall: the queue does not show it,
@@ -630,19 +737,20 @@ test('#228 criterion 3: a move that leaves the batch over PART_PHOTOS in its eve
   seedPhoto(env, fall, { state: 'approved', sentAt: T0 - 5 });
   const [first] = batches(await queue(env));
   assert.equal(first.ids.split(' ').length, PART_PHOTOS);
-  // PART_PHOTOS into Fall: one section, unsplit.
+  // PART_PHOTOS into Fall: one section, unsplit, landing on its first photo.
   let where = landing(await move(env, first, 'all', fall));
-  assert.equal(where.hash, `#batch-${BATCH_A}-${albumId(env, fall)}`);
+  assert.equal(where.hash, `#photo-${first.ids.split(' ')[0]}`);
   assert.ok((await queue(env)).includes(`id="${where.hash.slice(1)}"`));
   // The last one, alone in its part, by its own Move: Fall then holds
-  // PART_PHOTOS + 1 of the batch, shown in two parts.
+  // PART_PHOTOS + 1 of the batch, shown in two parts, the moved one in the
+  // second.
   const [rest] = batches(await queue(env)).filter((b) => b.title === NOT_SURE_TITLE);
   assert.equal(rest.ids.split(' ').length, 1);
   where = landing(await move(env, rest, rest.ids, fall));
-  assert.equal(where.hash, `#batch-${BATCH_A}-${albumId(env, fall)}-part-1`);
+  assert.equal(where.hash, `#photo-${rest.ids}`);
   const html = await queue(env);
-  assert.ok(html.includes(`id="${where.hash.slice(1)}"`), 'the page has the section the move lands on');
-  assert.ok(!html.includes(`id="batch-${BATCH_A}-${albumId(env, fall)}"`), 'and not the unsplit one');
+  assert.ok(html.includes(`id="${where.hash.slice(1)}"`), 'the page has the card the move lands on');
+  assert.equal(batches(html).find((b) => b.id === `batch-${BATCH_A}-${albumId(env, fall)}-part-2`).ids, rest.ids);
 });
 
 test('a Move press that arrives as a GET changes nothing, and keeps its team', async () => {
@@ -678,8 +786,18 @@ test('#228 criterion 4: an approve press naming a Not sure photo leaves it waiti
   assert.equal(photo(env, held).state, 'pending');
   assert.match(await queue(env, `?${new URLSearchParams(where.query)}`),
     /<p role="status">Nothing was approved\. A photo in "Not sure \/ other event" has no event to be public in, so it cannot be approved\. Move it into its event below, then approve it there\.<\/p>/);
+  // Made from the page, with its batch's anchor, it lands at that batch,
+  // where the Move choices are, and says so there (#270; review-fanout at
+  // #270's review: held by no test).
+  const [heldBatch] = batches(await queue(env)).filter((b) => b.ids === String(held));
+  where = landing(await admin(env, '/api/admin/queue/approve', { ids: heldBatch.ids, anchor: heldBatch.anchor, approve: String(held) }));
+  assert.deepEqual(where.query, { error: 'not-sure', n: '1', at: heldBatch.id });
+  assert.equal(where.hash, `#${heldBatch.id}`);
+  const [landed] = batches(await queue(env, `?${new URLSearchParams(where.query)}`)).filter((b) => b.id === heldBatch.id);
+  assert.match(landed.inner, /<p role="status">Nothing was approved\./);
   where = landing(await admin(env, '/api/admin/queue/approve', { ids: `${held} ${shown}`, approve: 'all' }));
-  assert.deepEqual(where.query, { done: 'approved', photo: String(shown), 'not-sure': '1' });
+  // It lands on the one left waiting (#270).
+  assert.deepEqual(where.query, { done: 'approved', photo: String(shown), 'not-sure': '1', at: `photo-${held}` });
   assert.deepEqual([held, shown].map((id) => photo(env, id).state), ['pending', 'approved']);
   assert.match(await queue(env, `?${new URLSearchParams(where.query)}`),
     new RegExp(`<p role="status">Approved photo ${shown}\\. 1 photo was left waiting\\. A photo in "Not sure / other event" has no event`));

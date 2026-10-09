@@ -7,9 +7,9 @@
  * the coach guard the same check against a second list. #224 replaced the
  * admin half with the admin session (lib/admin-session.js; owner, at #224's
  * pickup: replace outright), so requireOwner and the admins' pair are gone.
- * The admin application still stands in front of /admin on
- * photos.madcowsailing.com until #226, which removes it with this file's
- * coach half; nothing reads its token.
+ * #268 deleted the admin application that stood in front of /admin on
+ * photos.madcowsailing.com. #226 removes the coach application and this
+ * file with it.
  *
  * Access sits in front of /coach on photos.madcowsailing.com, and it signs
  * every request it lets through with a token in the Cf-Access-Jwt-Assertion
@@ -37,9 +37,10 @@
  *   COACH_EMAILS        comma-separated; a Pages secret, so the addresses are
  *                       not in this public repo (owner's choice, 2026-09-28)
  * On photos.madcowsailing.com the admin and coach applications were two, so
- * a token signed for the admin one never passes this check, whoever it
- * names. A preview deployment signs every path for the Pages preview
- * application, so there the list alone decides.
+ * a token signed for the admin one never passed this check, whoever it
+ * named; #268 deleted the admin one, and any token another application signs
+ * fails the aud check the same way. A preview deployment signs every path
+ * for the Pages preview application, so there the list alone decides.
  *
  * With the tag or the list unset, every request is refused. There is no
  * flag, header, cookie or hostname that turns the check off

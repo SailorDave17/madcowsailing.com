@@ -1,6 +1,7 @@
-/* Mad Cow — shared base. Reset, nav, buttons, cards. Used by both sites.
-   Depends on tokens.css being loaded first. Site-specific layout stays in
-   each site's own CSS; only what both sites share belongs here. */
+/* Mad Cow — shared base. Reset, header and footer shell, nav, buttons, cards.
+   Used by all three sites. Depends on tokens.css being loaded first.
+   Site-specific layout stays in each site's own CSS; only what the sites
+   share belongs here. */
 
 /* ---- Reset ---- */
 
@@ -140,6 +141,41 @@ main > section {
   margin-block: var(--space-2);
 }
 
+/* ---- Header shell ----
+   The lockup on the left and the nav on the right, wrapping under the
+   lockup when the row runs out of room. Each site's site.css carried its own
+   copy of these rules until #169.
+
+   The mark's height is the one value that differs by site, so it is read
+   from --lockup-mark-height, which defaults to the 2rem sailing and photos
+   use. hq sets it to 1.5rem in its own :root. */
+
+.site-header {
+  border-bottom: var(--border-hair);
+  padding-block: var(--space-3);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.lockup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--blue);
+  text-decoration: none;
+}
+
+/* Inlined rather than <img>: an <img>-loaded SVG has no parent to inherit
+   currentColor from and renders black. */
+.lockup-mark { height: var(--lockup-mark-height, var(--space-5)); width: auto; }
+.lockup-word { height: var(--space-3); width: auto; }
+
 /* ---- Nav ---- */
 
 .site-nav ul {
@@ -228,6 +264,18 @@ main > section {
   padding-block: var(--space-6);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+}
+
+/* Left-aligned by default: sailing's footer is one item, and space-between
+   would push a lone item to the right edge. hq spreads its name and its list
+   of links to the two edges, so it sets --footer-justify to space-between in
+   its own :root. Each site's site.css carried its own copy until #169. */
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  justify-content: var(--footer-justify, flex-start);
+  align-items: baseline;
 }
 
 /* ---- Gallery lightbox ----
