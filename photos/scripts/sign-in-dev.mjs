@@ -130,7 +130,13 @@ createServer(async (req, res) => {
     return;
   }
   try {
-    const answer = await fetch(`${SITE}/${req.url.slice(1)}`, {
+    const siteURL = new URL(SITE);
+    const targetURL = new URL(req.url, siteURL);
+    if (targetURL.origin !== siteURL.origin) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' }).end('only same-origin paths are forwarded\n');
+      return;
+    }
+    const answer = await fetch(targetURL.href, {
       method: req.method, headers, redirect: 'manual', body: hasBody ? req : undefined, duplex: hasBody ? 'half' : undefined,
     });
     const out = {};
