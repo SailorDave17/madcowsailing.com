@@ -246,11 +246,27 @@
                                          setPassword in lib/sign-in.js
                                          deletes an account's codes with its
                                          new password (#224's review)
-       The admin pages' cookie: 12       ADMIN_COOKIE, ADMIN_SESSION_HOURS and
-       hours, holding what the other     signAdminSession in
-       does                              lib/admin-session.js; requireAdmin
-                                         reads the role on every request
-                                         (#224's criterion 2)
+       The admin pages' cookie: 12       ADMIN_COOKIE, ADMIN_SESSION_HOURS,
+       hours, or 30 days if remembered,  REMEMBERED_SESSION_DAYS and
+       holding what the other does and   signAdminSession in
+       its length; Forget this phone     lib/admin-session.js, which signs
+       deletes it in one browser, and a  the length with the rest (#274's
+       copy keeps working                criterion 2); requireAdmin reads
+                                         the role on every request (#224's
+                                         criterion 2), and readAdminSession
+                                         the age against the signed length
+                                         (#274's criterion 1). 30 days:
+                                         owner, 2026-10-07, on #267 (not
+                                         chosen: passkeys, and keeping 12
+                                         hours). Forget is
+                                         functions/api/admin/forget.js,
+                                         which deletes the cookie and writes
+                                         nothing, so a copy lasts until its
+                                         length runs out, signOut or
+                                         setPassword adds 1 to
+                                         session_version, or demoteAdmin
+                                         takes the role (owner, at #274's
+                                         pickup, 2026-10-08)
        Failed sign-ins: 10 an hour       EMAIL_FAILURE_LIMIT,
        per address, 20 per network,      NETWORK_FAILURE_LIMIT and
        100 from everyone, then none      FAILURE_BUDGET_PER_HOUR in
@@ -469,6 +485,17 @@
        Deleted on request, by email,     README.md, Deleting a clip by hand
        with no button while not shown    (#198); the address at the top
 
+     #274 (remember this phone) changed what the page says of the admin
+     pages' cookie, now a paragraph of its own: it lasts 12 hours, or 30
+     days when "Remember this phone for 30 days" is ticked with the code
+     (owner, 2026-10-07, on #267; not chosen: passkeys, and keeping 12
+     hours), and holds its length besides what the account's cookie holds,
+     where it held only that. It added "Forget this phone", which deletes
+     the cookie in one browser and writes nothing, and what that costs: a
+     copy keeps working until its time is up, a sign-out or a new password,
+     or the account losing the admin role (owner, at #274's pickup,
+     2026-10-08).
+
      #198 (clips) added the clip paragraph under the location heading, the
      Clips section, clips in the daily count and the day's clip sizes kept
      with it (SA-1, at its review), in what an account keeps and in what
@@ -559,7 +586,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=6f5caedcfc">
+<link rel="stylesheet" href="/css/site.css?v=59f4ac199a">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -835,9 +862,16 @@
       key, and when it was sent is kept for a day, so that the site sends an
       admin at most 10 codes a day; after that day it is deleted, the next
       time a code is sent or an admin opens the admin home page. Setting a new
-      password deletes an account's codes at once. The right code opens a
-      second cookie, for the admin pages, which lasts 12 hours and holds what
-      the first one holds, and nothing more.</p>
+      password deletes an account's codes at once.</p>
+    <p>The right code opens a second cookie, for the admin pages, which lasts
+      12 hours, or 30 days if "Remember this phone for 30 days" is ticked
+      when the code is typed. It holds what the first one holds and how long
+      it lasts, and nothing more. "Forget this phone", on the admin pages,
+      deletes it from the browser it is pressed in, which stays signed in to
+      send photos. The site keeps no list of these cookies, so if a copy of
+      one was taken from that browser, the copy keeps working until its time
+      is up, until signing out or a new password ends every session, or
+      until the account stops being an admin.</p>
     <p>So that nobody can guess a password, the site counts failed sign-ins:
       at most 10 an hour for one email address, whether or not it has an
       account, and 20 an hour from one network. It keeps each failed try for

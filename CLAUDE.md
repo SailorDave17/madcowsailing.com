@@ -87,7 +87,10 @@ the Access application in front of `/admin` on production, so an admin
 signs in once, with the password and the emailed code (item 30). #269 made
 the admin home open on what is waiting, each count a full-width button to
 its page (item 30), and #271 made `/admin/people`, `/admin/albums` and
-`/admin/removals` work at 320 px, every button 48 px (item 30). #198 let the
+`/admin/removals` work at 320 px, every button 48 px (item 30). #274 let an
+admin tick "Remember this phone for 30 days" at the code step, so that
+phone stays signed in to the admin pages for 30 days rather than 12 hours,
+and put "Forget this phone" on the admin home (item 30). #198 let the
 share page send clips, in parts of 25 MiB, their location and camera data
 overwritten on the phone and checked again on arrival, up to 10 GB of an
 account's clips a day (40 GB a coach's); a clip waits in `/admin/queue`
@@ -865,9 +868,10 @@ meets now; until #226 it said where the code was created and rotated.
 
 **Replaced in code by #224, 2026-10-06 (item 30), and at the door by #268,
 2026-10-07.** Both admin directories now run `requireAdmin`, an account's
-12-hour admin session opened by its password and an emailed code, and
-`requireOwner` is gone, with the admins' `ACCESS_AUD` and `ADMIN_EMAILS` it
-read (the owner's choice at #224's pickup: replace outright). #268 deleted
+admin session opened by its password and an emailed code (12 hours, or 30
+days on a remembered phone since #274; item 30), and `requireOwner` is
+gone, with the admins' `ACCESS_AUD` and `ADMIN_EMAILS` it read (the owner's
+choice at #224's pickup: replace outright). #268 deleted
 the Access application in front of `/admin` on `photos.madcowsailing.com`,
 and the `ACCESS_AUD` var that still held its tag (epic #267: the owner moved
 it ahead of #226). **#226 retires the rest**: the token check this item
@@ -2272,7 +2276,10 @@ for coaches (item 20) and D12's COHSSA copy. #226 retired what items 11,
   rewriting the Access policy through an API token, which would put a token
   that can open the admin door on the site; a password alone; an
   authenticator app, which is hand-written TOTP plus a lost-phone recovery
-  path.
+  path. **#274 lengthened it for a remembered phone** (owner, 2026-10-07,
+  #267): an admin who ticks "Remember this phone for 30 days" at the code
+  step stays signed in to the admin pages on that phone for 30 days, and
+  every other admin session still lasts 12 hours (item 30).
 - **D16. An account is approved per team** (the recommendation), and sends
   only to that team's events. Not chosen: one approval that sends anywhere.
   The role is the one the requester picks, editable at approval, and a coach
@@ -3020,13 +3027,15 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   `test/policy.test.js` held the two equal until #226 deleted
   `SESSION_DAYS`, which left 90 stated there alone.
 
-### 30. Admins: the emailed code, the 12-hour session, the owner
+### 30. Admins: the emailed code, the admin session, the owner
 
 **Built in #224, 2026-10-06** (D15). An account holding the admin role
 signs in at `/sign-in` like anyone, and is then asked for a 6-digit code the
 site emails to the account's address. The code opens the account's 90-day
-session and a separate 12-hour admin session, which every admin page and
-admin API checks in place of #151's Access token (item 12).
+session and a separate admin session, which every admin page and admin API
+checks in place of #151's Access token (item 12). The admin session lasts
+12 hours, or, since #274, 30 days on a phone the admin asks the site to
+remember (below). *This heading said "the 12-hour session" until #274.*
 `lib/admin-code.js` holds the code, `lib/admin-session.js` the cookie and
 the guard (`requireAdmin`), `lib/people.js` making and removing admins,
 `functions/sign-in/code.js` the code's page, and migration 0013 the role,
@@ -3041,7 +3050,10 @@ decisions at pickup, through the question tool:
   for the admin pages). After 12 hours the admin pages send the browser to
   `/sign-in?admin`, while the phone keeps sending. Not chosen: a separate
   admin sign-in page, with `/sign-in` code-free for everyone; one 12-hour
-  session for everything an admin does, sending included.
+  session for everything an admin does, sending included. *Since #274
+  (2026-10-08) the admin part lasts 30 days on a phone the admin asks the
+  site to remember, and 12 hours otherwise: see "Since #274" below. This
+  bullet is #224's choice as taken.*
 - **The owner role is granted by hand, once per database** (the
   recommendation). No address may go into this public repo (item 12), so no
   migration can name the owner: README's Making the owner runs one `UPDATE`
@@ -3096,15 +3108,26 @@ request:
 - **The guard reads the account on every request**: it exists, holds the
   session version the cookie names, is approved for a team, and holds the
   admin role. So a removal closes the admin pages at the next request
-  (criterion 2), and a sign-out, a new password, being made an admin (the
-  review below) or #225's revoke, each a version bump, end them too. A
-  refused request, whatever its method, is a 303 to `/sign-in?admin`,
-  deleting a dead admin cookie: the admin pages are plain forms, and a
-  press made after the 12 hours lands on a page saying
-  nothing was changed. Nothing behind the guard answers a 303 there, which
-  is how `test/guard.test.js` tells the guard's refusal from a route's own.
-  The cookie's payload starts `m1.`, so no other session cookie's signature
-  (`v1.`, `c1.`, `a1.`) can be carried over.
+  (criterion 2), and a sign-out, a new password or being made an admin (the
+  review below), each a version bump, end them too. #225's revoke is a
+  version bump as well, but it refuses an account holding the admin role
+  (item 31), so it reaches an admin only after the owner's "Remove admin",
+  which has already closed the admin pages; its bump then ends the
+  account's other sessions. *Until #274 this bullet listed the revoke
+  beside the other three as ending an admin's pages, which has not been
+  true since #225's pickup chose that refusal.* A refused request, whatever
+  its method, is a 303 to `/sign-in?admin`, deleting a dead admin cookie:
+  the admin pages are plain forms, and a press made after the session's
+  length ran out (12 hours, or 30 days on a remembered phone since #274)
+  lands on a page saying nothing was changed. Nothing behind the guard
+  answers a 303 there, which is how `test/guard.test.js` tells the guard's
+  refusal from a route's own. Since
+  #274 the cookie's payload starts `m2.` and carries the session's length
+  in what is signed, `m2.<account>.<version>.<issued>.<seconds>`, so no
+  other cookie's or token's signature under the same key (`a1.`, #224's
+  `m1.`, the retired `v1.` and `c1.`, `clip.`, `admin-code.`) can be
+  carried over, and a 12-hour cookie cannot be edited into a 30-day one.
+  #224's `m1.<account>.<version>.<issued>` is no longer read (below).
 - **The database holds criterion 3 and the last admin itself** (migration
   0013): a unique partial index for one owner, and seven triggers refusing
   a second owner, the owner's demotion, deletion or any change to an
@@ -3137,7 +3160,9 @@ request:
 - **The admin home says who is signed in, as the owner or an admin, until
   when, and has Sign out**, which ends every session the account holds, as
   `/account`'s does (#222). `/sign-out` now ends a session from either
-  cookie and deletes both. Since #269 that is the page's last section.
+  cookie and deletes both. Since #269 that is the page's last section, and
+  since #274 it says the session's own end and holds "Forget this phone"
+  above Sign out (below).
 - **Since #269 the admin home opens on what is waiting** (epic #267). Under
   its head come photos waiting for approval, account requests and removal
   requests, in that order (`TODO` in `lib/admin-page.js`), each a
@@ -3185,6 +3210,113 @@ request:
   `test/admin-phone.test.js` holds the rules it rests on (owner, at pickup;
   not chosen: a browser in CI, which would be the gate's fourth kind of
   step).
+- **Since #274 an admin's phone can stay signed in to the admin pages for
+  30 days** (epic #267). The owner's decision of 2026-10-07 (#267): remember
+  this phone for 30 days. Not chosen: passkeys (2–3 days, WebAuthn), and
+  keeping 12 hours. It lengthens #216's D15 cap (item 24) for a remembered
+  phone only.
+
+  The code step has a tick box under the code field, "Remember this phone
+  for 30 days", unticked by default. Ticked, the form sends `remember=yes`,
+  and that value exactly opens a 30-day admin cookie (`sessionLength` in
+  `lib/admin-session.js`); any other value, or none, opens a 12-hour one, as
+  before. The form names no length, so it cannot choose one: the site issues
+  two, `ADMIN_SESSION_LENGTHS`, `adminCookie` throws for any other, and the
+  guard refuses a cookie naming any other even when its signature holds,
+  since only a leaked key or a test could sign one. Every page that shows
+  the form again (a code that is not 6 digits, a wrong code, either 503)
+  keeps the tick as it was sent. The account's own cookie is 90 days either
+  way. The length is signed into the cookie (`m2.`, the guard bullet above),
+  and the server checks the age against that signed length itself, never
+  against `Max-Age`, which is set to the same length and only asks the
+  browser. `/sign-out` reads the admin cookie by the same rule, so a
+  remembered cookie names its account to Sign out for its whole 30 days.
+  Signing out, a new password and losing the admin role end a remembered
+  session at the next request, as they end a 12-hour one; a revoke reaches
+  it only after Remove admin, as the guard bullet says.
+
+  The admin home's last section says until when this session lasts, in UTC
+  as before: "The admin pages stay open until …" for 12 hours, and "This
+  phone is remembered: the admin pages stay open on it until …" for 30
+  days. Above Sign out is **Forget this phone**, a `POST` to
+  `/api/admin/forget` (`functions/api/admin/forget.js`) behind both admin
+  guards. It deletes this browser's `__Host-admin` and nothing else, and
+  lands on `/account?forgotten`, which says this phone no longer opens the
+  admin pages and still sends photos. Its `GET` changes nothing, as every
+  admin write's does. Each form's hint says what its button ends: Forget
+  this browser's admin pages, Sign out every session the account holds.
+  Both buttons are 48 px square, the second form stands a step below the
+  first, and up to 30rem wide the remember row is a 48 px row of its own
+  (`.admin-sign-in` and `.code-remember` in `public/css/site.css`).
+
+  The owner's choices at pickup, 2026-10-08, through the question tool (on
+  #274, issuecomment-6073189186), each the recommendation:
+  - **Forget this phone deletes this browser's admin cookie only** and
+    writes nothing to the database, so the account's cookie and every other
+    phone and computer stay as they were. Not chosen: a server-side record
+    of each admin session, so that a copied cookie stops working at once,
+    which needs a migration and one more read on every admin request;
+    adding 1 to the session version, which is Sign out and ends every
+    device. **The cost**: the server keeps no list of admin cookies, so a
+    copy of one taken off the browser keeps working until its length runs
+    out, 30 days for a remembered one, or until Sign out, a new password, or
+    the account losing its admin role. A lost phone cannot press Forget:
+    Sign out on any other phone or computer, or a new password through
+    `/forgot-password`, ends its sessions, its admin one included.
+  - **Admin cookies from before the release are refused.** #224's `m1.`
+    no longer matches, so each admin who has the admin pages open at the
+    release signs in once more. Not chosen: reading `m1.` as a 12-hour
+    cookie until the last one ran out. A further option, a second prefix per
+    length that would have kept `m1.` valid, was named after this choice by
+    the critic of the code map; it was not put to the owner, since the
+    one-time sign-in had already been accepted.
+  - **Forget this phone shows on every admin session**, remembered or not.
+    Not chosen: only on a remembered one.
+  - **Criterion 3's revoke is tested on the path that exists.** #225's
+    revoke refuses an account holding the admin role, so it reaches an
+    admin only after Remove admin. `test/admins.test.js` runs that sequence
+    through the real presses, and a test of its own gives the role back by
+    hand, with a no-revoke control, to show the revoke's version bump is
+    what keeps the old cookie out (Make admin bumps the version too, so it
+    cannot show that alone). Not chosen: rewording criterion 3; testing only
+    a cookie on an old version.
+  - **Every text #274 makes false belongs to this story**, not only
+    criterion 5's two: `/policy`, README's Signing in, the `/sign-in?admin`
+    notice, `/admin/people`, the code headers, and here item 12, D15 and
+    this item's heading. #216's end-state note is amended when the PR
+    opens, with the options not chosen. The mutations that weaken the guard
+    run on a scratch copy, each red count predicted first; their record is
+    the PR's.
+  - **Forget this phone and Sign out are 48 px, and so is the remember row
+    on a phone**, which `test/admin-phone.test.js` holds, each rule beside a
+    control. Defaults that came with
+    it: Forget lands on `/account` with a notice; the tick survives the page
+    coming back after a wrong code; the end time stays in UTC, as the admin
+    home showed it.
+
+  **#274's review** (`review-fanout`, 3 low findings, all fixed at the
+  owner's choice). A Forget press the guard refuses (its session already
+  ended: a second tab, the time up, Sign out elsewhere) lands on
+  `/sign-in?admin`, whose notice told the admin to press it again once
+  signed in, which would only open a session for Forget to end. The notice
+  now adds that a refused "Forget this phone" needs nothing more, since this
+  browser already opens no admin pages. That was a default taken while
+  fixing. Not chosen: the guard sending a refused Forget to
+  `/account?forgotten`, which would make one admin route's refusal unlike
+  every other's that `test/guard.test.js` holds; and a public Forget route
+  beside `/sign-out`, which would need its own Origin check and a `PUBLIC`
+  entry. The `/account` notice test now sends `?constructor` and its kin,
+  which only the route's own list of keys keeps off the page.
+
+  **Locally** `scripts/sign-in-dev.mjs` signs a fresh 12-hour admin cookie
+  on every request it forwards, so through `:8789` the admin home always
+  reads 12 hours from now, and Forget this phone looks as if it did
+  nothing, since the next request carries a new cookie (README.md, Running
+  it locally). **What a remembered cookie cannot do**: it belongs to one
+  browser. A mail app that opens the admins' email link (`/admin/people`)
+  in another browser, or in a view of its own, does not carry it, and
+  meets `/sign-in?admin` there. *Reasoned from where a browser keeps its
+  cookies, not measured.*
 - **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
   so `scripts/sign-in-dev.mjs` (`access-dev.mjs` until #226) signs an admin
   session for the local account `ADMIN_DEV_ACCOUNT` names, with the local
@@ -3212,10 +3344,11 @@ and on its one escalation, through the question tool:
   session renewal a grant of rights calls for, as #225's revoke does. Without
   it a removal only suspended: made an admin again within 12 hours of their
   last admin sign-in, someone found a cookie from before the removal open
-  again, with no new password and no code. A removal still ends nothing but
-  the admin pages. Not chosen: refusing admin cookies older than the
-  promotion's log entry; a grant-time column in a migration 0014; correcting
-  the docs only.
+  again, with no new password and no code. *Since #274 a remembered phone's
+  cookie lasts 30 days, so without the bump that window would be 30 days
+  wide.* A removal still ends nothing but the admin pages. Not chosen:
+  refusing admin cookies older than the promotion's log entry; a
+  grant-time column in a migration 0014; correcting the docs only.
 - **A sign-in makes the browser one person** (the recommendation): the
   password step at `/sign-in`, `/set-password` and a code step whose role
   was taken away delete any `__Host-admin` the browser holds. So someone

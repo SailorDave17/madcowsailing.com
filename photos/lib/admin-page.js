@@ -61,7 +61,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=6f5caedcfc">
+<link rel="stylesheet" href="/css/site.css?v=59f4ac199a">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -166,24 +166,36 @@ export function storageText(bytes) {
 
 /**
  * The admin home for `admin`, lib/admin-session.js's context.data.admin:
- * { name, email, role, issued }. `summary` is lib/queue.js's queueSummary():
- * how many photos wait, how many clips wait (since #198), how many removal
- * requests wait, and the bytes stored; and, since #220, `requests`,
- * lib/accounts.js's waitingRequests().
+ * { name, email, role, issued, seconds }. `summary` is lib/queue.js's
+ * queueSummary(): how many photos wait, how many clips wait (since #198),
+ * how many removal requests wait, and the bytes stored; and, since #220,
+ * `requests`, lib/accounts.js's waitingRequests().
  *
  * Since #269 it opens on what is waiting, TODO's three buttons in order,
  * then links to the other sections and the storage figure. Last, since #224,
- * who is signed in, whether as the owner or an admin, and when the 12-hour
- * admin sign-in ends, and Sign out, which ends every session the account
- * holds (lib/sign-in.js, signOut). Until #269 that came first, and on a
- * phone it filled the first screen.
+ * who is signed in, whether as the owner or an admin, and when this admin
+ * session ends, and Sign out, which ends every session the account holds
+ * (lib/sign-in.js, signOut). Until #269 that came first, and on a phone it
+ * filled the first screen.
+ *
+ * Since #274 the end is the session's own: `seconds` is its length, 12
+ * hours, or 30 days on a phone the admin asked the site to remember, which
+ * the sentence then says. A hand-built admin with no `seconds` reads as a
+ * 12-hour session. Above Sign out is "Forget this phone"
+ * (functions/api/admin/forget.js), on every session (the owner's choice at
+ * pickup), which ends the admin pages in this browser alone. Both buttons
+ * are 48 px square (public/css/site.css, .admin-sign-in).
  */
-export function adminHome({ name, email, role, issued }, { waiting = 0, clips = 0, removals = 0, bytes, requests = 0 }) {
+export function adminHome({ name, email, role, issued, seconds = ADMIN_SESSION_SECONDS }, { waiting = 0, clips = 0, removals = 0, bytes, requests = 0 }) {
   const counts = { waiting, clips, requests, removals };
   const todo = TODO.map((item) => `      ${todoItem(item, counts[item.count], item.clips ? counts[item.clips] : 0)}`).join('\n');
   const links = SECTIONS.map(({ href, name: section, what }) =>
     `      <li><a href="${href}">${escapeHtml(section)}</a>: ${escapeHtml(what)}.</li>`).join('\n');
   const as = role === 'owner' ? 'the owner' : 'an admin';
+  const until = timeElement(issued + seconds);
+  const lasts = seconds === ADMIN_SESSION_SECONDS
+    ? `The admin pages stay open until ${until}, then ask you to sign in again.`
+    : `This phone is remembered: the admin pages stay open on it until ${until}, then ask you to sign in again.`;
   return adminPage({
     title: 'Admin',
     main: `<main id="main">
@@ -207,9 +219,13 @@ ${links}
     <p class="admin-storage">${storageText(bytes)}</p>
   </section>
 
-  <section class="wrap" aria-labelledby="admin-you">
+  <section class="wrap admin-sign-in" aria-labelledby="admin-you">
     <h2 id="admin-you">Your sign-in</h2>
-    <p class="signed-in">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. The admin pages stay open until ${timeElement(issued + ADMIN_SESSION_SECONDS)}, then ask you to sign in again.</p>
+    <p class="signed-in">Signed in as ${escapeHtml(name)}, ${escapeHtml(email)}, ${as}. ${lasts}</p>
+    <form method="post" action="/api/admin/forget">
+      <p class="hint" id="admin-forget-hint">Forgetting this phone closes the admin pages in this browser only. It stays signed in to send photos, and your other phones and computers are not changed.</p>
+      <p class="actions"><button type="submit" class="button" aria-describedby="admin-forget-hint">Forget this phone</button></p>
+    </form>
     <form method="post" action="/sign-out">
       <p class="hint" id="admin-sign-out-hint">Signing out signs you out on every phone and computer signed in to your account, for sending photos as well.</p>
       <p class="actions"><button type="submit" class="button" aria-describedby="admin-sign-out-hint">Sign out</button></p>

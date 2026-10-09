@@ -1272,9 +1272,16 @@ test('every page and every refusal passes the photo site\'s html-validate config
     'set-password': (await call(env, `/set-password?token=${token}`)).html,
     'set-password refused': (await call(env, '/set-password', { method: 'POST', fields: setFields(token, 'short', 'other') })).html,
     account: (await call(env, '/account?password-set', { cookie })).html,
+    // #274 changed the first notice's words and added the second.
+    'sign-in admin': (await call(env, '/sign-in?admin')).html,
+    'account forgotten': (await call(env, '/account?forgotten', { cookie })).html,
   };
   siteverify = () => Response.json({ success: false, 'error-codes': ['invalid-input-response'] });
   pages['forgot turnstile'] = (await call(env, '/forgot-password', { method: 'POST', fields: resetFields('jane@example.org') })).html;
+  // Each #274 state is the one it is named for before it is validated, since
+  // a page without its notice would validate clean too.
+  assert.ok(pages['sign-in admin'].includes('or 30 days on a phone you ask the site to remember'), 'sign-in admin');
+  assert.ok(pages['account forgotten'].includes('This phone no longer opens the admin pages.'), 'account forgotten');
   for (const [name, html] of Object.entries(pages)) {
     assert.ok(html.length > 500, name);
     assert.deepEqual(await problems(html), [], name);

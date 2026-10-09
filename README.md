@@ -459,6 +459,16 @@ admin pages' forms get past the site's Origin check (#152); any other Origin
 goes on unchanged, and is refused. A sign-in at `/sign-in` as an admin stops
 at the code, which says it could not be sent.
 
+The stand-in signs a fresh 12-hour admin session, as an unticked "Remember
+this phone" would, into every request it forwards (#274). So through
+`:8789` the admin home always reads 12 hours from now, never a remembered
+phone's 30 days, and **Forget this phone looks as if it did nothing**: the
+stand-in adds the cookie, not the browser, so the next request carries a
+new one whatever Forget deleted. Read those two through the pages the code
+renders for a given session instead (the admin home in `lib/admin-page.js`,
+Forget's answer in `functions/api/admin/forget.js`), not through the
+stand-in.
+
 **Sending runs locally behind the same stand-in** (#226). On every path
 outside the admin pages it adds the same account's `__Host-account` session,
 at the same version, so `http://127.0.0.1:8789/share/` sends as the local
@@ -1432,9 +1442,17 @@ page links `/ask` beside it ("No account yet? Ask for one").
   the browser to `/sign-in/code`. The code works once, for 10 minutes, with 5
   tries, only in that browser (a `__Host-sign-in-code` cookie names the
   sign-in), and is kept only as a keyed hash in `admin_codes`. The right code
-  opens the account's 90-day session and a 12-hour admin session,
-  `__Host-admin`, which every admin page and admin API checks on every
-  request: the role, the session version and an approved team. It lands on
+  opens the account's 90-day session and an admin session, `__Host-admin`,
+  which every admin page and admin API checks on every request: the role,
+  the session version and an approved team. **The admin session lasts 12
+  hours, or 30 days on a phone the admin asks the site to remember** (#274):
+  the code step has a "Remember this phone for 30 days" box, unticked to
+  start with, and a page showing the form again after a wrong code keeps the
+  tick. The length is signed into the cookie with the rest, so a 12-hour
+  cookie cannot be edited into a 30-day one, and the server checks the
+  cookie's age itself rather than trusting the browser to drop it. Admin
+  cookies from before #274's release are refused, so each admin who had the
+  admin pages open then signs in once more. The right code lands on
   `/account`, whose "Open the admin pages" link opens them: until #268,
   Access stood in front of `/admin` on `photos.madcowsailing.com`, and
   Chromium and WebKit stopped a form's redirect into its login under the
@@ -1444,8 +1462,18 @@ page links `/ask` beside it ("No account yet? Ask for one").
   account's codes, so a reset lifts the limit at once. A password's step at
   `/sign-in` and a new password delete any admin cookie the browser held,
   and the code step replaces it, so the browser is one person. The admin
-  home's Sign out ends every session the account holds, as `/account`'s
-  does. A refused admin request lands on `/sign-in?admin`, which says so.
+  home says until when this session lasts, and holds two buttons (#274).
+  **Forget this phone** ends the admin pages in this browser only: it stays
+  signed in to send photos, and every other phone and computer is as it
+  was. **Sign out** ends every session the account holds, as `/account`'s
+  does. Forget writes nothing on the server, which keeps no list of admin
+  cookies, so a copy of the cookie taken off the browser keeps working
+  until its length runs out, 30 days for a remembered phone, or until Sign
+  out, a new password, or the account losing its admin role. A lost phone
+  cannot press Forget: Sign out on any other phone or computer, or set a
+  new password through `/forgot-password`, and the lost phone's sessions
+  end at its next request, its admin one included. A refused admin request
+  lands on `/sign-in?admin`, which says so.
 - **The way to the admin pages** (#260) is the `/admin/` address, which
   takes a browser with no admin session to `/sign-in?admin`, or the **Open
   the admin pages** button on `/account`. The button is drawn on each load

@@ -9,6 +9,19 @@
 //
 // Who may do what, as the owner chose at #224's pickup: any admin adds an
 // admin, only the owner removes one, and nothing removes the owner.
+//
+// Since #274 an admin can tick "Remember this phone for 30 days" at the code
+// step, and that phone's admin session lasts 30 days instead of 12 hours.
+// Criterion 3 says whatever ends a 12-hour session ends a remembered one at
+// the next request. Two of those ends are presses on /admin/people and are
+// held here, through the guards: losing the admin role, and a revoke (#225).
+// A revoke refuses an account holding the admin role, so it reaches an admin
+// only after Remove admin, and the tests take that real path (the owner's
+// choice at #274's pickup, 2026-10-08; not chosen: rewording the criterion,
+// or a version-mismatch case alone). The other two ends, signing out and a
+// new password, are not presses on this page. Each remembered session here is 13 hours old when the press lands,
+// past the 12 hours an unticked one lasts: inside them the two cannot be told
+// apart, so a test there would pass with the 30 days never read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -17,15 +30,18 @@ import { FileSystemConfigLoader, HtmlValidate } from 'html-validate';
 
 import { onRequest as root } from '../functions/_middleware.js';
 import { onRequest as adminApi } from '../functions/api/admin/_middleware.js';
+import * as approveRoute from '../functions/api/admin/people/approve.js';
 import * as promoteRoute from '../functions/api/admin/people/promote.js';
 import * as demoteRoute from '../functions/api/admin/people/demote.js';
+import * as revokeRoute from '../functions/api/admin/people/revoke.js';
 import { requestAccount } from '../lib/accounts.js';
 import { sessionAccount } from '../lib/account-session.js';
 import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import { adminLog, demoteAdmin, peopleLists, promoteAdmin } from '../lib/people.js';
 import { adminPeoplePage, peopleNotice } from '../lib/people-page.js';
+import { nowSeconds } from '../lib/session.js';
 import { ADMIN_KEY, adminCookieHeader } from './admin.js';
-import { emailKeyOf } from './address-key.js';
+import { ADDRESS_KEY, emailKeyOf } from './address-key.js';
 import { d1 } from './d1.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -35,6 +51,7 @@ const NOW = 1_790_000_000;
 const one = (db, sql, ...args) => ({ ...db.sqlite.prepare(sql).get(...args) });
 const rows = (db, sql, ...args) => db.sqlite.prepare(sql).all(...args).map((row) => ({ ...row }));
 const roleOf = (db, id) => db.sqlite.prepare('SELECT admin_role FROM accounts WHERE id = ?').get(id)?.admin_role;
+const versionOf = (db, id) => db.sqlite.prepare('SELECT session_version AS v FROM accounts WHERE id = ?').get(id)?.v;
 const tables = (db) => db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
 const snapshot = (db) => Object.fromEntries(tables(db).map((t) => [t, rows(db, `SELECT * FROM "${t}"`)]));
 
@@ -263,18 +280,30 @@ test('removing an admin never takes the owner\'s role, nor a role from one that 
 
 // ---- The presses, through the admin guards ---------------------------------------
 
+const ROUTES = { promote: promoteRoute, demote: demoteRoute, revoke: revokeRoute, approve: approveRoute };
+
 /**
  * A press on /admin/people, through the root middleware and the admin API's
- * guards, as `actorId`'s admin session at `version` (1 unless named).
+ * guards, as `actorId`'s admin session: at `version` (1 unless named), opened
+ * at `issued` (now unless named), lasting `seconds` (12 hours unless named;
+ * 2_592_000 for a remembered phone, #274). test/admin.js mints the cookie
+ * again on every press, and its HMAC is deterministic, so two presses given
+ * the same four numbers send the same cookie. `fields` are the form's fields
+ * after account=<id>: a revoke's team, an approval's team and role. The admin
+ * API runs the guard the admin pages run (lib/admin-session.js,
+ * requireAdmin), so a press the guard lets through is a session that opens
+ * the admin pages.
  */
-async function press(db, route, accountId, actorId, { version } = {}) {
-  const env = { DB: db, SESSION_SIGNING_KEY: ADMIN_KEY };
+async function press(db, route, accountId, actorId, { version, issued, seconds, fields = [] } = {}) {
+  const env = { DB: db, SESSION_SIGNING_KEY: ADMIN_KEY, ADDRESS_HASH_KEY: ADDRESS_KEY };
+  const body = new URLSearchParams({ account: String(accountId) });
+  for (const [name, value] of fields) body.append(name, value);
   const request = new Request(`${SITE}/api/admin/people/${route}`, {
     method: 'POST',
-    headers: { Origin: SITE, 'Content-Type': 'application/x-www-form-urlencoded', Cookie: await adminCookieHeader(actorId, { version }) },
-    body: new URLSearchParams({ account: String(accountId) }).toString(),
+    headers: { Origin: SITE, 'Content-Type': 'application/x-www-form-urlencoded', Cookie: await adminCookieHeader(actorId, { version, issued, seconds }) },
+    body: body.toString(),
   });
-  const handler = (route === 'promote' ? promoteRoute : demoteRoute).onRequestPost;
+  const handler = ROUTES[route].onRequestPost;
   const stack = [root, ...adminApi, handler];
   const data = {};
   const run = (i) => stack[i]({ request, env, data, params: {}, waitUntil() {}, next: () => run(i + 1) });
@@ -315,9 +344,11 @@ test('making an admin ends every session the account holds, so a demotion stays 
   assert.equal(await demoteAdmin(db, { accountId: parent, actorId: owner, admin: 'owner@example.org', now: NOW + 1 }), true);
   const refused = { status: 303, location: ADMIN_SIGN_IN };
   assert.deepEqual(await press(db, 'promote', waiting, parent, { version: 2 }), refused);
-  // Another admin makes them one again within the 12 hours. The cookie from
-  // before the removal stays refused (a demotion used to only suspend it),
-  // and so does their account's session from then.
+  // Another admin makes them one again while the cookie from before the
+  // removal is still young enough to pass: within its 12 hours, or within its
+  // 30 days on a phone they asked the site to remember (#274; the test after
+  // this one holds that length). It stays refused (a demotion used to only
+  // suspend it), and so does their account's session from then.
   assert.equal(await promoteAdmin(db, { accountId: parent, actorId: admin, admin: 'admin@example.org', now: NOW + 2 }), true);
   assert.equal(version(), 3);
   assert.deepEqual(await press(db, 'promote', waiting, parent, { version: 2 }), refused);
@@ -328,6 +359,143 @@ test('making an admin ends every session the account holds, so a demotion stays 
   assert.equal(await demoteAdmin(db, { accountId: parent, actorId: owner, admin: 'owner@example.org', now: NOW + 3 }), true);
   assert.equal(version(), 3);
   assert.ok(await sessionAccount(db, { accountId: parent, version: 3 }));
+});
+
+// ---- #274, criterion 3: a remembered phone's session ends as a 12-hour one does ----
+
+// What a press answers when the guard lets the session through to the route
+// (Make admin on an account approved for no team, which changes nothing), and
+// when the guard refuses it.
+const OPENS = { status: 303, location: '/admin/people?error=not-promoted' };
+const REFUSED = { status: 303, location: ADMIN_SIGN_IN };
+
+/**
+ * A remembered phone's admin session at `version`, opened 13 hours ago and
+ * lasting 30 days. A test takes it once and sends it on every press, so each
+ * press carries the same cookie; the guard reads the real clock.
+ */
+const rememberedPhone = (version = 1) => ({ version, issued: nowSeconds() - 46_800, seconds: 2_592_000 });
+
+test('the same for a remembered phone: a 30-day cookie from before the removal, 13 hours old, stays refused after Make admin (#274, criterion 3)', async () => {
+  // At 13 hours the test above's 12-hour cookie would be refused for its age
+  // alone, so it cannot show this: here only the version keeps it out.
+  const { db, owner, admin, parent, waiting } = await site();
+  assert.equal(await promoteAdmin(db, { accountId: parent, actorId: owner, admin: 'owner@example.org', now: NOW }), true);
+  assert.equal(versionOf(db, parent), 2);
+  // Signed in at version 2 with the box ticked, 13 hours ago: it opens, where
+  // a 12-hour cookie from the same moment is refused.
+  const phone = rememberedPhone(2);
+  assert.deepEqual(await press(db, 'promote', waiting, parent, phone), OPENS);
+  assert.deepEqual(await press(db, 'promote', waiting, parent, { ...phone, seconds: 43_200 }), REFUSED);
+  assert.equal(await demoteAdmin(db, { accountId: parent, actorId: owner, admin: 'owner@example.org', now: NOW + 1 }), true);
+  assert.deepEqual(await press(db, 'promote', waiting, parent, phone), REFUSED);
+  // Made an admin again 13 hours into its 30 days: still refused.
+  assert.equal(await promoteAdmin(db, { accountId: parent, actorId: admin, admin: 'admin@example.org', now: NOW + 2 }), true);
+  assert.equal(versionOf(db, parent), 3);
+  assert.deepEqual(await press(db, 'promote', waiting, parent, phone), REFUSED);
+  // The control: the same phone at version 3, the version a sign-in now
+  // carries, opens. So the version is the one thing keeping the old one out.
+  assert.deepEqual(await press(db, 'promote', waiting, parent, { ...phone, version: 3 }), OPENS);
+});
+
+test('losing the admin role ends a remembered phone\'s admin session at the next request, 13 hours after it opened (#274, criterion 3)', async () => {
+  const { db, owner, admin, waiting } = await site();
+  const phone = rememberedPhone();
+  // Before the press: the remembered session passes the guard at 13 hours,
+  // where a 12-hour one from the same moment is refused.
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), OPENS);
+  assert.deepEqual(await press(db, 'promote', waiting, admin, { ...phone, seconds: 43_200 }), REFUSED);
+  const version = versionOf(db, admin);
+  // The owner presses Remove admin, through the guards.
+  assert.deepEqual(await press(db, 'demote', admin, owner), { status: 303, location: `/admin/people?done=demoted&account=${admin}` });
+  // The press's own effect: the role is gone and the version is where it was,
+  // so what refuses the cookie below is the role, read on every request.
+  assert.equal(roleOf(db, admin), null);
+  assert.equal(versionOf(db, admin), version);
+  // The same cookie, at the next request.
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), REFUSED);
+});
+
+// A revoke of every team the admin in site() is approved for, pressed by `actorId`.
+const revokePress = (db, accountId, actorId) => press(db, 'revoke', accountId, actorId, { fields: [['team', 'hoover-jrt']] });
+const teamStates = (db, id) => rows(db, 'SELECT team, state FROM account_teams WHERE account_id = ?', id);
+
+test('a revoke reaches a remembered admin session only after Remove admin, then keeps it out: approved again and made an admin again, the old cookie stays refused (#274, criterion 3; #225)', async (t) => {
+  // The approval's link email finds no RESEND_API_KEY and says so on the
+  // console; nothing is sent.
+  t.mock.method(console, 'error', () => {});
+  const { db, owner, admin, waiting } = await site();
+  const phone = rememberedPhone();
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), OPENS);
+  // (a) The revoke refuses an account holding the admin role (#225's pickup)
+  // and changes nothing: the session still opens, the version where it was.
+  assert.deepEqual(await revokePress(db, admin, owner), { status: 303, location: '/admin/people?error=not-revoked' });
+  assert.deepEqual(teamStates(db, admin), [{ team: 'hoover-jrt', state: 'approved' }]);
+  assert.equal(versionOf(db, admin), 1);
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), OPENS);
+  // (b) Remove admin: refused at the next request.
+  assert.deepEqual(await press(db, 'demote', admin, owner), { status: 303, location: `/admin/people?done=demoted&account=${admin}` });
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), REFUSED);
+  // (c) Now the revoke goes through, and adds 1 to the version.
+  assert.deepEqual(await revokePress(db, admin, owner), { status: 303, location: `/admin/people?done=revoked&account=${admin}` });
+  assert.deepEqual(teamStates(db, admin), [{ team: 'hoover-jrt', state: 'revoked' }]);
+  assert.equal(versionOf(db, admin), 2);
+  // (f) Taken back by the real presses: approved again, which leaves the
+  // version alone, then made an admin again, which adds 1 to it.
+  assert.deepEqual(
+    await press(db, 'approve', admin, owner, { fields: [['team', 'hoover-jrt'], ['role', 'parent']] }),
+    { status: 303, location: `/admin/people?done=approved&account=${admin}&mail=not-configured` },
+  );
+  assert.equal(versionOf(db, admin), 2);
+  assert.deepEqual(await press(db, 'promote', admin, owner), { status: 303, location: `/admin/people?done=promoted&account=${admin}` });
+  assert.deepEqual(teamStates(db, admin), [{ team: 'hoover-jrt', state: 'approved' }]);
+  assert.equal(roleOf(db, admin), 'admin');
+  assert.equal(versionOf(db, admin), 3);
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), REFUSED);
+  // The control: the same phone at version 3 opens.
+  assert.deepEqual(await press(db, 'promote', waiting, admin, { ...phone, version: 3 }), OPENS);
+});
+
+// Give back by hand what Remove admin and a revoke take, the role and the
+// team, leaving the version as it is. Make admin would add 1 to it, so after
+// this the guard tells an old cookie from a new one by what the revoke did to
+// the version and by nothing else.
+function restoreByHand(db, id) {
+  db.sqlite.prepare("UPDATE accounts SET admin_role = 'admin' WHERE id = ?").run(id);
+  db.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = ?").run(id);
+}
+
+test('the revoke on its own keeps a remembered admin session out: with the role and the team given back by hand and the version left alone, the cookie from before it is still refused (#274, criterion 3)', async () => {
+  const { db, owner, admin, waiting } = await site();
+  const phone = rememberedPhone();
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), OPENS);
+  assert.deepEqual(await press(db, 'demote', admin, owner), { status: 303, location: `/admin/people?done=demoted&account=${admin}` });
+  assert.deepEqual(await revokePress(db, admin, owner), { status: 303, location: `/admin/people?done=revoked&account=${admin}` });
+  assert.equal(versionOf(db, admin), 2);
+  restoreByHand(db, admin);
+  assert.equal(roleOf(db, admin), 'admin');
+  assert.deepEqual(teamStates(db, admin), [{ team: 'hoover-jrt', state: 'approved' }]);
+  assert.equal(versionOf(db, admin), 2);
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), REFUSED);
+  // Beside it: the same phone at version 2 opens, so the restore gave back
+  // everything the guard reads but the version the revoke moved.
+  assert.deepEqual(await press(db, 'promote', waiting, admin, { ...phone, version: 2 }), OPENS);
+});
+
+test('the control for the test above: the same Remove admin and the same restore by hand, with no revoke, and the remembered cookie opens the admin pages again (#274, criterion 3)', async () => {
+  // Remove admin alone moves no version: the role is what it takes away.
+  // Make admin's version bump is what normally keeps the old cookie out, and
+  // the restore by hand skips it, so the revoke is the only difference from
+  // the test above.
+  const { db, owner, admin, waiting } = await site();
+  const phone = rememberedPhone();
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), OPENS);
+  assert.deepEqual(await press(db, 'demote', admin, owner), { status: 303, location: `/admin/people?done=demoted&account=${admin}` });
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), REFUSED);
+  restoreByHand(db, admin);
+  assert.equal(roleOf(db, admin), 'admin');
+  assert.equal(versionOf(db, admin), 1);
+  assert.deepEqual(await press(db, 'promote', waiting, admin, phone), OPENS);
 });
 
 test('a press that names no account changes nothing, and a press as a page load changes nothing either', async () => {

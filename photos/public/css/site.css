@@ -111,6 +111,19 @@
   overflow-wrap: anywhere;
 }
 
+/* "Forget this phone" and Sign out (#274) are 48 px square (--space-6), as
+   every button on the people, albums and removals pages is (#271). The
+   second form stands a step below the first, so a thumb does not take one
+   for the other; each form's hint says what its button ends. */
+.admin-sign-in .button {
+  min-height: var(--space-6);
+  min-width: var(--space-6);
+}
+
+.admin-sign-in form + form {
+  margin-block-start: var(--space-4);
+}
+
 /* ---- Admin: albums (#153) ------------------------------------------- */
 
 /* The first form fields on any of the three sites. The border is --deep, not
@@ -1203,5 +1216,24 @@
   .person > .person-more {
     margin-block-start: var(--space-4);
     border-top: var(--border-hair);
+  }
+}
+
+/* ---- Phone: the code step's remember row (#274) ---------------------- */
+
+@media (max-width: 30rem) {
+  /* "Remember this phone for 30 days" is a row of its own, 48 px tall, the
+     whole row its target, as the admin pages' tick boxes are (#271; the
+     owner's choice at #274's pickup). The code step's alone: /ask and the
+     other sign-in forms keep their padded labels. A flex row drops the space
+     between the box and its words, so the gap puts it back. The .ask-form
+     in front ties `.ask-form .choices label`, which this then follows and
+     beats. */
+  .ask-form .code-remember label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--space-6);
+    margin-inline-end: 0;
   }
 }

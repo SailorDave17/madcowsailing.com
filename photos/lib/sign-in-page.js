@@ -25,7 +25,7 @@
  */
 import { CODES_PER_DAY, CODE_DIGITS, CODE_SECONDS, CODE_TRIES } from './admin-code.js';
 import { escapeHtml } from './admin-page.js';
-import { ADMIN_SESSION_HOURS } from './admin-session.js';
+import { ADMIN_SESSION_HOURS, REMEMBERED_SESSION_DAYS } from './admin-session.js';
 import { ASK_SCRIPT } from './ask-page.js';
 import { renderPage } from './public-page.js';
 import { RESET_GAP_SECONDS, RESET_REQUEST_LIMIT, RESET_SECONDS } from './reset.js';
@@ -108,7 +108,10 @@ export const SIGN_IN_PROBLEMS = {
 const SIGN_IN_NOTICES = {
   'signed-out': 'You are signed out, on every phone and computer that was signed in to your account.',
   // Where the admin guard sends a request it refuses (lib/admin-session.js).
-  admin: `Sign in to open the admin pages. An admin's sign-in lasts ${ADMIN_SESSION_HOURS} hours. If you pressed a button there, nothing was changed: press it again once you are signed in.`,
+  // "Forget this phone" (#274) is refused here too when this browser's admin
+  // session has already ended, and then what it asked for already holds, so
+  // pressing it again after signing in would only end a new session.
+  admin: `Sign in to open the admin pages. An admin's sign-in lasts ${ADMIN_SESSION_HOURS} hours, or ${REMEMBERED_SESSION_DAYS} days on a phone you ask the site to remember. If you pressed a button there, nothing was changed: press it again once you are signed in. If it was "Forget this phone", there is nothing left to do: this browser already opens no admin pages.`,
 };
 
 const SIGN_IN_TARGETS = { email: 'sign-in-email', password: 'sign-in-password' };
@@ -165,8 +168,13 @@ const CODE_NOTICES = {
  * CODE_NOTICES), shown when nothing went wrong. The field asks for the
  * one-time code by its autocomplete name, so a phone can offer it from the
  * email; it is a text field, never a number, so a leading 0 stays.
+ *
+ * Under the field, since #274, the "Remember this phone for 30 days" tick
+ * box: unticked unless `remember` says it was ticked when the form was sent,
+ * so a page showing the form again keeps it. Its row is 48 px tall on a
+ * phone (public/css/site.css, .code-remember).
  */
-export function codePage({ errors = [], problem = null, triesLeft = CODE_TRIES, notice = null } = {}) {
+export function codePage({ errors = [], problem = null, triesLeft = CODE_TRIES, notice = null, remember = false } = {}) {
   const { invalid, described, message } = fieldParts(errors);
   const problemText = problem ? CODE_PROBLEMS[problem](triesLeft) : null;
   const flagged = Boolean(problemText) || errors.length > 0;
@@ -182,6 +190,10 @@ export function codePage({ errors = [], problem = null, triesLeft = CODE_TRIES, 
         <label for="sign-in-code">Code</label>
         <span class="hint" id="sign-in-code-hint">The ${CODE_DIGITS} digits from the email.</span>${message('sign-in-code', 'code')}
         <input id="sign-in-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="64" spellcheck="false" required${invalid('code')}${described('sign-in-code', 'code', true)}>
+      </p>
+      <p class="field choices code-remember">
+        <label><input type="checkbox" id="sign-in-remember" name="remember" value="yes"${remember ? ' checked' : ''} aria-describedby="sign-in-remember-hint"> Remember this phone for ${REMEMBERED_SESSION_DAYS} days</label>
+        <span class="hint" id="sign-in-remember-hint">Ticked, the admin pages open in this browser for ${REMEMBERED_SESSION_DAYS} days without signing in again. Leave it unticked on a computer other people use.</span>
       </p>
       <p class="actions"><button type="submit" class="button button-accent">Sign in</button></p>
     </form>
@@ -274,6 +286,8 @@ export function closedPage(heading) {
 
 const ACCOUNT_NOTICES = {
   'password-set': 'Your password is set, and you are signed in. Any other phone or computer that was signed in to your account is signed out.',
+  // Where "Forget this phone" lands (#274, functions/api/admin/forget.js).
+  forgotten: 'This phone no longer opens the admin pages. It is still signed in to send photos, and your other phones and computers are as they were. To open the admin pages here again, sign in with your password and a new code.',
 };
 
 /**
@@ -288,7 +302,9 @@ const ACCOUNT_NOTICES = {
  * /admin until #268, where a form's redirect was stopped (the owner's
  * choice at #224's review; functions/sign-in/code.js says why). The link is
  * drawn for any account holding the role, whatever cookie the browser holds:
- * the admin pages ask for the code again once their 12 hours are up.
+ * the admin pages ask for the code again once the admin session ends, after
+ * 12 hours, or 30 days on a remembered phone (#274), or at once after
+ * "Forget this phone", which lands here saying so (`forgotten`).
  */
 export function accountPage({ name, email, teams, adminRole = null }, { notice = null } = {}) {
   const noticeText = notice && ACCOUNT_NOTICES[notice]
