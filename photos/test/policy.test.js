@@ -36,7 +36,7 @@ import {
   spendDailyUpload,
 } from '../lib/photos.js';
 import {
-  NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
+  NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, hiddenPhotos, requestRemoval, restorePhoto,
 } from '../lib/removals.js';
 import { COOKIE_NAME, clearUploadCookie, nowSeconds, requireUploadSession } from '../lib/session.js';
 import { TEAMS } from '../lib/teams.js';
@@ -354,12 +354,14 @@ test('the page\'s promises about a takedown are what the code does', async () =>
   assert.equal(await approvedPhoto(db, target), null, 'the photo is still public');
   assert.equal(await approvedPhoto(db, other), 'b'.repeat(32), 'another photo was taken down');
   assert.deepEqual({ ...row() }, { state: 'hidden', hidden_at: 1_790_000_500, hidden_note: 'My daughter' });
-  assert.equal(await restorePhoto(db, target), 'approved');
+  // Since #310 both presses also say which kind they took, so the page can
+  // name a clip; a photo's is 'photo'.
+  assert.deepEqual(await restorePhoto(db, target), { state: 'approved', kind: 'photo' });
   assert.deepEqual({ ...row() }, { state: 'approved', hidden_at: 1_790_000_500, hidden_note: 'My daughter' });
   // A later takedown writes its own time and note over the kept ones.
   await requestRemoval(db, { id: target, note: null, address: 'h', now: 1_790_000_600 });
   assert.deepEqual({ ...row() }, { state: 'hidden', hidden_at: 1_790_000_600, hidden_note: null });
-  assert.equal((await deletePhoto(db, bucket, target)).deleted, true);
+  assert.deepEqual(await deletePhoto(db, bucket, target), { deleted: true, kept: false, kind: 'photo' });
   assert.equal(row(), undefined, 'a deleted photo keeps its time and note');
 });
 
@@ -618,8 +620,10 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     // #221's log (criterion 5: who, what, whom, when), #224's promote and
     // demote (criterion 6), and #225's revoke, hide, delete and allow
     // entries (its criterion 6; the delete's, owner, at #219's review). The
-    // name and address are copied into each entry (migration 0008).
-    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, made it an admin or removed it as one, revoked it for a team, hid every photo it sent, deleted it, or let its address ask again after a delete, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
+    // name and address are copied into each entry (migration 0008). Since
+    // #310 Hide all hides an account's clips too, and its entry counts them,
+    // so the hide reads "every photo and clip" (#310, criterion 8).
+    'The admins also keep a log of what they do with each account: who approved it or turned it down for each team, changed its role, sent it a link to set a password, made it an admin or removed it as one, revoked it for a team, hid every photo and clip it sent, deleted it, or let its address ask again after a delete, and when. Each entry names the person whose account it was, by name and email address. The log has no set limit.',
     'The request asks for no sailor\'s name, so leave sailors\' names out of the note too.', // D18
     'An account, and a request for one, is kept until it is deleted. There is no set limit.', // owner, at #219's pickup
   ], '"What an account keeps"');
@@ -749,7 +753,7 @@ const ACCOUNT_ROWS = [
   ['Pwned Passwords sees 5', ['pwned', 'PWNED_RANGE_URL', 'lib/password-rules.js', 'https://api.pwnedpasswords.com/range/', 'https://haveibeenpwned.com/API/v3', '2026-10-06', '#222\'s pickup']],
   ['Which photos it sent', ['D17', 'account_id', 'migrations/0012_photos_account.sql', 'insertPhoto', '#223']],
   ['On the site, only the admins', ['D17', 'D15']],
-  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', 'promoteAdmin', 'demoteAdmin', '#224\'s criterion 6', 'revokeTeams', 'hidePhotos', 'deleteAccount', 'allowAddress', '#225\'s criterion 6', '#219\'s review']],
+  ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', 'promoteAdmin', 'demoteAdmin', '#224\'s criterion 6', 'revokeTeams', 'hidePhotos', 'deleteAccount', 'allowAddress', '#225\'s criterion 6', '#219\'s review', 'clips', '#310\'s criteria 1 and 8']],
   ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
   ['No sailor\'s name', ['D18']],
   ['Kept until it is deleted', ['#219\'s pickup']],
@@ -1273,10 +1277,11 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   assert.equal(find.all('STAYS@example.org').length, 1);
 });
 
-test('README\'s by-hand delete cuts its photos\' takedown time to the day first, so none matches the log\'s hide entry naming the person (#225\'s review)', async () => {
+test('README\'s by-hand delete cuts its photos\' and clips\' takedown time to the day first, so none matches the log\'s hide entry naming the person (#225\'s review; #310, criterion 8)', async () => {
   // Test the join, not the row (cairn: a-timestamp-joins-to-the-log-that-
-  // names-it): "Hide all their photos" stamps one second on the photos and on
-  // the log's 'hide' entry, which keeps naming the person after the delete.
+  // names-it): "Hide all" stamps one second on the photos and on the log's
+  // 'hide' entry, which keeps naming the person after the delete. Since #310
+  // it stamps the account's clips too, so the cut must reach a clip as well.
   const steps = read('..', 'README.md').split('### Deleting an account by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
   const cut = steps.match(/--command "(UPDATE photos SET hidden_at [^"]+)"/)?.[1];
   const del = steps.match(/--command "(DELETE FROM accounts [^"]+)"/)?.[1];
@@ -1299,24 +1304,31 @@ test('README\'s by-hand delete cuts its photos\' takedown time to the day first,
   insert.run(album, 'approved', 'c'.repeat(32), 1, now - 10);
   insert.run(album, 'pending', 'd'.repeat(32), 1, null);
   insert.run(album, 'approved', 'e'.repeat(32), 2, now - 10);
+  // #310: her approved clip, as finishClip and an approval leave it.
+  db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    "captured_at, sent_at, width, height, bytes, content_type, duration_ms, approved_at) VALUES (?, 'clip', 'approved', ?, 'b', 'parent', 0, 0, ?, 1, 2, 4, 3, 10, 'video/mp4', 30000, ?)",
+  ).run(album, 'f'.repeat(32), 1, now - 10);
   // The other account's photos hidden a second later, so the cut must keep to
-  // the account it names, and each log entry matches only its own photos.
-  assert.deepEqual(await hidePhotos(db, { accountId: 1, admin, now }), { hidden: 2, waiting: 1 });
-  assert.deepEqual(await hidePhotos(db, { accountId: 2, admin, now: now + 1 }), { hidden: 1, waiting: 0 });
+  // the account it names, and each log entry matches only its own rows.
+  assert.deepEqual(await hidePhotos(db, { accountId: 1, admin, now }), { hidden: 3, waiting: 1, clips: 1 });
+  assert.deepEqual(await hidePhotos(db, { accountId: 2, admin, now: now + 1 }), { hidden: 1, waiting: 0, clips: 0 });
   const matched = (name) => db.sqlite.prepare(
     "SELECT COUNT(*) AS n FROM photos AS p JOIN admin_log AS l ON l.action = 'hide' AND l.at = p.hidden_at WHERE l.name = ?",
   ).get(name).n;
-  // The control: before the cut, the log's entry finds exactly her two photos.
-  assert.equal(matched('hide.me'), 2);
+  // The control: before the cut, the log's entry finds exactly her two photos
+  // and her clip.
+  assert.equal(matched('hide.me'), 3);
 
   db.sqlite.prepare(cut.replace('<id>', '?')).run(1);
   db.sqlite.prepare(del.replace('<id>', '?')).run(1);
-  assert.equal(matched('hide.me'), 0, 'a photo\'s takedown time still names the deleted person');
+  assert.equal(matched('hide.me'), 0, 'a photo\'s or clip\'s takedown time still names the deleted person');
   const day = now - (now % 86400);
-  assert.deepEqual(db.sqlite.prepare('SELECT media_key, account_id, hidden_at FROM photos ORDER BY id').all().map((r) => ({ ...r })), [
-    { media_key: 'c'.repeat(32), account_id: null, hidden_at: day },
-    { media_key: 'd'.repeat(32), account_id: null, hidden_at: day },
-    { media_key: 'e'.repeat(32), account_id: 2, hidden_at: now + 1 },
+  assert.deepEqual(db.sqlite.prepare('SELECT media_key, kind, account_id, hidden_at FROM photos ORDER BY id').all().map((r) => ({ ...r })), [
+    { media_key: 'c'.repeat(32), kind: 'photo', account_id: null, hidden_at: day },
+    { media_key: 'd'.repeat(32), kind: 'photo', account_id: null, hidden_at: day },
+    { media_key: 'e'.repeat(32), kind: 'photo', account_id: 2, hidden_at: now + 1 },
+    { media_key: 'f'.repeat(32), kind: 'clip', account_id: null, hidden_at: day },
   ]);
   assert.equal(matched('stays'), 1, 'the cut reached an account it does not name');
 });
@@ -1559,7 +1571,7 @@ test('the page\'s account claims are what the code does: its teams only, one cou
   assert.equal(await sessionFor([]), 401);
 });
 
-test('README\'s by-hand "hide every photo an account sent" hides exactly its approved photos, and nothing waiting or anyone else\'s (#223, criterion 6)', async () => {
+test('README\'s by-hand "hide every photo an account sent" hides exactly its approved photos and clips, and nothing waiting, still being sent or anyone else\'s (#223, criterion 6; #310, criterion 8)', async () => {
   const steps = read('..', 'README.md').split('### Hiding every photo an account sent, by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
   assert.match(steps, /Do it\s+\*\*before\*\* the delete below/);
   const sql = steps.match(/--command "(UPDATE photos [^"]+)"/)?.[1];
@@ -1580,28 +1592,57 @@ test('README\'s by-hand "hide every photo an account sent" hides exactly its app
     "VALUES (?, 'photo', ?, ?, 'b', 'parent', ?, ?, ?, 1, 2, 4, 3, 4, 3, 4, 3, 10, ?, ?)",
   ).run(album, state, String(++key).padStart(32, '0'), account ? 0 : 1, account ? 0 : 1, account,
     state === 'pending' ? null : 3, state === 'hidden' ? 4 : null).lastInsertRowid);
+  // #310: a clip, as finishClip leaves it and an approval after, or still
+  // being sent, when it names its upload and nothing the server has read.
+  const clip = (state, account) => {
+    const read = state !== 'uploading';
+    return Number(db.sqlite.prepare(
+      'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+      'captured_at, sent_at, width, height, bytes, content_type, duration_ms, upload_id, approved_at) ' +
+      "VALUES (?, 'clip', ?, ?, 'b', 'parent', ?, ?, ?, ?, 2, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(album, state, String(++key).padStart(32, '0'), account ? 0 : 1, account ? 0 : 1, account,
+      read ? 1 : null, read ? 4 : null, read ? 3 : null, read ? 10 : null, read ? 'video/mp4' : null, read ? 30_000 : null,
+      read ? null : `upload-${key}`, state === 'approved' ? 3 : null).lastInsertRowid);
+  };
   const mine = [photo('approved', 1), photo('approved', 1)];
+  const myClip = clip('approved', 1);
   const waiting = photo('pending', 1);
+  const waitingClip = clip('pending', 1);
+  const sending = clip('uploading', 1);
   const already = photo('hidden', 1);
   const others = [photo('approved', 2), photo('approved', null)];
+  const otherClip = clip('approved', 2);
   for (const id of mine) assert.notEqual(await approvedPhoto(db, id), null, 'the fixture photo is public before');
+  // approvedPhoto answers null for any clip (public pages show none until
+  // #286), so a clip's state is read from its row, here and below.
+  const state = (id) => db.sqlite.prepare('SELECT state, hidden_at, hidden_note, approved_at FROM photos WHERE id = ?').get(id);
+  assert.equal(state(myClip).state, 'approved', 'the fixture clip is approved before');
 
-  assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(1).changes, 2);
+  // Two photos and the clip.
+  assert.equal(db.sqlite.prepare(sql.replace('<id>', '?')).run(1).changes, 3);
   for (const id of mine) assert.equal(await approvedPhoto(db, id), null, `photo ${id} is still public`);
-  const state = (id) => db.sqlite.prepare('SELECT state, hidden_at, hidden_note FROM photos WHERE id = ?').get(id);
-  for (const id of mine) {
-    assert.equal(state(id).state, 'hidden');
+  for (const id of [...mine, myClip]) {
+    assert.equal(state(id).state, 'hidden', `row ${id} was not hidden`);
     assert.ok(state(id).hidden_at > 1_790_000_000, 'hidden now');
     assert.equal(state(id).hidden_note, null);
+    assert.equal(state(id).approved_at, 3, 'an approved row keeps its approval, so "Put it back" approves it again');
   }
+  // It waits on /admin/removals beside the photos, as approved, not waiting.
+  assert.deepEqual((await hiddenPhotos(db)).map((row) => [row.id, row.kind, row.waiting]),
+    [[already, 'photo', false], [mine[0], 'photo', false], [mine[1], 'photo', false], [myClip, 'clip', false]]);
   assert.equal(state(waiting).state, 'pending', 'a waiting photo is the queue\'s to turn down');
+  assert.equal(state(waitingClip).state, 'pending', 'a waiting clip is the queue\'s to turn down');
+  assert.equal(state(sending).state, 'uploading', 'a clip still being sent was touched');
   assert.equal(state(already).hidden_at, 4, 'a photo hidden already keeps its time');
   for (const id of others) assert.notEqual(await approvedPhoto(db, id), null, 'another sender\'s photo came down');
-  // Step 3's read-back: no approved row is left for the account.
+  assert.equal(state(otherClip).state, 'approved', 'another sender\'s clip came down');
+  // Step 3's read-back: no approved row of either kind is left for the
+  // account. It groups by state alone, so the clip left approved under a
+  // statement naming kind = 'photo' would show as an `approved` group.
   const readBack = steps.match(/`--command "(SELECT state, COUNT\(\*\) FROM photos WHERE account_id\s+= <id> GROUP BY state)"`/)?.[1];
   assert.ok(readBack, 'README has no read-back statement');
   const rows = db.sqlite.prepare(readBack.replace(/\s+/g, ' ').replace('<id>', '?')).all(1).map((r) => r.state);
-  assert.deepEqual(rows.sort(), ['hidden', 'pending']);
+  assert.deepEqual(rows.sort(), ['hidden', 'pending', 'uploading']);
 });
 
 // ---- #224: what an admin's sign-in keeps (its criterion 8) ------------------

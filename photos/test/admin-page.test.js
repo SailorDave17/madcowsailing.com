@@ -206,24 +206,26 @@ function seedPerson(db, email, teams) {
 /** GET /admin over `db`, as the guard leaves it. */
 const homeOf = async (db) => (await home({ data: { admin: ADMIN }, env: { DB: db } })).text();
 
-test('/admin opens on what is waiting: photos and clips, account requests and removal requests, in that order, each counted from the rows (#269, criterion 1; #198)', async () => {
+test('/admin opens on what is waiting: photos and clips, account requests and removal requests, in that order, each counted from the rows (#269, criterion 1; #198; #310, criterion 6)', async () => {
   const db = d1();
   seedAdmin(db);
   const fall = await createAlbum(db, FALL, T0);
-  // Counts chosen apart, 3 photos and 4 clips, 2 and 1, so two counts
+  // Counts chosen apart, 3 photos and 4 clips, 2 and 5, so two counts
   // swapped between items read wrong. Since #198 a waiting clip counts beside
-  // the photos, named apart (owner, at #198's pickup). Beside each, rows that
-  // must not count: an approved photo, a clip whose parts are still
-  // arriving, and a hidden clip, which is no removal request until #286
-  // brings clips into removals; for the requests, a person asking for both
-  // teams (one person, counted once), and people approved, turned down or
-  // revoked.
+  // the photos, named apart (owner, at #198's pickup). Since #310 a hidden
+  // clip is a removal request, as a hidden photo is, since "Hide all" takes
+  // an account's clips to /admin/removals with its photos: one hidden photo
+  // and four hidden clips, one number. Beside each, rows that must not count:
+  // an approved photo, an approved clip, and a clip whose parts are still
+  // arriving; for the requests, a person asking for both teams (one person,
+  // counted once), and people approved, turned down or revoked.
   for (let i = 0; i < 3; i++) seedRow(db, fall, { state: 'pending' });
   for (let i = 0; i < 4; i++) seedRow(db, fall, { kind: 'clip', state: 'pending' });
   seedRow(db, fall, { state: 'approved' });
+  seedRow(db, fall, { kind: 'clip', state: 'approved' });
   seedRow(db, fall, { kind: 'clip', state: 'uploading' });
   seedRow(db, fall, { state: 'hidden' });
-  seedRow(db, fall, { kind: 'clip', state: 'hidden' });
+  for (let i = 0; i < 4; i++) seedRow(db, fall, { kind: 'clip', state: 'hidden' });
   seedPerson(db, 'both@example.org', { 'hoover-jrt': 'requested', cohssa: 'requested' });
   seedPerson(db, 'one@example.org', { 'hoover-jrt': 'approved', cohssa: 'requested' });
   seedPerson(db, 'done@example.org', { 'hoover-jrt': 'approved' });
@@ -233,7 +235,7 @@ test('/admin opens on what is waiting: photos and clips, account requests and re
   assert.deepEqual(todoList(html), [
     { classes: 'button todo-item', href: '/admin/queue', count: 3, words: 'photos and 4 clips waiting for approval' },
     { classes: 'button todo-item', href: '/admin/people', count: 2, words: 'account requests waiting' },
-    { classes: 'button todo-item', href: '/admin/removals', count: 1, words: 'removal request waiting' },
+    { classes: 'button todo-item', href: '/admin/removals', count: 5, words: 'removal requests waiting' },
   ]);
   // It opens on them: the list is the section right after the page's head,
   // ahead of the links and of who is signed in.

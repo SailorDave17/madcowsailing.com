@@ -95,7 +95,9 @@ share page send clips, in parts of 25 MiB, their location and camera data
 overwritten on the phone and checked again on arrival, up to 10 GB of an
 account's clips a day (40 GB a coach's); a clip waits in `/admin/queue`
 beside the photos, where an admin plays, approves, rejects or moves it, and
-#286 shows approved clips on the public pages (item 33). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+#286 shows approved clips on the public pages (item 33). #310 took clips
+into Hide all on `/admin/people` and into `/admin/removals`, where an admin
+puts one back or deletes it (item 33). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -1810,13 +1812,19 @@ down, and `functions/remove.js` asks first for a browser without JavaScript.
   reject does (item 16), so no row names objects that are gone. A bucket that
   refuses leaves objects the log names by their `photos/<key>/` prefix. It is
   confirmed in a native `<dialog>`, and needs JavaScript, as rejecting does.
+  Since #310 a hidden clip's delete takes its one object (`clipObjectKey`),
+  by the queue's own `objectKeys`, and the dialog names a clip (item 33).
 - **The dialog says "one of the site's admins" reviews it, not "the site's
   owner"** as the criterion was written, for item 18's reason.
 - **The admin home counts the hidden photos** as removal requests waiting,
-  photos only: every statement names `kind = 'photo'`, and clips wait for
-  #286, which shows them and so gives them a takedown. Until then an approved
-  clip is deleted on request by hand (#198, item 33; README.md, Deleting a
-  clip by hand).
+  and since #310 the hidden clips with them, in one number: Hide all hides
+  an account's clips too, and `/admin/removals` lists, puts back and deletes
+  them (item 33). **"Remove this photo" stays photo-only** until #286, which
+  shows clips and so gives them a takedown: `removablePhoto` and
+  `requestRemoval` still name `kind = 'photo'`. Until then one approved clip
+  asked for by email is deleted by hand (#198, item 33; README.md, Deleting a
+  clip by hand). *Until #310 this bullet said the count and every removals
+  statement were photos only, clips waiting for #286.*
 - **Anyone can hide every photo from enough addresses.** Ten an hour per
   address stops one person, not a crowd of IPv6 /64s, and "Put it back" is
   one photo at a time. D7 accepts that anyone can hide a photo; this is that
@@ -3177,7 +3185,8 @@ request:
   only. Since #198 `queueSummary` also counts the waiting clips, and the
   queue's button names both kinds: "3 photos and 1 clip waiting for
   approval", "1 clip waiting for approval" with no photo, and today's words
-  with no clip (owner, item 33).
+  with no clip (owner, item 33). Since #310 its removals count takes the
+  hidden clips too, in the one number the button already shows (item 33).
 - **Since #271 people, albums and removals work on a phone** (epic #267).
   Every button on the three pages is at least 48 px square (`--space-6`) at
   every width, as the queue's are (#270); `/admin/mail`'s one button shares
@@ -3453,7 +3462,10 @@ The rest are defaults, recorded on #225 at pickup or taken while building:
   hidden photo public. Not chosen: a migration column saying where a hidden
   photo came from, which would still need the placeholder; leaving waiting
   photos out, which criterion 4 names; turning them down, which deletes
-  them, where criterion 4 asks that each can be restored.
+  them, where criterion 4 asks that each can be restored. *Since #310 a
+  waiting clip is hidden and put back the same way, by the same placeholder,
+  and an approved clip put back is approved again, shown nowhere public
+  until #286 (item 33).*
 - **A hide writes no note**, as README's statement by hand writes none. A
   note naming the account would put the person's name on photo rows that
   outlive a delete. `/admin/removals` names the account through its join
@@ -3465,7 +3477,11 @@ The rest are defaults, recorded on #225 at pickup or taken while building:
   have a list of their own, Revoked, between Approved and Turned down; a
   partly revoked person stays under Approved, with the revoked team's
   unticked box under Approve. `peopleLists` reads each account's waiting and
-  public photo counts in one grouped statement for the hide box.
+  public photo counts in one grouped statement for the hide box. *Since #310
+  the same statement counts its waiting and approved clips apart, and for a
+  person who sent any, the summary, the box and the button name clips
+  ("hide their photos and clips", "Hide all their clips"); with none they
+  read as above (item 33).*
 - **A re-approval emails the usual set-password link**, as every approval
   does; someone who already has a password can ignore it.
 - **"Let it ask again" logs the person by the newest log entry naming the
@@ -3498,7 +3514,9 @@ owner's:
   its UTC day (`HIDDEN_DAY_SECONDS`), put-back photos included, and README's
   delete by hand gained the same statement as its step 3. `/policy` says a
   photo that had been taken down keeps only the day. `test/policy.test.js`
-  and `test/revoke.test.js` test the join itself, with its control. The day
+  and `test/revoke.test.js` test the join itself, with its control. *Since
+  #310 Hide all stamps the account's clips too; both cuts name no kind, so
+  they reach a clip, and `test/policy.test.js` holds README's with one.* The day
   still narrows it where few photos were hidden that day. Not chosen: saying
   so on `/policy`, as was chosen for the request log's time (item 25), since
   that log row lasts an hour and the admins' log lasts for good; a README
@@ -3664,7 +3682,9 @@ through the question tool:
   waited where no admin could see it, billed from the day it landed (item
   8). #198 shows clips in the queue, plays them, and approves, rejects,
   moves and captions them; public serving (the album pages, the lightbox,
-  Remove this photo and Hide all for a clip) is #286. Not chosen: the sender
+  Remove this photo and Hide all for a clip) is #286. *Hide all for a clip
+  was split from #286 into #310 on 2026-10-08, and built there (below).*
+  Not chosen: the sender
   as filed with the queue filed as a sibling (the recommendation), which
   leaves a release where clips arrive and no admin sees them; splitting
   first and building the server half alone; running groom-backlog on the
@@ -3695,11 +3715,17 @@ through the question tool:
   missing or implausible. A player shows the file's date as 1904. Not
   chosen: keeping the times, with a `/policy` sentence saying so. Item 10
   had left this to the video stories.
-- **Hide all stays photo-only, and says so** (the recommendation).
-  `/admin/people`'s box says the person's waiting clips are not hidden and
-  are rejected in the queue. Not chosen: Hide all hiding waiting clips too,
-  which brings clips into `/admin/removals` (#286's); Hide all rejecting
-  them, which "Put it back" cannot undo.
+- **Hide all stays photo-only, and says so** (owner, at #198's pickup, the
+  recommendation). `/admin/people`'s box said the person's waiting clips
+  were not hidden and were rejected in the queue. Not chosen: Hide all
+  hiding waiting clips too, which brings clips into `/admin/removals`
+  (#286's then); Hide all rejecting them, which "Put it back" cannot undo.
+  **The owner reversed this on 2026-10-08**, at the post-cutover groom (the
+  recommendation): Hide all for clips was split out of #286 into its own
+  story, #310, to ship before #286, and #286 lost that half. So a person an
+  admin hides has no clip left waiting, nor one approved that #286 would
+  later make public. #310 built it, and the box's clip hint went (#310's
+  record, below).
 - **A clip card loads nothing until Play** (the recommendation):
   `preload="none"`, with the clip's length and frame size in text. The
   queue reloads after every press, and every range request is a Functions
@@ -3967,6 +3993,101 @@ The rest were taken while building:
   same file through the Functions bundler.
 - **The admin clip route decides 206 from the parsed request**, never from
   whether R2's object carries a `range`: miniflare sets one on every get.
+
+**#310, 2026-10-09: Hide all and the removals list take clips** (epic
+#216). Since #310 Hide all on `/admin/people` hides an account's clips with
+its photos, and `/admin/removals` lists, puts back and deletes them, which
+reverses #198's photo-only choice (above). `lib/people.js` (`hidePhotos`,
+`peopleLists`), `lib/people-page.js`, `lib/removals.js` (`hiddenPhotos`,
+`restorePhoto`, `deletePhoto`), the removals page in `lib/admin-page.js` and
+`queueSummary` in `lib/queue.js` hold it; README.md, The photo site, Removal
+requests and Approving accounts, is the operating record. The owner's
+decisions at pickup, through the question tool, each the recommendation:
+
+- **The button names what the person sent**: "Hide all their photos" when
+  they sent no clip, exactly as before; "Hide all their photos and clips"
+  with both; "Hide all their clips" with only clips. The disclosure's
+  summary follows it. This is #198's rule that photo-only words change only
+  where a clip makes them wrong (above). Not chosen: "Hide all their photos
+  and clips" for everyone; a name that names no kind.
+- **The admins' log sentence follows the entry.** An entry whose detail
+  names no clip keeps its words ("hid every photo Jane Rivers (…) sent, 3
+  photos."), so every entry from before #310 stays true; one that hid a clip
+  reads "hid every photo and clip … sent, 3 photos and 1 clip.", or "hid
+  every clip … sent, 1 clip.". Not chosen: one neutral sentence for every
+  entry; one "photo and clip" sentence, which would say old entries hid
+  clips.
+- **Everything #310 makes false is fixed in it**, past criterion 8's list:
+  item 19's photos-only bullet, notes on items 19, 30 and 31, README's
+  Removal requests, and the code and test comments. So is a gap that was
+  there before: `hiddenPhotos` never selected `sender`, so `/admin/removals`
+  could not say "sent by a coach" for a row no account names. The one
+  column now serves both kinds. Not chosen: filing the coach gap as its own
+  story; criterion 8's list only.
+- **The removals clip player is held near a photo row's size**, on a
+  `--deep` ground, and the PR carries a browser reading at 320 to 430 px with
+  a planted control, as #271's did. Not chosen: filling the row as the
+  queue's card does, which makes a portrait clip about 1960 px tall on a
+  desktop; no new CSS, which leaves criterion 7's width test reading only
+  `base.css`, whose cap already holds on `develop`. **At the review the owner
+  chose the long edge** (the recommendation, 2026-10-09): the first build
+  capped the width at 480 px (`.removal-clip video { width: 100%; max-width:
+  min(100%, calc(5 * var(--space-8))); }`), which `review-fanout` measured
+  leaving a portrait clip 480 x 853 on a desktop against a portrait photo's
+  270 x 478. So `clipBox` in `lib/admin-page.js` gives the player its frame
+  scaled to a grid image's 480 px long edge, never past the frame, 270 x 480
+  for a portrait clip, and `base.css`'s `max-width: 100%` holds it within a
+  narrower row; the `site.css` rule sets only the ground. Not chosen: keeping
+  the width cap and saying so.
+
+Defaults from earlier decisions, not asked: counts name both kinds, with
+today's words exactly when no clip is among them (above); an approved clip
+is "approved", never "public", until #286; one removals count on the admin
+home, clips included.
+
+What #310 changed:
+
+- **Hide all hides waiting and approved clips with the photos, in its one
+  batch.** `HIDEABLE` is `account_id = ? AND state IN ('pending',
+  'approved')`. The state is the whole test, so a clip still `uploading` is
+  left alone; hiding one would meet 0016's `photos_clip_state_on_update`,
+  which aborts the batch. A waiting clip takes `WAITING_WHEN_HIDDEN`, as a
+  waiting photo does (item 31). The log entry counts each kind from the same
+  `HIDEABLE` in the same batch: "3 photos", "1 clip", "2 photos and 1 clip",
+  a kind at 0 left out. `hidePhotos` keeps its name, which `/policy`'s trace
+  names, and answers `{ hidden, waiting, clips }`, `clips` being how many of
+  `hidden` are clips. The route carries it as `clips=`, left out at 0, so a
+  press that hid photos alone answers as before.
+- **The box counts what Hide all would hide.** `peopleLists` counts each
+  account's waiting and approved clips beside its photos, in the same
+  grouped statement, and the box reads "Hide the 3 photos and 1 clip … sent
+  (2 public photos, 1 approved clip, 1 waiting)", or as before with no clip.
+  The hint "Their waiting clips are not hidden. Reject those in the queue."
+  went with its `aria-describedby`. The notice and the `not-hidden` and
+  `hide-unticked` refusals name photos and clips.
+- **`/admin/removals` lists a hidden clip** as "Clip <id>", with its length
+  and frame size and a `<video controls preload="none">` through the admin
+  clip route, in a `div`, never a link, which may hold no player. The row
+  keeps a photo row's `<li class="removal">` and id, so the 48 px rule and
+  the phone layout take it as they take a photo's (#271). **Put it back**
+  follows `restorePhoto`'s rule: an approved clip is approved again, kept but
+  shown nowhere public, and one hidden while waiting goes back to the queue.
+  **Delete permanently** deletes the row, then its one object
+  (`clipObjectKey`), by `objectKeys` in `lib/queue.js`, which a reject uses;
+  the dialog names a clip from the button's `data-kind="clip"`
+  (`public/js/admin-removals.js`). Only a hidden row is put back or deleted,
+  so a clip still uploading is never reached. `restorePhoto` answers `{
+  state, kind }` and `deletePhoto` `{ deleted, kept, kind }`, each from its
+  one statement's `RETURNING`, so no press makes a statement more (item 16),
+  and each notice names a clip by `clip=<id>`.
+- **The admin home's removals count takes the hidden clips**, in its one
+  number (item 30).
+- **"Remove this photo" stays photo-only until #286**: `removablePhoto` and
+  `requestRemoval` still name `kind = 'photo'`, since nothing public shows a
+  clip to take down. `/policy` changed one sentence, the admins' log's "hid
+  every photo and clip it sent"; nothing public changed. One approved clip
+  asked for by email is still deleted by hand (README.md, Deleting a clip
+  by hand), which now points at Hide all for everything a person sent.
 
 ## The two-presentation rule
 

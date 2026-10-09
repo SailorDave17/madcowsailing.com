@@ -43,12 +43,14 @@
  * storedClip(), which serve one each. Its state keeps a clip still arriving
  * in parts out: it is `uploading` until the server has checked it
  * (lib/clips.js), and only `pending` waits. An approved clip is kept and
- * shown nowhere public until #286, since every public and removals statement
- * still names kind = 'photo' (lib/public.js, lib/removals.js). The presses
- * name clips apart in their notices, from the kind each statement already
- * returns, so no press makes a statement more for them (CLAUDE.md, item 16,
- * counts them). Not chosen: a page of their own for clips, which would split
- * a batch's photos from its clips.
+ * shown nowhere public until #286, since every public statement still names
+ * kind = 'photo' (lib/public.js), as "Remove this photo" does
+ * (lib/removals.js). Since #310 Hide all takes an account's clips to
+ * /admin/removals with its photos, to be put back or deleted there. The
+ * presses name clips apart in their notices, from the kind each statement
+ * already returns, so no press makes a statement more for them (CLAUDE.md,
+ * item 16, counts them). Not chosen: a page of their own for clips, which
+ * would split a batch's photos from its clips.
  */
 import { CONTROL } from './albums.js';
 import { clipObjectKey, photoObjectKeys, readCaption } from './photos.js';
@@ -315,9 +317,10 @@ export async function movePhotos(db, ids, address) {
   return { moved: results.map((row) => row.id), clips: clipIds(results) };
 }
 
-// The R2 keys a waiting row's media lies under: a photo's three sizes, or a
-// clip's one object (#198), all under its photos/<key>/ prefix.
-const objectKeys = (row) => (row.kind === 'clip'
+// The R2 keys a row's media lies under: a photo's three sizes, or a clip's
+// one object (#198), all under its photos/<key>/ prefix. A reject here and,
+// since #310, a delete on /admin/removals (lib/removals.js) both use it.
+export const objectKeys = (row) => (row.kind === 'clip'
   ? [clipObjectKey(row.media_key)]
   : Object.values(photoObjectKeys(row.media_key)));
 
@@ -501,19 +504,21 @@ export async function waitingBatches(db, team = null) {
 /**
  * What the admin home shows: how many photos wait, how many clips wait
  * (`clips`, #198), how many removal requests wait (#158: a photo taken down
- * with "Remove this photo" is hidden until an admin puts it back or deletes
- * it), and the bytes every stored row's objects take, whatever its state. One
- * query. The sum reads every row, about 11,000 at the storage allowance
- * (CLAUDE.md item 8) against D1's 5 million a day, and only an admin loads
- * the home. A clip still uploading has no bytes yet, and a removal request is
- * a photo's until #286 brings clips into removals.
+ * with "Remove this photo", or anything Hide all took down, is hidden until
+ * an admin puts it back or deletes it), and the bytes every stored row's
+ * objects take, whatever its state. One query. The sum reads every row, about
+ * 11,000 at the storage allowance (CLAUDE.md item 8) against D1's 5 million a
+ * day, and only an admin loads the home. A clip still uploading has no bytes
+ * yet. Since #310 a hidden clip is a removal request too, hidden by Hide all
+ * whether it was waiting or approved; a clip is never hidden while uploading,
+ * since 0016 lets it leave `uploading` only for `pending`.
  */
 export async function queueSummary(db) {
   const row = await db
     .prepare(
       "SELECT COUNT(CASE WHEN state = 'pending' AND kind = 'photo' THEN 1 END) AS waiting, " +
       "COUNT(CASE WHEN state = 'pending' AND kind = 'clip' THEN 1 END) AS clips, " +
-      "COUNT(CASE WHEN state = 'hidden' AND kind = 'photo' THEN 1 END) AS removals, " +
+      "COUNT(CASE WHEN state = 'hidden' THEN 1 END) AS removals, " +
       'COALESCE(SUM(bytes), 0) AS bytes FROM photos',
     )
     .first();

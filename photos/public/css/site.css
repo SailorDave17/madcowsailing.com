@@ -770,6 +770,16 @@
   background: var(--chalk);
 }
 
+/* A hidden clip on /admin/removals (#310) plays as its queue card does, on
+   night water until Play, at a photo row's size: the page gives the player
+   its frame scaled to a grid image's 480 px long edge (clipBox, in
+   lib/admin-page.js), so a portrait clip is 270 x 480 as a portrait photo is
+   (the owner's choice at #310's review), and base.css's max-width keeps it
+   within a narrower row. No width is set here: one would undo that size. */
+.removal-clip video {
+  background: var(--deep);
+}
+
 /* ---- Admin: removal requests (#158) --------------------------------- */
 
 .removals {

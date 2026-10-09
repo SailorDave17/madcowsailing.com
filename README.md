@@ -978,6 +978,9 @@ The photo site, item 18 has the decisions.
   one is sent, and how to have one deleted while there is no button), and
   clips in the daily count. Each claim has its own row in the head comment's
   clips' block. `npm test` holds its minutes and GB to `lib/photos.js`.
+- **#310 named clips in the admins' log sentence**: an admin "hid every photo
+  and clip it sent", since Hide all hides an account's clips too. Nothing
+  public changed, and `npm test` holds the new sentence.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
   `photos/lib/admin-page.js`. The header's nav holds one link, **Team
@@ -1075,25 +1078,42 @@ it names. The file is gone for good at step 3. The row stays in the
 database's restore points for up to 30 days, as every deleted row does
 (`/policy`, the end of Having an account deleted).
 
+Since #310, **Hide all** on `/admin/people` takes every clip an account sent,
+waiting or approved, to `/admin/removals`, where **Delete permanently**
+deletes a clip's row and its one file, so a person who asks for everything
+they sent to come down needs none of the steps above.
+
 ### Removal requests
 
 Every photo taken down waits on `/admin/removals` (#158), behind the admin
 sign-in, as the queue is, the oldest takedown first, with its album, its
-team, when it was hidden and the note. The admin home says how many wait.
+team, when it was hidden, the account that sent it and the note. Since #310
+so does every clip **Hide all** took down, or its fallback by hand (Hiding
+every photo an account sent, by hand, below): a clip has no **Remove this
+photo** until #286, so those are the only ways one arrives. A clip's row
+gives its length and frame size and plays it through the admin clip route,
+loading nothing until Play. A row no account names says "sent by a coach"
+when a coach sent it (since #310, for both kinds). The admin home says how
+many wait, photos and clips together.
 
 - **All teams, Hoover JRT or COHSSA** (#227): the links at the top show one
-  team's hidden photos, at `/admin/removals?team=<team>`, and both presses
-  land back on the same team.
-- **Put it back** makes it approved and public again. When it was hidden and
-  the note stay on its row as a record, and a later takedown writes over
-  them. A photo an admin hid with **Hide all their photos** while it was
+  team's hidden photos and clips, at `/admin/removals?team=<team>`, and both
+  presses land back on the same team.
+- **Put it back** makes a photo approved and public again. When it was
+  hidden and the note stay on its row as a record, and a later takedown
+  writes over them. A photo an admin hid with **Hide all** while it was
   still waiting (#225) is marked "was waiting for approval", and putting it
   back returns it to the queue, never onto the site: it carries
-  `approved_at` 0, the placeholder 0005's CHECK needs on a hidden row.
-- **Delete permanently** asks first, in a dialog, then deletes its row and
-  its three files for good. It needs JavaScript.
-- A hidden photo keeps its row and its three files until one of those, so
-  nothing is lost while it waits.
+  `approved_at` 0, the placeholder 0005's CHECK needs on a hidden row. A
+  clip goes back the same way (#310): an approved one is approved again,
+  kept but shown nowhere public until #286, and one hidden while waiting
+  returns to the queue.
+- **Delete permanently** asks first, in a dialog, then deletes the row and
+  its files for good: a photo's three, or a clip's one (#310). It needs
+  JavaScript.
+- A hidden photo or clip keeps its row and its files until one of those, so
+  nothing is lost while it waits. A clip still being sent is never hidden,
+  so it never reaches this page.
 
 ### Email
 
@@ -1264,8 +1284,9 @@ is under them.
 - **The log** records who did what to whom, and when: each approval and
   turn-down per team, a role change, and each link sent, with how the email
   went; since #224 each admin made or removed, and since #225 each revoke per
-  team, each set of photos hidden with how many, each delete, and each
-  address let ask again. A link's entry is written with the link itself, so no link exists
+  team, each set of photos hidden with how many (since #310 photos and
+  clips, with how many of each), each delete, and each address let ask
+  again. A link's entry is written with the link itself, so no link exists
   without one. It copies the person's name and address into every entry, so
   it still names them after their account is deleted. The page shows the
   newest 100, and nothing deletes from the table.
@@ -1286,9 +1307,11 @@ is under them.
   made once, by hand (Making the owner, below).
 - **"Revoke, hide their photos or delete"** (#225; `CLAUDE.md`, The photo
   site, item 31) opens under each person, holding whichever of the three
-  apply. Revoke and Delete are not there for anyone holding the admin role:
-  the owner presses "Remove admin" first (the owner's choice at #225's
-  pickup), which keeps removing an admin the owner's alone.
+  apply. Since #310 it names clips too for someone who sent any ("hide their
+  photos and clips", or "hide their clips"). Revoke and Delete are not there
+  for anyone holding the admin role: the owner presses "Remove admin" first
+  (the owner's choice at #225's pickup), which keeps removing an admin the
+  owner's alone.
   - **Revoke** takes the ticked teams away, none ticked to start with;
     ticking every one revokes the account. It signs the person out on every
     phone and computer at their next request, a single team's revoke
@@ -1304,9 +1327,14 @@ is under them.
     address's hold is lifted in the same press. A session from before the
     revoke stays ended.
   - **Hide all their photos** takes down every photo the account sent,
-    waiting or public, its box naming the count, which must be ticked. Each
+    waiting or public, and since #310 every clip, waiting or approved; a clip
+    still being sent is left alone. Its box names the count, which must be
+    ticked. For someone who sent a clip, the box counts photos and clips
+    apart, an approved clip is "approved", never "public" (nothing public
+    shows a clip until #286), and the button reads **Hide all their photos
+    and clips**, or **Hide all their clips** when they sent only clips. Each
     then waits on `/admin/removals` naming the account, with no note, and no
-    takedown is counted against anyone's limit. A photo that was waiting is
+    takedown is counted against anyone's limit. One that was waiting is
     marked so there, and **"Put it back" returns it to the queue**, not onto
     the site.
   - **Delete the account** is for someone who asked by email. Write to the
@@ -1314,12 +1342,13 @@ is under them.
     by hand (below) says; the box "… replied to confirm they asked for this"
     must be ticked, and is the admin's word for it, since the site cannot
     read the reply. The delete takes what README's statement by hand takes,
-    and the log keeps naming the person. Each of the account's photos keeps
-    only the day it was taken down, not the second, which would otherwise
-    match the log's "hid every photo" entry and name the person (the owner's
-    choice at #225's review). If they asked for their photos to come down
-    too, press Hide all their photos first: afterwards nothing finds them as
-    a group.
+    and the log keeps naming the person. Each of the account's photos and
+    clips keeps only the day it was taken down, not the second, which would
+    otherwise match the log's "hid every photo" entry and name the person
+    (the owner's choice at #225's review; the cut names no kind, so it
+    reaches the clips Hide all takes since #310). If they asked for what they
+    sent to come down too, press Hide all first: afterwards nothing finds it
+    as a group.
 - **A deleted account's address**, under Revoked: when a revoked account is
   deleted its address stays held back, kept only as its keyed hash, so a new
   request from it changes nothing. Type the address and press **Let it ask
@@ -1484,30 +1513,35 @@ page links `/ask` beside it ("No account yet? Ask for one").
 
 ### Hiding every photo an account sent, by hand
 
-The fallback for **Hide all their photos** on `/admin/people` (#225; Approving
-accounts, above), for when the page cannot be reached (#223, criterion 6;
-#219's review). Unlike the button, it hides only the public photos, and
-turns the waiting ones down in step 4. Do it **before** the delete below:
-deleting the account stops its photos naming it, so afterwards nothing finds
-them as a group. From `photos/`, with the D1 token in `photos/.env` (above):
+The fallback for **Hide all** on `/admin/people` (#225; Approving accounts,
+above), for when the page cannot be reached (#223, criterion 6; #219's
+review). Since #310 it takes the account's clips as the button does. Unlike
+the button, it hides only the approved photos and clips, and turns the
+waiting ones of both kinds down in step 4. Do it **before** the delete below:
+deleting the account stops what it sent naming it, so afterwards nothing
+finds it as a group. From `photos/`, with the D1 token in `photos/.env`
+(above):
 
 1. Find the account's id with step 1 of the delete below.
-2. Hide every public photo it sent:
+2. Hide every approved photo and clip it sent:
 
    ```
-   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET state = 'hidden', hidden_at = unixepoch(), hidden_note = NULL WHERE account_id = <id> AND kind = 'photo' AND state = 'approved'"
+   npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET state = 'hidden', hidden_at = unixepoch(), hidden_note = NULL WHERE account_id = <id> AND state = 'approved'"
    ```
 
 3. Read it back. `--command "SELECT state, COUNT(*) FROM photos WHERE account_id
-   = <id> GROUP BY state"` must list no `approved`.
-4. Turn down its waiting photos on `/admin/queue`, where each says who sent
-   it. Turning down deletes them.
+   = <id> GROUP BY state"` must list no `approved`, of either kind.
+4. Turn down its waiting photos and clips on `/admin/queue`, where each says
+   who sent it. Turning down deletes them. A clip still being sent is left
+   alone: once it arrives it waits in the queue with the rest, and one never
+   finished is cleared a day after it started.
 
-The hidden photos wait on `/admin/removals`, each naming the account, to be
-deleted for good or put back, and no takedown is counted against anyone's
-limit. `photos/test/policy.test.js` runs the step-2 statement against the
-real schema: it hides exactly the account's approved photos, and nothing
-waiting, hidden already, or sent by anyone else.
+The hidden photos and clips wait on `/admin/removals`, each naming the
+account, to be deleted for good or put back, and no takedown is counted
+against anyone's limit. `photos/test/policy.test.js` runs the step-2
+statement against the real schema: it hides exactly the account's approved
+photos and clips, and nothing waiting, still being sent, hidden already, or
+sent by anyone else.
 
 ### Deleting an account by hand
 
@@ -1530,8 +1564,9 @@ admin's, so for an admin, have the owner press "Remove admin" on
    ```
 
 2. Write to that address asking for a reply to confirm, and wait for it.
-3. Cut each of its photos' takedown time to the day, as the button does, so
-   no photo's time matches a log entry naming the person (#225):
+3. Cut each of its photos' and clips' takedown time to the day, as the
+   button does, so none's time matches a log entry naming the person (#225;
+   a clip since #310, which the statement reaches since it names no kind):
 
    ```
    npx --no-install wrangler d1 execute madcowphotos --remote --env production --command "UPDATE photos SET hidden_at = hidden_at - hidden_at % 86400 WHERE account_id = <id> AND hidden_at IS NOT NULL"
@@ -1553,8 +1588,8 @@ account is kept`, migration 0013, #224). The photos it sent stay as they are and
 each still says whether a coach's account sent it. `photos/test/policy.test.js`
 runs the step-3 and step-4 statements against the real schema, with a row in
 every table, and fails if any row afterwards names the account's id or
-address, or if a photo's takedown time still matches a log entry naming the
-person. Only these
+address, or if a photo's or clip's takedown time still matches a log entry
+naming the person. Only these
 may: the admins' log entries (#221), which keep naming the person, as the test
 also checks; and the day's upload count under `account.<id>`, until anyone's
 first upload of a later day clears it (#223). A revoked account's address

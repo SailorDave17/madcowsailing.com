@@ -118,6 +118,29 @@ function photo(db, albumId, { account = null, state = 'approved' } = {}) {
 }
 const photoState = (db, id) => ({ ...db.sqlite.prepare('SELECT state, approved_at, hidden_at, hidden_note, account_id FROM photos WHERE id = ?').get(id) });
 
+// A clip row (#198) in `state`, 'pending', 'approved' or 'uploading', sent by
+// `account` as photo() writes a photo, with its own media key from the same
+// count. A checked clip names its type and a length and no upload (0016's
+// rules 2 and 3); one still uploading names its upload and has nothing the
+// check fills in yet, as a clip sent in parts is until it is finished.
+function clip(db, albumId, { account = null, state = 'approved' } = {}) {
+  media += 1;
+  const uploading = state === 'uploading';
+  const { lastInsertRowid } = db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, bytes, content_type, duration_ms, upload_id, approved_at) ' +
+    "VALUES (?, 'clip', ?, ?, 'b', 'parent', ?, ?, ?, ?, ?, ?, ?, ?, 'video/mp4', ?, ?, ?)",
+  ).run(
+    albumId, state, media.toString(16).padStart(32, '0'),
+    account === null ? 1 : 0, account === null ? 1 : 0, account,
+    uploading ? null : NOW - 1000 + media, NOW - 500 + media,
+    uploading ? null : 1080, uploading ? null : 1920, uploading ? null : 4000,
+    uploading ? null : 30_000, uploading ? `upload-${media}` : null,
+    state === 'approved' ? NOW - 100 : null,
+  );
+  return Number(lastInsertRowid);
+}
+
 // ---- Criteria 1 and 2: a revoke ends the person's sessions ------------------
 
 test('revoking one team: that team is revoked and the other stays, the session version goes up by 1, and each team is logged (criteria 1, 2 and 6)', async () => {
@@ -447,7 +470,8 @@ test('"Hide all their photos" hides every photo the account sent, waiting or pub
   const taken = photo(db, albumId, { account: id, state: 'hidden' });
   const sams = photo(db, albumId, { account: other });
   const invite = photo(db, albumId, { account: null, state: 'pending' });
-  assert.deepEqual(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 60 }), { hidden: 2, waiting: 1 });
+  // No clip among them, so none is counted (#310).
+  assert.deepEqual(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 60 }), { hidden: 2, waiting: 1, clips: 0 });
   assert.deepEqual(photoState(db, shown), { state: 'hidden', approved_at: NOW - 100, hidden_at: NOW + 60, hidden_note: null, account_id: id });
   assert.deepEqual(photoState(db, waiting), { state: 'hidden', approved_at: WAITING_WHEN_HIDDEN, hidden_at: NOW + 60, hidden_note: null, account_id: id });
   // A photo already taken down keeps its own time and note.
@@ -465,6 +489,65 @@ test('"Hide all their photos" hides every photo the account sent, waiting or pub
   assert.equal(count(db, 'removal_requests'), 0);
 });
 
+test('Hide all hides the account\'s clips with its photos, waiting or approved, in one batch, logging both counts, and leaves a clip still uploading alone (#310, criteria 1 and 2)', async () => {
+  // At #198's pickup the owner kept Hide all to photos; on 2026-10-08 the
+  // owner reversed that. A clip still uploading is neither waiting nor
+  // approved, and 0016 refuses hiding one, which would abort the whole batch
+  // and leave the person's approved photos up: so the press must resolve, not
+  // only leave that row as it was. Criterion 2's mutation, HIDEABLE back to
+  // kind = 'photo', reddens the answer, the rows and the detail alike.
+  const db = d1();
+  const { id: albumId } = await album(db);
+  const id = await approved(db);
+  const other = await approved(db, { name: 'Sam Lee', email: 'sam@example.org' });
+  const shown = photo(db, albumId, { account: id });
+  const waiting = photo(db, albumId, { account: id, state: 'pending' });
+  const shownClip = clip(db, albumId, { account: id });
+  const waitingClip = clip(db, albumId, { account: id, state: 'pending' });
+  const sending = clip(db, albumId, { account: id, state: 'uploading' });
+  const sams = clip(db, albumId, { account: other, state: 'pending' });
+  const hiding = hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 60 });
+  await assert.doesNotReject(hiding, 'a clip still uploading made Hide all refuse');
+  assert.deepEqual(await hiding, { hidden: 4, waiting: 2, clips: 2 });
+  // Each hidden at the press's second with no note. A waiting clip takes the
+  // placeholder a waiting photo does, so "Put it back" returns it to the
+  // queue; an approved one keeps its approval time.
+  assert.deepEqual(photoState(db, shown), { state: 'hidden', approved_at: NOW - 100, hidden_at: NOW + 60, hidden_note: null, account_id: id });
+  assert.deepEqual(photoState(db, waiting), { state: 'hidden', approved_at: WAITING_WHEN_HIDDEN, hidden_at: NOW + 60, hidden_note: null, account_id: id });
+  assert.deepEqual(photoState(db, shownClip), { state: 'hidden', approved_at: NOW - 100, hidden_at: NOW + 60, hidden_note: null, account_id: id });
+  assert.deepEqual(photoState(db, waitingClip), { state: 'hidden', approved_at: WAITING_WHEN_HIDDEN, hidden_at: NOW + 60, hidden_note: null, account_id: id });
+  // The controls: the clip still uploading, and another account's clip.
+  assert.deepEqual(photoState(db, sending), { state: 'uploading', approved_at: null, hidden_at: null, hidden_note: null, account_id: id });
+  assert.deepEqual(photoState(db, sams), { state: 'pending', approved_at: null, hidden_at: null, hidden_note: null, account_id: other });
+  // One entry, naming each kind's count.
+  assert.deepEqual(logOf(db).filter((e) => e.action === 'hide'), [
+    { at: NOW + 60, admin: ADMIN, action: 'hide', account_id: id, name: 'Jane Rivers', email: 'jane@example.org', detail: '2 photos and 2 clips' },
+  ]);
+  // Out of the queue, where Sam's clip still waits, and on /admin/removals.
+  assert.deepEqual((await waitingBatches(db)).flatMap((b) => b.photos.map((p) => p.id)), [sams]);
+  assert.deepEqual((await hiddenPhotos(db)).map((p) => [p.id, p.kind, p.accountName, p.waiting]), [
+    [shown, 'photo', 'Jane Rivers', false], [waiting, 'photo', 'Jane Rivers', true],
+    [shownClip, 'clip', 'Jane Rivers', false], [waitingClip, 'clip', 'Jane Rivers', true],
+  ]);
+  assert.equal(count(db, 'removal_requests'), 0);
+});
+
+test('Hide all for an account whose only sends are clips hides them, and its entry counts them as clips: "2 clips", "1 clip" (#310, criterion 1)', async () => {
+  const db = d1();
+  const { id: albumId } = await album(db);
+  const two = await approved(db);
+  const one = await approved(db, { name: 'Sam Lee', email: 'sam@example.org' });
+  const twos = [clip(db, albumId, { account: two }), clip(db, albumId, { account: two, state: 'pending' })];
+  const ones = clip(db, albumId, { account: one, state: 'pending' });
+  assert.deepEqual(await hidePhotos(db, { accountId: two, admin: ADMIN, now: NOW }), { hidden: 2, waiting: 1, clips: 2 });
+  assert.deepEqual(await hidePhotos(db, { accountId: one, admin: ADMIN, now: NOW + 1 }), { hidden: 1, waiting: 1, clips: 1 });
+  assert.deepEqual([...twos, ones].map((id) => photoState(db, id).state), ['hidden', 'hidden', 'hidden']);
+  assert.deepEqual(logOf(db).filter((e) => e.action === 'hide').map((e) => [e.account_id, e.detail]), [[two, '2 clips'], [one, '1 clip']]);
+  // Pressed again, there is nothing left to hide.
+  assert.equal(await hidePhotos(db, { accountId: one, admin: ADMIN, now: NOW + 2 }), null);
+  assert.equal(logOf(db).filter((e) => e.action === 'hide').length, 2);
+});
+
 test('a hidden photo that was public goes back public, one that was waiting goes back to the queue, and either can be deleted for good (criterion 4)', async () => {
   const db = d1();
   const bucket = r2();
@@ -474,15 +557,46 @@ test('a hidden photo that was public goes back public, one that was waiting goes
   const waiting = photo(db, albumId, { account: id, state: 'pending' });
   const third = photo(db, albumId, { account: id, state: 'pending' });
   await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 60 });
-  assert.equal(await restorePhoto(db, shown), 'approved');
+  // Each answer names the row's kind since #310, a photo's 'photo'.
+  assert.deepEqual(await restorePhoto(db, shown), { state: 'approved', kind: 'photo' });
   assert.deepEqual(photoState(db, shown), { state: 'approved', approved_at: NOW - 100, hidden_at: NOW + 60, hidden_note: null, account_id: id });
-  assert.equal(await restorePhoto(db, waiting), 'pending');
+  assert.deepEqual(await restorePhoto(db, waiting), { state: 'pending', kind: 'photo' });
   assert.deepEqual(photoState(db, waiting), { state: 'pending', approved_at: null, hidden_at: NOW + 60, hidden_note: null, account_id: id });
   assert.equal(await approvedPhoto(db, waiting), null, 'a photo nobody approved went public when it was put back');
   assert.deepEqual((await waitingBatches(db)).flatMap((b) => b.photos.map((p) => p.id)), [waiting]);
   assert.equal(await restorePhoto(db, waiting), null, 'a photo no longer hidden was put back again');
-  assert.deepEqual(await deletePhoto(db, bucket, third), { deleted: true, kept: false });
+  assert.deepEqual(await deletePhoto(db, bucket, third), { deleted: true, kept: false, kind: 'photo' });
   assert.equal(count(db, 'photos'), 2);
+});
+
+test('a clip Hide all took down goes back approved, or to the queue if it was waiting, and can be deleted for good, each answer naming it a clip; one still uploading is reached by neither (#310, criteria 4 and 5)', async () => {
+  // As restorePhoto does for photos: an approved clip put back keeps its
+  // first approval, and a waiting one goes back with none, so an admin
+  // approves it in the queue. Its objects are test/removals.test.js's.
+  const db = d1();
+  const bucket = r2();
+  const { id: albumId } = await album(db);
+  const id = await approved(db);
+  const shown = clip(db, albumId, { account: id });
+  const waiting = clip(db, albumId, { account: id, state: 'pending' });
+  const third = clip(db, albumId, { account: id, state: 'pending' });
+  const sending = clip(db, albumId, { account: id, state: 'uploading' });
+  await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 60 });
+  assert.deepEqual(await restorePhoto(db, shown), { state: 'approved', kind: 'clip' });
+  assert.deepEqual(photoState(db, shown), { state: 'approved', approved_at: NOW - 100, hidden_at: NOW + 60, hidden_note: null, account_id: id });
+  assert.deepEqual(await restorePhoto(db, waiting), { state: 'pending', kind: 'clip' });
+  assert.deepEqual(photoState(db, waiting), { state: 'pending', approved_at: null, hidden_at: NOW + 60, hidden_note: null, account_id: id });
+  assert.deepEqual((await waitingBatches(db)).flatMap((b) => b.photos.map((p) => [p.id, p.kind])), [[waiting, 'clip']]);
+  assert.equal(await restorePhoto(db, waiting), null, 'a clip no longer hidden was put back again');
+  assert.deepEqual(await deletePhoto(db, bucket, third), { deleted: true, kept: false, kind: 'clip' });
+  // Only a hidden row is reached: not the clip put back approved, nor the
+  // one still uploading, which Hide all never hid.
+  const nothing = { deleted: false, kept: false, kind: null };
+  assert.deepEqual(await deletePhoto(db, bucket, shown), nothing, 'an approved clip was deleted from the removals list');
+  assert.deepEqual(await deletePhoto(db, bucket, sending), nothing, 'a clip still uploading was deleted from the removals list');
+  assert.equal(await restorePhoto(db, sending), null, 'a clip still uploading was put back');
+  assert.deepEqual([shown, waiting, sending].map((clipId) => photoState(db, clipId).state), ['approved', 'pending', 'uploading']);
+  assert.equal(count(db, 'photos'), 3);
 });
 
 test('"Hide all" with nothing to hide, a gone account or a second press changes nothing and logs nothing', async () => {
@@ -490,12 +604,19 @@ test('"Hide all" with nothing to hide, a gone account or a second press changes 
   const { id: albumId } = await album(db);
   const id = await approved(db);
   const none = await approved(db, { name: 'Sam Lee', email: 'sam@example.org' });
+  // #310: an account whose only send is a clip still uploading has nothing
+  // to hide either, and its press is refused rather than aborted.
+  const sending = await approved(db, { name: 'Uma Upload', email: 'uma@example.org' });
   photo(db, albumId, { account: id });
   photo(db, albumId, { account: none, state: 'hidden' });
+  const unsent = clip(db, albumId, { account: sending, state: 'uploading' });
   assert.equal(await hidePhotos(db, { accountId: none, admin: ADMIN, now: NOW }), null);
   assert.equal(await hidePhotos(db, { accountId: id + 50, admin: ADMIN, now: NOW }), null);
   const logged = count(db, 'admin_log');
-  assert.deepEqual(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW }), { hidden: 1, waiting: 0 });
+  assert.equal(await hidePhotos(db, { accountId: sending, admin: ADMIN, now: NOW }), null);
+  assert.equal(photoState(db, unsent).state, 'uploading');
+  assert.equal(count(db, 'admin_log'), logged);
+  assert.deepEqual(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW }), { hidden: 1, waiting: 0, clips: 0 });
   assert.equal(logOf(db).at(-1).detail, '1 photo');
   assert.equal(await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW + 1 }), null);
   assert.equal(count(db, 'admin_log'), logged + 1);
@@ -541,22 +662,24 @@ test('a delete takes the account and its teams, links and codes; every photo sta
   assert.equal(logOf(db).filter((e) => e.action === 'delete').length, 1);
 });
 
-test('after Hide all and a delete, no photo\'s takedown time matches the log entry naming the person (criterion 7; the owner\'s choice at #225\'s review)', async () => {
+test('after Hide all and a delete, no photo\'s or clip\'s takedown time matches the log entry naming the person (criterion 7; the owner\'s choice at #225\'s review; #310)', async () => {
   // Test the join, not the row (cairn: a-timestamp-joins-to-the-log-that-
   // names-it). Another account's photos hidden in the same second keep their
-  // second: the cut is the deleted account's alone.
+  // second: the cut is the deleted account's alone. Since #310 Hide all hides
+  // a clip too, so one of hers is a clip: a kind filter added to the cut
+  // would leave its second naming her.
   const db = d1();
   const { id: albumId } = await album(db);
   const id = await approved(db);
   const sam = await approved(db, { name: 'Sam Lee', email: 'sam@example.org' });
   const at = 1_790_012_345; // not the start of a day
-  const hers = [photo(db, albumId, { account: id }), photo(db, albumId, { account: id, state: 'pending' })];
+  const hers = [photo(db, albumId, { account: id }), photo(db, albumId, { account: id, state: 'pending' }), clip(db, albumId, { account: id })];
   const kept = photo(db, albumId, { account: id });
   const his = photo(db, albumId, { account: sam });
   await hidePhotos(db, { accountId: id, admin: ADMIN, now: at });
   await hidePhotos(db, { accountId: sam, admin: ADMIN, now: at + 1 });
   // One of hers put back before the delete: it keeps hidden_at as a record.
-  assert.equal(await restorePhoto(db, kept), 'approved');
+  assert.deepEqual(await restorePhoto(db, kept), { state: 'approved', kind: 'photo' });
   const matched = () => rows(db, "SELECT p.id FROM photos AS p JOIN admin_log AS l ON l.action = 'hide' AND l.at = p.hidden_at WHERE l.account_id = ? ORDER BY p.id", id).map((r) => r.id);
   // The control: before the delete, the log's entry finds exactly her photos.
   assert.deepEqual(matched(), [...hers, kept]);
@@ -631,19 +754,26 @@ test('Revoke revokes the ticked teams and answers 303 back; it refuses a bad for
   assert.equal(sends.length, 0, 'a revoke emailed someone');
 });
 
-test('Hide all needs its box ticked, then answers with the counts; with nothing to hide it says so', async () => {
+test('Hide all needs its box ticked, then answers with the counts, the clips among them counted apart (#310); with nothing to hide it says so', async () => {
   const db = d1();
   const { id: albumId } = await album(db);
   const id = await approved(db);
+  const pat = await approved(db, { name: 'Pat Parent', email: 'pat@example.org' });
   photo(db, albumId, { account: id });
   photo(db, albumId, { account: id, state: 'pending' });
+  photo(db, albumId, { account: pat });
+  clip(db, albumId, { account: pat, state: 'pending' });
   const press = (fields) => hideRoute.onRequestPost(context(post('/api/admin/people/hide', fields), db));
   assert.equal(location(await press([['account', String(id)]])), `/admin/people?error=hide-unticked&account=${id}`);
   assert.equal(location(await press([['account', String(id)], ['confirm', 'yes']])), `/admin/people?error=hide-unticked&account=${id}`);
   assert.equal(rows(db, "SELECT COUNT(*) AS n FROM photos WHERE state = 'hidden'")[0].n, 0);
   assert.equal(location(await press([['confirm', 'hide']])), '/admin/people?error=form');
+  // Photos alone answer as they did before clips.
   assert.equal(location(await press([['account', String(id)], ['confirm', 'hide']])), `/admin/people?done=hidden&account=${id}&hidden=2&waiting=1`);
   assert.equal(location(await press([['account', String(id)], ['confirm', 'hide']])), `/admin/people?error=not-hidden&account=${id}`);
+  // A photo and a waiting clip: the clip is one of the two hidden, and of the one waiting.
+  assert.equal(location(await press([['account', String(pat)], ['confirm', 'hide']])), `/admin/people?done=hidden&account=${pat}&hidden=2&waiting=1&clips=1`);
+  assert.equal(logOf(db).at(-1).detail, '1 photo and 1 clip');
 });
 
 test('Delete needs the reply box ticked, refuses an admin, and answers deleted', async () => {
@@ -698,17 +828,24 @@ test('each new press arriving as a GET changes nothing and says so', () => {
   }
 });
 
-test('"Put it back" through its route says whether the photo went public or back to the queue', async () => {
+test('"Put it back" through its route says whether the photo went public or back to the queue, and since #310 names a clip as clip=', async () => {
   const db = d1();
   const { id: albumId } = await album(db);
   const id = await approved(db);
   const shown = photo(db, albumId, { account: id });
   const waiting = photo(db, albumId, { account: id, state: 'pending' });
+  const shownClip = clip(db, albumId, { account: id });
+  const waitingClip = clip(db, albumId, { account: id, state: 'pending' });
   await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW });
   const press = (photoId) => restoreRoute.onRequestPost({ request: post('/api/admin/removals/restore?team=hoover-jrt', [['photo', String(photoId)]]), env: { DB: db } });
   assert.equal(location(await press(shown)), `/admin/removals?done=restored&photo=${shown}&team=hoover-jrt`);
   assert.equal(location(await press(waiting)), `/admin/removals?done=queued&photo=${waiting}&team=hoover-jrt`);
   assert.equal(location(await press(waiting)), '/admin/removals?error=gone&team=hoover-jrt');
+  // A clip's press carries photo=, as every press on the page does, and the
+  // answer names it a clip, so the notice can.
+  assert.equal(location(await press(shownClip)), `/admin/removals?done=restored&clip=${shownClip}&team=hoover-jrt`);
+  assert.equal(location(await press(waitingClip)), `/admin/removals?done=queued&clip=${waitingClip}&team=hoover-jrt`);
+  assert.deepEqual([shownClip, waitingClip].map((clipId) => photoState(db, clipId).state), ['approved', 'pending']);
 });
 
 // ---- The pages -------------------------------------------------------------------
@@ -824,16 +961,34 @@ test('the notices for each new press say what happened, naming the person from t
   assert.match(notice(`done=hidden&account=${ids.both}&hidden=3&waiting=1`), /Hid 3 photos Ann Both sent, 1 of them still waiting for approval\. Each waits on <a href="\/admin\/removals">Removal requests<\/a>, to be put back or deleted for good\. A photo that was waiting goes back to the queue/);
   assert.match(notice(`done=hidden&account=${ids.both}&hidden=1`), /Hid 1 photo Ann Both sent\. Each waits/);
   assert.doesNotMatch(notice(`done=hidden&account=${ids.both}&hidden=1`), /goes back to the queue/);
+  // #310: with no clip counted, the notice reads exactly as it did before
+  // clips, and a press that hid clips names them, as the log entry counts
+  // them. The waiting ones may be of either kind, so the queue sentence says
+  // "any". `clips` is one of `hidden`, never more.
+  const said = (query) => notice(query).replace(/^\s*<p role="status">|<\/p>$/g, '');
+  const each = 'Each waits on <a href="/admin/removals">Removal requests</a>, to be put back or deleted for good';
+  for (const extra of ['', '&clips=0']) {
+    assert.equal(said(`done=hidden&account=${ids.both}&hidden=3&waiting=1${extra}`),
+      `Hid 3 photos Ann Both sent, 1 of them still waiting for approval. ${each}. A photo that was waiting goes back to the queue if it is put back, not onto the site.`);
+  }
+  assert.equal(said(`done=hidden&account=${ids.both}&hidden=3&waiting=2&clips=1`),
+    `Hid 2 photos and 1 clip Ann Both sent, 2 of them still waiting for approval. ${each}. Any that was waiting goes back to the queue if it is put back, not onto the site.`);
+  assert.equal(said(`done=hidden&account=${ids.both}&hidden=3&clips=1`), `Hid 2 photos and 1 clip Ann Both sent. ${each}.`);
+  assert.equal(said(`done=hidden&account=${ids.both}&hidden=2&clips=2`), `Hid 2 clips Ann Both sent. ${each}.`);
+  assert.equal(said(`done=hidden&account=${ids.both}&hidden=1&clips=5`), `Hid 1 clip Ann Both sent. ${each}.`);
   assert.match(notice('done=deleted'), /Deleted the account\. The photos it sent stay and no longer name it/);
   assert.match(notice('done=allowed'), /That address can ask for an account again\./);
   // A crafted count shows no text from the query.
   assert.doesNotMatch(notice(`done=hidden&account=${ids.both}&hidden=<b>x</b>`), /<b>x/);
+  assert.equal(said(`done=hidden&account=${ids.both}&hidden=1&clips=<b>x</b>`), `Hid 1 photo Ann Both sent. ${each}.`);
   // Each error by words of its own, not the "Nothing was" they share
-  // (review-fanout, over its cap: two swapped texts read 0 red).
+  // (review-fanout, over its cap: two swapped texts read 0 red). Since #310
+  // the two Hide all refusals name clips too, and an approved clip is
+  // "approved", never "public", until #286.
   const errors = {
     'not-revoked': 'no ticked team is approved now',
-    'not-hidden': 'that account has no photo waiting or public now',
-    'hide-unticked': 'tick the box naming their photos',
+    'not-hidden': 'that account has no photo or clip waiting or approved now',
+    'hide-unticked': 'tick the box naming their photos or clips',
     'delete-unticked': 'once a reply from the account\'s own address has confirmed',
     'not-deleted': 'Nothing was deleted: the person is an admin',
     address: 'type one email address',
@@ -847,6 +1002,9 @@ test('the notices for each new press say what happened, naming the person from t
   }
   assert.equal(new Set(Object.keys(errors).map((error) => notice(`error=${error}`))).size, Object.keys(errors).length);
   assert.equal(peopleLocation({ done: 'hidden', account: 3, hidden: 2, waiting: 1 }), '/admin/people?done=hidden&account=3&hidden=2&waiting=1');
+  // #310: the clips among them, left out at 0 as the other counts are.
+  assert.equal(peopleLocation({ done: 'hidden', account: 3, hidden: 2, waiting: 1, clips: 0 }), '/admin/people?done=hidden&account=3&hidden=2&waiting=1');
+  assert.equal(peopleLocation({ done: 'hidden', account: 3, hidden: 3, waiting: 2, clips: 1 }), '/admin/people?done=hidden&account=3&hidden=3&waiting=2&clips=1');
 });
 
 test('each #225 action has its own sentence in the log (criterion 6)', () => {
@@ -856,6 +1014,13 @@ test('each #225 action has its own sentence in the log (criterion 6)', () => {
     .match(/<li><time [^>]+>[^<]+<\/time>: ([^<]*)<\/li>/)[1];
   assert.equal(sentence('revoke', 'COHSSA'), 'owner@example.com revoked Jane Rivers (jane@example.org) for COHSSA.');
   assert.equal(sentence('hide', '3 photos'), 'owner@example.com hid every photo Jane Rivers (jane@example.org) sent, 3 photos.');
+  // #310: an entry follows its detail. One naming no clip, every entry from
+  // before #310 among them, keeps the words above; one naming clips says so
+  // (the owner's choice at #310's pickup).
+  assert.equal(sentence('hide', '1 photo'), 'owner@example.com hid every photo Jane Rivers (jane@example.org) sent, 1 photo.');
+  assert.equal(sentence('hide', '3 photos and 1 clip'), 'owner@example.com hid every photo and clip Jane Rivers (jane@example.org) sent, 3 photos and 1 clip.');
+  assert.equal(sentence('hide', '1 clip'), 'owner@example.com hid every clip Jane Rivers (jane@example.org) sent, 1 clip.');
+  assert.equal(sentence('hide', '2 clips'), 'owner@example.com hid every clip Jane Rivers (jane@example.org) sent, 2 clips.');
   assert.equal(sentence('delete', null), 'owner@example.com deleted the account of Jane Rivers (jane@example.org), once a reply from its address confirmed the request.');
   assert.equal(sentence('allow', null), 'owner@example.com let the address of Jane Rivers (jane@example.org) ask for an account again.');
 });
@@ -876,10 +1041,19 @@ test('every named button on /admin/people has an accessible name starting with i
   // its aria-label read "Hide all the photos <name> sent", and #224's "Make
   // admin" and "Remove admin" ("Make <name> an admin"), fixed here too (the
   // owner's choice at #225's review).
-  const { db } = await seeded();
+  // Since #310 the Hide all button names what the person sent (the owner's
+  // choice at #310's pickup), so a clip goes to Pat, who sent no photo, and
+  // to Ada, who sent one: each new name is held to the same rule.
+  const { db, ids } = await seeded();
+  const { id: albumId } = db.sqlite.prepare("SELECT id FROM albums WHERE title = 'Fall Regatta'").get();
+  clip(db, albumId, { account: ids.partly, state: 'pending' });
+  clip(db, albumId, { account: ids.admin });
   const html = await render(db);
   const buttons = [...html.matchAll(/<button [^>]*aria-label="([^"]+)"[^>]*>([^<]+)<\/button>/g)];
-  assert.deepEqual([...new Set(buttons.map((m) => m[2]))].sort(), ['Approve', 'Delete the account', 'Hide all their photos', 'Make admin', 'Remove admin', 'Revoke', 'Send a new link', 'Turn down']);
+  assert.deepEqual([...new Set(buttons.map((m) => m[2]))].sort(), [
+    'Approve', 'Delete the account', 'Hide all their clips', 'Hide all their photos', 'Hide all their photos and clips',
+    'Make admin', 'Remove admin', 'Revoke', 'Send a new link', 'Turn down',
+  ]);
   const starts = (label, text) => label.toLowerCase().startsWith(text.toLowerCase());
   for (const [, label, text] of buttons) assert.ok(starts(label, text), `"${label}" does not start with "${text}"`);
   // The control: the label the audit found fails the same check.
@@ -903,16 +1077,21 @@ test('a box\'s label wraps an unbroken address rather than widening /admin/peopl
   assert.equal(wraps(css.replace(/(\.person-form \.choices label \{[^}]*?)\s*overflow-wrap: anywhere;/, '$1')), false);
 });
 
-test('/admin/removals marks a photo that was waiting, and its notice says it went back to the queue', async () => {
+test('/admin/removals marks a photo or, since #310, a clip that was waiting, and its notice says it went back to the queue', async () => {
   const db = d1();
   const { id: albumId } = await album(db);
   const id = await approved(db);
   photo(db, albumId, { account: id });
   const waiting = photo(db, albumId, { account: id, state: 'pending' });
+  clip(db, albumId, { account: id });
+  const waitingClip = clip(db, albumId, { account: id, state: 'pending' });
   await hidePhotos(db, { accountId: id, admin: ADMIN, now: NOW });
   const html = adminRemovalsPage({ photos: await hiddenPhotos(db) });
-  const marked = [...html.matchAll(/<li class="removal" id="photo-(\d+)">[\s\S]*?<\/li>/g)].filter((m) => m[0].includes('was waiting for approval')).map((m) => Number(m[1]));
-  assert.deepEqual(marked, [waiting]);
+  const listed = [...html.matchAll(/<li class="removal" id="photo-(\d+)">[\s\S]*?<\/li>/g)];
+  assert.equal(listed.length, 4);
+  const marked = listed.filter((m) => m[0].includes('was waiting for approval')).map((m) => Number(m[1]));
+  assert.deepEqual(marked, [waiting, waitingClip]);
   assert.deepEqual(problems(await validate(html)), []);
   assert.match(removalsNotice(new URLSearchParams(`done=queued&photo=${waiting}`)), new RegExp(`Put photo ${waiting} back in the queue\\. It was waiting for approval when it was hidden, so it is not public until an admin approves it\\.`));
+  assert.match(removalsNotice(new URLSearchParams(`done=queued&clip=${waitingClip}`)), new RegExp(`Put clip ${waitingClip} back in the queue\\. It was waiting for approval when it was hidden, so it waits for an admin again\\.`));
 });

@@ -336,7 +336,10 @@
                                          hidePhotos, deleteAccount and
                                          allowAddress (#225's criterion 6;
                                          the delete entry, owner, at #219's
-                                         review, 2026-10-05)
+                                         review, 2026-10-05). hidePhotos
+                                         hides an account's clips too, and
+                                         its entry counts them (#310's
+                                         criteria 1 and 8)
        Approved or turned down per       D16; approveTeams and rejectTeams in
        team, the role, the link; no      lib/people.js (#221). The log keeps
        set limit                         every entry: nothing deletes from
@@ -485,6 +488,14 @@
        Deleted on request, by email,     README.md, Deleting a clip by hand
        with no button while not shown    (#198); the address at the top
 
+     #310 (Hide all takes clips) changed one sentence: the admins' log
+     records that an admin hid every photo and clip an account sent, since
+     "Hide all" on /admin/people hides its clips too, waiting or approved
+     (owner, 2026-10-08, reversing the choice at #198's pickup to keep Hide
+     all to photos). Nothing public changed: a clip is still shown nowhere
+     and has no "Remove this photo" until #286, and what a deleted account's
+     taken-down clip keeps was already said.
+
      #274 (remember this phone) changed what the page says of the admin
      pages' cookie, now a paragraph of its own: it lasts 12 hours, or 30
      days when "Remember this phone for 30 days" is ticked with the code
@@ -586,7 +597,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=59f4ac199a">
+<link rel="stylesheet" href="/css/site.css?v=9c9232e3e3">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -901,8 +912,8 @@
     <p>The admins also keep a log of what they do with each account: who
       approved it or turned it down for each team, changed its role, sent it a
       link to set a password, made it an admin or removed it as one, revoked
-      it for a team, hid every photo it sent, deleted it, or let its address
-      ask again after a delete, and when. Each entry
+      it for a team, hid every photo and clip it sent, deleted it, or let its
+      address ask again after a delete, and when. Each entry
       names the person whose account it was, by name and email address. The
       log has no set limit.</p>
     <p>The request asks for no sailor's name, so leave sailors' names out of

@@ -29,7 +29,7 @@
 import { ADMIN_SESSION_SECONDS } from './admin-session.js';
 import { KINDS, MAX_SUFFIX, NOT_SURE_TITLE, TITLE_MAX, isAddress } from './albums.js';
 import { MAIL_FROM, MAIL_REPLY_TO } from './mail.js';
-import { CAPTION_MAX } from './photos.js';
+import { CAPTION_MAX, SIZES } from './photos.js';
 import { FREE_STORAGE_BYTES, photoAt } from './queue.js';
 import { TEAMS, teamName } from './teams.js';
 
@@ -61,7 +61,7 @@ const HEAD_LINKS = `<link rel="preload" as="font" type="font/woff2" crossorigin
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=59f4ac199a">
+<link rel="stylesheet" href="/css/site.css?v=9c9232e3e3">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">`;
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -118,8 +118,9 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // Photos and clips counted together (owner, at #198's pickup): "3 photos and
 // 1 clip", "1 clip" when no photo is among them, and today's "2 photos" when
-// no clip is. A count of 0 is left out; the callers never pass two.
-const both = (photos, clips) => [photos && plural(photos, 'photo', 'photos'), clips && plural(clips, 'clip', 'clips')]
+// no clip is. A count of 0 is left out; the callers never pass two. Since
+// #310 /admin/people counts what Hide all hides with it too.
+export const both = (photos, clips) => [photos && plural(photos, 'photo', 'photos'), clips && plural(clips, 'clip', 'clips')]
   .filter(Boolean).join(' and ');
 
 // The queue's item when a clip waits (#198), as the count it opens on and the
@@ -136,7 +137,7 @@ const withClips = (photos, clips) => (photos
  * shown, in the quiet button, and says there is nothing to do, so an empty
  * list reads as done rather than as missing. The counts are lib/queue.js's
  * queueSummary() (photos waiting; removal requests, each one hidden photo,
- * #158) and lib/accounts.js's waitingRequests() (people with a team an admin
+ * #158, or since #310 one hidden clip) and lib/accounts.js's waitingRequests() (people with a team an admin
  * has not yet approved or turned down, #220). `clips` is the queue's count
  * of waiting clips (#198), which only the queue's item is given: with one
  * waiting the item names both kinds, and is not quiet even with no photo.
@@ -323,7 +324,9 @@ function albumHolds(params) {
 // only of the kinds the album holds. An approved clip is listed nowhere until
 // #286, and README.md's "Deleting a clip by hand" is the owner's to run; one
 // still being sent is cleared by lib/clips.js's clearStaleClips. A waiting
-// clip needs no word: it is in the queue, where Reject deletes it.
+// clip needs no word: it is in the queue, where Reject deletes it. Nor, since
+// #310, does a hidden one: /admin/removals lists it, where Delete
+// permanently deletes it.
 const UNLISTED_CLIPS = [
   ['approved-clips', 'An approved clip is not on any admin page yet: the site\'s owner deletes it by hand.'],
   ['uploading-clips', 'A clip still being sent is cleared a day after it started if it is never finished.'],
@@ -952,37 +955,64 @@ ${list ? `\n  ${list}\n` : ''}
 
 // The removals page's script, stamped by hand as QUEUE_SCRIPT is.
 // test/removals.test.js fails until the ?v= is the script's own sha256.
-export const REMOVALS_SCRIPT = '<script src="/js/admin-removals.js?v=5655a624bb" defer></script>';
+export const REMOVALS_SCRIPT = '<script src="/js/admin-removals.js?v=c191067509" defer></script>';
 
 // What the page says after a press. Both presses in
 // functions/api/admin/removals/ answer 303 back with ?done= or ?error= and a
-// photo's id; anything else in the address bar is ignored, so a crafted link
-// can show only a known sentence and a number.
+// photo's id, or since #310 a clip's as clip=; anything else in the address
+// bar is ignored, so a crafted link can show only a known sentence and a
+// number.
 const REMOVALS_ERRORS = {
-  form: 'Nothing was changed: the press did not say which photo it was for. Reload the page and press again.',
-  gone: 'Nothing was changed: that photo is no longer waiting here, so another admin may have got to it first.',
+  form: 'Nothing was changed: the press did not say which photo or clip it was for. Reload the page and press again.',
+  gone: 'Nothing was changed: that photo or clip is no longer waiting here, so another admin may have got to it first.',
   unchanged: 'Nothing was changed. The press reached the site as a page load, which never changes anything; this can happen when your sign-in has run out. Press it again.',
 };
 
+const removalsId = (params, name) => (/^[1-9][0-9]{0,14}$/.test(params.get(name) ?? '') ? Number(params.get(name)) : null);
+
 /** The notice for the removals page's query string, as HTML, or '' for none. */
 export function removalsNotice(params) {
-  const photo = /^[1-9][0-9]{0,14}$/.test(params.get('photo') ?? '') ? Number(params.get('photo')) : null;
+  const photo = removalsId(params, 'photo');
+  // #310: a clip Hide all took down. An approved one put back is approved
+  // again, and shown nowhere public until #286, as any approved clip is.
+  const clip = photo === null ? removalsId(params, 'clip') : null;
   const done = params.get('done');
   const error = params.get('error');
+  const kept = params.get('kept') === '1';
   let text = null;
   if (done === 'restored' && photo) {
     text = `Put photo ${photo} back. It is public again.`;
+  } else if (done === 'restored' && clip) {
+    text = `Put clip ${clip} back. It is approved again, kept but not shown on the site yet.`;
   } else if (done === 'queued' && photo) {
     // #225: a photo hidden with everything its account sent, while it was
     // still waiting, goes back to the queue, never straight onto the site.
     text = `Put photo ${photo} back in the queue. It was waiting for approval when it was hidden, so it is not public until an admin approves it.`;
+  } else if (done === 'queued' && clip) {
+    text = `Put clip ${clip} back in the queue. It was waiting for approval when it was hidden, so it waits for an admin again.`;
   } else if (done === 'deleted' && photo) {
     text = `Deleted photo ${photo}, with its three sizes.`;
-    if (params.get('kept') === '1') text += ' The storage did not delete its files; the log names their folder.';
+    if (kept) text += ' The storage did not delete its files; the log names their folder.';
+  } else if (done === 'deleted' && clip) {
+    text = `Deleted clip ${clip}.`;
+    if (kept) text += ' The storage did not delete its file; the log names its folder.';
   } else if (Object.hasOwn(REMOVALS_ERRORS, error)) {
     text = REMOVALS_ERRORS[error];
   }
   return text ? `\n    <p role="status">${text}</p>` : '';
+}
+
+/**
+ * The size a hidden clip's player takes on /admin/removals (#310): its frame
+ * scaled to a grid image's long edge, 480 px, never past the frame, so it sits
+ * at a photo row's size, a portrait clip at 270 × 480 as a portrait photo's
+ * grid image is (the owner's choice at #310's review, 2026-10-09). A width cap
+ * alone left a portrait clip 480 × 853 on a wide screen. base.css then holds
+ * it within a row narrower than that.
+ */
+export function clipBox({ width, height }) {
+  const scale = Math.min(1, SIZES.grid.longEdge / Math.max(width, height));
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
 }
 
 // One hidden photo: its grid size, linking to the screen size to see it
@@ -990,33 +1020,53 @@ export function removalsNotice(params) {
 // presses. The note is kept as typed, so it is escaped, and its line breaks
 // are kept by the stylesheet (white-space: pre-line), never turned into
 // markup here.
-function removalItem(photo, team) {
-  const { id } = photo;
-  const note = photo.note === null
+//
+// Since #310 a hidden clip has the same row: its length and frame size join
+// the facts, as on its queue card, and in place of the picture it plays
+// through the admin clip route, loading nothing until Play, as the queue's
+// does (waitingClip), at a photo row's size (clipBox). The player sits in a
+// div, not in a link, which may hold no player. The row keeps a photo's class
+// and id, so a phone and the 48 px rule take it as they take a photo's
+// (#271), and its presses carry the id as photo=, as every press here does;
+// each button's name says "clip", and Delete permanently carries
+// data-kind="clip" for the dialog's words.
+function removalItem(row, team) {
+  const { id } = row;
+  const clip = row.kind === 'clip';
+  const word = clip ? 'clip' : 'photo';
+  const note = row.note === null
     ? '<p class="removal-note removal-note-none">No note was left.</p>'
-    : `<p class="removal-note">${escapeHtml(photo.note)}</p>`;
-  const caption = photo.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(photo.caption)}</p>`;
+    : `<p class="removal-note">${escapeHtml(row.note)}</p>`;
+  const caption = row.caption === null ? '' : `\n      <p class="removal-caption">Caption: ${escapeHtml(row.caption)}</p>`;
   // #225: hidden by "Hide all their photos" before anyone approved it, so
   // "Put it back" returns it to the queue.
-  const waiting = photo.waiting ? ' · was waiting for approval, so putting it back returns it to the queue' : '';
+  const waiting = row.waiting ? ' · was waiting for approval, so putting it back returns it to the queue' : '';
+  const length = clip ? ` · ${clipLength(row.durationMs)} long · ${row.width} × ${row.height}` : '';
+  const box = clip ? clipBox(row) : null;
+  const picture = clip
+    ? `<div class="removal-clip">
+        <video controls preload="none" width="${box.width}" height="${box.height}" src="${clipUrl(id)}"><a href="${clipUrl(id)}">Open clip ${id}</a></video>
+      </div>`
+    : `<a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${row.grid.width}" height="${row.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>`;
   return `<li class="removal" id="photo-${id}">
-      <h2>Photo ${id}</h2>
-      <p class="removal-facts">In ${escapeHtml(photo.album.title)} · ${escapeHtml(teamName(photo.album.team))} · hidden ${timeElement(photo.hiddenAt)}${sentBy(photo)}${waiting}</p>
-      <a class="removal-picture" href="${photoUrl(id, 'screen')}"><img src="${photoUrl(id, 'grid')}" width="${photo.grid.width}" height="${photo.grid.height}" alt="Photo ${id}, hidden" loading="lazy"></a>${caption}
+      <h2>${clip ? 'Clip' : 'Photo'} ${id}</h2>
+      <p class="removal-facts">In ${escapeHtml(row.album.title)} · ${escapeHtml(teamName(row.album.team))} · hidden ${timeElement(row.hiddenAt)}${length}${sentBy(row)}${waiting}</p>
+      ${picture}${caption}
       <h3 class="removal-note-heading">The note</h3>
       ${note}
       <div class="actions">
         <form method="post" action="${pressPath('/api/admin/removals/restore', team)}">
-          <button type="submit" class="button" name="photo" value="${id}" aria-label="Put it back: photo ${id}">Put it back</button>
+          <button type="submit" class="button" name="photo" value="${id}" aria-label="Put it back: ${word} ${id}">Put it back</button>
         </form>
-        <button type="button" class="button button-quiet" data-delete="${id}" aria-label="Delete permanently: photo ${id}">Delete permanently</button>
+        <button type="button" class="button button-quiet" data-delete="${id}"${clip ? ' data-kind="clip"' : ''} aria-label="Delete permanently: ${word} ${id}">Delete permanently</button>
       </div>
     </li>`;
 }
 
 /**
  * /admin/removals (#158). `photos` is lib/removals.js's hiddenPhotos(), the
- * oldest takedown first; `notice` is removalsNotice()'s HTML.
+ * oldest takedown first, a hidden clip among them since #310; `notice` is
+ * removalsNotice()'s HTML.
  *
  * "Put it back" is a plain form post: it only undoes the takedown. "Delete
  * permanently" is a form post from the one native <dialog> at the end of the
@@ -1025,16 +1075,23 @@ function removalItem(photo, team) {
  * so only the confirm posts. Cancel comes first and takes the focus.
  *
  * `team` is the ?team= the page was opened with (#227), null for every team:
- * the list shows that team's hidden photos only, each names its team, and
- * both presses land back on the same team's list.
+ * the list shows that team's hidden photos and clips only, each names its
+ * team, and both presses land back on the same team's list.
  */
 export function adminRemovalsPage({ photos, notice = '', team = null }) {
   const from = team === null ? '' : ` from ${escapeHtml(teamName(team))}`;
+  // Since #310 Hide all's clips are listed too, counted apart, and the page
+  // reads as before when none is hidden (owner, at #198's pickup: counts name
+  // both kinds).
+  const clips = photos.filter((row) => row.kind === 'clip').length;
   const summary = photos.length
-    ? `${plural(photos.length, 'photo', 'photos')}${from} ${photos.length === 1 ? 'is' : 'are'} hidden, the oldest takedown first.`
+    ? `${both(photos.length - clips, clips)}${from} ${photos.length === 1 ? 'is' : 'are'} hidden, the oldest takedown first.`
     : `No photo${from} is hidden. A photo someone takes down with "Remove this photo" appears here.`;
+  const clipWords = clips
+    ? ' A clip put back is approved again, kept but not shown on the site yet, or returns to the queue the same way. Deleting a clip removes its file for good.'
+    : '';
   const list = photos.length
-    ? `\n  <section class="wrap" aria-label="Hidden photos">
+    ? `\n  <section class="wrap" aria-label="Hidden ${clips === 0 ? 'photos' : clips === photos.length ? 'clips' : 'photos and clips'}">
     <ul class="removals">
     ${photos.map((photo) => removalItem(photo, team)).join('\n    ')}
     </ul>
@@ -1047,15 +1104,15 @@ export function adminRemovalsPage({ photos, notice = '', team = null }) {
   <section class="wrap page-head">
     <p class="eyebrow">Admin</p>
     <h1>Removal requests</h1>
-    <p class="lede">Anyone can take down an approved photo with "Remove this photo", and an admin can hide every photo one account sent, from <a href="/admin/people">People</a>. A photo is hidden from everyone until an admin puts it back or deletes it.</p>
-    <p>${summary} Putting a photo back makes it public again, or returns it to the queue if it was hidden before anyone approved it. Deleting it removes it and all three of its sizes for good.</p>${notice}${teamFilter('/admin/removals', team)}
+    <p class="lede">Anyone can take down an approved photo with "Remove this photo", and an admin can hide every photo and clip one account sent, from <a href="/admin/people">People</a>. A photo is hidden from everyone until an admin puts it back or deletes it.</p>
+    <p>${summary} Putting a photo back makes it public again, or returns it to the queue if it was hidden before anyone approved it. Deleting it removes it and all three of its sizes for good.${clipWords}</p>${notice}${teamFilter('/admin/removals', team)}
     <noscript><p>Deleting needs JavaScript. Putting a photo back does not.</p></noscript>
   </section>
 ${list}
   <dialog id="delete-dialog" class="confirm" aria-labelledby="delete-title">
     <form method="post" action="${pressPath('/api/admin/removals/delete', team)}">
       <h2 id="delete-title">Delete this photo permanently?</h2>
-      <p>The photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
+      <p id="delete-text">The photo is deleted for good, with all three of its sizes. This cannot be undone.</p>
       <p class="actions">
         <button type="submit" class="button" formmethod="dialog" autofocus>Cancel</button>
         <button type="submit" class="button button-accent" id="delete-confirm" name="photo" value="">Delete</button>
