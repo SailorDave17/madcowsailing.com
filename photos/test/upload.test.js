@@ -682,7 +682,8 @@ test('the cap is spent in one statement, so the last upload cannot be taken twic
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, ?)').run('9.1', day(NOON) - 2, 3);
 
   assert.equal(await spendDailyUpload(db, session, NOON), true);
-  assert.deepEqual(countRows({ DB: db }), [{ session: sessionKey(session), day: day(NOON), sent: 1 }], 'earlier days were kept');
+  // A photo spends none of the day's clip budget (0017, #198).
+  assert.deepEqual(countRows({ DB: db }), [{ session: sessionKey(session), day: day(NOON), sent: 1, clip_bytes: 0 }], 'earlier days were kept');
 
   db.sqlite.prepare('UPDATE upload_counts SET sent = ?').run(DAILY_UPLOADS - 1);
   const both = await Promise.all([spendDailyUpload(db, session, NOON), spendDailyUpload(db, session, NOON)]);
@@ -704,7 +705,7 @@ test('the cap is spent in one statement, so the last upload cannot be taken twic
   db.sqlite.prepare('UPDATE upload_counts SET sent = 5').run();
   await refundDailyUpload(db, { ...session, accountId: 8 }, NOON);
   await refundDailyUpload(db, session, NOON + 86_400);
-  assert.deepEqual(countRows({ DB: db }), [{ session: sessionKey(session), day: day(NOON), sent: 5 }]);
+  assert.deepEqual(countRows({ DB: db }), [{ session: sessionKey(session), day: day(NOON), sent: 5, clip_bytes: 0 }]);
 });
 
 test('a failure clearing earlier days\' counts does not fail the upload', async (t) => {
@@ -818,17 +819,19 @@ const touchesPhotos = (sql) => {
   return TOUCHES_PHOTOS.some((pattern) => pattern.test(code));
 };
 
-test('one migration makes the photos table, and only #223\'s column and #228\'s guard touch it after', () => {
+test('one migration makes the photos table, and only #223\'s column, #228\'s guard and #198\'s clip rules touch it after', () => {
   // 0005 carries every state the epic needs, so the stories after it add no
-  // migration to it (#154, criterion 7). 0012 is the one owner-chosen
-  // column: the account that sent a photo, which 0005's sender CHECK has no
-  // room for (owner, at #223's pickup). 0015 adds no column and changes no
-  // row: its two triggers refuse approving a photo in a Not sure album
-  // (owner, at #228's pickup). Both are additive, which test/site.test.js
-  // holds of every migration.
+  // column to it but one (#154, criterion 7). 0012 is that column: the
+  // account that sent a photo, which 0005's sender CHECK has no room for
+  // (owner, at #223's pickup). 0015 adds no column and changes no row: its
+  // two triggers refuse approving a photo in a Not sure album (owner, at
+  // #228's pickup). Nor does 0016: its ten triggers hold a clip's row to what
+  // the clip routes write, which confirms 0005's clip columns as they are
+  // (#198, criterion 7; test/clip-rules.test.js). All three are additive,
+  // which test/site.test.js holds of every migration.
   const files = readdirSync(MIGRATIONS).sort();
   const touching = files.filter((file) => touchesPhotos(readFileSync(new URL(file, MIGRATIONS), 'utf8')));
-  assert.deepEqual(touching, ['0005_photos.sql', '0012_photos_account.sql', '0015_not_sure_albums.sql']);
+  assert.deepEqual(touching, ['0005_photos.sql', '0012_photos_account.sql', '0015_not_sure_albums.sql', '0016_clip_rules.sql']);
 });
 
 test('the check above sees every way a later migration could change the table', () => {
@@ -869,6 +872,10 @@ test('the table holds every state the epic needs, and refuses a row no story sho
   const { sqlite } = env.DB;
   const fromAccount = { account_id: accountId, code_generation: 0, session_issued: 0 };
   const clip = { kind: 'clip', grid_width: null, grid_height: null, screen_width: null, screen_height: null };
+  // A clip the server has checked: since 0016 (#198) one outside uploading
+  // names its type and a length, so a row refused below for 0005's CHECK
+  // carries both, and only the CHECK can be what refuses it.
+  const checkedClip = { ...clip, content_type: 'video/mp4', duration_ms: 30_000 };
   const allowed = {
     // #223 (0012): an account's photo, with 0005's columns given the
     // placeholders, as a parent's and as a coach's.
@@ -884,6 +891,8 @@ test('the table holds every state the epic needs, and refuses a row no story sho
       ...clip, state: 'uploading', upload_id: 'u2', captured_at: null, width: null, height: null, bytes: null,
     },
     'a pending clip': { ...clip, content_type: 'video/quicktime', duration_ms: 180_000 },
+    'an approved clip': { ...checkedClip, state: 'approved', approved_at: 5 },
+    'a hidden clip': { ...checkedClip, state: 'hidden', approved_at: 5, hidden_at: 6 },
     'a coach\'s upload, with no code behind it (#192, until #226)': { sender: 'coach', code_generation: null, session_issued: null },
     'a caption of 200 characters': { caption: 'c'.repeat(200) },
   };
@@ -909,8 +918,8 @@ test('the table holds every state the epic needs, and refuses a row no story sho
     'a photo with no width': { width: null },
     'a photo with no height': { height: null },
     'a photo with no byte count': { bytes: null },
-    'a pending clip with no frame size': { ...clip, content_type: 'video/mp4', width: null },
-    'an approved clip with no capture time': { ...clip, state: 'approved', approved_at: 5, captured_at: null },
+    'a pending clip with no frame size': { ...checkedClip, width: null },
+    'an approved clip with no capture time': { ...checkedClip, state: 'approved', approved_at: 5, captured_at: null },
     'an empty caption, which is no caption': { caption: '' },
     'a caption over 200': { caption: 'c'.repeat(201) },
     'a note over 500': { state: 'hidden', approved_at: 5, hidden_at: 6, hidden_note: 'n'.repeat(501) },
@@ -930,7 +939,29 @@ test('the table holds every state the epic needs, and refuses a row no story sho
   for (const [name, changes] of Object.entries(refused)) {
     assert.throws(() => insertRow(sqlite, changes), /constraint failed/, name);
   }
-  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM photos').get().n, Object.keys(allowed).length);
+  // 0016's rules on insert (#198, criterion 7). A trigger refuses in its own
+  // words, never a CHECK's "constraint failed", so each refusal names them,
+  // and its control, the same row one field away, is taken. The update and
+  // REPLACE sides are test/clip-rules.test.js's.
+  const TYPE = 'a clip is video/mp4 or video/quicktime';
+  const CHECKED = 'a clip outside uploading names its type and a length over 0';
+  const UPLOAD = 'a clip names an upload while uploading and at no other time';
+  const uploadingClip = { ...clip, state: 'uploading', upload_id: 'u3', captured_at: null, width: null, height: null, bytes: null };
+  const byTrigger = {
+    // name: [the row refused, the field that makes it a row 0016 takes, the words refusing it]
+    'a clip of another type': [{ ...checkedClip, content_type: 'video/webm' }, { content_type: 'video/quicktime' }, TYPE],
+    'a clip still uploading, of another type': [{ ...uploadingClip, content_type: 'image/jpeg' }, { content_type: null }, TYPE],
+    'a pending clip with no type': [{ ...checkedClip, content_type: null }, { content_type: 'video/mp4' }, CHECKED],
+    'an approved clip with no length': [{ ...checkedClip, state: 'approved', approved_at: 5, duration_ms: null }, { duration_ms: 30_000 }, CHECKED],
+    'a hidden clip of no length': [{ ...checkedClip, state: 'hidden', approved_at: 5, hidden_at: 6, duration_ms: 0 }, { duration_ms: 1 }, CHECKED],
+    'a clip still uploading with no upload id': [{ ...uploadingClip, upload_id: null }, { upload_id: 'u4' }, UPLOAD],
+    'a pending clip still naming its upload': [{ ...checkedClip, upload_id: 'u5' }, { upload_id: null }, UPLOAD],
+  };
+  for (const [name, [row, control, message]] of Object.entries(byTrigger)) {
+    assert.throws(() => insertRow(sqlite, row), { message }, name);
+    assert.doesNotThrow(() => insertRow(sqlite, { ...row, ...control }), `${name}: the control`);
+  }
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM photos').get().n, Object.keys(allowed).length + Object.keys(byTrigger).length);
 });
 
 // ---- Criterion 8: the album-delete refusal, against the real table ---------
@@ -962,7 +993,32 @@ test('an album holding a photo sent through this route is not deleted, and the a
   assert.deepEqual(await press(), { error: 'not-empty', album: address, photos: '3' });
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM albums WHERE holding = 0').get().n, 1);
 
-  const request = new Request(`${SITE}/admin/albums?error=not-empty&album=${address}&photos=3`, { headers: { Cookie: adminSession } });
-  const html = await (await chain([root, ...adminPages, albumsPage], request, env)).text();
-  assert.match(html, /Fall Regatta was not deleted: it holds 3 photos\./);
+  const albums = async (query) => {
+    const request = new Request(`${SITE}/admin/albums?${new URLSearchParams(query)}`, { headers: { Cookie: adminSession } });
+    return (await chain([root, ...adminPages, albumsPage], request, env)).text();
+  };
+  assert.match(await albums({ error: 'not-empty', album: address, photos: '3' }), /Fall Regatta was not deleted: it holds 3 photos\./);
+
+  // Every state of a clip counts too, apart from the photos (#198; owner, at
+  // #198's review): one still being sent, one waiting, one approved and one
+  // hidden, each in the shape migrations 0005 and 0016 hold. The landing
+  // names the approved one and the one being sent, the two no admin page
+  // shows that the site can make: nothing hides a clip until #286.
+  const { id: albumId } = env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address);
+  const clip = env.DB.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, captured_at, sent_at, ' +
+    "width, height, bytes, content_type, duration_ms, upload_id, approved_at, hidden_at) VALUES (?, 'clip', ?, ?, ?, 'parent', 2, ?, " +
+    '?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  for (const [n, state] of ['uploading', 'pending', 'approved', 'hidden'].entries()) {
+    const read = state !== 'uploading';
+    clip.run(albumId, state, `${n}`.padStart(32, 'c'), BATCH, CAPTURED, read ? CAPTURED : null, nowSeconds(), read ? 1920 : null,
+      read ? 1080 : null, read ? 5_000_000 : null, read ? 'video/mp4' : null, read ? 30_000 : null, read ? null : 'u1',
+      read && state !== 'pending' ? 5 : null, state === 'hidden' ? 6 : null);
+  }
+  const counted = { error: 'not-empty', album: address, photos: '3', clips: '4', 'approved-clips': '1', 'uploading-clips': '1' };
+  assert.deepEqual(await press(), counted);
+  assert.ok((await albums(counted)).includes('<p role="status">Fall Regatta was not deleted: it holds 3 photos and 4 clips. ' +
+    'Only an empty album can be deleted. Close it instead to stop uploads to it. An approved clip is not on any admin page ' +
+    'yet: the site\'s owner deletes it by hand. A clip still being sent is cleared a day after it started if it is never finished.</p>'));
 });

@@ -30,8 +30,10 @@ import {
   ADMIN_COOKIE, ADMIN_SESSION_HOURS, adminCookie, readAdminSession, signAdminSession,
 } from '../lib/admin-session.js';
 import { RESEND_URL } from '../lib/mail.js';
+import { STALE_SECONDS } from '../lib/clips.js';
 import {
-  DAILY_UPLOADS, SIZES, insertPhoto, senderColumns, sendsAsCoach, sessionKey, spendDailyUpload,
+  CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS, DAILY_UPLOADS, SIZES, insertPhoto, senderColumns, sendsAsCoach, sessionKey,
+  spendDailyUpload,
 } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
@@ -165,6 +167,7 @@ test('the policy covers, in order, who sees a photo, who sends, the check, the m
     'Who can send a photo',
     'Every photo is checked first',
     'Location and camera details stay on the phone',
+    'Clips', // #198
     'What the site keeps',
     'What an account keeps', // #219
     'How long photos stay',
@@ -595,7 +598,7 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     // #224, criterion 1: admin_codes (0013), an HMAC keyed with
     // SESSION_SIGNING_KEY, and made_at, kept a day.
     'if you are an admin, each code emailed to you to sign in, only as a hash made with a secret key, and when it was sent;',
-    'which photos you sent from it.', // D17
+    'which photos and clips you sent from it.', // D17; #198's clips name it too
   ]);
   has(words(html), [
     // D13, D16. A condition, not "anyone can ask", so the page is true on a
@@ -654,11 +657,14 @@ test('"Having an account deleted" gives the email and the check, says the photos
     'Email dave@madcowsailing.com and ask. An admin writes to the address on the account to check the request came from you, and deletes the account once you confirm: your name, email address, role, teams, note and password hash all go.',
     // Owner, at #219's pickup: D17's rule for revoking, applied to a delete.
     // #223: the sender column keeps the account's role (senderColumns).
-    'The photos you sent stay, approved or still waiting, and are checked as usual, but they no longer record which account sent them, only whether it was a coach\'s.',
+    // #198: a clip's row names the account as a photo's does, and goes the
+    // same way on a delete (ON DELETE SET NULL is row-level).
+    'The photos and clips you sent stay, approved or still waiting, and are checked as usual, but they no longer record which account sent them, only whether it was a coach\'s.',
     // #225's review: the takedown time is cut to the day (deleteAccount,
     // README's step by hand), so it matches no log entry naming the person.
     'One that had been taken down keeps only the day it was taken down, not the time.',
-    'To have them taken down as well, press "Remove this photo" under each, or say so in the same email.',
+    // A clip has no button while clips are not shown (#198, until #286).
+    'To have them taken down as well, press "Remove this photo" under each photo, or say so in the same email.',
     // Owner, at #219's review: the log keeps its entries, and a revoked
     // address stays scrambled so a revoke survives a delete. Lifted only by
     // an admin's "Let it ask again" (owner, at #225's pickup).
@@ -666,7 +672,9 @@ test('"Having an account deleted" gives the email and the check, says the photos
     'If an admin had revoked the account, the site keeps its email address in a scrambled form, made with a secret key, so that a new request from it is still held back, until an admin lets it ask again.',
     // #223: the account's daily count, keyed by its id (sessionKey), which the
     // by-hand delete below leaves until anyone's first upload of a later day.
-    'The count of photos the account sent that day stays, under the account\'s number, until the next day anyone sends a photo.',
+    // #198: a clip spends one of the 500 at its start, as a photo does, and
+    // its size of the day's clip budget in the same row (0017, SA-1).
+    'The count of photos and clips the account sent that day, with how large its clips were together, stays, under the account\'s number, until the next day anyone sends one.',
     'Emails already sent are not deleted with it: Resend keeps each for its 30 days, and the email telling the admins about your request stays in their mailboxes.',
     // D1 Time Travel: 7 days on Free, 30 on Workers Paid, always on.
     'The site\'s database can be put back as it was at any moment in the last 30 days, so a deleted account stays in those restore points, which only the site\'s owner can use, for up to 30 days.',
@@ -1502,7 +1510,9 @@ test('the lede and "Who can send a photo" name only an approved account, and say
   has(MAIN, [
     // The daily count, per account (criterion 5's figure is held above).
     'An account\'s count is kept under the account, for every phone and computer signed in to it together.',
-    'Each count is cleared the next day anyone sends a photo.',
+    // #198's review: a clip's start clears earlier days' counts too
+    // (spendDailyClip), so "a photo" overstated how long a count is kept.
+    'Each count is cleared the next day anyone sends one.',
   ], 'the policy');
   // A phone's own count went with the invite link at #226.
   assert.doesNotMatch(MAIN, /A phone's is kept under the invite link/);
@@ -1803,5 +1813,205 @@ test('README\'s owner statement run again on the owner changes 1 row and alters 
   assert.deepEqual(everyRow(db), made, 'a second run on the owner altered a row');
   assert.throws(() => make.run(2), /there is an owner already/);
   assert.deepEqual(everyRow(db), made, 'the refused run on another account altered a row');
+});
+
+// ---- #198: clips --------------------------------------------------------------
+//
+// The rule #219's review set for a story that adds records: the location
+// paragraph's clip half, the Clips section, and every clip claim traced in its
+// own row (CLIP_ROWS), with the figures held to the code that makes them true.
+
+test('"Clips" gives the length, size and daily caps lib/photos.js holds, and says a clip over them is refused before any of it is sent (#198)', () => {
+  const minutes = (seconds) => seconds / 60;
+  const gb = (bytes) => bytes / 1024 ** 3;
+  const figures = [
+    ...Object.values(CLIP_SECONDS).map(minutes), ...Object.values(CLIP_BYTES).map(gb), ...Object.values(CLIP_DAY_BYTES).map(gb),
+  ];
+  for (const figure of figures) {
+    assert.ok(Number.isInteger(figure), `a cap is no longer a whole number of minutes or GB (${figure}): reword the page`);
+  }
+  has(words(section('Clips')), [
+    `It can run for up to ${minutes(CLIP_SECONDS.everyone)} minutes and be up to ${gb(CLIP_BYTES.everyone)} GB, `
+      + `or ${minutes(CLIP_SECONDS.coach)} minutes and ${gb(CLIP_BYTES.coach)} GB from a coach.`,
+    'A clip that runs longer or is larger is refused before any of it is sent.',
+    'A clip is sent the same ways as a photo, and checked the same way before anything happens to it.',
+    // SA-1, owner at #198's review: the day's clips have a size budget beside
+    // the day's 500, kept per account as the 500 are (#226).
+    `An account can send up to ${gb(CLIP_DAY_BYTES.everyone)} GB of clips in a day, `
+      + `or ${gb(CLIP_DAY_BYTES.coach)} GB from a coach's.`,
+  ], '"Clips"');
+  // upload_counts.clip_bytes (0017) is a record, so "What the site keeps"
+  // names it beside the count it shares a row with.
+  has(words(section('What the site keeps')), [
+    'With that count it keeps how large the day\'s clips are together, for the limit on clips above.',
+  ], '"What the site keeps"');
+});
+
+test('"Clips" says a clip is shown nowhere public yet and that one turned down is deleted, and how to have one deleted without a button (#198, until #286)', () => {
+  has(words(section('Clips')), [
+    'Clips are not shown on the site yet.',
+    'A clip one of the site\'s admins approves is kept, and only the site\'s admins can watch it, until clips are added to the albums.',
+    'A clip that is turned down is deleted for good.',
+    'A clip has no "Remove this photo" button while clips are not shown.',
+    'To have one deleted, email the address at the top of this page, and one of the site\'s admins deletes it for good.',
+  ], '"Clips"');
+  // The page's three links to the address stay three: the lede's is "the
+  // address at the top".
+  assert.ok(!section('Clips').includes('mailto:'), 'the Clips section adds a fourth link to the address');
+});
+
+test('"Clips" lists what the site keeps for a clip, item by item, and what it keeps while one is sent (#198)', () => {
+  // A list, as for a photo, so a phrase elsewhere cannot stand in for an
+  // item. 0005's clip columns, which 0016 holds and finishClip fills.
+  const kept = [...block(section('Clips'), 'ul').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => words(m[1]));
+  assert.deepEqual(kept, [
+    'the clip, as the page sent it;',
+    'its caption, if it has one;',
+    'the album it was sent to, or the event an admin moved it into;',
+    'how long it runs, the size of its picture, and whether it is an MP4 or a MOV;',
+    'when it was recorded, and when it was sent;',
+    'who sent it, kept as for a photo.',
+  ]);
+  has(words(section('Clips')), [
+    'While it is still being sent, the site also keeps the number Cloudflare\'s storage gave the parts.',
+    'Clips shared to the installed app from a phone\'s gallery wait on the phone as photos do, and leave it only as the page sends them, with those parts overwritten.',
+  ], '"Clips"');
+});
+
+test('an unfinished clip goes a day after it started: the page\'s day is lib/clips.js\'s, and the record goes at the next start or admin home load (#198)', () => {
+  // The buckets' lifecycle rule aborts unfinished uploads after 1 day (read
+  // back 2026-10-08), and clearStaleClips takes a row a day old.
+  assert.equal(STALE_SECONDS, 24 * 60 * 60, 'lib/clips.js\'s day moved; the page says "a day"');
+  has(words(section('Clips')), [
+    'If a clip is never finished, because the page was closed or the phone lost its connection, Cloudflare\'s storage deletes the parts a day after it started, '
+      + 'and the site deletes its record the next time anyone starts sending a clip or one of the site\'s admins opens the admin home page after that.',
+  ], '"Clips"');
+});
+
+test('the location paragraph says a clip is overwritten on the phone, the times included, checked again on arrival, and what the check cannot see (#198)', () => {
+  const location = words(section('Location and camera details stay on the phone'));
+  has(location, [
+    'A clip is sent as it was recorded, not made again.',
+    'Before any of it leaves the phone, the page overwrites with zeros every part of the file that playing it does not need: '
+      + 'its location, the camera\'s make, model and lens, the software that made it, and the times it was recorded.',
+    'When a clip arrives, the site checks it again, and deletes it before anyone can approve it if any of those parts still holds anything.',
+    // CLAUDE.md, item 10: box headers cannot show the samples a blanked
+    // track leaves in the media data, so the page does not claim it.
+    'One kind the site cannot check: some cameras record their location among the picture and sound, as a track of its own, '
+      + 'and for that the site relies on the page, which overwrites that track\'s data as well.',
+  ], 'the location section');
+  // The photo half reads as it did (#155): the clip half did not replace it.
+  assert.match(location, /The page you send from makes three smaller copies of each photo on your phone/);
+});
+
+// The trace table's clip rows, in order, each with the sources its own cell
+// must name, read from column 41 up to the next row, the last up to the blank
+// line closing the block, as for ACCOUNT_ROWS.
+const CLIP_ROWS = [
+  ['A clip is sent the same ways,', ['functions/api/upload/clips/index.js', 'requireUploadSession', 'insertClip', 'finishClip', 'lib/clips.js', 'D10']],
+  ['Up to 3 minutes and 1 GB, or 15', ['CLIP_SECONDS', 'D11', 'CLIP_BYTES', '#198\'s pickup', 'clipSeconds', 'clipBytes', 'functions/api/albums/open.js', 'item 9']],
+  ['Not shown on the site yet; only', ['lib/public.js', 'kind = \'photo\'', 'admin clip route', '#286']],
+  ['A clip turned down is deleted', ['rejectPhotos', 'lib/queue.js']],
+  ['Overwritten on the phone, not', ['planClip', 'public/js/clip.js', 'public/js/share.js', '#198\'s', 'item 10']],
+  ['Checked again, and deleted if', ['checkClip', 'checkStored', 'lib/clips.js', 'dropClip']],
+  ['A location track\'s data rests on', ['item 10', 'samples']],
+  ['What is kept for a clip', ['migrations/0005_photos.sql', 'migrations/0016_clip_rules.sql', 'finishClip']],
+  ['While it is sent: its upload\'s', ['upload_id', 'finishClip', '0016']],
+  ['An unfinished clip: the parts a', ['lifecycle rule', '2026-10-08', 'clearStaleClips', 'functions/api/upload/clips/index.js', 'functions/admin/index.js']],
+  ['Shared clips wait as photos do', ['public/share/sw.js', 'video/*']],
+  ['A clip counts toward the day\'s', ['spendDailyClip', 'lib/photos.js']],
+  ['Up to 10 GB of clips a day, or', ['CLIP_DAY_BYTES', '#198\'s', 'SA-1', 'lib/photos.js', 'clipDayBytes', 'spendDailyClip', 'clip_bytes', 'migrations/0017_clip_day_bytes.sql']],
+  ['Deleted on request, by email,', ['Deleting a clip by hand', 'the address at the top']],
+];
+
+test('the head comment traces every clip claim in its own row, and the code it names still has it (#198)', async () => {
+  // From the clips' block on: an account row above it starts with the same
+  // words as the last clip row.
+  const comment = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0].split('\n');
+  const from = comment.findIndex((line) => line.includes('The clips\' rows (#198)'));
+  assert.ok(from > 0, 'the head comment has no clips\' block');
+  const lines = comment.slice(from);
+  const starts = CLIP_ROWS.map(([head]) => lines.findIndex((line) => line.startsWith(`       ${head}`)));
+  CLIP_ROWS.forEach(([head], i) => {
+    assert.ok(starts[i] > 0, `the trace table has no "${head}" row`);
+    if (i > 0) assert.ok(starts[i] > starts[i - 1], `the "${head}" row is out of order`);
+  });
+  const end = lines.findIndex((line, j) => j > starts.at(-1) && line.trim() === '');
+  CLIP_ROWS.forEach(([head, sources], i) => {
+    const cell = lines.slice(starts[i], starts[i + 1] ?? end).map((line) => line.slice(41).trim()).join(' ');
+    for (const source of sources) assert.ok(cell.includes(source), `the "${head}" row does not name ${source}`);
+  });
+  const exported = {
+    insertClip: '../lib/clips.js',
+    finishClip: '../lib/clips.js',
+    checkStored: '../lib/clips.js',
+    dropClip: '../lib/clips.js',
+    clearStaleClips: '../lib/clips.js',
+    planClip: '../public/js/clip.js',
+    checkClip: '../public/js/clip.js',
+    clipSeconds: '../lib/photos.js',
+    clipBytes: '../lib/photos.js',
+    clipDayBytes: '../lib/photos.js',
+    spendDailyClip: '../lib/photos.js',
+    rejectPhotos: '../lib/queue.js',
+    requireUploadSession: '../lib/session.js',
+  };
+  for (const [name, module] of Object.entries(exported)) {
+    assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
+  }
+});
+
+test('README\'s by-hand clip delete lists the approved clips, and deletes the one it names and nothing else (#198, until #286)', async () => {
+  // "To have one deleted, email the address at the top of this page, and one
+  // of the site's admins deletes it for good": with no button and no page
+  // listing an approved clip, these two statements are how. Read from README,
+  // so the schema cannot move out from under the runbook unnoticed.
+  const steps = read('..', 'README.md').split('### Deleting a clip by hand\n')[1]?.split(/\n## |\n### /)[0] ?? '';
+  const lookup = steps.match(/--command "(SELECT photos\.id[^"]+)"/)?.[1];
+  const sql = steps.match(/--command "(DELETE FROM photos [^"]+)"/)?.[1];
+  assert.ok(lookup, 'README has no statement listing the approved clips');
+  assert.ok(sql && sql.includes('<id>'), 'README has no delete statement naming <id>');
+  // A waiting clip goes by the queue's Reject, which deletes its file too.
+  assert.match(steps, /A waiting clip is deleted with \*\*Reject\*\* under it on `\/admin\/queue`\./);
+
+  const db = d1();
+  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  const album = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
+  const row = (kind, state, key, sentAt) => {
+    const photo = kind === 'photo';
+    return Number(db.sqlite.prepare(
+      'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
+      'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes, ' +
+      'content_type, duration_ms, approved_at) ' +
+      "VALUES (?, ?, ?, ?, 'b', 'parent', 1, 1, 1, ?, 4, 3, ?, ?, ?, ?, 10, ?, ?, ?)",
+    ).run(
+      album, kind, state, key, sentAt,
+      photo ? 4 : null, photo ? 3 : null, photo ? 4 : null, photo ? 3 : null,
+      photo ? null : 'video/mp4', photo ? null : 30_000,
+      state === 'approved' ? 3 : null,
+    ).lastInsertRowid);
+  };
+  const target = row('clip', 'approved', 'a'.repeat(32), 20);
+  const other = row('clip', 'approved', 'b'.repeat(32), 30);
+  const waiting = row('clip', 'pending', 'c'.repeat(32), 40);
+  const photo = row('photo', 'approved', 'd'.repeat(32), 50);
+  const listed = () => db.sqlite.prepare(lookup).all();
+  const run = (id) => db.sqlite.prepare(sql.replace('<id>', '?')).run(id).changes;
+
+  // Step 1: the approved clips, newest first, each with the key step 3 deletes
+  // by, its album and its length; not the waiting clip, and not the photo.
+  assert.deepEqual(listed().map((clip) => clip.id), [other, target]);
+  const found = listed().find((clip) => clip.id === target);
+  assert.equal(found.media_key, 'a'.repeat(32));
+  assert.equal(found.title, 'Fall Regatta');
+  assert.equal(found.seconds, 30);
+
+  // Step 2 deletes the clip it names, and step 4's read-back no longer lists it.
+  assert.equal(run(target), 1);
+  assert.deepEqual(listed().map((clip) => clip.id), [other], 'step 1 still lists the deleted clip');
+  // The controls: a waiting clip is Reject's, and a photo is not a clip.
+  assert.equal(run(waiting), 0);
+  assert.equal(run(photo), 0);
+  assert.deepEqual(db.sqlite.prepare('SELECT id FROM photos ORDER BY id').all().map((left) => left.id), [other, waiting, photo]);
 });
 

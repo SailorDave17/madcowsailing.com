@@ -370,7 +370,9 @@ export async function revokeTeams(db, { accountId, teams, hashKey, admin, now })
 }
 
 // The photos "Hide all their photos" takes down: every one the account sent
-// that is waiting or public. A clip waits for #198, as everywhere else.
+// that is waiting or public. A clip waits for #286, as every public and
+// removals statement does (owner, at #198's pickup): its waiting clips stay
+// in the queue, which /admin/people's box says.
 const HIDEABLE = "account_id = ? AND kind = 'photo' AND state IN ('pending', 'approved')";
 
 /**

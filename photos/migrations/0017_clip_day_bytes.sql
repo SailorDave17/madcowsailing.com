@@ -1,0 +1,26 @@
+-- A session's clips have a daily byte budget beside the day's 500 uploads
+-- (#198, epic #147): 10 GiB, or 40 GiB for a coach's session (CLIP_DAY_BYTES
+-- in lib/photos.js). Additive: one column on upload_counts, 0 on every row it
+-- holds, nothing else touched. CLAUDE.md, The photo site, item 33 has the
+-- decision.
+--
+-- Why. The security audit at #198's review found the 500 a day bounded clips
+-- by count alone (finding SA-1): a day of photos reaches about 2.2 GB, but a
+-- day of clips 500 GiB, or 2 TB from a coach, which R2 bills from the day it
+-- is stored. The owner chose a byte budget in #198 itself, at that review
+-- (2026-10-08). Not chosen: a story after #198; leaving the count alone.
+--
+-- spendDailyClip adds a clip's declared size here as it spends one of the
+-- 500, in the statement that spends it, and refuses the clip when the sum
+-- would pass the session's budget; refundDailyUpload gives both back when an
+-- upload is abandoned or refused. A photo leaves the column as it is. The
+-- day's row goes with its count, at the session's first upload of a later day.
+--
+-- Applying it: before the code that writes it. #198's start route names the
+-- column in its insert, and refundDailyUpload in every give-back, a photo's
+-- included, so on a database without it every clip start fails and every
+-- give-back is logged as failed; the older code never names it, and the
+-- default keeps every row it writes valid. So it goes in as item 6 orders,
+-- before the merge into develop and before the promotion, as 0016 does.
+
+ALTER TABLE upload_counts ADD COLUMN clip_bytes INTEGER NOT NULL DEFAULT 0 CHECK (clip_bytes >= 0);

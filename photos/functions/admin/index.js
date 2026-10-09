@@ -19,6 +19,18 @@
  * to the admins goes at most once an hour, and only when a request arrives,
  * so this count is how a request that no later one follows is seen.
  *
+ * Since #198 the queue's button counts the waiting clips beside the photos:
+ * queueSummary() reads them in its one statement, as `clips`, and adminHome
+ * names both kinds (owner, at #198's pickup).
+ *
+ * Since #198 each load also clears clip uploads still unfinished a day after
+ * they started (lib/clips.js, clearStaleClips): their rows, and their parts
+ * or object in the bucket. Pages runs no scheduled job, and the start of the
+ * next clip is the only other moment, so a site where nobody sends again
+ * would keep them. Best effort, as there: a failure is logged and the page
+ * still answers. Only with the bucket bound, as the start route requires it,
+ * so no row goes whose parts could not be let go of.
+ *
  * Since #222 each load also deletes the failed sign-ins (lib/sign-in.js) and
  * the reset requests (lib/reset.js) more than an hour old, for the same
  * reason: each keeps a scrambled address, and the next failure or request
@@ -28,6 +40,7 @@
  */
 import { clearExpiredRequests, waitingRequests } from '../../lib/accounts.js';
 import { clearExpiredCodes } from '../../lib/admin-code.js';
+import { clearStaleClips } from '../../lib/clips.js';
 import { adminHome } from '../../lib/admin-page.js';
 import { queueSummary } from '../../lib/queue.js';
 import { clearExpiredTakedowns } from '../../lib/removals.js';
@@ -42,6 +55,7 @@ export async function onRequestGet({ data, env }) {
   await clearExpiredSignIns(env.DB, now);
   await clearExpiredResetRequests(env.DB, now);
   await clearExpiredCodes(env.DB, now);
+  if (env.MEDIA) await clearStaleClips(env, now);
   const summary = { ...(await queueSummary(env.DB)), requests: await waitingRequests(env.DB) };
   return new Response(adminHome(data.admin, summary), {
     headers: {

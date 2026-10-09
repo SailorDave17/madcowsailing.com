@@ -11,10 +11,14 @@
  * presses this, so on a phone the admin lands where they were typing rather
  * than at the batch's heading, maybe a hundred cards up. When none changed,
  * at the batch.
+ *
+ * Since #198 a waiting clip's caption is saved here as a photo's is, and a
+ * caption typed for a clip approved meanwhile is counted apart in the notice
+ * (&unsaved-clips=, lib/queue.js, unsavedFields).
  */
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
-  QUEUE_FORM_BYTES, photoAt, queueLocation, readPress, saveCaptions, unsavedCaptions,
+  QUEUE_FORM_BYTES, photoAt, queueLocation, readPress, saveCaptions, unsavedCaptions, unsavedFields,
 } from '../../../../lib/queue.js';
 import { teamOf } from '../../../../lib/teams.js';
 
@@ -23,10 +27,10 @@ export async function onRequestPost({ request, env }) {
   const team = teamOf(request);
   const press = readPress(await readForm(request, QUEUE_FORM_BYTES), null);
   if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
-  const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
+  const unsaved = unsavedFields(await unsavedCaptions(env.DB, press.captions));
   const changed = await saveCaptions(env.DB, press.captions);
   const last = press.ids.findLast((id) => changed.includes(id));
-  return seeOther(queueLocation({ done: 'saved', n: changed.length, unsaved, team }, photoAt(last) ?? press.anchor));
+  return seeOther(queueLocation({ done: 'saved', n: changed.length, ...unsaved, team }, photoAt(last) ?? press.anchor));
 }
 
 /** GET changes nothing, as approve.js's GET says, and keeps the press's ?team=. */
