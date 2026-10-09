@@ -2202,9 +2202,10 @@ const CLIP_OVER = 'Failed. The photo site says this clip is too long or too larg
 const CLIP_DAY = `Failed. Your account has sent today's ${CLIP_DAY_BYTES.everyone / 1024 ** 3} GB of clips. Photos can still go; try clips again tomorrow.`;
 
 test('#198: the page loads the walker as a module ahead of share.js, stamped from its own bytes, and finds the four names clip.js puts on window', () => {
-  // An end tag is matched however it is written, `</script >` and capitals
-  // included (CodeQL js/bad-tag-filter, at #198's PR).
-  const scripts = [...HTML.match(/<head>([\s\S]*?)<\/head>/)[1].matchAll(/<script\b([^>]*)>\s*<\/script[^>]*>/gi)].map((m) => m[1].trim());
+  // Each script's opening tag, which carries all it says: no end tag is
+  // matched, so no pattern here filters HTML (CodeQL js/bad-tag-filter, at
+  // #198's PR, flagged one that matched both).
+  const scripts = [...HTML.match(/<head>([\s\S]*?)<\/head>/)[1].matchAll(/<script\b([^>]*)>/gi)].map((m) => m[1].trim());
   // Deferred scripts, a module's included, run in the order they are written.
   assert.deepEqual(scripts.map((s) => s.match(/src="([^"?]+)/)[1]), ['/js/clip.js', '/js/share.js']);
   assert.match(scripts[0], /^type="module" src="\/js\/clip\.js\?v=[0-9a-f]{10}"$/);
