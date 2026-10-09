@@ -16,23 +16,21 @@
 //   - Every database_id is written out, and no secret goes in this file or
 //     anywhere in the tree. Secrets are Pages secrets, named in README.md.
 //
-// The coach guard (#192, lib/access.js) reads two vars here. Neither is
-// secret: every Access token carries both.
-//   - ACCESS_TEAM_DOMAIN is the Zero Trust team's domain: the tokens' issuer,
-//     and where the signing keys are fetched from.
-//   - ACCESS_COACH_AUD is the AUD tag of the application that signs /coach:
-//     the coach application on photos.madcowsailing.com in production, and
-//     the project's Pages preview application on a preview, which signs
-//     every path, so the two differ. A tag changes only if its application
-//     is deleted and recreated.
-// The coaches' addresses are the COACH_EMAILS secret.
+// No var configures Cloudflare Access, and no code reads an Access token.
+// The admin guard (#151) read ACCESS_TEAM_DOMAIN, an ACCESS_AUD var and the
+// ADMIN_EMAILS secret until #224 replaced it with the site's own admin
+// session (lib/admin-session.js); #268 deleted the admin application in front
+// of /admin on photos.madcowsailing.com, and ACCESS_AUD with it. The coach
+// guard (#192, lib/access.js) read the same team domain, an ACCESS_COACH_AUD
+// var and the COACH_EMAILS secret until #226 replaced the coaches' sign-in
+// with accounts holding the coach role, deleting both vars and lib/access.js;
+// #226 deletes the coach application on photos.madcowsailing.com once its
+// release is live (README, The cutover (#226)). The Pages preview
+// application, which keeps the project's preview deployments behind a
+// sign-in, is set in the dashboard alone and is unchanged (README's hosting
+// table).
 //
-// The admin guard (#151) read the same team domain, an ACCESS_AUD var and
-// the ADMIN_EMAILS secret. #224 replaced it with the site's own admin session
-// (lib/admin-session.js), and #268 deleted the admin application in front of
-// /admin on photos.madcowsailing.com, and ACCESS_AUD with it.
-//
-// The request form at /ask (#220) reads one more var:
+// The request form at /ask (#220) reads the one var besides SITE_ENV:
 //   - TURNSTILE_SITE_KEY is the site key of the Turnstile widget
 //     "madcowphotos ask", which serves photos.madcowsailing.com and
 //     madcowphotos.pages.dev, so both environments name the same one. It is
@@ -40,7 +38,7 @@
 //     TURNSTILE_SECRET_KEY secret. Locally, photos/.dev.vars sets Cloudflare's
 //     test keys in place of both (README, Running it locally).
 //
-// photos/test/config.test.mjs holds these rules, and it fails if preview and
+// photos/test/site.test.js holds these rules, and it fails if preview and
 // production ever share a database or a bucket.
 //
 // nodejs_compat (#218): lib/password.js imports scrypt from node:crypto, the
@@ -59,8 +57,6 @@
 
   "vars": {
     "SITE_ENV": "preview",
-    "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
-    "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
   },
   "d1_databases": [
@@ -79,8 +75,6 @@
     "preview": {
       "vars": {
         "SITE_ENV": "preview",
-        "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
-        "ACCESS_COACH_AUD": "da25aceb2d1232a48684240aed72446c70a829ca0f71e8a93c2041f50f3f4700",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
       },
       "d1_databases": [
@@ -98,8 +92,6 @@
     "production": {
       "vars": {
         "SITE_ENV": "production",
-        "ACCESS_TEAM_DOMAIN": "https://madcowsailing.cloudflareaccess.com",
-        "ACCESS_COACH_AUD": "3be126b61281628beeb5a8674c84d1741c0c5582a3071e52cde925cb26314946",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFO0znmMP-mkXRR5"
       },
       "d1_databases": [

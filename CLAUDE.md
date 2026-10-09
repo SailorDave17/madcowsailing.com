@@ -39,7 +39,7 @@ Stories #2–#11 and #35 are closed, which is what built the above. The epic is 
 A third site, photos.madcowsailing.com under `photos/`, was decided in #148, and
 #149 built its holding page, its Cloudflare project and its gate. #150 added the
 invite code and the upload session, #151 the admin area's lock and its
-home page, #152 the admin page where the code is created and rotated,
+home page, #152 the admin page where the code was created and rotated,
 #153 the albums the owner keeps for each regatta and practice, #154 the
 upload API, which stores each photo's three JPEGs with their metadata removed,
 waiting for approval, #155 the share page that makes those JPEGs on the
@@ -48,17 +48,17 @@ them, #157 the public album list and album pages, which replaced the
 holding page at `/`, #159 the policy at `/policy`, which every page's
 footer links, #158 "Remove this photo", which hides a photo at once
 and queues it on `/admin/removals`, #192 the coach sign-in at `/coach`,
-which opens an upload session through Access with no invite link, and #193
+which opened an upload session through Access with no invite link, and #193
 the installed app: the share page installs to a phone's home screen, and on
-Android it takes photos from the Share menu. Those are epic #147's. **Epic #216 (accounts) replaces the invite link and the
+Android it takes photos from the Share menu. Those are epic #147's. **Epic #216 (accounts) replaced the invite link and the
 coaches' Access sign-in** with email-and-password accounts the owner
-approves, and retires both at its cutover, #226. Its first story, #217, is
+approves, and retired both at its cutover, #226. Its first story, #217, is
 the email the site sends through Resend, with a test send at `/admin/mail`,
 and #218 chose the password hash every account will use: scrypt, in
 `photos/lib/password.js`. One hash takes far more than the free plan's 10 ms
 of CPU, so the account is on Workers Paid since 2026-10-05. #220 built the
-request form at `/ask`, behind Turnstile, which nothing links to yet
-(item 25), and #221 the page where admins approve each request per team,
+request form at `/ask`, behind Turnstile, which the share page and an old
+invite link point to since #226 (item 25), and #221 the page where admins approve each request per team,
 `/admin/people`, which emails a link to set a password (item 26). #222 made
 that link set a password, and added signing in at `/sign-in`, `/account`
 with Sign out, and a reset at `/forgot-password` (item 27), and #223 let an
@@ -69,7 +69,13 @@ emailed for that sign-in, for 12 hours at a time; any admin makes another
 on `/admin/people`, only the owner removes one, and the one owner is made
 by hand (item 30). #225 let an admin revoke a person for a team, ending
 their sessions, hide every photo an account sent, delete an account on
-request, and hold a revoked address back from asking again (item 31).
+request, and hold a revoked address back from asking again (item 31). #226
+is the cutover: its release removes the invite link, `/admin/code` and
+`/coach`, and its last steps on production delete the coach Access
+application, `ADMIN_EMAILS` and `COACH_EMAILS`, so every way in is an
+account; items 11, 12 and 20 keep the
+record, each opening with what replaced it, and README.md, The cutover
+(#226), the order of its steps on production.
 **Epic #191 makes COHSSA a section of the same
 site**, on those accounts; #194 recorded the decisions behind both epics
 (The photo site, item 24), and #227 gave every album a team: `/` leads to
@@ -80,18 +86,20 @@ before approving them (item 32). #268, the first of epic #267's, deleted
 the Access application in front of `/admin` on production, so an admin
 signs in once, with the password and the emailed code (item 30). #269 made
 the admin home open on what is waiting, each count a full-width button to
-its page (item 30). #198 let the share page send clips, in parts of 25 MiB,
-their location and camera data overwritten on the phone and checked again
-on arrival, up to 10 GB of a session's clips a day (40 GB a coach's); a
-clip waits in `/admin/queue` beside the photos, where an admin plays,
-approves, rejects or moves it, and #286 shows approved clips on the public
-pages (item 33). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+its page (item 30), and #271 made `/admin/people`, `/admin/albums` and
+`/admin/removals` work at 320 px, every button 48 px (item 30). #198 let the
+share page send clips, in parts of 25 MiB, their location and camera data
+overwritten on the phone and checked again on arrival, up to 10 GB of an
+account's clips a day (40 GB a coach's); a clip waits in `/admin/queue`
+beside the photos, where an admin plays, approves, rejects or moves it, and
+#286 shows approved clips on the public pages (item 33). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
 (see [The photo site](#the-photo-site--photosmadcowsailingcom)).
-The open work is still construction: epics #147 (the photo site), #216
-(accounts) and #191 (the COHSSA section) have stories open. Beside them, #163
+The open work is still construction: epics #147 (the photo site) and #191
+(the COHSSA section) have stories open, and #226 was the last open story of
+#216 (accounts). Beside them, #163
 keeps the app pages true to the apps and #175 carries the plumbing the three
 sites share. All of it is tracked on the board, not here.
 
@@ -144,15 +152,15 @@ story, this is the paragraph to check.*
 │   ├── package.json          Not a build: makes photos/ wrangler's project root
 │   ├── .htmlvalidate.json    no-inline-style back on, for the CSP
 │   ├── functions/            Pages Functions: _middleware.js, api/health.js,
-│   │                         api/join.js, the public pages (#157: index.js is /,
+│   │                         api/join.js (since #226 a fixed answer that the
+│   │                         invite link was replaced), the public pages (#157: index.js is /,
 │   │                         albums/[address]/ an album, photos/[id]/[size].js
 │   │                         a photo), "Remove this photo" (#158: remove.js
 │   │                         asks without JavaScript, api/remove.js takes it
 │   │                         down), api/upload/ and api/albums/ behind
 │   │                         the upload guard (api/upload/index.js takes a
 │   │                         photo, #154), and admin/ and api/admin/
-│   │                         behind the admin guard (admin/code.js is the
-│   │                         invite code, #152; admin/albums.js the albums, #153;
+│   │                         behind the admin guard (admin/albums.js the albums, #153;
 │   │                         admin/queue.js the approval queue, #156, with
 │   │                         api/admin/queue/ and api/admin/photos/;
 │   │                         admin/removals.js the removal requests, #158,
@@ -171,11 +179,14 @@ story, this is the paragraph to check.*
 │   ├── lib/                  Code the Functions import that is not a route
 │   ├── templates/page.html   The public pages' shell, never served (#157)
 │   ├── migrations/           D1, NNNN_<what>.sql, additive only
-│   ├── scripts/              access-dev.mjs: a local stand-in for Access (#151)
+│   ├── scripts/              sign-in-dev.mjs: signs the local account in, admin
+│   │                         session and all (#224, #226; access-dev.mjs, a
+│   │                         stand-in for Access, until #226)
 │   ├── test/                 node --test; `npm test` from the root, which loads
 │   │                         test/text-modules.js first so a .html imports (#157)
 │   └── public/               The served files and nothing else (the output dir)
-│       ├── share/index.html  Where an invite link lands; joins, then (#155) sends.
+│       ├── share/index.html  Where an account sends (#155, #223); an old invite
+│       │                     link lands here and is told it was replaced (#226).
 │       │                     The installed app's start page (#193)
 │       ├── share/sw.js       The installed app's worker: takes a share, caches
 │       │                     nothing, controls /share/ only (#193)
@@ -188,15 +199,16 @@ story, this is the paragraph to check.*
 │       ├── _routes.json      Which paths invoke a Function: /, /albums/*, /photos/*,
 │       │                     /remove, /ask, /set-password, /sign-in, /sign-out,
 │       │                     /forgot-password, /account, /account/*, /api/*,
-│       │                     /admin, /admin/*, /coach, /coach/*, /share/receive
+│       │                     /admin, /admin/*, /share/receive (/coach and
+│       │                     /coach/* until #226)
 │       ├── robots.txt        Allows crawling, on purpose
 │       ├── css/site.css
 │       ├── js/share.js
 │       ├── js/remove.js      An album page's "Remove this photo" dialog; the
 │       │                     template loads it, so assetver stamps it (#158)
-│       ├── js/admin-code.js  /admin/code's script; its ?v= is stamped by hand
-│       │                     in lib/admin-page.js (#152)
-│       ├── js/admin-queue.js /admin/queue's reject dialog, stamped the same way (#156)
+│       ├── js/admin-queue.js /admin/queue's reject dialog; its ?v= is stamped by
+│       │                     hand in lib/admin-page.js (#156), as /admin/code's
+│       │                     script was until #226
 │       ├── js/admin-removals.js /admin/removals' delete dialog, the same way (#158)
 │       └── js/ask.js         /ask's Turnstile loader, on the form's first focus or
 │                             touch; stamped by hand in lib/ask-page.js (#220).
@@ -313,7 +325,8 @@ all: Cloudflare Web Analytics is off in both zones (see Hosting).
 
 **Decided on 2026-09-26 in #148, before any of its code existed.** Epic #147 builds a
 third site from this repo. Anyone can browse albums of the team's regatta and practice
-photos and videos. Parents holding the current invite link upload from their phones, and
+photos and videos. Parents holding the current invite link upload from their phones (since
+#226, accounts an admin approved do; item 29), and
 nothing appears until the owner approves it. It is the first server code in the repo, so
 the static rule in Stack does not cover it. Each decision below names the alternative not
 taken and the page it rests on. **Every page was read on 2026-09-26.** Several of them
@@ -505,7 +518,7 @@ projects ([Wrangler configuration](https://developers.cloudflare.com/workers/wra
   resources. They choose what `wrangler dev` uses.
 - No secret goes in the file or anywhere in the tree. The session-signing and
   address-hashing keys are Pages secrets, listed by name only in the README, and so
-  is the admin allow-list (item 12).
+  was the admin allow-list (item 12), which #226 deletes once its release is live.
 
 Once the file exists, the dashboard shows its bindings read-only. What stays in the
 dashboard goes in the README's hosting table: build command, root directory, watch paths,
@@ -601,7 +614,7 @@ are unchanged.
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
 | D1 | 5 million rows read and 100,000 written a day; 5 GB in all, 500 MB per database | about 4% of reads at the request ceiling, if every query uses an index | with Workers Paid: 25 billion reads and 50 million writes a month |
-| Zero Trust | 50 users | the owner, plus anyone who signs in to a preview, plus each coach (#192, item 20) | $7 per user a month |
+| Zero Trust | 50 users | the owner, plus anyone who signs in to a preview, plus each coach who signed in at `/coach` before #226 retired it (#192, item 20), whose seat stays until the user is removed | $7 per user a month |
 | Email (Resend Free, its own account; #217, item 21) | **100 emails a day** and 3,000 a month, sent and received together, each recipient counting as one; the day is 00:00–24:00 UTC. 10 requests a second, per team | every email the later stories send, and each test from `/admin/mail`. **Past the daily limit Resend refuses each send with `429 daily_quota_exceeded` until midnight UTC**, and past the monthly one with `monthly_quota_exceeded`. Pay-as-you-go is a paid feature, so nothing is billed and nothing is queued: the site sends nothing more until the reset | Pro, $20 a month: 50,000 a month, no daily limit, then $0.90 per 1,000 |
 
 Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
@@ -772,6 +785,28 @@ record it.** With clips kept at full size, storage passes the free 10 GB after r
 
 ### 11. The invite code and the upload session
 
+**Retired by #226.** Accounts replaced the invite link (D13, item
+24): a person asks at `/ask` (item 25), an admin approves each team (item
+26), and the phone signs in to the 90-day `__Host-account` session (item 27)
+it sends from (item 29). Revoking a person (item 31) replaced rotating the
+code. `POST /api/join` now answers `410 {"error":"replaced","ask":"/ask"}`
+to every post from the site's own Origin, without reading the body, the
+database or a secret, and still refuses another Origin with 403; the share
+page takes an old `#code=` out of the address bar, sends it nowhere, and
+says the link was replaced. `/admin/code`, its Create and Rotate routes and
+`lib/invite.js` are gone (its two survivors are `lib/site.js`'s
+`PRODUCTION_SITE` and `siteOrigin`). `requireUploadSession` takes an
+account's session alone, and when a `__Host-upload` cookie reaches it or
+`POST /api/join`, a parent's `v1.` or a coach's `c1.`, valid or not, the
+answer deletes it; it opens nothing. The share page asks the guard on every
+load, so a phone's old cookie goes the next time it opens the page. `invite_codes`, `join_failures` and `join_budget` stay,
+since migrations are additive (item 6), and nothing reads or writes them;
+the old codes and the failed-join rows are deleted by hand once #226's
+release is live (README.md, The cutover (#226)), so a rollback to a build
+from before #226 finds no current code and refuses every old link and
+parent cookie (`security-audit` at #226's review, owner's choice). What
+follows is #150's, #152's and #177's record as built.
+
 **Built in #150, with two values confirmed by the owner at its pickup on 2026-09-27.**
 The code is 12 symbols of Crockford's base 32, 60 bits, grouped in fours
 (`K7QM-3XRD-9FWB`). It lives in D1 as it is, because the admin page shows it (#152).
@@ -823,7 +858,8 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   result, and one endpoint for both, which would let a stale "Create code" page
   rotate the code with no warning.
 
-Secrets, and where the code is created and rotated, are in README.md, The photo site.
+README.md, The photo site, The invite link, retired by #226, says what an old link
+meets now; until #226 it said where the code was created and rotated.
 
 ### 12. The admin guard
 
@@ -834,8 +870,14 @@ Secrets, and where the code is created and rotated, are in README.md, The photo 
 read (the owner's choice at #224's pickup: replace outright). #268 deleted
 the Access application in front of `/admin` on `photos.madcowsailing.com`,
 and the `ACCESS_AUD` var that still held its tag (epic #267: the owner moved
-it ahead of #226). What follows is #151's record as built: the token check
-it describes still guards `/coach` (item 20) until #226.
+it ahead of #226). **#226 retires the rest**: the token check this item
+describes guarded `/coach` (item 20) until then, and went with the coach
+sign-in in #226's code, along with `lib/access.js`, `test/access.test.js` and
+the `ACCESS_TEAM_DOMAIN` and `ACCESS_COACH_AUD` vars; #226 deletes the coach
+Access application once its release is live (README.md, The cutover (#226)).
+So since #226 no code
+reads an Access token, and the admin session (item 30) is the one lock on
+`/admin`. What follows is #151's record as built.
 
 **Built in #151, 2026-09-28.** Every `/admin` page and admin API passes
 `requireOwner` in `lib/access.js`. Since #192 the same check also guards
@@ -887,7 +929,8 @@ applications and their policies.
   among them, and requires 403 from each without the token header. Local development
   runs the check unchanged against generated keys: `scripts/access-dev.mjs` stands in
   for Access, and `.dev.vars` points `ACCESS_TEAM_DOMAIN` at it (README, Running it
-  locally).
+  locally). *Both went with the check at #226; the stand-in is
+  `scripts/sign-in-dev.mjs` since, and signs the site's own sessions.*
 - **A write needs the site's own Origin as well** (#152). Both admin directories run
   `[requireOwner, requireSameOrigin]`, and `requireSameOrigin` in `lib/origin.js`
   refuses any method but GET and HEAD whose `Origin` is missing or another site's, with
@@ -904,7 +947,8 @@ applications and their policies.
   runs html-validate on the rendered page, which `npm run check` never sees. A
   page's script is the same kind of copy: `/admin/code`'s `?v=` is written into
   `lib/admin-page.js` by hand, and `test/admin-code.test.js` fails until it is
-  `public/js/admin-code.js`'s own hash.
+  `public/js/admin-code.js`'s own hash. *All three went at #226; the queue's
+  and removals' scripts are stamped by hand the same way.*
 - **Proven, not only passing.** Each refusal was predicted before the check was written
   (31 of 34 tests red against a stub that let everything through). A first round of 16
   mutations, one per check, read 15 exact and one above. `review-fanout` then found three
@@ -1029,7 +1073,7 @@ every answer are in the route's header comment.
 - **The daily cap is 500 uploads per session per UTC day** (owner, 2026-09-29,
   confirming the story's proposal; an account's 500 are the account's, shared
   by every phone signed in to it, since #223, item 29), counted in `upload_counts` by one guarded upsert,
-  as #177's join budget is, so two uploads arriving together cannot both take the
+  as #177's join budget was until #226, so two uploads arriving together cannot both take the
   last one. A unit is spent before the objects are stored, so a capped session costs
   no R2 write, and given back by a guarded decrement when the bucket or the
   database fails or the album closes mid-send. So the cap counts photos stored,
@@ -1038,8 +1082,10 @@ every answer are in the route's header comment.
   holds the code can join again for a new session; rotating the code does that
   (item 11). Not chosen: adding a sitewide cap of 2,000 a day, which lets any code
   holder use up the day for every parent (the tradeoff #177 turned down for
-  joins); or 200 per session. Since #198 a clip spends one too, and its size
-  of a day's clip budget beside it (item 33), which has the same limit.
+  joins); or 200 per session. *Since #226 every session is an account's, so
+  the cap is the account's 500 and no code is left to leak (items 11, 29).*
+  Since #198 a clip spends one too, and its size of the day's clip budget
+  beside it (item 33).
 - **What an upload costs D1.** *Measured on the preview database, 2026-09-29, with
   `meta.rows_written`:* the photo insert writes 5 rows (the table, its three
   indexes and the AUTOINCREMENT counter) and the cap's upsert 1, so a stored photo
@@ -1080,8 +1126,10 @@ every answer are in the route's header comment.
   Built 2026-10-08, widened to the admin queue (item 33).
 - **A coach's upload has its own marker** (owner, 2026-09-29, for #192). `sender` is
   `parent` or `coach`, and a coach's row names no code generation, since no code
-  opened the session. Not chosen: leaving #192 to add the column. #192 writes it,
-  from the session's `sender` (item 20).
+  opened the session. Not chosen: leaving #192 to add the column. #192 wrote it,
+  from the coach's Access session (item 20), until #226; since then it comes
+  from the account's role, `coach` or else `parent`, and every new row's
+  code generation is the placeholder 0 (item 29).
 - **The Origin check is the upload directory's** (see item 11), so the clip routes
   get it without anyone remembering it.
 - **CPU.** *Measured in Node 24 on this machine, not on the edge:* rebuilding
@@ -1092,7 +1140,9 @@ every answer are in the route's header comment.
 ### 15. The share page's sending
 
 **Built in #155, 2026-09-29.** `public/js/share.js` joins (item 11), then sends:
-the link, "Add photos", the photos, "Send", with nothing typed. `test/share.test.js`
+the link, "Add photos", the photos, "Send", with nothing typed. *Until #226;
+since then it joins nothing, sends from an account's session (item 29), and
+answers an old link with the words item 11 gives.* `test/share.test.js`
 runs the script in `node:vm` against stand-ins for the DOM, the canvas and the
 image decoder, and sends through the real routes into SQLite, so the page and
 `POST /api/upload` are tested as one contract.
@@ -1121,7 +1171,8 @@ image decoder, and sends through the real routes into SQLite, so the page and
   invite ended) or a 429 (the day's 500) fails every queued photo at once rather
   than sending each to be refused. Opening the new invite link in the same tab
   joins without a reload (the `hashchange` listener), so the photos are still there
-  to try again.
+  to try again. *Since #226 a 401 means the sign-in ended, and a new `#code=`
+  in the same tab is answered as an old link is (item 11).*
 - **An album closed mid-send (409) stops every queued photo bound for it**, and
   only those: a later Send or a Try again may have queued photos for another album.
   The list then reloads and **preselects nothing** (owner, #155's review), so the
@@ -1372,7 +1423,9 @@ here; an approved one leaves the public page through #158.
 - **A coach's photo says "sent by a coach"** beside when it was taken (owner,
   at #192's pickup), per photo rather than per batch, so it stays true
   whatever a batch holds. It does not say which coach: the row keeps no
-  address and no sign-in time (item 20).
+  address and no sign-in time (item 20). *Since #226 a coach is an account,
+  whose photos the queue names (item 29); the words stay for a photo sent
+  through the coach sign-in before then.*
 
 ### 17. The public pages
 
@@ -1470,14 +1523,15 @@ one at its design review and five at its `review-fanout`.** `/policy`
 (`public/policy.html`, a static page, so it costs no Function request) says
 who sees a photo, who can send one, how each is checked, what the site keeps,
 for how long, and how to have a photo taken down. Every page's footer links
-it, and the share page links it beside the join step.
+it, and the share page links it beside the way to sign in (the join step
+until #226).
 
 - **Every claim is traced to its source**, in a table in the page's head
   comment: the code or the decision that makes it true. A change to either is
   a change to the page. `test/policy.test.js` holds the page's figures (90
-  days, an hour, 2,560 pixels, 500 a day) to the constants in
-  `lib/session.js`, `functions/api/join.js` and `lib/photos.js`, so a change
-  there fails until the page agrees.
+  days, an hour, 2,560 pixels, 500 a day) to the constants in the code, which
+  were `lib/session.js`, `functions/api/join.js` and `lib/photos.js` when
+  #159 built it, so a change there fails until the page agrees.
 - **The header has a nav: All albums and Who sees these photos** (owner, at
   the review). This **overruled** the recommendation, which was to keep the
   footer link and eyebrow and record "no nav". #157 had left the header
@@ -1510,7 +1564,9 @@ it, and the share page links it beside the join step.
   route left past the limit or a 503.
 - **The invite link is for parents, sailors and coaches** (owner, at pickup).
   Not chosen: parents and coaches, which the story proposed; parents only,
-  D9's end state once coaches sign in through Access (#192).
+  D9's end state once coaches sign in through Access (#192). *Retired with
+  the link at #226: since then only an account an admin approved sends, and
+  its role says parent, coach or other (the #226 bullet below).*
 - **Photos are kept with no set limit** (owner, at pickup). An approved photo
   stays until it is taken down. Not chosen: through the season, or a fixed
   number of years. Pages runs no scheduled job, so either needs a deletion
@@ -1570,8 +1626,9 @@ it, and the share page links it beside the join step.
     since a delete cannot be undone and a request can come from anyone. Not
     chosen: trusting the From address; the admin's judgement.
   - **A revoked account's address stays as a keyed hash after a delete**,
-    so a revoke survives it (#225's criterion 4), as the join and takedown
-    limits keep theirs. Not chosen: a delete that lifts the revoke; refusing
+    so a revoke survives it (#225's criterion 4), as the takedown and
+    request limits keep theirs (and the join limit kept its own until
+    #226). Not chosen: a delete that lifts the revoke; refusing
     to delete a revoked account.
   - **The page names the database's restore points**: D1 Time Travel is
     always on, 7 days on Free and 30 on Workers Paid (D1's limits page, read
@@ -1589,10 +1646,10 @@ it, and the share page links it beside the join step.
   Turnstile Privacy Addendum (last updated 2025-06-18), Turnstile's docs
   ("does not access ... form entries") and Resend's pricing (Free keeps 30
   days), all read that day. **"Nothing kept with a photo names who sent it"
-  now covers the invite link and the coaches only**, and the page says a
+  then covered the invite link and the coaches only**, and the page says a
   photo sent from an account names the account (D17). **The sentence about
-  matching a coach's send time to Cloudflare's sign-in record stays until
-  the cutover, #226**, which removes it with the coaches' sign-in.
+  matching a coach's send time to Cloudflare's sign-in record stayed until
+  the cutover, #226**, which removed it with the coaches' sign-in (below).
 - **#220 put the request's own records on the page** (its criterion 9):
   when it was asked, which teams still wait for an answer and whether the
   admins have been emailed about it, and the request limit, with how long
@@ -1623,6 +1680,27 @@ it, and the share page links it beside the join step.
   withholds permission. The admin queue's lede, README → Approving and the
   hq case study, which check every photo against "the families who opted
   out", read true for both teams again and are unchanged.
+- **#226 retired the invite link and the coaches' sign-in on the page**
+  (2026-10-08), with the facts production held that day: 12 photos sent
+  with the invite link, all hidden; none through the coaches' sign-in; one
+  failed-join row. "Who can send a photo" says only an account an admin
+  approved for the team sends, a coach being an account with the coach
+  role, and what replaced each retired way in: the invite link by an
+  account, asked for at the request page, named in words with no link
+  (#220's "Not chosen: a link from `/policy`", item 25); the coaches'
+  sign-in by the coach role; changing the link by an admin revoking an
+  account. The invite-link and coaches' paragraphs went, with the
+  `COACH_EMAILS`, Access and coaches'-list sentences. **#192's sentence
+  matching a coach's send time to who signed in went outright**, not into
+  the past tense, since production held no photo sent through that sign-in.
+  The failed-join paragraph went too: its last row is deleted by hand at
+  the cutover (README.md, The cutover (#226)). A photo sent with the invite
+  link before then keeps, in the past tense, which link it came with and
+  when that phone opened it, and nothing naming who sent it. The phone's old
+  `__Host-upload` cookie is deleted the next time it opens the share page or
+  sends, and nothing reads it; the daily count is per account. The head
+  comment's rows for retired things went or became dated history, and the
+  change log has a #226 entry.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -1630,17 +1708,21 @@ it, and the share page links it beside the join step.
   which was corrected on the issue.)* The story's criterion asked for "a
   stated number of days", written before #150 set the window. Not chosen: a
   delete on a busier route to make a real bound, which spends D1 writes on
-  public requests against item 2's arithmetic.
+  public requests against item 2's arithmetic. *Until #226, which stopped
+  joins recording failures; the rows left are deleted by hand at the
+  cutover, and the page no longer has the paragraph (the #226 bullet
+  above).*
 - **A removal names the photo by its link or the file, never its number.** A
   download's `<nnn>` is the photo's place at download time, which moves as
   earlier-taken photos are approved (the review's finding).
 - **The page lists what the story's list left out**: when a photo was sent,
   which invite link and session it came through (0005), and the daily count
   per phone (`upload_counts`). Leaving them out would make a list headed "what
-  the site keeps" wrong.
+  the site keeps" wrong. *Since #226 the invite link's part is in the past
+  tense, for photos sent before then, and the count is per account.*
 - **"One of the site's admins" checks a photo, not "the owner"**, since item
-  12 lets every address in `ADMIN_EMAILS` approve (since #224, every account
-  holding the admin role; item 30).
+  12 let every address in `ADMIN_EMAILS` approve (since #224 every account
+  holding the admin role does; item 30).
 - **A header or footer change is five copies**: `public/404.html`,
   `public/policy.html`, `public/share/index.html`, `templates/page.html` and
   `lib/admin-page.js`. `test/site.test.js`, `test/admin-page.test.js` and
@@ -1660,11 +1742,11 @@ down, and `functions/remove.js` asks first for a browser without JavaScript.
 
 - **10 takedowns an hour from one network address, and only a takedown that
   hid a photo counts** (owner, at pickup, confirming the story's figure). The
-  address is the keyed hash item 11's join limit uses, IPv6 by its /64, in
+  address is the keyed hash item 11's join limit used until #226, IPv6 by its /64, in
   `removal_requests` (migration 0006). A request naming a photo that is not
   public is 404 and writes nothing, so a wrong id costs no D1 write. Not
   chosen: counting every request, 404s included, which is a write per bad
-  request, the cost #177 budgets on the join route; 5 an hour; 20 an hour.
+  request, the cost #177 budgeted on the join route until #226; 5 an hour; 20 an hour.
   The limit is read first, so an address past it is 429 whatever it names.
 - **Two takedowns at once cannot both take an address's tenth.** One
   statement counts the hour and inserts the row together, and only then is
@@ -1737,6 +1819,22 @@ down, and `functions/remove.js` asks first for a browser without JavaScript.
   cost at its largest, and nothing past the per-address limit is built.
 
 ### 20. The coach sign-in
+
+**Retired by #226.** A coach is an account approved with the
+coach role (D13, D16; items 25 and 26), signed in at `/sign-in` like anyone
+(item 27). `sendsAsCoach` in `lib/photos.js` reads that role alone: a coach
+account's clips run 15 minutes (`clipSeconds`, D11), and its photos say
+`coach` and name the account, which the queue shows (item 29). `/coach`,
+`functions/coach/`, `requireCoach` and `lib/access.js`, the `c1.` session and
+the `ACCESS_TEAM_DOMAIN` and `ACCESS_COACH_AUD` vars went in #226's code, so
+from its release `/coach` is the site's 404 page; `COACH_EMAILS` and the
+`madcowphotos coach` application with its policy are deleted once that release
+is live (README.md, The cutover (#226)). A coach's old `__Host-upload` cookie opens nothing, and is
+deleted the next time it reaches the upload guard (item 11). A photo sent through the coach sign-in
+keeps `sender` `coach` and names nobody, and the queue still says "sent by a
+coach" beside it; production held none on 2026-10-08, and the cutover reads
+that again once its release is live (README.md, The cutover (#226)). What follows is
+#192's record as built.
 
 **Built in #192, 2026-10-01, with four owner decisions taken at its pickup
 and four at its review.**
@@ -1902,7 +2000,9 @@ was taken*; #210 carries it (owner, at #193's review), with one question it
 must answer: a Home Screen app on iOS keeps its cookies apart from Safari,
 and an invite link opens in Safari, so a parent's installed app may never
 hold a session (reasoned, from cairn's
-`pwa-install-offer-android-prompt-ios-copy` note).
+`pwa-install-offer-android-prompt-ios-copy` note). *Since #226 the question
+is a sign-in's: one made in Safari may not reach the installed app, so the
+sender signs in inside it.*
 
 - **The share page is the app.** `start_url` and `id` are `/share/`, `scope`
   is `/`, `display` is `standalone`, and only the share page links the
@@ -1946,7 +2046,8 @@ hold a session (reasoned, from cairn's
   share; labelling shared photos in the list.
 - **Shared photos wait on the phone for a session** (owner, at pickup, for
   criterion 3). With no session the page says how many are waiting and to
-  open the invite link or sign in as a coach; once a session exists they go
+  open the invite link or sign in as a coach (until #226; since then, to sign
+  in); once a session exists they go
   into the list, ready to send. Not chosen: going straight to `/coach`, which
   sends a parent whose invite has ended to an Access sign-in that refuses
   them; not keeping them, so the coach shares again after every ended session.
@@ -2137,8 +2238,8 @@ the questions and the reasoning shown with them are in cairn's
 against the recommendation: the password (D14), public COHSSA viewing, and
 COHSSA's consent basis. They supersede four earlier decisions on #147: A4
 (no parent accounts), D3 (Access on `/admin`, item 12), D9's Access sign-in
-for coaches (item 20) and D12's COHSSA copy. Items 11, 12 and 20 still
-describe production until the cutover, #226.
+for coaches (item 20) and D12's COHSSA copy. #226 retired what items 11,
+12 and 20 describe on 2026-10-08, and each now opens with what replaced it.
 
 - **D13. Accounts replace every way in, on both teams** (the
   recommendation). A parent, coach or other person asks for an account, and
@@ -2146,7 +2247,12 @@ describe production until the cutover, #226.
   coaches' Access sign-in (#192; item 20) retire at #226, once accounts work
   on production, and today's admins and coaches get set-password emails
   then. Not chosen: accounts for COHSSA only; accounts with the link kept
-  for one-off events.
+  for one-off events. **#226 carries it out**, in the order README.md, The
+  cutover (#226), records: an account sending and an admin signing in on
+  production, and every address on `ADMIN_EMAILS` and `COACH_EMAILS` given an
+  account with its role and a set-password email, before the release that
+  removes the old ways in; then `ADMIN_EMAILS`, `COACH_EMAILS` and the coach
+  Access application deleted.
 - **D14. Email and password, against the recommendation** of an emailed
   sign-in link with no password. Not chosen either: Google sign-in plus an
   emailed link. The case made for the link: a password still needs a reset
@@ -2276,8 +2382,8 @@ operating record. The owner's decisions, through the question tool:
   request the site takes or the next load of the admin home, as #158's
   takedown log is; a refused request deletes nothing.
 - **A spent hour writes nothing** (owner, at the review). The site's hour is
-  read before the address's unit is claimed, as #177's join budget is spent
-  before its failure is recorded. Then the unit is spent, and if another
+  read before the address's unit is claimed, as #177's join budget was spent
+  before a failed join was recorded (until #226). Then the unit is spent, and if another
   request took the last one in between, or the spend fails, the address's
   unit goes back. Not chosen: claiming first and recording the cost of a
   spent hour's claim and give-back (about 4 rows a request, bounded only by
@@ -2294,11 +2400,15 @@ operating record. The owner's decisions, through the question tool:
   site keeps.
 - **The page is `/ask`** (owner, at pickup). Not chosen: `/account/request`,
   `/request-access`.
-- **Nothing links to `/ask` yet** (owner, at pickup). #226 points the old
-  invite link at it. Not chosen: a link from `/policy`; links from the album
-  list and the share page. *#223 kept it so (item 29): the share page links
-  `/sign-in`, not `/ask`. This bullet said "an account cannot send until
-  #223" until #223.*
+- **Nothing linked to `/ask` at first** (owner, at pickup), and #226 was to
+  point the old invite link at it. Not chosen: a link from `/policy`; links
+  from the album list and the share page. *#223 kept it so (item 29): the
+  share page linked `/sign-in`, not `/ask`. This bullet said "an account
+  cannot send until #223" until #223.* **Since #226 the share page links
+  it**, "No account yet? Ask for one" beside "Have an account? Sign in", as
+  plain links that #272 makes buttons (owner, 2026-10-08), and an old invite
+  link and `POST /api/join` point to it. `/policy` names the request page in
+  words, with no link, as chosen here.
 - **Turnstile's script loads on the form's first focus or touch** (owner, at
   the review). *Measured* through `tools/h2proxy.mjs` on a local serve,
   Lighthouse 13.4.1, mobile, three runs each, accessibility 100 in every one:
@@ -2449,7 +2559,7 @@ The rest are defaults, recorded on #221 at pickup or in its pull request:
 - **The token is 32 random bytes in the query string, and only its SHA-256
   is kept** (`password_links`). The page answers without JavaScript. The
   site's `Referrer-Policy: strict-origin-when-cross-origin` sends another
-  site the origin alone. Not chosen: the fragment, as the invite link uses
+  site the origin alone. Not chosen: the fragment, as the invite link used
   (item 11), which needs a script to read and an API to ask. A plain
   SHA-256 suffices for a 256-bit random value, where a password needs
   scrypt (item 23).
@@ -2624,8 +2734,8 @@ The rest are defaults, recorded on #222 at pickup:
 - **The session is its own cookie, `__Host-account`**:
   `a1.<account>.<version>.<issued>.<signature>`, HMAC-SHA256 with
   `SESSION_SIGNING_KEY`, 90 days, `Secure; HttpOnly; SameSite=Lax; Path=/`.
-  It is not a third shape of `__Host-upload`, so #223 reads it alongside the
-  invite link's and the coach's, and #226 retires those without touching it.
+  It is not a third shape of `__Host-upload`, so #223 read it alongside the
+  invite link's and the coach's, and #226 retired those without touching it.
   `requireAccount` (`functions/account/_middleware.js`, with the Origin
   check) reads the account on every request: gone, approved for no team, or
   on another version, and the page is sent to `/sign-in` with the dead cookie
@@ -2659,9 +2769,9 @@ The rest are defaults, recorded on #222 at pickup:
   form, POST sets the password) and `/account`. They take `/ask`'s form
   classes, so the only CSS change was the password field's edge. *Since
   #223 the share page links `/sign-in` and `/account` links the share page
-  (item 29); `/ask` stays unlinked until #226. This bullet said nothing
-  public linked `/sign-in` yet, and that #223 and #226 would decide, until
-  #223.*
+  (item 29); `/ask` stayed unlinked until #226, which links it from the
+  share page (item 25). This bullet said nothing public linked `/sign-in`
+  yet, and that #223 and #226 would decide, until #223.*
 
 **D1 rows written, measured** on `madcowphotos-preview` on 2026-10-06 (UTC)
 with `wrangler d1 execute --remote --json`, each statement the code runs
@@ -2754,9 +2864,10 @@ the rest were taken while building and are named as such.
 - **The share page groups its album choices under each team's name**
   (owner, at pickup): an `<optgroup>` per team, in the order the teams first
   appear in the newest-first list. `GET /api/albums/open` gives each album
-  `team` and `teamName`. The invite link and a coach's sign-in have no
-  team, so they are offered every open album; since #223 an account is
-  offered its approved teams' albums only (item 29). Not chosen: a team picker before
+  `team` and `teamName`. The invite link and a coach's sign-in had no
+  team, so until #226 they were offered every open album; since #223 an
+  account is offered its approved teams' albums only (item 29), and since
+  #226 every session is an account's. Not chosen: a team picker before
   the list, which #223 would mostly take away again; the API alone, which
   shows nothing about teams until #223.
 - **An album page's eyebrow leads to its team's section** ("COHSSA photos"),
@@ -2779,7 +2890,9 @@ the rest were taken while building and are named as such.
   on a filtered page posts to its route with the same `?team=`, so it lands
   back on that team, and anything else in `?team=` shows every team. The
   team travels in the address, never in a field, so a press that arrives as
-  a GET after the Access sign-in ran out keeps it too (`lib/teams.js`,
+  a GET keeps it too (when #227 shipped, that was the Access sign-in
+  running out mid-page; since #224 a lapsed press goes to the sign-in, and
+  a GET comes from the press's address opened as a page) (`lib/teams.js`,
   `teamOf`; the first build used a hidden field, and `review-fanout` found
   the GET dropped it). Each batch and each hidden photo names its team; the
   admin home's counts stay whole-site.
@@ -2843,16 +2956,21 @@ through the question tool:
   live account session sends as the account, to its approved teams only,
   whatever invite or coach cookie it also holds; one whose account session
   no longer holds (signed out, a new password, no approved team, gone)
-  sends with the upload cookie as before, until #226. A database that does
+  sent with the upload cookie as before, until #226. A database that does
   not answer while the account is read is 503, closed, even beside a live
   upload cookie. The accepted cost: someone signed in for one team who also
   opened the other team's invite link cannot send to the other while signed
   in. Not chosen: the upload cookie first, which leaves gaps in D17's
-  record of who sent each photo.
+  record of who sent each photo. *Since #226 `requireUploadSession` takes an
+  account's session alone: with no live one it answers `401
+  {"error":"not-joined"}`, and an upload cookie that reaches it is deleted
+  (item 11).*
 - **The share page links `/sign-in` and `/account` links the share page.**
-  "Have an account? Sign in" sits beside the coach line, and `/account`'s
-  "isn't open yet" became a Send photos button. `/ask` stays unlinked until
-  #226 (item 25). Not chosen: `/account` only; linking `/ask` too.
+  "Have an account? Sign in" sat beside the coach line, and `/account`'s
+  "isn't open yet" became a Send photos button. `/ask` stayed unlinked until
+  #226 (item 25). Not chosen: `/account` only; linking `/ask` too. *Since
+  #226 the coach line is gone, and "No account yet? Ask for one" sits beside
+  the sign-in link (item 25).*
 
 The rest are defaults, recorded on #223 at pickup or taken while building:
 
@@ -2869,16 +2987,17 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   signing in again opens no new 500 (criterion 5). Since #198 its phones
   share the day's clip budget the same way (item 33).
 - **A clip's length goes by role** (criterion 4, D11): `clipSeconds(session)`
-  in `lib/photos.js` gives 15 minutes (`CLIP_SECONDS.coach`) to a coach's
-  Access session or an account approved as a coach, and 3 to everyone else.
+  in `lib/photos.js` gives 15 minutes (`CLIP_SECONDS.coach`) to an account
+  approved as a coach (`sendsAsCoach`; a coach's Access session too, until
+  #226), and 3 to everyone else.
   The guard reads the role on every request, so a role changed at approval
   applies from the next upload. #198 reads it at a clip's start and again at
   its complete, beside `clipBytes(session)`'s 1 GiB and 4 GiB, and
   `clipDayBytes(session)`'s 10 GiB and 40 GiB at the start (item 33).
 - **The queue and removals pages name the account** ("sent by <name>",
-  escaped), by a LEFT JOIN on `accounts`. A coach's Access sign-in still
-  says only "sent by a coach" on the queue, and the invite link and a
-  deleted account say nothing. `test/account-upload.test.js` scans every
+  escaped), by a LEFT JOIN on `accounts`. A photo sent through a coach's
+  Access sign-in before #226 says only "sent by a coach" on the queue, and
+  the invite link and a deleted account say nothing. `test/account-upload.test.js` scans every
   public route's GET and HEAD, `/remove` and `/api/remove`, headers and
   bytes, for a planted name and address, and the admin queue is its
   control.
@@ -2886,7 +3005,9 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   say which kind of session ended: "Sign in, or open the invite link you
   were sent", "Your sign-in or invite has ended", and the cap's "This
   phone, or your account". `GET /api/upload/session` still answers a bare
-  204.
+  204. *Until #226; since then they name the account alone ("Your sign-in
+  has ended", and the cap's "Your account has sent today's limit"), and an
+  old invite link is told it was replaced (item 11).*
 - **What a deleted account leaves** (`/policy`, Having an account deleted):
   its photos stay with `account_id` NULL and the sender still saying
   whether a coach's account sent them, and the day's count under
@@ -2896,7 +3017,8 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   guard now reads it, and the import back made a cycle in which
   `ACCOUNT_SESSION_DAYS = SESSION_DAYS` would meet an unset constant
   whenever `session.js` loaded first. It states 90 itself, and
-  `test/policy.test.js` still holds the two equal.
+  `test/policy.test.js` held the two equal until #226 deleted
+  `SESSION_DAYS`, which left 90 stated there alone.
 
 ### 30. Admins: the emailed code, the 12-hour session, the owner
 
@@ -2941,7 +3063,9 @@ decisions at pickup, through the question tool:
   second address on `ADMIN_EMAILS` cannot open `/admin` from the release
   that carries #224 until it has an account and an admin makes it one. Not
   chosen: either lock opening `/admin` alone while Access stood; both
-  required.
+  required. *Closed by #226's criterion 2, which gives every address on
+  `ADMIN_EMAILS` an account with its role before the secret is deleted
+  (README.md, The cutover (#226)).*
 
 The rest are defaults, taken while building and recorded on #224's pull
 request:
@@ -3006,8 +3130,8 @@ request:
   detail.
 - **The admins' email about new requests goes to the admin accounts**
   (`adminAddresses` in `lib/accounts.js`), the owner's included, where it
-  went to `ADMIN_EMAILS` (item 25). So nothing reads `ADMIN_EMAILS` now, and
-  #226 deletes it. `ACCESS_AUD` stayed in `wrangler.jsonc`, read by nothing,
+  went to `ADMIN_EMAILS` (item 25). So nothing read `ADMIN_EMAILS` after
+  #224, and #226 deletes it once its release is live (README.md, The cutover (#226)). `ACCESS_AUD` stayed in `wrangler.jsonc`, read by nothing,
   as the record of the Access application's tag, until #268 deleted the
   application and the var; README's Access section keeps the tag.
 - **The admin home says who is signed in, as the owner or an admin, until
@@ -3019,19 +3143,55 @@ request:
   requests, in that order (`TODO` in `lib/admin-page.js`), each a
   full-width button 48 px tall to its page with its count first. A zero is
   shown too, in the quiet button, saying "Nothing to do.". Then the links:
-  Invite code, Albums, People and Email, and the storage figure as a line
-  of text. The owner's choices at pickup: keep the Invite code link, which
-  the criterion's list left out, until #226 retires the invite link; and
-  storage stays text, since there is no page for it to link to. The counts
+  Albums, People and Email, and the storage figure as a line of text. The
+  owner's choices at pickup: keep the Invite code link, which the
+  criterion's list left out, until #226 retired the invite link (it went
+  then, with `/admin/code`); and storage stays text, since there is no page
+  for it to link to. The counts
   are unchanged: `queueSummary` and `waitingRequests`, whole-site, photos
   only. Since #198 `queueSummary` also counts the waiting clips, and the
   queue's button names both kinds: "3 photos and 1 clip waiting for
   approval", "1 clip waiting for approval" with no photo, and today's words
   with no clip (owner, item 33).
+- **Since #271 people, albums and removals work on a phone** (epic #267).
+  Every button on the three pages is at least 48 px square (`--space-6`) at
+  every width, as the queue's are (#270); `/admin/mail`'s one button shares
+  `.album-form`, so it grew too. **The team filter's links count as buttons**
+  (the owner's reading of "link used as a button"; not chosen: on removals
+  only, or links left at their 18 px), so each is a 48 px target, on the
+  queue as well as removals, which share the rule. The two disclosures,
+  "Edit" and "Revoke, hide their photos or delete", are padded past 44 px
+  rather than made flex rows, which would delete their marker. Up to 30rem
+  wide every field runs
+  the full width, the date and the role select as well as the text fields,
+  and each team, kind and tick box is a 48 px row of its own (owner, at
+  pickup; not chosen: side by side at 44 px tall, or left at their 25 px).
+  **"Delete permanently" sits alone on the row below a full-width "Put it
+  back", at its end**, as Reject does on the queue, and its dialog stays the
+  confirm (owner, at pickup; not chosen: one row with the two at its ends,
+  or only 48 px tall). Revoke, hide and delete keep their disclosure, which
+  stands a step further from the everyday buttons on a phone, over a rule.
+  An album's Delete is only made 48 px: it has no confirm step, and the
+  database refuses it for an album holding photos (owner; not chosen:
+  setting it apart too, or filing a confirm step). The queue's Move fields
+  (`.move`) stay as #270 shipped them. Before #271, at 320 px,
+  `/admin/albums` was 383 px wide from an album's title, `/admin/removals`
+  657 from a caption, and a notice naming a long name or title 341 to 380;
+  each wraps now. So does the queue's batch heading, each card's album and
+  sender, and a Move's notice, which made `/admin/queue` 545 px wide at
+  every phone width (found by #271's reading and folded in at its gate, the
+  owner's choice over filing it; #270's reading seeded no long title). The
+  320 px reading is a browser's, in #271's PR, and
+  `test/admin-phone.test.js` holds the rules it rests on (owner, at pickup;
+  not chosen: a browser in CI, which would be the gate's fourth kind of
+  step).
 - **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
-  so `scripts/access-dev.mjs` signs an admin session for the local account
-  `ADMIN_DEV_ACCOUNT` names, with the local key, on every request it
-  forwards; the guard runs unchanged. README.md, Running it locally.
+  so `scripts/sign-in-dev.mjs` (`access-dev.mjs` until #226) signs an admin
+  session for the local account `ADMIN_DEV_ACCOUNT` names, with the local
+  key, on every request it forwards; the guard runs unchanged. Since #226 it
+  also signs that account's `__Host-account` session on every path outside
+  the admin pages, so the local share page sends as it, which the invite
+  link did until then. README.md, Running it locally.
 
 **#224's review, 2026-10-06.** `review-fanout` confirmed 11 findings, and the
 owner chose to fix all 11. The owner's choices on the three it escalated,
@@ -3180,9 +3340,10 @@ The rest are defaults, recorded on #225 at pickup or taken while building:
   `COLLATE NOCASE` folds A to Z only, where `emailHash` lowercases every
   letter. An address whose account still exists answers that it does, since
   re-approving is the way back there.
-- **Until #226, a revoked person who also holds an invite cookie can still
-  send through the invite link**: an upload falls back to that cookie when
-  the account's session no longer holds (item 29's stated cost).
+- **Until #226, a revoked person who also held an invite cookie could still
+  send through the invite link**: an upload fell back to that cookie when
+  the account's session no longer held (item 29's stated cost). #226 ended
+  it: an upload takes an account's session alone.
 - **0014 reaches production before the release that carries #225.** From
   this story `/ask`'s account insert reads `revoked_addresses`, so a release
   ahead of 0014 would answer every request with a 503, the class item 30's
@@ -3216,8 +3377,9 @@ owner's:
   `/admin/people` to a name that starts with its visible text.
 - Among the fixes: **the Revoked section no longer says revoked people
   "cannot sign in or send"**. Until #226 the invite link (held, or joined
-  again) and a coach's sign-in still send, and the page and README say so
-  with the way to end it (rotate the code; take them off `COACH_EMAILS`). The
+  again) and a coach's sign-in still sent, and the page and README said so
+  with the way to end it (rotate the code; take them off `COACH_EMAILS`);
+  #226 removed that sentence from both. The
   `has-account` notice points at the person's own form, since a partly
   revoked person is not under Revoked. The queue's caption notice says
   "approved or hidden", since Hide all is the first way a waiting photo leaves
@@ -3474,7 +3636,7 @@ through the question tool:
   #288** (owner, the recommendation), found while building 0016 (below).
   Not chosen: folding both fixes into 0016 before it is applied anywhere,
   which widens #198; recording it as a stated limit with no fix.
-- **A day's clips have a size budget: 10 GiB a session, 40 GiB a coach's**
+- **A day's clips have a size budget: 10 GiB an account, 40 GiB a coach's**
   (owner, at #198's review, the recommendation), after the security audit's
   SA-1. The 500 alone bounded a day of photos at about 2.2 GB but let a day
   of clips reach 500 GiB, or 2 TB from a coach, billed until an admin
@@ -3486,11 +3648,13 @@ through the question tool:
   that is given back. The complete refuses a stored clip of any size but the
   one the start spent, so the budget counts what is stored. Ten parents' 1
   GiB clips, or ten of a coach's, fit a day. `/policy` says so in Clips, and
-  in what the site keeps. Like the 500 (item 14), it bounds a session, not a
-  leaked code: whoever holds the code can join again for a new session and
-  a new day's budget, and rotating the code stops that (item 11). Not
-  chosen: leaving the count as the only bound, which a misused invite link
-  turns into storage billing; a story after #198.
+  in what the site keeps. Like the 500 (item 14), it is the account's,
+  shared by every phone signed in to it. It was decided while an invite-link
+  session still had a budget of its own, which whoever held the code could
+  renew by joining again; #226 retired the link before #198 merged, so a new
+  budget now takes a new account an admin approves. Not chosen: leaving the
+  count as the only bound, which a misused invite link would have turned
+  into storage billing; a story after #198.
 - **A complete that got no answer is asked about, never abandoned** (owner,
   at #198's review, fixing all 11 of its findings). Any one of a
   complete's tries may have stored the clip, and the review measured the
@@ -3499,7 +3663,7 @@ through the question tool:
   first**: 201 is Sent, a complete that never arrived is joined from the
   parts already in the bucket with none sent again, and a 404 starts
   afresh in the same press. **Remove asks through the abandon**, which
-  answers 409 `stored` for a clip this session already stored; the page then
+  answers 409 `stored` for a clip this account already stored; the page then
   shows "Sent. It reached the photo site before you pressed Remove." Remove
   never sends the complete: the owner first chose to re-send it, and amended
   that at a second question once it was seen to store a clip whose complete
@@ -3507,20 +3671,21 @@ through the question tool:
   session withdrawing its own stored clip through the abandon, which widens
   that route into a way to delete one; Remove taking the item as before,
   which leaves a stored clip waiting that the sender removed.
-- **The gap a rejoin leaves is a stated limit** (owner, the recommendation).
-  The clip token is signed over `sessionKey`, which holds a parent's or a
-  coach's join time, so after a lost complete and then a rejoin before the
-  press, the server reads the old token as another session's and answers
-  404: Try again stores the clip a second time, and Remove takes off an item
-  whose clip is stored. Measured on the share page's harness. An account's
-  key has no join time, so an account is not affected. The second copy
-  waits for approval, where an admin rejects it. Not chosen: keeping the
-  complete across a 401, which still meets the 404 after a rejoin; the page
-  counting its own joins, which covers one tab only; a token that survives
-  a rejoin, which reopens the token decision below. **A clip an admin
-  rejects before Try again is the same limit** (owner, the recommendation,
-  from the fix's verifier): the reject deletes the row, the complete sent
-  again answers 404, and the page sends the clip afresh, so it waits again.
+- **The gap a rejoin left was accepted as a limit, and #226 closed it**
+  (owner, the recommendation, before develop's cutover was merged in). The
+  clip token is signed over `sessionKey`, which held a parent's or a coach's
+  join time, so after a lost complete and then a rejoin before the press,
+  the server read the old token as another session's and answered 404: Try
+  again stored the clip a second time, and Remove took off an item whose
+  clip was stored. Measured on the share page's harness. Since #226 every
+  session is an account's, whose key has no join time, so signing in again
+  keeps the token good. Not chosen: keeping the complete across a 401,
+  which still met the 404 after a rejoin; the page counting its own joins,
+  which covered one tab only; a token that survives a rejoin, which reopens
+  the token decision below. **A clip an admin rejects before Try again is
+  still a limit** (owner, the recommendation, from the fix's verifier): the
+  reject deletes the row, the complete sent again answers 404, and the page
+  sends the clip afresh, so it waits again.
   Not chosen: remembering rejects on the server, which needs a migration
   and reverses item 16's row-first delete; failing on that 404 instead of
   starting afresh, which the next press repeats.
@@ -3547,11 +3712,13 @@ The rest were taken while building:
   `clip1.<id>.<bytes>.<sig>`: an HMAC with the session key over the id, the
   declared size and `sessionKey(session)`, answered at the start and sent
   back in a `Clip-Upload` header on every part, complete and abort, and
-  checked in constant time. Another phone, session or size reads as an
-  unknown upload (404). Its prefix is `clip1.`, not `c1.`, which a coach's
-  cookie uses. Not chosen: matching the row's sender columns, which lets any
-  coach carry on any coach's upload; a column holding a hash of the session,
-  which keeps coach-identifying data on the row (#192).
+  checked in constant time. Another account or size reads as an unknown
+  upload (404); since #226 every session is an account's, so another phone
+  signed in to the same account carries on. Its prefix is `clip1.`, not
+  `c1.`, which a coach's cookie used until #226. Not chosen: matching the
+  row's sender columns, which let any coach carry on any coach's upload; a
+  column holding a hash of the session, which kept coach-identifying data on
+  the row (#192).
 - **No new column and no new index: 0016 is ten triggers.** The declared
   size travels in the token, as 0005 chose not to store page-declared values
   while a clip uploads. The triggers hold a clip's type to the two the check

@@ -8,7 +8,7 @@
     "test": "node --import ./photos/test/text-modules.js --test \"photos/test/*.test.js\""
   },
   "devDependencies": {
-    "html-validate": "10.17.0",
-    "wrangler": "4.141.0"
+    "html-validate": "11.16.1",
+    "wrangler": "4.149.0"
   }
 }

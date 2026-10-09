@@ -32,10 +32,10 @@ import {
 import {
   ADMIN_COOKIE, ADMIN_SESSION_HOURS, ADMIN_SESSION_SECONDS, ADMIN_SIGN_IN, readAdminSession, signAdminSession,
 } from '../lib/admin-session.js';
-import { PRODUCTION_SITE } from '../lib/invite.js';
 import { RESEND_URL } from '../lib/mail.js';
 import { makeLink, tokenHash } from '../lib/password-link.js';
 import { nowSeconds } from '../lib/session.js';
+import { PRODUCTION_SITE } from '../lib/site.js';
 import { emailHash, hashing, setPassword, signOut } from '../lib/sign-in.js';
 import { demoteAdmin } from '../lib/people.js';
 import { accountPage } from '../lib/sign-in-page.js';

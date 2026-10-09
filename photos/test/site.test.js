@@ -92,6 +92,29 @@ test('every Function route is one _routes.json invokes', () => {
   }
 });
 
+test('every _routes.json pattern has a Function behind it (#226)', () => {
+  // The other direction. A pattern no Function answers spends a Function
+  // request on every visit and serves the static 404 anyway, and nothing
+  // checked this way round until #226 deleted /coach's Function and took
+  // "/coach" and "/coach/*" out of the list by hand. An exact pattern needs a
+  // route file at that path (a trailing slash is its index's); a /* pattern,
+  // a route file or a directory's _middleware.js under it. The root
+  // _middleware.js runs for every path, so it backs nothing on its own.
+  const files = walk(join(ROOT, 'functions'));
+  const handlers = files.filter((f) => !/(^|\/)_middleware\.js$/.test(f)).map(routePath);
+  const guarded = files.filter((f) => /\/_middleware\.js$/.test(f)).map((f) => `/${f.replace(/_middleware\.js$/, '')}`);
+  const backed = (pattern) => (pattern.endsWith('/*')
+    ? [...handlers, ...guarded].some((path) => path.startsWith(pattern.slice(0, -1)))
+    : handlers.includes(pattern.replace(/(.)\/$/, '$1')));
+  for (const pattern of routes.include) assert.ok(backed(pattern), `_routes.json invokes ${pattern}, which no Function answers`);
+  // The controls: the coaches' sign-in, whose Function #226 deleted, is
+  // caught both ways it was listed; a directory guarded by its middleware
+  // alone passes.
+  assert.equal(backed('/coach'), false);
+  assert.equal(backed('/coach/*'), false);
+  assert.equal(backed('/account/*'), true);
+});
+
 test('no static file sits where a Function answers, and static files cost no Function request', () => {
   // Item 4: nothing under /api (or later /admin) exists as a static file, so
   // failing closed cannot fall back to one. And item 2: static files stay
@@ -168,15 +191,18 @@ test('every database_id is a real one, written out', () => {
   }
 });
 
-test('the config carries no secret: vars hold SITE_ENV, the coach guard\'s two Access settings and Turnstile\'s site key, nothing else', () => {
+test('the config carries no secret: vars hold SITE_ENV and Turnstile\'s site key, nothing else', () => {
   // Secrets are Pages secrets, set in the dashboard and named in README.md.
-  // The admin and coach allow-lists are two of them (#151, owner's choice
-  // 2026-09-28; #192), so no address is in this public repo. Turnstile's site
-  // key is public, on every /ask page; its secret is TURNSTILE_SECRET_KEY
-  // (#220). ACCESS_AUD, the admin application's tag, went with that
-  // application (#268): nothing had read it since #224.
+  // The admin and coach allow-lists were two of them (#151, owner's choice
+  // 2026-09-28; #192), so no address was ever in this public repo, until
+  // accounts replaced both (#224, #226); neither may come back as a var.
+  // Turnstile's site key is public, on every /ask page; its secret is
+  // TURNSTILE_SECRET_KEY (#220). ACCESS_AUD, the admin application's tag, went
+  // with that application (#268): nothing had read it since #224. The coach
+  // guard's two, ACCESS_TEAM_DOMAIN and ACCESS_COACH_AUD, went with the coach
+  // application at #226, so no var configures Cloudflare Access now.
   for (const env of [config, config.env.preview, config.env.production]) {
-    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'ACCESS_TEAM_DOMAIN', 'ACCESS_COACH_AUD', 'TURNSTILE_SITE_KEY']);
+    assert.deepEqual(Object.keys(env.vars), ['SITE_ENV', 'TURNSTILE_SITE_KEY']);
     assert.ok(!('ADMIN_EMAILS' in env.vars));
     assert.ok(!('COACH_EMAILS' in env.vars));
     assert.ok(!('TURNSTILE_SECRET_KEY' in env.vars));
@@ -194,27 +220,6 @@ test('one Turnstile widget serves both environments, and it is a real one, not o
   const real = /^0x4[A-Za-z0-9_-]{18,}$/;
   assert.match(keys[0], real);
   assert.doesNotMatch('1x00000000000000000000AA', real);
-});
-
-test('the coach guard trusts the madcowsailing team', () => {
-  // #151, then #192. The issuer and the key URL both come from
-  // ACCESS_TEAM_DOMAIN, which renaming the Zero Trust team would change.
-  for (const env of [config, config.env.preview, config.env.production]) {
-    assert.equal(env.vars.ACCESS_TEAM_DOMAIN, 'https://madcowsailing.cloudflareaccess.com');
-  }
-});
-
-test('the coach guard has its own application in production, and the preview application on a preview', () => {
-  // #192. In production /coach sits behind the coach application. A preview
-  // deployment signs every path for the Pages preview application, so a
-  // preview's coach tag is that application's, and the two environments'
-  // tags differ; a tag Access issues is 64 hex characters. The admin
-  // application whose tag the production one once had to differ from was
-  // deleted by #268.
-  const { preview, production } = config.env;
-  for (const env of [preview, production]) assert.match(env.vars.ACCESS_COACH_AUD, /^[0-9a-f]{64}$/);
-  assert.notEqual(preview.vars.ACCESS_COACH_AUD, production.vars.ACCESS_COACH_AUD);
-  assert.equal(config.vars.ACCESS_COACH_AUD, preview.vars.ACCESS_COACH_AUD);
 });
 
 test('migrations are numbered NNNN_name.sql, in order, once each', () => {

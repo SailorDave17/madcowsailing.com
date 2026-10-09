@@ -63,7 +63,11 @@ test('a new worker takes over at once: install skips waiting, and activate claim
 // clip is played with a Range header. #198's clip routes are the real ones:
 // the share page's four, sending a clip in parts with its upload token, and
 // the admin queue's player. A public clip's address is #286's and not built
-// yet, so the shapes it could take are here too.
+// yet, so the shapes it could take are here too. Since #226 retired the
+// invite link and the coaches' sign-in, POST /api/join only says the link
+// was replaced, and /admin/code and /coach are gone; they stay here because
+// a tab left open across the release, or an old bookmark, can still send
+// them. /sign-in and /ask are the share page's links.
 const RANGE = { Range: 'bytes=0-1048575' };
 const TOKEN = { 'Clip-Upload': `clip1.12.4096.${'A'.repeat(43)}` };
 const PASSES = [
@@ -77,6 +81,7 @@ const PASSES = [
   ['GET', '/admin'], ['GET', '/admin/'], ['GET', '/admin/queue'], ['GET', '/admin/removals'], ['POST', '/admin/code'],
   ['GET', '/share/'], ['GET', '/share/sw.js'], ['GET', '/js/share.js?v=0123456789'], ['GET', '/css/site.css'],
   ['GET', '/manifest.webmanifest'], ['GET', '/icons/maskable-512.png'], ['GET', '/policy'], ['GET', '/coach'], ['POST', '/remove'],
+  ['GET', '/sign-in'], ['GET', '/ask'],
   // The share target's own address, by any other method, or on another site.
   ['GET', '/share/receive'], ['HEAD', '/share/receive'], ['PUT', '/share/receive'],
   ['POST', 'https://madcowsailing.com/share/receive'], ['POST', 'https://evil.example/share/receive'],

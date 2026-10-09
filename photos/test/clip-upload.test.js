@@ -29,11 +29,10 @@ import {
   CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS, DAILY_UPLOADS, clipObjectKey, refundDailyUpload, sessionKey, spendDailyClip,
   spendDailyUpload,
 } from '../lib/photos.js';
-import { COOKIE_NAME, coachTag, nowSeconds, signCoachSession, signSession } from '../lib/session.js';
+import { nowSeconds } from '../lib/session.js';
 import { PART_BYTES, partCount, partPieces, planClip } from '../public/js/clip.js';
-import { COACH, accessEnv } from './access.js';
 import { adminData } from './admin.js';
-import { d1, seedCodes } from './d1.js';
+import { d1 } from './d1.js';
 import { RECORDED, androidMp4, ftyp, goproMp4, iphoneMov, mvhd, plainClip } from './mp4.js';
 import { r2 } from './r2.js';
 
@@ -44,26 +43,29 @@ const FALL = { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date:
 const COHSSA = { team: 'cohssa', title: 'COHSSA Fall Champs', kind: 'regatta', date: '2026-10-05' };
 
 /**
- * A site with generation 2 current, an open album for each team, and two
- * accounts: a parent approved for Hoover JRT, a coach approved for COHSSA.
+ * A site with an open album for each team, and three accounts at session
+ * version 1: 1, Pat, a parent approved for Hoover JRT; 2, Casey, a coach
+ * approved for COHSSA; and 3, Cody, a coach approved for Hoover JRT.
  */
 async function site(bucket = r2()) {
-  const env = { DB: d1(), MEDIA: bucket, SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY, ...accessEnv() };
-  seedCodes(env.DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB');
+  const env = { DB: d1(), MEDIA: bucket, SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY };
   const now = nowSeconds();
   const address = await createAlbum(env.DB, FALL, now);
   const cohssa = await createAlbum(env.DB, COHSSA, now);
   const add = env.DB.sqlite.prepare('INSERT INTO accounts (email, name, role, requested_at) VALUES (?, ?, ?, 1)');
   add.run('parent@example.org', 'Pat Parent', 'parent');
   add.run('coach.account@example.org', 'Casey Coach', 'coach');
-  env.DB.sqlite.exec("INSERT INTO account_teams (account_id, team, state) VALUES (1, 'hoover-jrt', 'approved'), (2, 'cohssa', 'approved');");
+  add.run('hoover.coach@example.org', 'Cody Coach', 'coach');
+  env.DB.sqlite.exec("INSERT INTO account_teams (account_id, team, state) VALUES (1, 'hoover-jrt', 'approved'), (2, 'cohssa', 'approved'), (3, 'hoover-jrt', 'approved');");
   return { env, address, cohssa, now };
 }
 
-// The cookies each way in sends, and the session each makes on the guard.
-const parent = async (issued = nowSeconds()) => ({ Cookie: `${COOKIE_NAME}=${await signSession(KEY, 2, issued)}` });
-const coach = async (issued = nowSeconds()) => ({ Cookie: `${COOKIE_NAME}=${await signCoachSession(KEY, await coachTag(KEY, COACH), issued)}` });
-const account = async (accountId) => ({ Cookie: `${ACCOUNT_COOKIE}=${await signAccountSession(KEY, { accountId, version: 1 }, nowSeconds())}` });
+// The cookie a phone signed in to an account sends, its session opened at
+// `issued` (lib/account-session.js); since #226 the only way in. parent() is
+// Pat's, the one most tests send as, and coach() is Cody's.
+const account = async (accountId, issued = nowSeconds()) => ({ Cookie: `${ACCOUNT_COOKIE}=${await signAccountSession(KEY, { accountId, version: 1 }, issued)}` });
+const parent = (issued) => account(1, issued);
+const coach = (issued) => account(3, issued);
 
 /** Run `handlers` in order, as Pages does, with one context.data and the route's params. */
 function chain(handlers, request, env, params = {}) {
@@ -166,12 +168,11 @@ test('a clip starts: 201 with its id, a token and its part count, one uploading 
 test('each sender\'s caps: a parent\'s clip over 1 GiB or 3 minutes, a coach\'s over 4 GiB or 15, is refused before anything is stored or spent', async () => {
   const cases = [
     ['parent', parent, CLIP_BYTES.everyone, CLIP_SECONDS.everyone],
-    ['coach (Access)', coach, CLIP_BYTES.coach, CLIP_SECONDS.coach],
-    ['coach (account)', () => account(2), CLIP_BYTES.coach, CLIP_SECONDS.coach],
+    ['coach', () => account(2), CLIP_BYTES.coach, CLIP_SECONDS.coach],
   ];
   for (const [who, cookies, bytes, seconds] of cases) {
     const { env, address, cohssa } = await site();
-    const album = who === 'coach (account)' ? cohssa : address;
+    const album = who === 'coach' ? cohssa : address;
     const over = [
       [{ bytes: bytes + 1 }, 413, 'too-large'],
       [{ durationMs: seconds * 1000 + 1 }, 413, 'too-long'],
@@ -198,9 +199,7 @@ test('the open list gives each sender its own caps, so the page can refuse a cli
   };
   const everyone = { seconds: CLIP_SECONDS.everyone, bytes: CLIP_BYTES.everyone, dayBytes: CLIP_DAY_BYTES.everyone };
   const coaches = { seconds: CLIP_SECONDS.coach, bytes: CLIP_BYTES.coach, dayBytes: CLIP_DAY_BYTES.coach };
-  assert.deepEqual(await caps(await parent()), everyone);
   assert.deepEqual(await caps(await account(1)), everyone);
-  assert.deepEqual(await caps(await coach()), coaches);
   assert.deepEqual(await caps(await account(2)), coaches);
 });
 
@@ -243,10 +242,9 @@ test('a start into an album that is not open is 409, another team\'s from an acc
   assert.equal(sentToday(env), 0, 'a refused start spent the day');
   await setAlbumOpen(env.DB, address, true, now);
   const day = Math.floor(nowSeconds() / 86400);
-  const issued = nowSeconds();
   env.DB.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, ?)')
-    .run(sessionKey({ sender: 'parent', generation: 2, issued }), day, DAILY_UPLOADS);
-  res = await start(env, await parent(issued), { album: address });
+    .run(sessionKey({ accountId: 1 }), day, DAILY_UPLOADS);
+  res = await start(env, await parent(), { album: address });
   assert.equal(res.status, 429);
   assert.deepEqual(await res.json(), { error: 'daily-cap' });
   assert.ok(Number(res.headers.get('Retry-After')) > 0);
@@ -311,19 +309,16 @@ function spentToday(env, session, sent, bytes) {
     .run(sessionKey(session), today(), sent, bytes);
 }
 
-test('a session\'s clips may total 10 GiB a day, a coach\'s 40 GiB: a clip filling the budget exactly starts, the next is 429 clip-bytes storing and spending nothing, and a photo still goes (#198, SA-1)', async () => {
-  const issued = nowSeconds();
+test('an account\'s clips may total 10 GiB a day, a coach\'s 40 GiB: a clip filling the budget exactly starts, the next is 429 clip-bytes storing and spending nothing, and a photo still goes (#198, SA-1)', async () => {
   const cases = [
-    ['parent', () => parent(issued), { sender: 'parent', generation: 2, issued }, CLIP_DAY_BYTES.everyone, CLIP_BYTES.everyone],
-    ['parent (account)', () => account(1), { sender: 'account', accountId: 1 }, CLIP_DAY_BYTES.everyone, CLIP_BYTES.everyone],
-    ['coach (Access)', () => coach(issued), { sender: 'coach', coach: await coachTag(KEY, COACH), issued }, CLIP_DAY_BYTES.coach, CLIP_BYTES.coach],
-    ['coach (account)', () => account(2), { sender: 'account', accountId: 2 }, CLIP_DAY_BYTES.coach, CLIP_BYTES.coach],
+    ['parent', () => account(1), { sender: 'account', accountId: 1 }, CLIP_DAY_BYTES.everyone, CLIP_BYTES.everyone],
+    ['coach', () => account(2), { sender: 'account', accountId: 2 }, CLIP_DAY_BYTES.coach, CLIP_BYTES.coach],
   ];
   // A day's budget always holds the largest clip, so a day's first clip fits.
   for (const who of ['everyone', 'coach']) assert.ok(CLIP_BYTES[who] <= CLIP_DAY_BYTES[who], who);
   for (const [who, cookies, session, budget, largest] of cases) {
     const { env, address, cohssa } = await site();
-    const album = who === 'coach (account)' ? cohssa : address;
+    const album = who === 'coach' ? cohssa : address;
     spentToday(env, session, 3, budget - largest);
     let res = await start(env, await cookies(), { album, bytes: largest });
     assert.equal(res.status, 201, `${who}: the clip that fills the budget`);
@@ -341,8 +336,7 @@ test('a session\'s clips may total 10 GiB a day, a coach\'s 40 GiB: a clip filli
 });
 
 test('a start past the 500 says daily-cap whatever its bytes, since photos stop too; past the bytes alone, clip-bytes (#198, SA-1)', async () => {
-  const issued = nowSeconds();
-  const session = { sender: 'parent', generation: 2, issued };
+  const session = { sender: 'account', accountId: 1 };
   for (const [sent, bytes, error] of [
     [DAILY_UPLOADS, CLIP_DAY_BYTES.everyone, 'daily-cap'],
     [DAILY_UPLOADS, 0, 'daily-cap'],
@@ -350,7 +344,7 @@ test('a start past the 500 says daily-cap whatever its bytes, since photos stop 
   ]) {
     const { env, address } = await site();
     spentToday(env, session, sent, bytes);
-    const res = await start(env, await parent(issued), { album: address });
+    const res = await start(env, await parent(), { album: address });
     assert.equal(res.status, 429, `${sent} sent, ${bytes} bytes`);
     assert.deepEqual(await res.json(), { error }, `${sent} sent, ${bytes} bytes`);
     assert.deepEqual(rows(env), []);
@@ -361,7 +355,7 @@ test('the 500 and the bytes are spent in one statement: two clips together canno
   const { env } = await site();
   const db = env.DB;
   const now = nowSeconds();
-  const session = { sender: 'parent', generation: 2, issued: now };
+  const session = { sender: 'account', accountId: 1, role: 'parent' };
   const key = sessionKey(session);
   // An earlier day's row, which the day's first spend clears, as a photo's does.
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent, clip_bytes) VALUES (?, ?, ?, ?)').run('9.1', today() - 1, 3, 77);
@@ -413,7 +407,7 @@ test('0017 adds one column to upload_counts and nothing else: every count before
   sqlite.exec(`UPDATE upload_counts SET clip_bytes = ${CLIP_DAY_BYTES.coach}`);
 });
 
-// ---- Criterion 2: parts, each the right size, only from the session that started it ----
+// ---- Criterion 2: parts, each the right size, only from the account that started it ----
 
 async function started(env, address, cookies, bytes) {
   const res = await start(env, cookies, { album: address, bytes });
@@ -447,14 +441,15 @@ test('each part must be exactly its size, checked from Content-Length before any
   assert.deepEqual([...[...env.MEDIA.uploads.values()][0].parts.keys()].sort(), [1, 2]);
 });
 
-test('a part needs the token its start gave this session: none, another id\'s, another session\'s or a tampered one is 404, and stores nothing', async () => {
+test('a part needs the token its start gave this account: none, another id\'s, another account\'s or a tampered one is 404 and stores nothing, and another phone signed in to the account carries on', async () => {
   const { env, address } = await site();
   const cookies = await parent();
   const { id, token } = await started(env, address, cookies, 4096);
   const other = await started(env, address, cookies, 4096);
   const signature = token.split('.').pop();
   const tampered = token.replace(signature, (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1));
-  const coachToken = await clipToken(KEY, id, 4096, { sender: 'coach', coach: await coachTag(KEY, COACH), issued: 1 });
+  // The token this upload's start would have given the coach's account.
+  const coachToken = await clipToken(KEY, id, 4096, { sender: 'account', accountId: 3 });
   // The size is signed with the rest: a page that edits it holds no token. Were
   // it read, this part would meet the size check instead and answer 400.
   const resized = token.replace(`.${id}.4096.`, `.${id}.8192.`);
@@ -463,9 +458,9 @@ test('a part needs the token its start gave this session: none, another id\'s, a
     [cookies, undefined, 'no token'],
     [cookies, other.token, 'another upload\'s token'],
     [cookies, tampered, 'a tampered token'],
-    [cookies, coachToken, 'a token for another session'],
+    [cookies, coachToken, 'a token for another account'],
     [cookies, resized, 'a token whose size was edited'],
-    [await parent(nowSeconds() - 60), token, 'the token from another phone\'s session'],
+    [await coach(), token, 'the token from another account\'s phone'],
   ];
   for (const [held, presented, label] of cases) {
     const res = await part(env, held, id, 1, new Uint8Array(4096), { token: presented });
@@ -475,12 +470,18 @@ test('a part needs the token its start gave this session: none, another id\'s, a
   const upload = env.MEDIA.uploads.get(rows(env)[0].upload_id);
   assert.equal(upload.parts.size, 0);
   // The control: the right token with the session that started it.
-  const res = await part(env, cookies, id, 1, new Uint8Array(4096), { token });
+  let res = await part(env, cookies, id, 1, new Uint8Array(4096), { token });
   assert.equal(res.status, 200);
   assert.equal(upload.parts.size, 1);
+  // Another phone signed in to the same account, its session opened a minute
+  // apart, carries on with the token: the token names the account, never when
+  // a phone signed in (sessionKey). Its part takes the first one's place.
+  res = await part(env, await parent(nowSeconds() - 60), id, 1, new Uint8Array(4096), { token });
+  assert.equal(res.status, 200, 'another phone signed in to the account');
+  assert.equal(upload.parts.get(1).etag, (await res.json()).etag);
 });
 
-test('the token holds the size and the session it was made for, and reads as nothing for anything else', async () => {
+test('the token holds the size and the account it was made for, and reads as nothing for anything else', async () => {
   const session = { sender: 'account', accountId: 7, role: 'parent', teams: ['cohssa'], issued: 1 };
   const token = await clipToken(KEY, 12, 4096, session);
   const asked = (value, id = 12, held = session, key = KEY) =>
@@ -516,7 +517,7 @@ test('abandoning an upload takes back its row and its R2 upload, and gives the d
   assert.equal((await part(env, cookies, id, 2, new Uint8Array(10), { token })).status, 200);
   assert.equal(sentToday(env), 1);
   assert.equal(clipBytesToday(env), PART_BYTES + 10);
-  // Another session's try first, as a control: nothing moves.
+  // Another account's try first, as a control: nothing moves.
   let res = await abandon(env, await coach(), id, token);
   assert.equal(res.status, 404);
   assert.equal(rows(env).length, 1);
@@ -874,7 +875,7 @@ test('a clip that is not the type it started as is refused 415 and deleted; one 
   assert.equal(env.MEDIA.objects.get(clipObjectKey(row.media_key)).httpMetadata.contentType, 'video/quicktime');
 });
 
-test('abandoning a clip this session already stored is 409 stored and takes nothing back; another session\'s token is still 404 (#198\'s review)', async () => {
+test('abandoning a clip this account already stored is 409 stored and takes nothing back; another account\'s try is still 404 (#198\'s review)', async () => {
   const { env, address } = await site();
   const cookies = await parent();
   const sent = await sendWalked(env, cookies, address, androidMp4().file);
@@ -891,7 +892,7 @@ test('abandoning a clip this session already stored is 409 stored and takes noth
   // An approved one answers the same: stored is stored.
   env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(nowSeconds(), sent.id);
   assert.equal((await abandon(env, cookies, sent.id, sent.token)).status, 409);
-  // Another session learns nothing about it.
+  // Another account learns nothing about it.
   res = await abandon(env, await coach(), sent.id, sent.token);
   assert.equal(res.status, 404);
   assert.deepEqual(await res.json(), { error: 'upload' });

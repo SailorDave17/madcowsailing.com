@@ -1,8 +1,9 @@
 // The policy at /policy (#159), and the links to it.
 //
 // The page's figures are held to the code that makes them true, so a change
-// to a session's length, the join limit's window, the largest photo size or
-// the daily cap fails here until the page states the new figure. Every other
+// to an account session's length, the largest photo size or the daily cap
+// fails here until the page states the new figure. (The join limit's window
+// was one too, until #226 retired the invite link.) Every other
 // claim on the page is traced in the table in its head comment; this file
 // holds the parts a test can read, and runs README's manual takedown against
 // the real schema.
@@ -31,16 +32,16 @@ import {
 import { RESEND_URL } from '../lib/mail.js';
 import { STALE_SECONDS } from '../lib/clips.js';
 import {
-  CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS, DAILY_UPLOADS, SIZES, insertPhoto, senderColumns, sessionKey, spendDailyUpload,
+  CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS, DAILY_UPLOADS, SIZES, insertPhoto, senderColumns, sendsAsCoach, sessionKey,
+  spendDailyUpload,
 } from '../lib/photos.js';
 import {
   NOTE_MAX, REMOVAL_LIMIT, REMOVAL_WINDOW_SECONDS, deletePhoto, requestRemoval, restorePhoto,
 } from '../lib/removals.js';
-import {
-  COOKIE_NAME, SESSION_DAYS, coachListed, coachSessionCookie, nowSeconds, readSession, requireUploadSession, signSession,
-} from '../lib/session.js';
+import { COOKIE_NAME, clearUploadCookie, nowSeconds, requireUploadSession } from '../lib/session.js';
 import { TEAMS } from '../lib/teams.js';
-import { FAILURE_WINDOW_SECONDS } from '../functions/api/join.js';
+import { askPage } from '../lib/ask-page.js';
+import { onRequestPost as joinRoute } from '../functions/api/join.js';
 import { onRequestGet as adminHomeRoute } from '../functions/admin/index.js';
 import { ACCOUNT_COOKIE, ACCOUNT_SESSION_DAYS, accountCookie, readAccountSession, sessionAccount } from '../lib/account-session.js';
 import { PWNED_RANGE_URL, pwned } from '../lib/password-rules.js';
@@ -54,6 +55,7 @@ import {
 import { adminData } from './admin.js';
 import { ADDRESS_KEY, emailKeyOf } from './address-key.js';
 import { d1, seedCodes } from './d1.js';
+import { UPLOAD_COOKIE, coachCookie, parentCookie, uploadCookieHeader } from './legacy-cookies.js';
 import { r2 } from './r2.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -140,17 +142,18 @@ test('/policy is a static file with the HTML\'s Cache-Control, and no Function a
 
 // ---- Criterion 3: the share page ------------------------------------------
 
-test('the share page links the policy in its join step, and asks senders to leave children\'s full names out of captions', () => {
+test('the share page links the policy beside its status line, and asks senders to leave children\'s full names out of captions', () => {
   const html = read('public', 'share', 'index.html');
-  // The join step runs from its status line to the sending block. Both ends
-  // must be found, in order, and the slice must stop before the footer,
-  // whose copy of the link would otherwise pass for this one.
+  // The status step runs from its status line to the sending block (the join
+  // step until #226, which kept its ids). Both ends must be found, in order,
+  // and the slice must stop before the footer, whose copy of the link would
+  // otherwise pass for this one.
   const start = html.indexOf('id="join-status"');
   const end = html.indexOf('<div class="sender"');
-  assert.ok(start > 0 && end > start, `join step not found (${start}, ${end})`);
+  assert.ok(start > 0 && end > start, `status step not found (${start}, ${end})`);
   const join = html.slice(start, end);
   assert.doesNotMatch(join, /<footer|<header/);
-  assert.ok(join.includes(`<p>${LINK}</p>`), 'the policy is not linked beside the join step');
+  assert.ok(join.includes(`<p>${LINK}</p>`), 'the policy is not linked beside the status line');
   const sender = block(html.slice(end), 'div');
   assert.match(words(sender), /leave children's full names out of it\./);
 });
@@ -177,33 +180,61 @@ test('the policy covers, in order, who sees a photo, who sends, the check, the m
 test('the policy states each thing criterion 1 lists, and the answers the owner gave', () => {
   for (const claim of [
     'asks search engines not to list it', // noindex (D6)
-    'parents, sailors and coaches', // owner, at pickup
     'checks it against the media release', // D5
     'turns down any photo they recognize as showing', // owner, at review: the check, not an outcome
     'A check can miss one.',
     'no location, no camera make or model', // stripped on the phone (#155)
     'only in a scrambled form, made with a secret key', // lib/address.js
-    // A4, for the two ways in that predate accounts. #219 narrowed it to
-    // them: a photo sent from an account names the account (D17).
-    'A photo sent with the invite link, or by a coach, keeps nothing that names who sent it: no name, no account and no email address',
-    'Someone sending with the invite link gives none of those at all.',
-    // #192: coaches sign in, and the page says what that keeps.
-    'the team\'s coaches, who sign in, can send one',
-    'only an address the site\'s admins have put on the coaches\' list gets in',
-    'until the coach is taken off the list. Changing the invite link does not stop it.',
-    'A coach\'s photos are checked like everyone else\'s.',
-    'for a coach\'s photo, not which coach',
-    'A coach\'s cookie holds their address only in a scrambled form, made with a secret key.',
-    'The coaches\' list itself holds each coach\'s email address, and only the site\'s owner can change it, in Cloudflare\'s dashboard.',
-    'records each sign-in in the site\'s account, with the coach\'s email address and network address',
-    // Owner, at #192's review: the row keeps no sign-in time, and the page
-    // says the time a photo was sent can still be matched.
-    'So when a coach\'s photo was sent could still be matched against who signed in shortly before.',
+    // A4, for the invite link, which predates accounts. #219 narrowed it to
+    // the link and the coaches' sign-in, since a photo sent from an account
+    // names the account (D17). #226 put it in the past tense and dropped the
+    // coaches' half: production held no photo sent that way (2026-10-08).
+    'A photo sent with the team\'s invite link, before accounts replaced it, keeps instead which invite link it was sent with and when that phone opened it, and nothing that names who sent it: no name, no account and no email address.',
+    // #226: only an account sends, a coach's with the coach role, and the
+    // page says what replaced each way in: an account, asked for on the
+    // request page, named and not linked (#220's choice, item 25), for the
+    // link; the coach role for the coaches' sign-in; a revoke for a new link.
+    'Only people with an account the site\'s admins approved for the team can send one',
+    'A coach sends the same way, from an account an admin approved with the coach role.',
+    'Accounts replaced the team\'s invite link and the coaches\' own sign-in.',
+    'An invite link no longer lets a phone send: ask for an account instead, on the site\'s "Ask for an account" page.',
+    'Changing the link used to stop every phone that had opened it. Now an admin stops someone sending by revoking their account for the team.',
+    // The phone's old upload cookie, which nothing reads (lib/session.js).
+    'Nothing reads it now, and it is deleted the next time that phone opens the page photos are sent from, or sends a photo.',
     'There is no set limit.', // owner, at pickup
     'with the photo attached, or its link', // the review: a download's number moves
   ]) {
     assert.ok(MAIN.includes(claim), `the policy no longer says "${claim}"`);
   }
+  // What #226 took off the page with the two ways in: who the link was for,
+  // the link's and a coach's 90 days, the coaches' list and Cloudflare's
+  // record of their sign-ins, a coach's scrambled cookie, the daily count per
+  // phone and the failed joins. (#192's matching sentence is held below,
+  // with #219's criterion 4.)
+  const gone = [
+    /parents, sailors and coaches/,
+    /Opening the link on a phone lets that phone send/,
+    /Their phone can then send for/,
+    /coaches' list/,
+    /Cloudflare's dashboard/,
+    /records each sign-in/,
+    /holds their address only in a scrambled form/,
+    /a coach's sign-in/,
+    /An invite link carrying an old or wrong code is refused/,
+    /An attempt counts for an hour/,
+    /opens an invite link/,
+  ];
+  for (const pattern of gone) assert.doesNotMatch(MAIN, pattern);
+  // The control: each pattern finds its sentence as the page read before
+  // #226, so none is a typo that could never match.
+  const before = 'Someone holding the team\'s invite link, which is for the team\'s parents, sailors and coaches. '
+    + 'Opening the link on a phone lets that phone send photos for 90 days. Their phone can then send for 90 days. '
+    + 'The coaches\' list itself holds each coach\'s email address, and only the site\'s owner can change it, in Cloudflare\'s dashboard. '
+    + 'Cloudflare, which signs a coach in, records each sign-in in the site\'s account. '
+    + 'A coach\'s cookie holds their address only in a scrambled form, made with a secret key. '
+    + 'One phone sending with the invite link or a coach\'s sign-in. '
+    + 'An invite link carrying an old or wrong code is refused. An attempt counts for an hour, and is deleted the next time anyone opens an invite link after that.';
+  for (const pattern of gone) assert.match(before, pattern);
   // What a photo's row keeps, item by item (migration 0005). A list, so a
   // phrase repeated elsewhere on the page cannot stand in for an item. Read
   // from its own section: since #253 the release quote's list comes first.
@@ -214,10 +245,11 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
     // #228: an admin's move changes album_id, and the row keeps no other.
     'the album it was sent to, or the event an admin moved it into;',
     'when it was taken, and when it was sent;',
-    'which invite link it was sent with, and when that phone opened it, or for a coach\'s photo, only that a coach sent it;',
     // D17; #219. #223: the row's sender is the account's role, which stays
-    // once the account is deleted (senderColumns in lib/photos.js).
-    'for a photo sent from an account, which account sent it, and whether the account is a coach\'s.',
+    // once the account is deleted (senderColumns in lib/photos.js). Every
+    // photo's since #226, which moved the invite link's item, in the past
+    // tense, to the paragraph after the list and dropped the coaches'.
+    'which account sent it, and whether the account is a coach\'s.',
   ]);
   // The address is in the lede, on the first screen, and again in its own
   // section at the foot (owner, at #159's design review), and in the
@@ -227,18 +259,16 @@ test('the policy states each thing criterion 1 lists, and the answers the owner 
   assert.ok(POLICY.match(/<p class="lede">[\s\S]*?<\/p>/)[0].includes(mailto), 'the lede does not give the address');
 });
 
-test('the policy\'s figures are the code\'s: a session\'s days, the join limit\'s hour, the full size\'s long edge and the daily cap', () => {
-  // A parent's phone, a coach's (#192) and the cookie: three times. The
-  // account's session (#222) is a fourth, which is held to its own constant
-  // below, so the two must agree.
-  assert.equal(ACCOUNT_SESSION_DAYS, SESSION_DAYS);
-  assert.equal(MAIN.match(new RegExp(`\\b${SESSION_DAYS} days\\b`, 'g'))?.length, 4, `the page names ${SESSION_DAYS} days four times`);
-  assert.equal(FAILURE_WINDOW_SECONDS, 60 * 60, 'the join limit\'s window moved; the page says "an hour"');
-  assert.match(MAIN, /An attempt counts for an hour/);
+test('the policy\'s figures are the code\'s: an account session\'s days, the full size\'s long edge and the daily cap', () => {
+  // The account's session (#222), held to its own constant below, and once
+  // only: until #226 a parent's phone, a coach's (#192) and the upload
+  // cookie made it four times, and the join limit's hour was a figure here
+  // too. A leftover sentence about either way in names its 90 days again.
+  assert.equal(MAIN.match(new RegExp(`\\b${ACCOUNT_SESSION_DAYS} days\\b`, 'g'))?.length, 1, `the page names ${ACCOUNT_SESSION_DAYS} days once`);
   assert.match(MAIN, new RegExp(`the largest at most ${SIZES.full.longEdge.toLocaleString('en-US')} pixels on its long side`));
-  // #223, criterion 5: the cap is an account's, and a phone's for the two
-  // ways in that predate accounts.
-  assert.match(MAIN, new RegExp(`so no more than ${DAILY_UPLOADS} come from one account, or from one phone sending with the invite link or a coach's sign-in\\.`));
+  // #223, criterion 5: the cap is an account's, and since #226 nothing
+  // else's (sessionKey keys every count by the account).
+  assert.match(MAIN, new RegExp(`so no more than ${DAILY_UPLOADS} come from one account\\.`));
 });
 
 // ---- Criterion 5: the words -------------------------------------------------
@@ -284,7 +314,9 @@ test('"What the site keeps" says what a taken-down photo keeps, that a put-back 
     'When someone takes a photo down with "Remove this photo", nothing is deleted yet. The site keeps the photo\'s three copies, when it was taken down, and the note left with it, if any, which can hold a name',
     // Owner, at #158's pickup: restorePhoto leaves both on the row.
     'The time and the note stay with the photo if an admin puts it back, and go with it when an admin deletes it.',
-    'kept only in the same scrambled form',
+    // "the same scrambled form" as the failed joins' until #226 took their
+    // paragraph, and with it the form this one pointed back to.
+    'The site counts them by the network address each came from, kept only in a scrambled form, made with a secret key.',
     // Owner, at #158's review: the admin pages clear the log too.
     'A takedown counts for an hour. After that it is deleted the next time anyone takes a photo down or one of the site\'s admins opens the admin pages.',
     'Pressing it on a photo that is not showing counts for nothing, and nothing is kept.',
@@ -361,61 +393,131 @@ test('the head comment traces every takedown claim to a file that exists', () =>
   assert.equal(existsSync(join(ROOT, 'lib/no-such-file.js')), false);
 });
 
-// ---- #192: a coach's sign-in on the page ------------------------------------
+// ---- #226: what replaced the invite link and the coaches' sign-in ----------
+//
+// #192 put a coach's Access sign-in on the page, and two tests here held its
+// claims to lib/access.js and lib/session.js until #226 deleted that code with
+// the claims. These hold what replaced them.
 
-test('the head comment traces every coach claim to the code behind it, and the code still has it', async () => {
+test('the head comment traces what replaced the invite link and the coaches\' sign-in, and names none of the code #226 deleted', async () => {
   const comment = POLICY.match(/<!-- Story #159[\s\S]*?-->/)[0];
-  // Each identifier the trace names, and the module that must still export
-  // it, so a rename cannot leave the trace pointing at nothing (#192's review).
+  // Each identifier the new rows name, and the module that must still export
+  // it, so a rename cannot leave the trace pointing at nothing.
   const exported = {
-    requireCoach: '../lib/access.js',
-    coachListed: '../lib/session.js',
-    coachTag: '../lib/session.js',
-    readSession: '../lib/session.js',
-    insertPhoto: '../lib/photos.js',
+    requireUploadSession: '../lib/session.js',
+    clearUploadCookie: '../lib/session.js',
+    sendsAsCoach: '../lib/photos.js',
+    senderColumns: '../lib/photos.js',
+    revokeTeams: '../lib/people.js',
   };
   for (const [name, module] of Object.entries(exported)) {
     assert.ok(comment.includes(name), `the trace table does not name ${name}`);
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
   }
-  for (const source of ['lib/access.js', 'functions/coach/_middleware.js', 'COACH_EMAILS', 'Access authentication']) {
-    assert.ok(comment.includes(source), `the trace table does not name ${source}`);
+  // What the trace named for the two ways in until #226: the coach guard and
+  // its list, the coach's and the parent's session code, Cloudflare's sign-in
+  // log, and the join limit's rows. A row left behind for a retired claim
+  // names one of them. The dated history under the table names none by code.
+  const retired = ['requireCoach', 'coachListed', 'coachTag', 'readSession', 'COACH_EMAILS', 'Access authentication',
+    'Who the link is for', 'Failed joins', 'migrations/0002_invite_code.sql'];
+  for (const name of retired) assert.ok(!comment.includes(name), `the trace table still names ${name}`);
+  // And the code is gone, so none of them could be a source: lib/session.js
+  // exports none of the session code it did (the control on a missing export
+  // reading undefined is the same lookup).
+  const session = await import('../lib/session.js');
+  for (const name of ['readSession', 'coachListed', 'coachTag', 'signSession', 'coachSessionCookie', 'SESSION_DAYS']) {
+    assert.equal(session[name], undefined, `lib/session.js still exports ${name}`);
   }
-  // COACH_EMAILS is the name the guard reads, not only a word in the comment.
-  assert.equal((await import('../lib/access.js')).COACHES.list, 'COACH_EMAILS');
-  // The control: a name the code does not export reads as missing.
-  assert.equal((await import('../lib/session.js')).isListedCoach, undefined);
   assert.doesNotMatch(comment, /will change this page/, 'the comment still says #192 is to come');
 });
 
-test('the page\'s coach claims are what the code does: no address in the cookie, no invite link on the row, and the list decides', async () => {
+test('the page\'s #226 claims are what the code does: an old link\'s or coach\'s cookie sends nothing and is deleted, a coach is an account with the coach role, and a revoke stops it', async () => {
   const KEY = 'test-session-signing-key-0123456789abcdef';
-  const COACH = 'coach@example.com';
-  // "A coach's cookie holds their address only in a scrambled form."
-  const cookie = await coachSessionCookie(KEY, COACH, 1_790_000_000);
-  assert.ok(!cookie.toLowerCase().includes('coach@'), 'the coach\'s cookie carries the address');
-  const request = new Request('https://photos.madcowsailing.com/', { headers: { Cookie: cookie.split(';')[0] } });
-  const session = await readSession(request, KEY, 1_790_000_100);
-  assert.equal(session.sender, 'coach');
-  // "... until the coach is taken off the list."
-  assert.equal(await coachListed(KEY, session.coach, COACH), true);
-  assert.equal(await coachListed(KEY, session.coach, 'someone@example.com'), false);
-  // "For a coach's photo, only that a coach sent it": the row says coach and
-  // names no invite link, and nothing on it names the coach.
   const db = d1();
-  const address = await createAlbum(db, { team: 'hoover-jrt', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, 1_790_000_000);
+  db.sqlite.exec(
+    "INSERT INTO accounts (email, name, role, requested_at) VALUES ('coach@example.org', 'Casey', 'coach', 1);" +
+    "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved');",
+  );
+  // What made an old cookie live before #226: the invite code it names is the
+  // current one (generation 1), and the coach's address is on COACH_EMAILS.
+  // Both stay, so a guard that read the old cookie again would let these two
+  // through here rather than refuse them for want of a code or a list
+  // (review-fanout at #226's review: without them this test passed on the
+  // old reading put back).
+  seedCodes(db, 'AAAA-AAAA-AAAA');
+  const now = nowSeconds();
+  // The deletion as /policy's "it is deleted" means it, written out rather than
+  // taken from lib/session.js, so the attributes the __Host- prefix needs are
+  // held here too.
+  const DELETE_OLD = '__Host-upload=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax';
+  // The guard every upload route runs (functions/api/upload/_middleware.js),
+  // on the request the page photos are sent from makes when it opens.
+  const guard = async (cookies) => {
+    const data = {};
+    const request = new Request('https://photos.madcowsailing.com/api/upload/session', { headers: { Cookie: cookies.join('; ') } });
+    const res = await requireUploadSession({ request, env: { DB: db, SESSION_SIGNING_KEY: KEY, COACH_EMAILS: 'coach@example.org' }, data, next: () => new Response(null, { status: 204 }) });
+    return { status: res.status, session: data.session, deleted: res.headers.getSetCookie().includes(DELETE_OLD) };
+  };
+  assert.equal(clearUploadCookie(), DELETE_OLD);
+  // A parent's cookie from the invite link and a coach's from the sign-in,
+  // each one the guard before #226 took: signed with the site's key, today,
+  // for the current code and a listed coach.
+  assert.equal(UPLOAD_COOKIE, COOKIE_NAME);
+  const parent = uploadCookieHeader(await parentCookie(KEY, 1, now - 60));
+  const coach = uploadCookieHeader(await coachCookie(KEY, 'coach@example.org', now - 60));
+  const account = (await accountCookie(KEY, { accountId: 1, version: 1 }, now)).split(';')[0];
+
+  // "An invite link no longer lets a phone send", nor the coaches' sign-in.
+  // "Nothing reads it now, and it is deleted the next time that phone opens
+  // the page photos are sent from, or sends a photo."
+  for (const old of [parent, coach]) assert.deepEqual(await guard([old]), { status: 401, session: undefined, deleted: true });
+  // Signed in to an account too, the phone sends as the account, and the old
+  // cookie goes all the same.
+  const both = await guard([parent, account]);
+  assert.equal(both.status, 204);
+  assert.equal(both.session.sender, 'account');
+  assert.equal(both.deleted, true);
+  // The control: with no old cookie, nothing is deleted.
+  assert.equal((await guard([account])).deleted, false);
+  // "the page photos are sent from" asks that route when it opens, and the
+  // route is behind the guard.
+  assert.match(read('public', 'js', 'share.js'), /fetch\('\/api\/upload\/session'/);
+  assert.match(read('functions', 'api', 'upload', '_middleware.js'), /onRequest = \[requireUploadSession,/);
+
+  // A tab left open across the release that still posts an old link's code
+  // gets no session either: the answer says the link was replaced, points at
+  // /ask, and deletes the old cookie.
+  const replaced = joinRoute({
+    request: new Request('https://photos.madcowsailing.com/api/join', {
+      method: 'POST', headers: { Origin: 'https://photos.madcowsailing.com', Cookie: parent }, body: JSON.stringify({ code: 'K7QM-3XRD-9FWB' }),
+    }),
+  });
+  assert.equal(replaced.status, 410);
+  assert.deepEqual(await replaced.json(), { error: 'replaced', ask: '/ask' });
+  assert.deepEqual(replaced.headers.getSetCookie(), [clearUploadCookie()]);
+  // "on the site's "Ask for an account" page" is /ask's own heading.
+  assert.match(askPage({ siteKey: 'test-site-key' }), /<h1>Ask for an account<\/h1>/);
+
+  // "A coach sends the same way, from an account an admin approved with the
+  // coach role": the role, not a sign-in of its own, makes a coach's photo.
+  assert.equal(both.session.role, 'coach');
+  assert.equal(sendsAsCoach(both.session), true);
+  assert.equal(sendsAsCoach({ ...both.session, role: 'parent' }), false);
+  // "which account sent it, and whether the account is a coach's", on the
+  // row insertPhoto writes, with 0012's placeholders where the invite link's
+  // generation and time were.
+  const address = await createAlbum(db, { team: 'cohssa', title: 'Fall Regatta', kind: 'regatta', date: '2026-10-04' }, now);
   const id = await insertPhoto(db, address, {
-    mediaKey: 'd'.repeat(32), batch: '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b', session, caption: null,
+    mediaKey: 'd'.repeat(32), batch: '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b', session: both.session, caption: null,
     captured: 1, sentAt: 2, full: { width: 4, height: 3 }, grid: { width: 4, height: 3 }, screen: { width: 4, height: 3 }, bytes: 10,
   });
-  const row = { ...db.sqlite.prepare('SELECT * FROM photos WHERE id = ?').get(id) };
-  assert.equal(row.sender, 'coach');
-  assert.equal(row.code_generation, null);
-  // "Only that a coach sent it": no session time, which Cloudflare's sign-in
-  // log would turn into a name (owner, at #192's review).
-  assert.equal(row.session_issued, null);
-  assert.equal(row.state, 'pending', 'a coach\'s photo is checked like everyone else\'s');
-  for (const value of Object.values(row)) assert.ok(!String(value).includes(session.coach.slice(0, 12)), 'the row names the coach');
+  assert.deepEqual({ ...db.sqlite.prepare('SELECT sender, code_generation, session_issued, account_id, state FROM photos WHERE id = ?').get(id) },
+    { sender: 'coach', code_generation: 0, session_issued: 0, account_id: 1, state: 'pending' });
+
+  // "Now an admin stops someone sending by revoking their account for the
+  // team", where changing the link once stopped every phone.
+  assert.deepEqual(await revokeTeams(db, { accountId: 1, teams: ['cohssa'], hashKey: ADDRESS_KEY, admin: 'owner@example.com', now }), ['cohssa']);
+  assert.equal((await guard([account])).status, 401, 'a revoked account still sends');
 });
 
 test('README gives the button as the route for an email request, and the hand takedown for when it is refused', () => {
@@ -581,14 +683,18 @@ test('"Having an account deleted" gives the email and the check, says the photos
   assert.doesNotMatch(MAIN, /nothing links them to you/);
 });
 
-test('the page no longer promises that every photo is anonymous, and keeps #192\'s matching sentence until the cutover (#219, criterion 4)', () => {
+test('the page no longer promises that every photo is anonymous, and #192\'s matching sentence went at the cutover (#219, criterion 4; #226)', () => {
   // The promise #192 left, which an account's photo would break (D17).
   assert.doesNotMatch(MAIN, /Nothing kept with a photo names who sent it/);
-  has(MAIN, [
-    'A photo sent from an account is different: the site records which account sent it, and only the site\'s admins see it.',
-    // Removed at the cutover, #226, with the coaches' sign-in. Not before.
-    'So when a coach\'s photo was sent could still be matched against who signed in shortly before.',
-  ], 'the policy');
+  // "A photo sent from an account is different" until #226, when every
+  // photo came to be sent from one.
+  has(MAIN, ['Only the site\'s admins see which account sent a photo.'], 'the policy');
+  // Kept until the cutover, #226, and removed there with the coaches'
+  // sign-in, outright rather than in the past tense: production held no
+  // photo sent through it (2026-10-08), so there was no send time to match.
+  assert.doesNotMatch(MAIN, /could still be matched against who signed in/);
+  // The control: the pattern finds the sentence as it read.
+  assert.match('So when a coach\'s photo was sent could still be matched against who signed in shortly before.', /could still be matched against who signed in/);
 });
 
 // The trace table's account rows, in order, each with the sources its own
@@ -597,11 +703,21 @@ test('the page no longer promises that every photo is anonymous, and keeps #192\
 // #219's review found a whole-comment search let 6 of 13 rows go at 0 red.
 const ACCOUNT_ROWS = [
   // #223, criterion 6: sending from an account, each claim in its own row.
-  ['An approved account sends to its', ['requireUploadSession', 'lib/session.js', 'readAccountSession', 'sessionAccount', 'lib/account-session.js', 'functions/api/albums/open.js', 'functions/api/upload/index.js', 'insertPhoto', '#223\'s criteria 1 and 2', 'D16']],
-  ['Signed in, a phone sends from the', ['#223\'s pickup', 'requireUploadSession', 'before the upload cookie']],
-  ['A daily count per account, for', ['sessionKey', 'DAILY_UPLOADS', 'lib/photos.js', 'upload_counts', '#223\'s criterion 5', 'spendDailyUpload', 'first upload of a day']],
+  // Since #226 the account's is the only session.
+  ['An approved account sends to its', ['requireUploadSession', 'lib/session.js', 'readAccountSession', 'sessionAccount', 'lib/account-session.js', 'since #226 no other session', 'functions/api/albums/open.js', 'functions/api/upload/index.js', 'insertPhoto', '#223\'s criteria 1 and 2', 'D16']],
+  // #226: a coach is an account with the coach role, and what replaced each
+  // way in, each in its own row. ("Signed in, a phone sends from the
+  // account, invite link or not", #223's, went with the link.)
+  ['A coach sends the same way, from', ['D13', 'D16', 'item 24', '#221', 'sendsAsCoach', 'lib/photos.js', 'senderColumns', '#226']],
+  ['Accounts replaced the invite', ['D13', 'done at #226 (2026-10-08)', 'requireUploadSession', 'functions/api/join.js', '410', '/ask']],
+  ['Ask on "Ask for an account",', ['lib/ask-page.js', '#220', 'Not chosen: a link from `/policy`', 'item 25', '#226']],
+  ['An admin revokes an account for', ['revokeTeams', 'lib/people.js', '#225', 'session_version', '#226']],
+  ['A daily count per account, for', ['sessionKey', 'DAILY_UPLOADS', 'lib/photos.js', 'upload_counts', '#223\'s criterion 5', 'by the account alone since #226', 'spendDailyUpload', 'first upload of a day']],
   ['Whether an account\'s photo was', ['senderColumns', 'lib/photos.js', 'ON DELETE SET NULL', '#223\'s pickup']],
-  ['A photo sent with the invite', ['insertPhoto', 'D17', '#223']],
+  // #226: what a photo sent with the invite link keeps, in the past tense,
+  // and the facts that kept it on the page and took the coaches' half off.
+  ['A photo sent with the invite', ['code_generation', 'session_issued', '0005', 'until #226', '12 such photos', 'none from the coaches\' sign-in', 'read 2026-10-08', 'D17', 'senderColumns']],
+  ['An old upload cookie: read by', ['requireUploadSession', 'functions/api/upload/_middleware.js', '__Host-upload', 'clearUploadCookie', 'lib/session.js', 'functions/api/join.js', 'GET /api/upload/session', 'public/js/share.js', '#226']],
   ['If you ask for an account, for', ['D13', 'D16', '#220', '#219\'s review', '#158\'s precedent']],
   ['What an account keeps: name,', ['#220\'s criteria 1 and 6', '#221']],
   ['When you asked, which teams', ['requested_at', 'admins_emailed', 'account_teams', 'migrations/0007_accounts.sql', 'requestAccount', 'mailAdmins', '#220', '/admin/people', 'peopleLists', '#221']],
@@ -698,6 +814,10 @@ test('the head comment traces every account claim in its own row, and the code i
     insertPhoto: '../lib/photos.js',
     sessionKey: '../lib/photos.js',
     senderColumns: '../lib/photos.js',
+    // #226
+    sendsAsCoach: '../lib/photos.js',
+    clearUploadCookie: '../lib/session.js',
+    revokeTeams: '../lib/people.js',
     // #224
     startCode: '../lib/admin-code.js',
     checkCode: '../lib/admin-code.js',
@@ -943,10 +1063,12 @@ const TABLES = {
   account_request_mail: 'when the admins were last emailed',
   albums: 'albums, which name no account',
   photos: 'photos, each naming the account that sent it until the account is deleted (ON DELETE SET NULL, #223)',
-  upload_counts: 'a count per upload session, or per account under its id (#223), for the day',
-  invite_codes: 'the invite codes',
-  join_failures: 'keyed network addresses',
-  join_budget: 'a count per hour',
+  upload_counts: 'a count per account under its id (#223), for the day; per upload session too, until #226',
+  // The invite link's three, which #226 retired. No migration dropped them
+  // there, and nothing has written them since; a later story drops them.
+  invite_codes: 'the invite codes, retired by #226, which nothing writes since',
+  join_failures: 'keyed network addresses of failed joins, retired by #226, which nothing writes since',
+  join_budget: 'a count per hour of failed joins, retired by #226, which nothing writes since',
   removal_requests: 'keyed network addresses',
   // #222. A failed try keeps the typed email address as a keyed hash, which
   // names no account by id and holds no address; a deleted account's stay
@@ -991,10 +1113,14 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   });
   await ask('Delete.Me@Example.org', 'address-one');
   await ask('stays@example.org', 'address-two');
-  seedCodes(db, 'K7QM-3XRD-9FWB');
+  // The invite link's tables, retired by #226 and still in the schema, each
+  // holding a row as production's can.
+  db.sqlite.prepare('INSERT INTO invite_codes (generation, code, created_at) VALUES (1, ?, ?)').run('K7QM-3XRD-9FWB', now);
   db.sqlite.prepare('INSERT INTO join_failures (address_hash, failed_at) VALUES (?, ?)').run('h', now);
   db.sqlite.prepare('INSERT INTO join_budget (hour, recorded) VALUES (?, 1)').run(Math.floor(now / 3600));
   db.sqlite.prepare('INSERT INTO removal_requests (address_hash, requested_at) VALUES (?, ?)').run('h', now);
+  // An invite-link session's count from before #226, keyed by its code's
+  // generation and issued time, until the next day's first upload.
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, 1)').run('1.1', Math.floor(now / 86400));
   // #223: the account to delete sent a photo today, so its count is keyed
   // by its id (lib/photos.js, sessionKey).
@@ -1117,7 +1243,10 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   // anyone's first upload of a later day clears it (#223).
   const countOf = () => db.sqlite.prepare("SELECT session FROM upload_counts WHERE session = 'account.1'").all().length;
   assert.equal(countOf(), 1);
-  assert.equal(await spendDailyUpload(db, { sender: 'parent', generation: 1, issued: now }, now + 86400), true);
+  // The next day's first upload, from the account that stays (an account's
+  // session since #226, the only kind there is).
+  const stays = { sender: 'account', accountId: 2, role: 'coach', teams: ['hoover-jrt'], issued: now };
+  assert.equal(await spendDailyUpload(db, stays, now + 86400), true);
   assert.equal(countOf(), 0, 'the next day\'s first upload left the deleted account\'s count');
   // The other account is as it was, teams, link and all.
   assert.deepEqual(db.sqlite.prepare('SELECT email FROM accounts').all().map((r) => r.email), ['stays@example.org']);
@@ -1353,35 +1482,45 @@ test('the quote follows COHSSA\'s paragraph straight away, inside the check (#25
 // ---- #223: accounts send ------------------------------------------------------
 //
 // Criterion 6: the lede, "Who can send a photo" and the daily count name an
-// approved account beside the invite link and the coaches, each claim with a
-// row in the trace table (ACCOUNT_ROWS, above) and a line here.
+// approved account, each claim with a row in the trace table (ACCOUNT_ROWS,
+// above) and a line here. Beside the invite link and the coaches until #226,
+// and alone since.
 
-test('the lede and "Who can send a photo" name an approved account beside the invite link and the coaches (#223, criterion 6)', () => {
+test('the lede and "Who can send a photo" name only an approved account, and say what replaced the invite link and the coaches\' sign-in (#223, criterion 6; #226)', () => {
   const lede = words(POLICY.match(/<p class="lede">[\s\S]*?<\/p>/)[0]);
-  assert.ok(lede.includes('Only people with an account the site\'s admins approved for the team, people with the team\'s invite link, and the team\'s coaches, who sign in, can send one, and nothing shows until one of the site\'s admins has checked it.'), lede);
+  assert.ok(lede.includes('Only people with an account the site\'s admins approved for the team can send one, and nothing shows until one of the site\'s admins has checked it.'), lede);
   const paragraphs = [...section('Who can send a photo').matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => words(m[1]));
-  // The account first, then the two ways in that #226 retires.
-  assert.equal(paragraphs.length, 3);
+  // The account, a coach's among them, then what replaced the two ways in
+  // #226 retired, whose paragraphs went.
+  assert.equal(paragraphs.length, 2);
   assert.equal(paragraphs[0], 'Someone with an account one of the site\'s admins approved for a team. '
     + 'They sign in with their email address and password, and can then send photos to that team\'s albums only, '
     + 'from any phone or computer signed in to the account, for as long as an admin leaves the team on the account. '
-    + 'A phone signed in to an account sends from the account, even if it has also opened the invite link.');
-  assert.match(paragraphs[1], /^Someone holding the team's invite link/);
-  assert.match(paragraphs[2], /^The team's coaches can also send without the link\./);
+    + 'A coach sends the same way, from an account an admin approved with the coach role.');
+  assert.equal(paragraphs[1], 'Accounts replaced the team\'s invite link and the coaches\' own sign-in. '
+    + 'An invite link no longer lets a phone send: ask for an account instead, on the site\'s "Ask for an account" page. '
+    + 'Changing the link used to stop every phone that had opened it. '
+    + 'Now an admin stops someone sending by revoking their account for the team.');
+  // The request page named in words and never linked from here (#220's
+  // "Not chosen: a link from /policy", item 25). The control: the share page
+  // links it (#226), so the pattern finds a link where there is one.
+  const askLink = /href="\/ask(?:[/?#"])/;
+  assert.doesNotMatch(POLICY, askLink);
+  assert.match(read('public', 'share', 'index.html'), askLink);
   has(MAIN, [
     // The daily count, per account (criterion 5's figure is held above).
     'An account\'s count is kept under the account, for every phone and computer signed in to it together.',
-    'A phone\'s is kept under the invite link, or a coach\'s scrambled address, and the time the phone opened it.',
     // #198's review: a clip's start clears earlier days' counts too
     // (spendDailyClip), so "a photo" overstated how long a count is kept.
     'Each count is cleared the next day anyone sends one.',
   ], 'the policy');
+  // A phone's own count went with the invite link at #226.
+  assert.doesNotMatch(MAIN, /A phone's is kept under the invite link/);
 });
 
-test('the page\'s account claims are what the code does: the account wins over the link, its teams only, one count for every phone, and the role kept (#223)', async () => {
+test('the page\'s account claims are what the code does: its teams only, one count for every phone, and the role kept (#223)', async () => {
   const KEY = 'test-session-signing-key-0123456789abcdef';
   const db = d1();
-  seedCodes(db, 'K7QM-3XRD-9FWB');
   db.sqlite.exec(
     "INSERT INTO accounts (email, name, role, requested_at) VALUES ('coach@example.org', 'Casey', 'coach', 1);" +
     "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'cohssa', 'approved'), (1, 'hoover-jrt', 'requested');",
@@ -1393,11 +1532,11 @@ test('the page\'s account claims are what the code does: the account wins over t
     const res = await requireUploadSession({ request, env: { DB: db, SESSION_SIGNING_KEY: KEY }, data, next: () => new Response(null, { status: 204 }) });
     return res.status === 204 ? data.session : res.status;
   };
-  const invite = `${COOKIE_NAME}=${await signSession(KEY, 1, now)}`;
   const signedIn = (issued) => accountCookie(KEY, { accountId: 1, version: 1 }, issued).then((c) => c.split(';')[0]);
-  // "A phone signed in to an account sends from the account, even if it has
-  // also opened the invite link."
-  const one = await sessionFor([invite, await signedIn(now)]);
+  // Signed in, the phone sends from the account. ("Even if it has also
+  // opened the invite link" until #226: the #226 test above holds what an
+  // old link's cookie does now.)
+  const one = await sessionFor([await signedIn(now)]);
   assert.equal(one.sender, 'account');
   // "to that team's albums only": the teams an admin approved, and no other.
   assert.deepEqual(one.teams, ['cohssa']);
@@ -1408,8 +1547,9 @@ test('the page\'s account claims are what the code does: the account wins over t
   assert.equal(sessionKey(one), 'account.1', '"under the account"');
   // "whether the account is a coach's": the row's sender is the role.
   assert.equal(senderColumns(one).sender, 'coach');
-  // The control: without the account's cookie the link answers as a parent.
-  assert.equal((await sessionFor([invite])).sender, 'parent');
+  // The control: without the account's cookie nothing sends. (The invite
+  // link's cookie answered as a parent here until #226.)
+  assert.equal(await sessionFor([]), 401);
 });
 
 test('README\'s by-hand "hide every photo an account sent" hides exactly its approved photos, and nothing waiting or anyone else\'s (#223, criterion 6)', async () => {
@@ -1696,9 +1836,9 @@ test('"Clips" gives the length, size and daily caps lib/photos.js holds, and say
     'A clip that runs longer or is larger is refused before any of it is sent.',
     'A clip is sent the same ways as a photo, and checked the same way before anything happens to it.',
     // SA-1, owner at #198's review: the day's clips have a size budget beside
-    // the day's 500, kept per phone or account as the 500 are.
-    `A phone or an account can send up to ${gb(CLIP_DAY_BYTES.everyone)} GB of clips in a day, `
-      + `or ${gb(CLIP_DAY_BYTES.coach)} GB from a coach.`,
+    // the day's 500, kept per account as the 500 are (#226).
+    `An account can send up to ${gb(CLIP_DAY_BYTES.everyone)} GB of clips in a day, `
+      + `or ${gb(CLIP_DAY_BYTES.coach)} GB from a coach's.`,
   ], '"Clips"');
   // upload_counts.clip_bytes (0017) is a record, so "What the site keeps"
   // names it beside the count it shares a row with.

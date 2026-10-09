@@ -1,10 +1,14 @@
-// POST /api/upload (#154): a photo's three JPEG sizes, from a live upload
-// session into an open album, stored with every metadata segment removed and
-// waiting for approval. Every request runs through the chain Pages runs in
-// front of the route (the root middleware, then the upload directory's two
-// guards), against a real SQLite holding the real migrations (test/d1.js),
-// an R2 stand-in (test/r2.js) and JPEGs built byte by byte (test/jpeg.js).
-// Each test names the criterion it holds.
+// POST /api/upload (#154): a photo's three JPEG sizes, from a live session
+// into an open album, stored with every metadata segment removed and waiting
+// for approval. Every request runs through the chain Pages runs in front of
+// the route (the root middleware, then the upload directory's two guards),
+// against a real SQLite holding the real migrations (test/d1.js), an R2
+// stand-in (test/r2.js) and JPEGs built byte by byte (test/jpeg.js). Each
+// test names the criterion it holds.
+//
+// The session is an account's (#223), the only one the guard takes since
+// #226. Until then these tests sent with the invite link's session, which
+// test/account-upload.test.js now shows opens nothing.
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -16,15 +20,16 @@ import { onRequest as adminApi } from '../functions/api/admin/_middleware.js';
 import { onRequest as adminPages } from '../functions/admin/_middleware.js';
 import { onRequestPost as deleteAlbum } from '../functions/api/admin/albums/delete.js';
 import { onRequestGet as albumsPage } from '../functions/admin/albums.js';
+import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
 import { createAlbum } from '../lib/albums.js';
 import { readJpeg } from '../lib/jpeg.js';
 import {
   DAILY_UPLOADS, MAX_UPLOAD_BYTES, SIZES, photoObjectKeys, refundDailyUpload, secondsToNextDay, sessionKey,
   sizesAgree, spendDailyUpload,
 } from '../lib/photos.js';
-import { COOKIE_NAME, nowSeconds, signSession } from '../lib/session.js';
+import { nowSeconds } from '../lib/session.js';
 import { adminCookieHeader, seedAdmin } from './admin.js';
-import { d1, seedCodes } from './d1.js';
+import { d1 } from './d1.js';
 import {
   PNG_SIGNATURE, exif, find, jpeg, metadataMarkers, otherMetadata, segment, withSegments, withTrailer, xmp,
 } from './jpeg.js';
@@ -47,13 +52,27 @@ const SENT = {
 
 afterEach(() => mock.restoreAll());
 
-/** A site with generation 2 current, one open album, and a parent's live session. */
+/**
+ * An account approved for FALL's team, as an admin's approval leaves it, at
+ * session version 1: its id.
+ */
+function addAccount(db, email) {
+  const { lastInsertRowid } = db.sqlite
+    .prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES (?, 'Pat Parent', 'parent', 1)").run(email);
+  db.sqlite.prepare("INSERT INTO account_teams (account_id, team, state) VALUES (?, ?, 'approved')").run(lastInsertRowid, FALL.team);
+  return Number(lastInsertRowid);
+}
+
+/** An account's live session cookie value, signed in at `issued`. */
+const signedIn = (accountId, issued = nowSeconds(), version = 1) => signAccountSession(KEY, { accountId, version }, issued);
+
+/** A site with one open album, and an account approved for its team, signed in now. */
 async function site() {
   const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', SESSION_SIGNING_KEY: KEY };
-  seedCodes(env.DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB');
   const now = nowSeconds();
   const address = await createAlbum(env.DB, FALL, now);
-  return { env, address, issued: now, cookie: await signSession(KEY, 2, now) };
+  const accountId = addAccount(env.DB, 'parent@example.org');
+  return { env, address, accountId, cookie: await signedIn(accountId, now) };
 }
 
 /** Run `handlers` in order, as Pages does, with one context.data. */
@@ -81,7 +100,7 @@ function form(address, changes = {}) {
 function send(env, { cookie, body, origin = SITE, headers = {}, duplex } = {}) {
   const all = { ...headers };
   if (origin !== null) all.Origin = origin;
-  if (cookie) all.Cookie = `${COOKIE_NAME}=${cookie}`;
+  if (cookie) all.Cookie = `${ACCOUNT_COOKIE}=${cookie}`;
   const request = new Request(`${SITE}/api/upload`, { method: 'POST', headers: all, body, ...(duplex ? { duplex } : {}) });
   return chain([root, ...uploadGuard, upload], request, env);
 }
@@ -120,7 +139,7 @@ function countingBody(bytes) {
 // ---- Criterion 1: a photo is stored, three objects and one pending row ---
 
 test('a photo\'s three sizes from a live session into an open album: 201, three objects and one pending row', async () => {
-  const { env, address, issued, cookie } = await site();
+  const { env, address, accountId, cookie } = await site();
   const before = nowSeconds();
   const res = await send(env, { cookie, body: form(address) });
   assert.equal(res.status, 201);
@@ -135,11 +154,14 @@ test('a photo\'s three sizes from a live session into an open album: 201, three 
   assert.ok(row.sent_at >= before && row.sent_at <= nowSeconds());
   assert.deepEqual({ ...row, media_key: undefined, sent_at: undefined }, {
     id, album_id: albumId, kind: 'photo', state: 'pending', media_key: undefined, batch: BATCH,
-    sender: 'parent', code_generation: 2, session_issued: issued, caption: 'Rounding the windward mark',
+    // The account, with 0005's columns given 0012's placeholders (#223).
+    // Until #226 the invite link's row named its code's generation and when
+    // the phone opened it, and no account.
+    sender: 'parent', code_generation: 0, session_issued: 0, caption: 'Rounding the windward mark',
     captured_at: CAPTURED, sent_at: undefined, width: 2560, height: 1920, grid_width: 480, grid_height: 360,
     screen_width: 1600, screen_height: 1200, bytes: SENT.grid.length + SENT.screen.length + SENT.full.length,
     content_type: null, duration_ms: null, upload_id: null, approved_at: null, hidden_at: null, hidden_note: null,
-    account_id: null, // the invite link names no account (#223)
+    account_id: accountId,
   });
 
   const keys = photoObjectKeys(row.media_key);
@@ -519,14 +541,16 @@ test('sizesAgree allows a pixel of rounding on each side and no more', () => {
   assert.equal(sizesAgree({ grid: size(2561, 1921), screen, full }), false, 'grid larger than the rest');
 });
 
-// ---- Criterion 4: no session, a rotated one, a foreign Origin, a closed album
+// ---- Criterion 4: no session, an ended one, a foreign Origin, a closed album
 
-test('no session, a rotated session, a foreign Origin, a closed album and an unknown album: 401, 401, 403, 409 and 409, and nothing stored', async () => {
-  const { env, address, cookie } = await site();
-  const earlier = await signSession(KEY, 1, nowSeconds());
+test('no session, an ended session, a foreign Origin, a closed album and an unknown album: 401, 401, 403, 409 and 409, and nothing stored', async () => {
+  const { env, address, accountId, cookie } = await site();
+  // A session on a version the account is not on (#222). Until #226 this
+  // case was a session opened with an earlier invite code.
+  const other = await signedIn(accountId, nowSeconds(), 2);
 
   assert.equal((await send(env, { body: form(address) })).status, 401, 'no session');
-  assert.equal((await send(env, { cookie: earlier, body: form(address) })).status, 401, 'an earlier code\'s session');
+  assert.equal((await send(env, { cookie: other, body: form(address) })).status, 401, 'a session on another version');
   for (const origin of ['https://evil.example', 'https://madcowsailing.com', null]) {
     const res = await send(env, { cookie, body: form(address), origin });
     assert.equal(res.status, 403, String(origin));
@@ -540,10 +564,12 @@ test('no session, a rotated session, a foreign Origin, a closed album and an unk
   env.DB.sqlite.prepare('UPDATE albums SET closed_at = ? WHERE address = ?').run(nowSeconds(), address);
   assert.equal((await send(env, { cookie, body: form(address) })).status, 409, 'a closed album');
 
-  // Rotating the code (#152) ends the session that was live a moment ago.
+  // Signing out everywhere, or a new password, moves the account's version
+  // (#222), which ends the session that was live a moment ago. Until #226
+  // rotating the invite code (#152) did this for the invite link's.
   env.DB.sqlite.prepare('UPDATE albums SET closed_at = NULL WHERE address = ?').run(address);
-  env.DB.sqlite.prepare('INSERT INTO invite_codes (generation, code, created_at) VALUES (3, ?, ?)').run('ZZZZ-ZZZZ-ZZZZ', nowSeconds());
-  assert.equal((await send(env, { cookie, body: form(address) })).status, 401, 'a rotated session');
+  env.DB.sqlite.prepare('UPDATE accounts SET session_version = 2 WHERE id = ?').run(accountId);
+  assert.equal((await send(env, { cookie, body: form(address) })).status, 401, 'an ended session');
 
   await assertNothingStored(env, 'refusals');
   assert.deepEqual(countRows(env), []);
@@ -617,16 +643,16 @@ test('a caption holding markup is stored as the text it is', async () => {
 const NOON = 1_790_000_000; // 2026-09-21T14:13:20Z
 const day = (seconds) => Math.floor(seconds / 86_400);
 
-test('the cap is the owner\'s 500 a session a UTC day', () => {
+test('the cap is the owner\'s 500 an account a UTC day', () => {
   // Owner's choice at #154's pickup, 2026-09-29, confirming the story's 500.
   // Written out, since the test below seeds the count and would pass at any cap.
   assert.equal(DAILY_UPLOADS, 500);
 });
 
-test('a session that has sent 500 today is refused 429 until the next UTC day; another session, and yesterday, are not', async (t) => {
+test('an account that has sent 500 today is refused 429 until the next UTC day; another account, and yesterday, are not', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: NOON * 1000 });
-  const { env, address, issued, cookie } = await site();
-  const mine = sessionKey({ generation: 2, issued });
+  const { env, address, accountId, cookie } = await site();
+  const mine = sessionKey({ sender: 'account', accountId });
   env.DB.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, ?)').run(mine, day(NOON), 499);
 
   assert.equal((await send(env, { cookie, body: form(address) })).status, 201, 'the 500th');
@@ -638,19 +664,21 @@ test('a session that has sent 500 today is refused 429 until the next UTC day; a
   assert.equal(photoRows(env).length, 1, 'the refused upload wrote a row');
   assert.equal(storedKeys(env).length, 3, 'the refused upload stored objects');
 
-  // Another parent's session is not held to this one's count.
-  const other = await signSession(KEY, 2, issued - 60);
-  assert.equal((await send(env, { cookie: other, body: form(address) })).status, 201, 'another session');
+  // Another account is not held to this one's count.
+  const other = await signedIn(addAccount(env.DB, 'another.parent@example.org'));
+  assert.equal((await send(env, { cookie: other, body: form(address) })).status, 201, 'another account');
 
-  // The next UTC day, the same session sends again.
+  // The next UTC day, the same account sends again.
   t.mock.timers.setTime((NOON + secondsToNextDay(NOON)) * 1000);
   assert.equal((await send(env, { cookie, body: form(address) })).status, 201, 'the next day');
 });
 
 test('the cap is spent in one statement, so the last upload cannot be taken twice, and earlier days are cleared', async () => {
   const db = d1();
-  const session = { generation: 2, issued: 1_789_999_000 };
+  const session = { sender: 'account', accountId: 7, role: 'parent', teams: ['hoover-jrt'], issued: 1_789_999_000 };
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, ?)').run(sessionKey(session), day(NOON) - 1, 7);
+  // An earlier day's count under an invite-link session's key, as a row
+  // written before #226 has: cleared with the rest.
   db.sqlite.prepare('INSERT INTO upload_counts (session, day, sent) VALUES (?, ?, ?)').run('9.1', day(NOON) - 2, 3);
 
   assert.equal(await spendDailyUpload(db, session, NOON), true);
@@ -672,10 +700,10 @@ test('the cap is spent in one statement, so the last upload cannot be taken twic
   db.sqlite.prepare('UPDATE upload_counts SET sent = 0').run();
   await refundDailyUpload(db, session, NOON);
   assert.equal(countRows({ DB: db })[0].sent, 0, 'a refund took the count below 0');
-  // With units to give back, another session's refund and tomorrow's
+  // With units to give back, another account's refund and tomorrow's
   // refund leave this row alone.
   db.sqlite.prepare('UPDATE upload_counts SET sent = 5').run();
-  await refundDailyUpload(db, { generation: 3, issued: 1 }, NOON);
+  await refundDailyUpload(db, { ...session, accountId: 8 }, NOON);
   await refundDailyUpload(db, session, NOON + 86_400);
   assert.deepEqual(countRows({ DB: db }), [{ session: sessionKey(session), day: day(NOON), sent: 5, clip_bytes: 0 }]);
 });
@@ -748,7 +776,7 @@ test('a database that fails on the insert: 503, and the objects are deleted agai
 
 test('no bucket or no database bound: 503, closed, before any of the body is read', async (t) => {
   t.mock.method(console, 'error', () => {});
-  const { env, address } = await site();
+  const { env, address, cookie } = await site();
   // Straight to the route, past the session guard, which reads the database
   // itself. Without the binding check, a missing database would still end
   // in a 503 once openAlbum threw, but only after the body was read and
@@ -771,7 +799,6 @@ test('no bucket or no database bound: 503, closed, before any of the body is rea
   // The control: the same kind of body, with both bindings and a session,
   // is read and stored, so a count of 0 above is the route not reading.
   const { stream, read } = countingBody(encoded);
-  const cookie = await signSession(KEY, 2, nowSeconds());
   const res = await send(env, { cookie, body: stream, duplex: 'half', headers: { 'Content-Type': type } });
   assert.equal(res.status, 201);
   assert.equal(read.pulled, encoded.length);
@@ -841,10 +868,9 @@ function insertRow(sqlite, changes = {}) {
 }
 
 test('the table holds every state the epic needs, and refuses a row no story should write', async () => {
-  const { env } = await site();
+  const { env, accountId } = await site();
   const { sqlite } = env.DB;
-  sqlite.prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES ('sender@example.org', 'Sender', 'parent', 1)").run();
-  const fromAccount = { account_id: 1, code_generation: 0, session_issued: 0 };
+  const fromAccount = { account_id: accountId, code_generation: 0, session_issued: 0 };
   const clip = { kind: 'clip', grid_width: null, grid_height: null, screen_width: null, screen_height: null };
   // A clip the server has checked: since 0016 (#198) one outside uploading
   // names its type and a length, so a row refused below for 0005's CHECK
@@ -855,6 +881,8 @@ test('the table holds every state the epic needs, and refuses a row no story sho
     // placeholders, as a parent's and as a coach's.
     'an account\'s photo': fromAccount,
     'an account\'s photo, sent as a coach': { ...fromAccount, sender: 'coach' },
+    // insertRow's own row, a parent's from the invite link, as rows sent
+    // before #226 are and stay.
     'a pending photo': {},
     'an approved photo (#156)': { state: 'approved', approved_at: 5 },
     'a hidden photo with its note (#158)': { state: 'hidden', approved_at: 5, hidden_at: 6, hidden_note: 'please take this down' },
@@ -865,7 +893,7 @@ test('the table holds every state the epic needs, and refuses a row no story sho
     'a pending clip': { ...clip, content_type: 'video/quicktime', duration_ms: 180_000 },
     'an approved clip': { ...checkedClip, state: 'approved', approved_at: 5 },
     'a hidden clip': { ...checkedClip, state: 'hidden', approved_at: 5, hidden_at: 6 },
-    'a coach\'s upload, with no code behind it (#192)': { sender: 'coach', code_generation: null, session_issued: null },
+    'a coach\'s upload, with no code behind it (#192, until #226)': { sender: 'coach', code_generation: null, session_issued: null },
     'a caption of 200 characters': { caption: 'c'.repeat(200) },
   };
   for (const [name, changes] of Object.entries(allowed)) {

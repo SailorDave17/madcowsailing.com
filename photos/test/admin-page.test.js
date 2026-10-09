@@ -193,17 +193,18 @@ test('the name and email are escaped, so an account cannot put markup on the pag
   assert.doesNotMatch(html, /a<b>|<i>Jo/);
 });
 
-test('the invite code, albums, people and email follow the list as links, then the storage (#269, criterion 2)', () => {
+test('albums, people and email follow the list as links, then the storage (#269, criterion 2; the invite code went at #226)', () => {
   const main = block(page, 'main');
-  // Every link on the page: the three items, then the four sections.
+  // Every link on the page: the three items, then the three sections. The
+  // invite code was the first section until #226 retired the invite link.
   const hrefs = [...main.matchAll(/<a\b[^>]*\shref="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(hrefs, ['/admin/queue', '/admin/people', '/admin/removals', '/admin/code', '/admin/albums', '/admin/people', '/admin/mail']);
+  assert.deepEqual(hrefs, ['/admin/queue', '/admin/people', '/admin/removals', '/admin/albums', '/admin/people', '/admin/mail']);
   assert.deepEqual(hrefs.slice(0, 3), TODO.map((t) => t.href));
   assert.deepEqual(hrefs.slice(3), SECTIONS.map((s) => s.href));
   // The links are a list under "Manage the site", and the storage a line after it.
   const manage = main.match(/<h2 id="admin-sections">Manage the site<\/h2>\s*<ul class="admin-links">([\s\S]*?)<\/ul>\s*<p class="admin-storage">([^<]*)<\/p>/);
   assert.ok(manage, 'no list of links followed by the storage line');
-  assert.deepEqual([...manage[1].matchAll(/<li><a href="([^"]+)">([^<]+)<\/a>: /g)].map((m) => m[2]), ['Invite code', 'Albums', 'People', 'Email']);
+  assert.deepEqual([...manage[1].matchAll(/<li><a href="([^"]+)">([^<]+)<\/a>: /g)].map((m) => m[2]), ['Albums', 'People', 'Email']);
   assert.equal(manage[2], 'Storage used: 0 KB of the free 10 GB (0.0%).');
 });
 

@@ -32,12 +32,13 @@ export const MAX_UPLOAD_BYTES =
 // One line on the public page, under the photo (#157).
 export const CAPTION_MAX = 200;
 
-// Uploads one session may send in a UTC day: the owner's figure at #154's
+// Uploads one account may send in a UTC day: the owner's figure at #154's
 // pickup (2026-09-29), confirming the 500 the story proposed. It stops a
-// runaway phone. It does not stop a leaked code, since whoever holds the code
-// can join again for a new session; rotating the code does that (#152). An
-// account's 500 are the account's, shared by every phone signed in to it
-// (#223, criterion 5), so signing in again opens no new 500.
+// runaway phone. The 500 are the account's, shared by every phone signed in
+// to it (#223, criterion 5), so signing in again opens no new 500; an
+// account that should not send at all is revoked (#225). Until #226 an
+// invite-link session had 500 of its own, and a leaked code was stopped by
+// rotating it (#152).
 export const DAILY_UPLOADS = 500;
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -47,13 +48,12 @@ const DAY_SECONDS = 24 * 60 * 60;
 export const CLIP_SECONDS = Object.freeze({ coach: 15 * 60, everyone: 3 * 60 });
 
 /**
- * Whether a session sends as a coach: a coach's Access sign-in (#192), or an
- * account an admin approved with the coach role (#221, #223). An account's
- * role is read on every request (lib/session.js), so a role changed at
- * approval applies from the next upload.
+ * Whether a session sends as a coach: its account was approved with the coach
+ * role (#221, #223). The role is read on every request (lib/session.js), so a
+ * role changed at approval applies from the next upload. Until #226 a coach's
+ * Access sign-in (#192) sent as a coach too.
  */
-export const sendsAsCoach = (session) =>
-  session.sender === 'coach' || (session.sender === 'account' && session.role === 'coach');
+export const sendsAsCoach = (session) => session.role === 'coach';
 
 /** The longest clip, in seconds, a session may send (D11). */
 export const clipSeconds = (session) => (sendsAsCoach(session) ? CLIP_SECONDS.coach : CLIP_SECONDS.everyone);
@@ -163,26 +163,23 @@ export async function readCapped(request, max) {
 }
 
 /**
- * The key upload_counts holds a session under: a parent's by its code's
- * generation, a coach's (#192) by its coach tag, each with when it was
- * issued, and an account's (#223) by the account alone, so its phones share
- * one count. None can meet another: a generation is digits, and the others
- * start "coach." and "account.".
+ * The key upload_counts holds a session under: its account (#223) alone, so
+ * the account's phones share one count. Until #226 a parent's invite-link
+ * session was keyed by its code's generation and a coach's (#192) by its
+ * coach tag, each with when it was issued; the "account." in front kept the
+ * three apart, and keeps today's rows matching.
  */
 export function sessionKey(session) {
-  if (session.sender === 'account') return `account.${session.accountId}`;
-  if (session.sender === 'coach') return `coach.${session.coach}.${session.issued}`;
-  return `${session.generation}.${session.issued}`;
+  return `account.${session.accountId}`;
 }
 
 /**
  * Spend one of the session's uploads for this UTC day, and say whether there
- * was one. One statement, as the join budget spends (#177): it makes the day's
- * row at 1, or adds 1 while the row is under the cap, and RETURNING gives a
- * row only when it did either. So two uploads arriving together cannot both
- * take the last one. A session's first upload of a day deletes every earlier
- * day's rows, which the cap no longer reads; that tidying failing never fails
- * the upload.
+ * was one. One statement: it makes the day's row at 1, or adds 1 while the
+ * row is under the cap, and RETURNING gives a row only when it did either.
+ * So two uploads arriving together cannot both take the last one. A
+ * session's first upload of a day deletes every earlier day's rows, which the
+ * cap no longer reads; that tidying failing never fails the upload.
  */
 export async function spendDailyUpload(db, session, now) {
   const day = Math.floor(now / DAY_SECONDS);
@@ -285,25 +282,23 @@ export const secondsToNextDay = (now) => DAY_SECONDS - (now % DAY_SECONDS);
  * The columns 0005 and 0012 record about who sent a photo, for `session`:
  * { sender, code_generation, session_issued, account_id }.
  *
- * A parent's row names the code's generation and when the phone opened it. A
- * coach's (#192) says `coach` and names no code generation, since no code
- * opened the session, and keeps no session time either: the second a coach
- * signed in sits beside their address in Cloudflare's sign-in log, and would
- * name which coach sent the photo (owner, at #192's review).
+ * Every row since #226 names the account (#223). 0005's CHECKs allow no
+ * third sender and require a parent's row to name a generation, so the row
+ * carries placeholders: the sender is the account's role, `coach` or else
+ * `parent`, and the generation and session time are 0, which no invite code
+ * is, as 0012's CHECK requires of every row naming an account (owner, at
+ * #223's pickup). The sign-in time is not kept: the account is named already.
  *
- * An account's (#223) names the account. 0005's CHECKs allow no third
- * sender and require a parent's row to name a generation, so the row carries
- * placeholders: the sender is the account's role, `coach` or else `parent`,
- * and the generation and session time are 0, which no invite code is, as
- * 0012's CHECK requires of every row naming an account (owner, at #223's
- * pickup). The sign-in time is not kept: the account is named already.
+ * Rows written before #226 can say otherwise, and stay as they are. A
+ * parent's from the invite link names the code's generation and when the
+ * phone opened it, and no account. A coach's from the Access sign-in (#192)
+ * says `coach` and names no code generation, account or session time: the
+ * second a coach signed in sat beside their address in Cloudflare's sign-in
+ * log, and would have named which coach sent the photo (owner, at #192's
+ * review).
  */
 export function senderColumns(session) {
-  if (session.sender === 'account') {
-    return { sender: sendsAsCoach(session) ? 'coach' : 'parent', code_generation: 0, session_issued: 0, account_id: session.accountId };
-  }
-  if (session.sender === 'coach') return { sender: 'coach', code_generation: null, session_issued: null, account_id: null };
-  return { sender: 'parent', code_generation: session.generation, session_issued: session.issued, account_id: null };
+  return { sender: sendsAsCoach(session) ? 'coach' : 'parent', code_generation: 0, session_issued: 0, account_id: session.accountId };
 }
 
 /**
@@ -314,13 +309,12 @@ export function senderColumns(session) {
  * D10), whoever sent it. senderColumns says what the row records about the
  * sender.
  *
- * From an account (#223), the same statement also requires the album's team
- * to be one the account is approved for now, so a team revoked after the
- * route checked it takes nothing either.
+ * The same statement also requires the album's team to be one the account
+ * is approved for now (#223), so a team revoked after the route checked it
+ * takes nothing either.
  */
 export async function insertPhoto(db, address, photo) {
   const from = senderColumns(photo.session);
-  const account = from.account_id !== null;
   const row = await db
     .prepare(
       'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, ' +
@@ -328,16 +322,13 @@ export async function insertPhoto(db, address, photo) {
       'screen_width, screen_height, bytes) ' +
       "SELECT id, 'photo', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
       'FROM albums WHERE address = ? AND closed_at IS NULL ' +
-      (account
-        ? "AND team IN (SELECT team FROM account_teams WHERE account_id = ? AND state = 'approved') "
-        : '') +
+      "AND team IN (SELECT team FROM account_teams WHERE account_id = ? AND state = 'approved') " +
       'RETURNING id',
     )
     .bind(
       photo.mediaKey, photo.batch, from.sender, from.code_generation, from.session_issued, from.account_id,
       photo.caption, photo.captured, photo.sentAt, photo.full.width, photo.full.height, photo.grid.width,
-      photo.grid.height, photo.screen.width, photo.screen.height, photo.bytes, address,
-      ...(account ? [from.account_id] : []),
+      photo.grid.height, photo.screen.width, photo.screen.height, photo.bytes, address, from.account_id,
     )
     .first();
   return row?.id ?? null;

@@ -595,6 +595,18 @@ test('the address is kept only as its keyed hash, an IPv6 address by its /64', a
   assert.equal((await takedown(env, ids[REMOVAL_LIMIT + 1])).status, 303);
 });
 
+test('the block an address counts as: an IPv6 address\'s /64 written out in full, an IPv4 one whole, mapped or not, and none at all as one', () => {
+  // test/join.test.js held these until #226 rewrote it with the join limit
+  // gone; the limits here, at /ask, /sign-in and /forgot-password still read
+  // them (lib/address.js).
+  assert.equal(addressBlock('2001:DB8::1'), '2001:0db8:0000:0000');
+  assert.equal(addressBlock('2001:db8:1:2:3:4:5:6'), '2001:0db8:0001:0002');
+  assert.equal(addressBlock('::ffff:192.0.2.1'), '192.0.2.1');
+  assert.equal(addressBlock('192.0.2.1'), '192.0.2.1');
+  assert.equal(addressBlock(null), 'unknown');
+  assert.equal(addressBlock(''), 'unknown');
+});
+
 test('the window: takedowns over an hour old neither count nor stay, and the next takedown deletes them', async () => {
   const { env, fall } = await site();
   const hash = base64url(await hmac(ADDRESS_KEY, IP));

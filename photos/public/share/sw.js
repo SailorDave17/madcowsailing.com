@@ -14,8 +14,9 @@
  * shared, as a photo is, so this file needed no change of code for #198.
  *
  * The files wait in storage, not in memory, so they survive what unloads the
- * page: the sign-in round trip (a coach with no upload session signs in at
- * /coach and comes back, owner at #193's pickup), a second share before Send,
+ * page: the sign-in round trip (a sender with no session signs in at
+ * /sign-in and comes back, as a coach did at /coach until #226; owner at
+ * #193's pickup), a second share before Send,
  * a reload. The share page deletes a file's record once its upload is stored
  * or the sender removes it (owner, at #193's review). Over a day old, a record
  * is deleted the next time the store is opened, by the page or by a new share,

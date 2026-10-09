@@ -39,7 +39,6 @@ import { waitingBatches } from '../lib/queue.js';
 import { WAITING_WHEN_HIDDEN, deletePhoto, hiddenPhotos, restorePhoto } from '../lib/removals.js';
 import { requireUploadSession } from '../lib/session.js';
 import { emailHash } from '../lib/sign-in.js';
-import { accessEnv } from './access.js';
 import { ADDRESS_KEY, emailKeyOf } from './address-key.js';
 import { seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
@@ -97,8 +96,9 @@ async function album(db, team = 'hoover-jrt', title = 'Fall Regatta') {
   return { id: db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id, address };
 }
 
-// A photo row in `state`, sent by `account` (or by the invite link when null),
-// as insertPhoto writes one (0012's placeholders for an account's row).
+// A photo row in `state`, sent by `account` (or, as before #226, by the invite
+// link when null), as insertPhoto writes one (0012's placeholders for an
+// account's row).
 let media = 0;
 function photo(db, albumId, { account = null, state = 'approved' } = {}) {
   media += 1;
@@ -197,7 +197,7 @@ function chain(handlers, request, env) {
 
 test('revoking one team takes its events out of the person\'s choices on the share page, and the old session out of the upload guard (criterion 1)', async () => {
   const db = d1();
-  const env = { DB: db, MEDIA: r2(), SITE_ENV: 'production', SESSION_SIGNING_KEY: SESSION_KEY, ADDRESS_HASH_KEY: ADDRESS_KEY, ...accessEnv() };
+  const env = { DB: db, MEDIA: r2(), SITE_ENV: 'production', SESSION_SIGNING_KEY: SESSION_KEY, ADDRESS_HASH_KEY: ADDRESS_KEY };
   const hoover = await album(db, 'hoover-jrt', 'Fall Regatta');
   const cohssa = await album(db, 'cohssa', 'COHSSA Fall Champs');
   const id = await approved(db);
@@ -794,12 +794,12 @@ test('a person revoked from every team is listed under Revoked, with Approve to 
   assert.match(rex, /aria-label="Approve Rex Revoked">Approve<\/button>/);
   assert.doesNotMatch(rex, /Send a new link|Make admin|people\/revoke/);
   assert.match(more(rex), /<summary>Delete<\/summary>/);
-  // Until #226 a revoke does not stop the invite link or a coach's sign-in,
-  // and the section says so, with the way to end it (review-fanout: it said
-  // revoked people "cannot sign in or send").
-  assert.doesNotMatch(revoked, /They cannot sign in or send/);
-  assert.match(revoked, /Until the invite link and the coaches' sign-in retire, someone revoked\s+can still send through either/);
-  assert.match(revoked, /Rotate the invite code on <a href="\/admin\/code">Invite code<\/a>/);
+  // Until #226 a revoke did not stop the invite link or a coach's sign-in,
+  // and the section said so, with the way to end it (review-fanout: it said
+  // revoked people "cannot sign in or send"). #226 retired both, so the
+  // account is every way in, and the section says only that.
+  assert.match(revoked, /Their account cannot sign in or send,/);
+  assert.doesNotMatch(revoked, /invite|coaches' sign-in|\/admin\/code|Rotate/i);
   // README's operating record names the four lists the page has.
   const readme = readFileSync(join(ROOT, '..', 'README.md'), 'utf8').split('### Approving accounts\n')[1] ?? '';
   assert.match(readme, /in four lists: \*\*Waiting\*\*,\s+\*\*Approved\*\*, \*\*Revoked\*\* \(since #225\) and \*\*Turned down\*\*/);

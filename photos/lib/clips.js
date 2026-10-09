@@ -24,16 +24,18 @@
  * in the media data are the one thing the check cannot see; they rest on the
  * walker and its tests.
  *
- * Who may carry on an upload. The row cannot say: a coach's row keeps nothing
- * that names the coach (#192's review), and the size the page declared has no
- * column (0005's "Not chosen: writing page-declared values at uploading"). So
- * the start answers a token, clip1.<id>.<bytes>.<sig>, signed with the
- * session key over the upload's id, its size and sessionKey(session), and
- * every later request sends it back in the Clip-Upload header. Another phone,
- * another session or another size reads as an unknown upload. Not chosen:
- * matching the row's sender columns to the session, which lets any coach carry
- * on any coach's upload; a column holding a hash of the session, which keeps
- * coach-identifying data on the row while it uploads.
+ * Who may carry on an upload. The size the page declared has no column
+ * (0005's "Not chosen: writing page-declared values at uploading"), and when
+ * this was built a coach's row kept nothing that named the coach (#192's
+ * review). So the start answers a token, clip1.<id>.<bytes>.<sig>, signed
+ * with the session key over the upload's id, its size and
+ * sessionKey(session), and every later request sends it back in the
+ * Clip-Upload header. Another account or another size reads as an unknown
+ * upload; another phone signed in to the same account carries on, since
+ * every session is an account's since #226 and its key is the account's.
+ * Not chosen: matching the row's sender columns to the session, which let
+ * any coach carry on any coach's upload; a column holding a hash of the
+ * session, which kept coach-identifying data on the row while it uploads.
  *
  * A clip's row is `uploading` from its start until it is checked. Its
  * captured_at, width, height and bytes stay empty until then, as 0005 lets

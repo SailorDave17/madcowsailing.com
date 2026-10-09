@@ -461,7 +461,7 @@ test('the form, its every refusal, the page after a request and the closed page 
 // ---- public/js/ask.js: Turnstile on the form's first focus or touch -----------
 //
 // Run as the browser runs it, against hand-written stand-ins for the few DOM
-// calls it makes, the repo's way (test/admin-code.test.js).
+// calls it makes, the repo's way (test/queue.test.js).
 
 const ASK_JS = readFileSync(join(ROOT, 'public', 'js', 'ask.js'), 'utf8');
 

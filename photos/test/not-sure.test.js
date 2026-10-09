@@ -37,10 +37,11 @@ import { hidePhotos } from '../lib/people.js';
 import { clipObjectKey, photoObjectKeys } from '../lib/photos.js';
 import { PART_PHOTOS, movePhotos } from '../lib/queue.js';
 import { WAITING_WHEN_HIDDEN, restorePhoto } from '../lib/removals.js';
-import { COOKIE_NAME, nowSeconds, signSession } from '../lib/session.js';
+import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
+import { nowSeconds } from '../lib/session.js';
 import { TEAMS } from '../lib/teams.js';
 import { ADMIN_KEY, adminCookieHeader, seedAdmin } from './admin.js';
-import { d1, seedCodes } from './d1.js';
+import { d1 } from './d1.js';
 import { jpeg } from './jpeg.js';
 import { r2 } from './r2.js';
 
@@ -59,12 +60,11 @@ afterEach(() => mock.restoreAll());
 
 /**
  * A site with Hoover JRT's Fall Regatta (open) and Spring series (closed),
- * COHSSA's Districts, the invite code, and the owner, account 1, whose session
- * every admin request sends.
+ * COHSSA's Districts, and the owner, account 1, whose session every admin
+ * request sends.
  */
 async function site() {
   const env = { DB: d1(), MEDIA: r2(), SESSION_SIGNING_KEY: ADMIN_KEY };
-  seedCodes(env.DB, 'Q2WE-R4TY-V6PA', 'K7QM-3XRD-9FWB');
   seedAdmin(env.DB);
   const fall = await createAlbum(env.DB, FALL, T0);
   const spring = await createAlbum(env.DB, SPRING, T0);
@@ -350,9 +350,17 @@ test('#228 criterion 5: photos.album_id keeps its reference, so an event holding
 
 // ---- Criterion 1: offered to senders, kept by the admins ----------------------
 
+// The open list as a sender approved for both teams sees it: an account is
+// offered its approved teams' albums only (#223), and since #226 an account's
+// is the only session. Account 50, so it meets none a test makes itself.
+const SENDER = 50;
 async function openCall(env) {
-  const cookie = await signSession(ADMIN_KEY, 2, nowSeconds());
-  const request = new Request(`${SITE}/api/albums/open`, { headers: { Cookie: `${COOKIE_NAME}=${cookie}` } });
+  env.DB.sqlite.prepare("INSERT OR IGNORE INTO accounts (id, email, name, role, requested_at) VALUES (?, 'sender@example.org', 'Sam Sender', 'parent', 1)").run(SENDER);
+  for (const { team } of TEAMS) {
+    env.DB.sqlite.prepare("INSERT OR IGNORE INTO account_teams (account_id, team, state) VALUES (?, ?, 'approved')").run(SENDER, team);
+  }
+  const cookie = await signAccountSession(ADMIN_KEY, { accountId: SENDER, version: 1 }, nowSeconds());
+  const request = new Request(`${SITE}/api/albums/open`, { headers: { Cookie: `${ACCOUNT_COOKIE}=${cookie}` } });
   return (await chain([root, albumsGuard, openList], request, { ...env, SESSION_SIGNING_KEY: ADMIN_KEY })).json();
 }
 

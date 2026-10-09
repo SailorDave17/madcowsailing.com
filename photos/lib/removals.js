@@ -40,9 +40,9 @@ import { photoObjectKeys } from './photos.js';
 // 10 takedowns an hour from one address, counting only those that hid a
 // photo: the owner's choice at #158's pickup (2026-09-30), confirming the
 // story's figure. Not chosen: counting every request, 404s included, which
-// costs a D1 write per bad request (the reason #177 budgets the join route's);
-// 5 an hour; 20 an hour. The address counts IPv4 whole and IPv6 by its /64
-// (lib/address.js), as the join limit does.
+// costs a D1 write per bad request (the reason #177 budgeted the join route's,
+// until #226 retired it); 5 an hour; 20 an hour. The address counts IPv4
+// whole and IPv6 by its /64 (lib/address.js), as the join limit did.
 export const REMOVAL_LIMIT = 10;
 export const REMOVAL_WINDOW_SECONDS = 60 * 60;
 
