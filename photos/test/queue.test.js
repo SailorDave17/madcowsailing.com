@@ -31,12 +31,12 @@ import { onRequestGet as captionsGet, onRequestPost as captionsPost } from '../f
 import { onRequestGet as image } from '../functions/api/admin/photos/[id]/[size].js';
 import { ADMIN_SIGN_IN } from '../lib/admin-session.js';
 import {
-  QUEUE_SCRIPT, TODO, adminHome, adminQueuePage, queueNotice, storageText, todoItem,
+  QUEUE_SCRIPT, TODO, adminHome, adminQueuePage, clipLength, queueNotice, storageText, todoItem,
 } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
-import { photoObjectKeys } from '../lib/photos.js';
+import { clipObjectKey, photoObjectKeys } from '../lib/photos.js';
 import {
-  FREE_STORAGE_BYTES, PART_PHOTOS, QUEUE_FORM_BYTES, nextWaiting, readPress, rejectPhotos, waitingBatches,
+  FREE_STORAGE_BYTES, PART_PHOTOS, QUEUE_FORM_BYTES, acted, nextWaiting, readPress, rejectPhotos, unsavedFields, waitingBatches,
 } from '../lib/queue.js';
 import { nowSeconds } from '../lib/session.js';
 import { ADMIN_KEY, adminCookieHeader, adminData, seedAdmin } from './admin.js';
@@ -109,14 +109,32 @@ function seedPhoto(env, album, { batch = BATCH_A, sentAt = T0, caption = null, s
   return Number(lastInsertRowid);
 }
 
-/** A clip waiting in the same table (#198's shape), which the queue must not show or touch. */
-function seedClip(env, album) {
+// A clip's one object (#198): bytes the queue never reads, which the admin
+// clip route serves (test/admin-clip.test.js holds that route).
+const CLIP_BODY = Uint8Array.from({ length: 4096 }, (_, i) => i % 251);
+
+/**
+ * A clip in the same table (#198), as the clip routes leave it. `pending`, or
+ * `approved`, is a clip the server checked: its type, length and frame size
+ * read from it, and its one object stored under its own media key.
+ * `uploading` is one whose parts are still arriving: an upload id, nothing
+ * read from it yet, and no object (migration 0016 holds both shapes).
+ */
+function seedClip(env, album, {
+  batch = BATCH_A, sentAt = T0 + 5, caption = null, state = 'pending', width = 1920, height = 1080, durationMs = 30000,
+  contentType = 'video/mp4',
+} = {}) {
   const albumId = env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(album).id;
+  const mediaKey = (++keys).toString(16).padStart(32, '0');
+  const read = state !== 'uploading';
   const { lastInsertRowid } = env.DB.sqlite.prepare(
-    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
-    'captured_at, sent_at, width, height, bytes, content_type, duration_ms) ' +
-    "VALUES (?, 'clip', 'pending', ?, ?, 'parent', 1, ?, ?, ?, 1920, 1080, 5000000, 'video/mp4', 30000)",
-  ).run(albumId, 'c'.repeat(32), BATCH_A, T0 - 60, T0 - 3600, T0 + 5);
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, caption, ' +
+    'captured_at, sent_at, width, height, bytes, content_type, duration_ms, upload_id, approved_at) ' +
+    "VALUES (?, 'clip', ?, ?, ?, 'parent', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(albumId, state, mediaKey, batch, sentAt - 60, caption, read ? sentAt - 3600 : null, sentAt,
+    read ? width : null, read ? height : null, read ? CLIP_BODY.length : null, read ? contentType : null,
+    read ? durationMs : null, read ? null : `upload-${mediaKey}`, state === 'approved' ? sentAt + 1 : null);
+  if (read) env.MEDIA.objects.set(clipObjectKey(mediaKey), { body: CLIP_BODY, httpMetadata: { contentType } });
   return Number(lastInsertRowid);
 }
 
@@ -230,29 +248,40 @@ test('the zone pin took effect: this process is not on a whole-hour offset', () 
 
 // ---- Criterion 1: grouped by batch, pictures through an admin-only route ----
 
-test('waiting photos are grouped by batch and album, oldest batch first, each with its album, time sent and count', async () => {
+test('waiting photos and clips are grouped by batch and album, oldest batch first, each with its album, time sent and count of each kind', async () => {
   const { env, fall, practice } = await site();
   const a1 = seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 + 100 });
-  const a2 = seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 + 101 });
+  // #198: a waiting clip takes its place in its batch, in the order sent.
+  const clip = seedClip(env, fall, { batch: BATCH_A, sentAt: T0 + 101 });
+  const a2 = seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 + 102 });
   const b1 = seedPhoto(env, practice, { batch: BATCH_B, sentAt: T0 + 50 });
   // A photo retried into another album keeps its first batch (#155).
   const a3 = seedPhoto(env, practice, { batch: BATCH_A, sentAt: T0 + 102 });
   seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 + 103, state: 'approved' });
-  seedClip(env, fall);
+  // The control: a clip whose parts are still arriving, and an approved one,
+  // are in the table but not waiting, as an approved photo is not.
+  const uploading = seedClip(env, fall, { batch: BATCH_A, sentAt: T0 + 104, state: 'uploading' });
+  const approved = seedClip(env, practice, { batch: BATCH_B, sentAt: T0 + 51, state: 'approved' });
 
   const html = await page(env);
   const sections = [...html.matchAll(/<section class="wrap batch"[\s\S]*?<\/section>/g)].map((m) => m[0]);
   assert.equal(sections.length, 3);
   const heads = sections.map((s) => [s.match(/<h2 [^>]*>([^<]*)<\/h2>/)[1], s.match(/<p class="batch-facts"[^>]*>([\s\S]*?)<\/p>/)[1]]);
-  // Each batch names its album's team first (#227).
+  // Each batch names its album's team first (#227), and counts each kind
+  // (owner, at #198's pickup): photos alone read as they did.
   assert.deepEqual(heads, [
     ['Tuesday practice', `Hoover JRT · Batch 1 of 3 · 1 photo · sent <time datetime="${new Date((T0 + 50) * 1000).toISOString()}">21 September 2026, 14:14 UTC</time>`],
-    ['Fall Regatta', `Hoover JRT · Batch 2 of 3 · 2 photos · sent <time datetime="${new Date((T0 + 100) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
+    ['Fall Regatta', `Hoover JRT · Batch 2 of 3 · 2 photos and 1 clip · sent <time datetime="${new Date((T0 + 100) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
     ['Tuesday practice', `Hoover JRT · Batch 3 of 3 · 1 photo · sent <time datetime="${new Date((T0 + 102) * 1000).toISOString()}">21 September 2026, 14:15 UTC</time>`],
   ]);
   const idsIn = (s) => [...s.matchAll(/<li class="waiting" id="photo-(\d+)">/g)].map((m) => Number(m[1]));
-  assert.deepEqual(sections.map(idsIn), [[b1], [a1, a2], [a3]]);
-  assert.deepEqual(forms(html).map((f) => Object.fromEntries(f.fields).ids), [`${b1}`, `${a1} ${a2}`, `${a3}`]);
+  assert.deepEqual(sections.map(idsIn), [[b1], [a1, clip, a2], [a3]]);
+  assert.deepEqual(forms(html).map((f) => Object.fromEntries(f.fields).ids), [`${b1}`, `${a1} ${clip} ${a2}`, `${a3}`]);
+  assert.match(html, /4 photos and 1 clip in 3 batches, oldest first\./);
+  for (const id of [uploading, approved]) {
+    assert.ok(row(env, id), `clip ${id} is in the table`);
+    assert.doesNotMatch(html, new RegExp(`id="photo-${id}"|clips/${id}"`), `clip ${id} is on the page`);
+  }
 });
 
 // ---- #227: the queue filters by team --------------------------------------
@@ -741,20 +770,50 @@ test('a caption typed for a photo approved since the page loaded is not saved, a
   assert.equal(gone.location, `/admin/queue?done=rejected&photo=${f}&unsaved=1&at=photo-${c}#photo-${c}`);
 });
 
-test('a clip\'s id posted in a press is neither approved nor rejected, and its caption is not changed', async () => {
+test('#198: a waiting clip\'s id in a press is captioned, approved or rejected as a photo\'s is, and named as a clip; one still uploading is touched by none', async () => {
   const { env, fall } = await site();
-  const clip = seedClip(env, fall);
-  for (const route of ['approve', 'reject', 'captions']) {
-    const res = await admin(env, 'POST', `/api/admin/queue/${route}`, { body: `ids=${clip}&caption-${clip}=a+caption&${route}=${clip}` });
-    // Exactly: a clip's caption is no unsaved caption either.
+  // The control first: a clip whose parts are still arriving was never on the
+  // page, and no press changes it, its caption included. Its state alone
+  // keeps it out of every statement, and out of the unsaved count, which
+  // counts a caption typed for a row that left the queue, never one that has
+  // not reached it.
+  const uploading = seedClip(env, fall, { state: 'uploading', sentAt: T0 + 1 });
+  const before = row(env, uploading);
+  for (const route of ['captions', 'approve', 'reject']) {
+    const named = route === 'captions' ? '' : `&${route}=${uploading}`;
+    const res = await admin(env, 'POST', `/api/admin/queue/${route}`, { body: `ids=${uploading}&caption-${uploading}=a+caption${named}` });
     assert.equal(res.headers.get('Location'), route === 'captions' ? '/admin/queue?done=saved&n=0' : '/admin/queue?error=gone', route);
-    assert.deepEqual([row(env, clip).state, row(env, clip).caption], ['pending', null], route);
+    assert.deepEqual(row(env, uploading), before, route);
   }
-  // An approved clip, which only the kind test keeps out of the unsaved
-  // count (round 3: the pending clip above was kept out by its state).
-  env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(T0 + 9, clip);
-  const res = await admin(env, 'POST', '/api/admin/queue/captions', { body: `ids=${clip}&caption-${clip}=a+caption` });
-  assert.equal(res.headers.get('Location'), '/admin/queue?done=saved&n=0');
+  // A waiting clip's caption is saved, and the press lands on its card.
+  const clip = seedClip(env, fall, { sentAt: T0 + 2 });
+  let res = await admin(env, 'POST', '/api/admin/queue/captions', { body: `ids=${clip}&caption-${clip}=Start+line` });
+  assert.equal(res.headers.get('Location'), `/admin/queue?done=saved&n=1&at=photo-${clip}#photo-${clip}`);
+  assert.equal(row(env, clip).caption, 'Start line');
+  // It is approved, and the notice's field names a clip, not a photo.
+  const start = nowSeconds();
+  res = await admin(env, 'POST', '/api/admin/queue/approve', { body: `ids=${clip}&caption-${clip}=Start+line&approve=${clip}` });
+  assert.equal(res.headers.get('Location'), `/admin/queue?done=approved&clip=${clip}`);
+  assert.equal(row(env, clip).state, 'approved');
+  assert.ok(row(env, clip).approved_at >= start, 'the approval time is now');
+  // Approved, a caption typed for it on a stale page is not saved, and is
+  // counted as a clip's (round 3 of #156's mutations held the kind test here,
+  // which kept an approved clip out of the count until #198).
+  res = await admin(env, 'POST', '/api/admin/queue/captions', { body: `ids=${clip}&caption-${clip}=changed` });
+  assert.equal(res.headers.get('Location'), '/admin/queue?done=saved&n=0&unsaved-clips=1');
+  assert.equal(row(env, clip).caption, 'Start line');
+  // Another waiting clip is rejected: its row, then its one object.
+  const other = seedClip(env, fall, { sentAt: T0 + 3 });
+  const key = clipObjectKey(row(env, other).media_key);
+  assert.ok(env.MEDIA.objects.has(key));
+  res = await admin(env, 'POST', '/api/admin/queue/reject', { body: `ids=${other}&reject=${other}` });
+  assert.equal(res.headers.get('Location'), `/admin/queue?done=rejected&clip=${other}`);
+  assert.equal(row(env, other), undefined);
+  assert.equal(env.MEDIA.objects.has(key), false);
+  // Nothing else went: the approved clip keeps its object, and the
+  // uploading clip its row.
+  assert.ok(env.MEDIA.objects.has(clipObjectKey(row(env, clip).media_key)));
+  assert.deepEqual(row(env, uploading), before);
 });
 
 // ---- Criterion 6: rejecting, confirmed in a native dialog --------------------
@@ -905,11 +964,16 @@ test('a stored batch holding markup is escaped wherever the page names it (secur
 
 // ---- Criterion 8: the admin home's counts ----------------------------------
 
-test('the admin home shows how many photos wait and the storage every stored row takes, against the free 10 GB', async () => {
+test('the admin home shows how many photos and clips wait and the storage every stored row takes, against the free 10 GB', async () => {
   const { env, fall } = await site();
   const pending = [seedPhoto(env, fall), seedPhoto(env, fall, { sentAt: T0 + 1 }), seedPhoto(env, fall, { sentAt: T0 + 2 })];
   const approved = seedPhoto(env, fall, { sentAt: T0 + 3, state: 'approved' });
   const clip = seedClip(env, fall);
+  // The control for the count: a clip whose parts are still arriving is not
+  // waiting (#198). Sent now, so the load's sweep of uploads a day old leaves
+  // it for the count to read: dated T0, it was cleared before anything was
+  // counted (#198's review).
+  const uploading = seedClip(env, fall, { sentAt: nowSeconds(), state: 'uploading' });
   // Sizes chosen so each state's share shows in the total: a sum over
   // waiting rows alone would read 8 MB (review of the first mutation round,
   // where a 5 MB waiting clip made every sum read the same).
@@ -919,9 +983,20 @@ test('the admin home shows how many photos wait and the storage every stored row
   setBytes.run(5_000_000, clip);
   env.DB.sqlite.prepare("UPDATE photos SET state = 'hidden', hidden_at = ? WHERE id = ?").run(T0 + 9, seedPhoto(env, fall, { sentAt: T0 + 4, state: 'approved' }));
   setBytes.run(1_000_000_000, rows(env).at(-1).id);
-  const html = await (await admin(env, 'GET', '/admin', { origin: null })).text();
-  assert.match(block(html, 'main'), /<a class="button todo-item" href="\/admin\/queue"><span class="todo-count">3<\/span> <span>photos waiting for approval<\/span><\/a>/);
-  assert.match(block(html, 'main'), /<p class="admin-storage">Storage used: 3\.01 GB of the free 10 GB \(30\.1%\)\.<\/p>/);
+  const home = async () => block(await (await admin(env, 'GET', '/admin', { origin: null })).text(), 'main');
+  // Since #198 the waiting clip is counted beside the photos, named apart
+  // (owner, at #198's pickup).
+  assert.match(await home(), /<a class="button todo-item" href="\/admin\/queue"><span class="todo-count">3<\/span> <span>photos and 1 clip waiting for approval<\/span><\/a>/);
+  assert.equal(row(env, uploading)?.state, 'uploading', 'the load cleared the control before the count read it');
+  assert.match(await home(), /<p class="admin-storage">Storage used: 3\.01 GB of the free 10 GB \(30\.1%\)\.<\/p>/);
+  // With no clip waiting, the words are the photos' alone, as before #198.
+  env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(T0 + 9, clip);
+  assert.match(await home(), /<span class="todo-count">3<\/span> <span>photos waiting for approval<\/span>/);
+  // And with only a clip waiting, the clip is the count, and the button is
+  // not the quiet one: there is something to do.
+  for (const id of pending) env.DB.sqlite.prepare("UPDATE photos SET state = 'approved', approved_at = ? WHERE id = ?").run(T0 + 9, id);
+  seedClip(env, fall, { sentAt: T0 + 7 });
+  assert.match(await home(), /<a class="button todo-item" href="\/admin\/queue"><span class="todo-count">1<\/span> <span>clip waiting for approval<\/span><\/a>/);
 });
 
 test('the counts read right at their edges', () => {
@@ -929,6 +1004,15 @@ test('the counts read right at their edges', () => {
   assert.match(todoItem(queue, 0), /<span class="todo-count">0<\/span> <span>photos waiting for approval\. Nothing to do\.<\/span>/);
   assert.match(todoItem(queue, 1), /<span class="todo-count">1<\/span> <span>photo waiting for approval<\/span>/);
   assert.match(todoItem(queue, 2), /<span class="todo-count">2<\/span> <span>photos waiting for approval<\/span>/);
+  // #198: with clips waiting the item names both kinds, the photos' count
+  // first, or the clips' when no photo waits; a 0 of clips changes nothing.
+  assert.equal(todoItem(queue, 2, 0), todoItem(queue, 2));
+  const said = (photos, clips) => todoItem(queue, photos, clips).match(/<a class="([^"]+)"[^>]*><span class="todo-count">(\d+)<\/span> <span>([^<]*)<\/span>/).slice(1);
+  assert.deepEqual(said(3, 1), ['button todo-item', '3', 'photos and 1 clip waiting for approval']);
+  assert.deepEqual(said(1, 2), ['button todo-item', '1', 'photo and 2 clips waiting for approval']);
+  assert.deepEqual(said(0, 1), ['button todo-item', '1', 'clip waiting for approval']);
+  assert.deepEqual(said(0, 4), ['button todo-item', '4', 'clips waiting for approval']);
+  assert.deepEqual(said(0, 0), ['button button-quiet todo-item', '0', 'photos waiting for approval. Nothing to do.']);
   assert.equal(FREE_STORAGE_BYTES, 10_000_000_000);
   assert.equal(storageText(0), 'Storage used: 0 KB of the free 10 GB (0.0%).');
   assert.equal(storageText(999_499), 'Storage used: 999 KB of the free 10 GB (0.0%).');
@@ -1409,15 +1493,22 @@ function runScript() {
   const nodes = {
     'reject-dialog': el({ showModal: () => calls.push('showModal'), show: () => calls.push('show') }),
     'reject-title': el({ textContent: 'stale title' }),
+    // The page's own words, a photo's, which the script keeps for photos (#198).
+    'reject-text': el({ textContent: PHOTO_WORDS }),
     // Neither label the script writes, so writing one is seen (review: this
     // started at 'Reject', so a script that never wrote it passed).
     'reject-confirm': el({ textContent: 'stale label' }),
   };
   const one = el({ dataset: { reject: '12', form: 'batch-a-form' } });
   const all = el({ dataset: { reject: 'all', count: '5', form: 'batch-b-form' } });
+  // #198: a clip's Reject, and Reject all on a batch of 3 photos and 2 clips
+  // and on one of 2 clips, as the page marks them.
+  const clip = el({ dataset: { reject: '14', kind: 'clip', form: 'batch-c-form' } });
+  const mixed = el({ dataset: { reject: 'all', count: '5', clips: '2', form: 'batch-c-form' } });
+  const clips = el({ dataset: { reject: 'all', count: '2', clips: '2', form: 'batch-d-form' } });
   const time = el({ dateTime: '2026-09-21T14:14:21.000Z', textContent: '21 September 2026, 14:14 UTC' });
   const captions = [el(), el()];
-  const selectors = { 'button[data-reject]': [one, all], 'time[datetime]': [time], 'input[name^="caption-"]': captions };
+  const selectors = { 'button[data-reject]': [one, all, clip, mixed, clips], 'time[datetime]': [time], 'input[name^="caption-"]': captions };
   const document = {
     getElementById: (id) => nodes[id] ?? null,
     querySelectorAll: (selector) => {
@@ -1427,8 +1518,11 @@ function runScript() {
   };
   vm.runInNewContext(SCRIPT, { document, Date });
   const type = (field, value) => { field.value = value; field.listeners.input?.(); };
-  return { nodes, one, all, time, captions, calls, type, click: (element) => element.listeners.click?.() };
+  return { nodes, one, all, clip, mixed, clips, time, captions, calls, type, click: (element) => element.listeners.click?.() };
 }
+
+// The reject dialog's words on the page (lib/admin-page.js), a photo's.
+const PHOTO_WORDS = 'A rejected photo is deleted for good, with all three of its sizes. This cannot be undone.';
 
 test('the script: a caption stops at 200 characters, counted as the server counts them, and one under the limit is left alone', () => {
   const s = runScript();
@@ -1494,4 +1588,328 @@ test('the page\'s buttons carry what the script reads: each Reject its photo or 
   assert.match(openers.find((o) => o.includes('data-reject="all"')), /data-count="2"/);
   assert.ok(openers.some((o) => o.includes(`data-reject="${a}"`)));
   assert.match(html, new RegExp(`<form method="post" action="/api/admin/queue/captions" id="${form.id}" class="batch-form">`));
+});
+
+// ---- #198: clips in the queue ---------------------------------------------------
+//
+// The owner's decisions at #198's pickup (2026-10-08): clips wait in the
+// queue and are played, approved, moved, captioned and rejected there; an
+// approved clip is shown nowhere public until #286; the player loads nothing
+// until Play; every count and notice names the two kinds apart, and reads as
+// before when no clip is among them.
+
+test('#198: a waiting clip has a card of its own in its batch: "Clip <id>", its event and team, when it was taken, its length and frame size before who sent it, and a player that loads nothing until Play', async () => {
+  const { env, fall } = await site();
+  const photo = seedPhoto(env, fall);
+  const clip = seedClip(env, fall, { sentAt: T0 + 1, durationMs: 61_001, width: 1080, height: 1920, caption: 'Mark <rounding> & "co"' });
+  env.DB.sqlite.prepare("INSERT INTO accounts (id, email, name, role, requested_at) VALUES (2, 'pat@example.org', 'Pat Parent', 'parent', 1)").run();
+  env.DB.sqlite.prepare('UPDATE photos SET account_id = 2, code_generation = 0, session_issued = 0 WHERE id = ?').run(clip);
+  const html = await page(env);
+  const c = card(html, clip);
+  assert.match(c, new RegExp(`^<li class="waiting" id="photo-${clip}">\\s*<h3>Clip ${clip}</h3>\\s*<p class="waiting-album">Fall Regatta · Hoover JRT</p>`));
+  // When it was taken, how long it runs (m:ss, rounded up) and its frame
+  // size, then who sent it, last, as a photo's line ends (#223).
+  const facts = c.match(/<p class="waiting-facts">([\s\S]*?)<\/p>/)[1].replace(/<time datetime="[^"]+">[^<]*<\/time>/, 'T');
+  assert.equal(facts, 'Taken T · 1:02 long · 1080 × 1920 · sent by Pat Parent');
+  // The player: the admin clip route, its frame size holding its place, and
+  // nothing loaded until Play. The link inside is for a browser with no
+  // video element.
+  const [, attrs, inside] = c.match(/<div class="waiting-clip">\s*<video\b([^>]*)>([\s\S]*?)<\/video>\s*<\/div>/);
+  assert.match(attrs, /^ controls /);
+  assert.deepEqual(['preload', 'width', 'height', 'src'].map((name) => attr(attrs, name)), ['none', '1080', '1920', `/api/admin/clips/${clip}`]);
+  assert.doesNotMatch(attrs, /autoplay|poster/);
+  assert.equal(inside, `<a href="/api/admin/clips/${clip}">Open clip ${clip}</a>`);
+  assert.doesNotMatch(c, /<img\b/, 'a clip\'s card shows a picture');
+  // Its caption field is a photo's by name, labelled for a clip, the stored
+  // caption escaped in it.
+  assert.match(c, new RegExp(`<label for="caption-${clip}">Caption for clip ${clip}</label>\\s*<input id="caption-${clip}" name="caption-${clip}" type="text" autocomplete="off" value="Mark &lt;rounding&gt; &amp; &quot;co&quot;">`));
+  // Its buttons are a photo's by name and value, so every press takes the
+  // clip as it takes a photo, and each is named for a clip.
+  const [form] = forms(html);
+  assert.equal(Object.fromEntries(form.fields).ids, `${photo} ${clip}`);
+  const buttons = [...c.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)]
+    .map(([, a, text]) => [text, attr(a, 'name'), attr(a, 'value') ?? attr(a, 'data-reject'), attr(a, 'aria-label')]);
+  assert.deepEqual(buttons, [
+    ['Approve', 'approve', String(clip), `Approve clip ${clip}`],
+    ['Move', 'move', String(clip), `Move clip ${clip} to the event chosen above`],
+    ['Reject', null, String(clip), `Reject clip ${clip}`],
+  ]);
+  assert.match(c, new RegExp(`data-reject="${clip}" data-kind="clip" data-form="${form.id}"`));
+  // The control: the photo beside it keeps a photo's card, words and buttons.
+  const p = card(html, photo);
+  assert.match(p, new RegExp(`<h3>Photo ${photo}</h3>`));
+  assert.match(p, new RegExp(`aria-label="Approve photo ${photo}"`));
+  assert.doesNotMatch(p, /<video|data-kind|Clip /);
+});
+
+test('#198: a clip\'s length reads m:ss, rounded up, so none reads 0:00 and one at its cap reads the cap', () => {
+  assert.deepEqual([1, 999, 1000, 1001, 30_000, 59_001, 60_000, 61_001, 179_999, 180_000, 900_000].map(clipLength),
+    ['0:01', '0:01', '0:01', '0:02', '0:30', '1:00', '1:00', '1:02', '3:00', '3:00', '15:00']);
+});
+
+test('#198: the summary and each batch count each kind, a batch of clips alone says so, and a filtered page counts its own', async () => {
+  const { env, fall } = await site();
+  const districts = await createAlbum(env.DB, { team: 'cohssa', title: 'Districts', kind: 'regatta', date: '2026-10-05' }, T0);
+  seedPhoto(env, fall, { batch: BATCH_A, sentAt: T0 });
+  seedClip(env, fall, { batch: BATCH_A, sentAt: T0 + 1 });
+  seedClip(env, fall, { batch: BATCH_A, sentAt: T0 + 2 });
+  seedClip(env, districts, { batch: BATCH_B, sentAt: T0 + 3 });
+  const facts = (html) => [...html.matchAll(/<p class="batch-facts"[^>]*>([^<]*)</g)].map((m) => m[1].replace(/ · sent $/, ''));
+  const all = await page(env);
+  assert.match(all, /1 photo and 3 clips in 2 batches, oldest first\./);
+  assert.deepEqual(facts(all), ['Hoover JRT · Batch 1 of 2 · 1 photo and 2 clips', 'COHSSA · Batch 2 of 2 · 1 clip']);
+  assert.match(await get(env, '/admin/queue?team=cohssa'), /1 clip from COHSSA in 1 batch, oldest first\./);
+  // The control: with its clips approved, Hoover JRT's batch reads as a
+  // batch of photos did before #198.
+  env.DB.sqlite.exec("UPDATE photos SET state = 'approved', approved_at = 1 WHERE kind = 'clip'");
+  const hoover = await get(env, '/admin/queue?team=hoover-jrt');
+  assert.match(hoover, /1 photo from Hoover JRT in 1 batch, oldest first\./);
+  assert.deepEqual(facts(hoover), ['Hoover JRT · Batch 1 of 1 · 1 photo']);
+});
+
+test('#198: while the page shows a clip it says once that an approved clip is kept but not shown on the site yet, and the reminder names clips', async () => {
+  const { env, fall, practice } = await site();
+  seedPhoto(env, fall);
+  seedClip(env, fall, { sentAt: T0 + 1 });
+  seedClip(env, practice, { batch: BATCH_B, sentAt: T0 + 2 });
+  const kept = (html) => html.match(/<p>An approved clip is kept, but not shown on the site yet\.<\/p>/g)?.length ?? 0;
+  let html = await page(env);
+  assert.equal(kept(html), 1, 'two batches of clips, one sentence');
+  assert.match(block(html, 'main'), /<p class="lede">Check each photo and clip against the families who opted out of the media release before you approve it\.<\/p>/);
+  // The control: with no clip on the page, neither, and D5's words are as
+  // before #198.
+  env.DB.sqlite.exec("UPDATE photos SET state = 'approved', approved_at = 1 WHERE kind = 'clip'");
+  html = await page(env);
+  assert.equal(kept(html), 0);
+  assert.match(block(html, 'main'), /<p class="lede">Check each photo against the families who opted out of the media release before you approve it\.<\/p>/);
+});
+
+test('#198: Approve all and Reject all take a batch\'s clips with its photos, and the notice counts each kind', async () => {
+  const { env, fall } = await site();
+  const a = [seedPhoto(env, fall), seedClip(env, fall, { sentAt: T0 + 1 }), seedPhoto(env, fall, { sentAt: T0 + 2 })];
+  const b = [seedClip(env, fall, { batch: BATCH_B, sentAt: T0 + 3 }), seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 4 })];
+  let res = await press(env, await page(env), 0, { approve: 'all' });
+  assert.equal(res.location, `/admin/queue?done=approved&n=2&clips=1&at=photo-${b[0]}#photo-${b[0]}`);
+  assert.deepEqual(a.map((id) => row(env, id).state), ['approved', 'approved', 'approved']);
+  assert.match(card(await get(env, res.location), b[0]), /<p role="status">Approved 2 photos and 1 clip\.<\/p>/);
+  // Reject all on the other: both rows, then the photo's three objects and
+  // the clip's one.
+  const gone = [clipObjectKey(row(env, b[0]).media_key), ...Object.values(photoObjectKeys(row(env, b[1]).media_key))];
+  const others = [...env.MEDIA.objects.keys()].filter((key) => !gone.includes(key));
+  res = await press(env, await page(env), 0, { reject: 'all' });
+  assert.equal(res.location, '/admin/queue?done=rejected&n=1&clips=1');
+  assert.deepEqual(b.map((id) => row(env, id)), [undefined, undefined]);
+  for (const key of gone) assert.equal(env.MEDIA.objects.has(key), false, key);
+  assert.deepEqual([...env.MEDIA.objects.keys()], others, 'the approved batch kept its objects');
+  assert.match(block(await get(env, res.location), 'section'), /<p role="status">Rejected 1 photo and 1 clip\. They are deleted, each photo with its three sizes\.<\/p>/);
+});
+
+for (const which of ['save', { approve: 'all' }, { reject: 'all' }]) {
+  test(`#198: ${JSON.stringify(which)} on a batch of photos and clips makes the statements it makes on photos alone: no statement more for clips`, async () => {
+    const { env, fall } = await site();
+    for (let i = 0; i < 6; i++) (i % 2 ? seedClip : seedPhoto)(env, fall, { sentAt: T0 + i, caption: `item ${i}` });
+    const html = await page(env);
+    const edits = Object.fromEntries(rows(env).map((r) => [r.id, `edited ${r.id}`]));
+    env.DB.statements.length = 0;
+    const res = await press(env, html, 0, which, edits);
+    assert.equal(res.status, 303);
+    // The counts test/queue.test.js holds for photos above, and CLAUDE.md's
+    // item 16 states: two for Save captions, four for Approve and Reject.
+    const own = env.DB.statements.filter((sql) => !GUARD_READ.test(sql)).length;
+    assert.equal(own, which === 'save' ? 2 : 4, `made ${own} statements`);
+    if (which === 'save') assert.ok(rows(env).every((r) => r.state === 'pending' && r.caption === `edited ${r.id}`));
+    if (which.approve) assert.ok(rows(env).every((r) => r.state === 'approved' && r.caption === `edited ${r.id}`));
+    if (which.reject) assert.deepEqual([rows(env).length, env.MEDIA.objects.size], [0, 0]);
+  });
+}
+
+test('#198: a bucket that refuses the delete keeps a clip\'s file as it keeps a photo\'s, and the notice and the log say so, by kind', async (t) => {
+  const { env, fall } = await site({ bucket: r2({ failDelete: true }) });
+  const photo = seedPhoto(env, fall);
+  const clip = seedClip(env, fall, { sentAt: T0 + 1 });
+  const prefixes = [photo, clip].map((id) => `photos/${row(env, id).media_key}/`);
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
+  const res = await press(env, await page(env), 0, { reject: 'all' });
+  assert.equal(res.location, '/admin/queue?done=rejected&n=1&clips=1&kept=1&kept-clips=1');
+  assert.deepEqual(rows(env), []);
+  assert.equal(logged.length, 2);
+  prefixes.forEach((prefix, i) => assert.match(logged[i], new RegExp(`^queue: bucket did not delete ${prefix} after a reject:`)));
+  assert.match(queueNotice(new URLSearchParams(res.location.split('?')[1])),
+    /Rejected 1 photo and 1 clip\. They are deleted, each photo with its three sizes\. The storage did not delete the files of 1 photo and 1 clip; the log names each one's folder\./);
+});
+
+test('#198: a reject packs whole rows into calls of at most 1,000 keys, three for a photo and one for a clip, and deletes every object', async (t) => {
+  // Through the library, as the 340-photo test above: a press names at most
+  // 200, so the packing is the library's own guarantee.
+  const { env, fall } = await site();
+  const ids = [];
+  for (let i = 0; i < 332; i++) ids.push(seedPhoto(env, fall, { sentAt: T0 + i, objects: false }));
+  for (let i = 0; i < 5; i++) ids.push(seedClip(env, fall, { sentAt: T0 + 400 + i }));
+  for (let i = 0; i < 10; i++) ids.push(seedPhoto(env, fall, { sentAt: T0 + 500 + i, objects: false }));
+  const calls = [];
+  const del = env.MEDIA.delete.bind(env.MEDIA);
+  env.MEDIA.delete = (keys) => { calls.push([keys].flat().length); return del(keys); };
+  t.mock.method(console, 'error', () => {});
+  const { rejected, clips, kept, keptClips } = await rejectPhotos(env.DB, env.MEDIA, ids);
+  assert.deepEqual([rejected.length, clips.length, kept, keptClips], [347, 5, 0, 0]);
+  assert.deepEqual([rows(env).length, env.MEDIA.objects.size], [0, 0]);
+  // 332 photos and 4 clips fill the first call to exactly 1,000 keys; the
+  // fifth clip starts the second, with the last 10 photos.
+  assert.deepEqual(calls, [1000, 31]);
+});
+
+test('#198: a press lands on a clip\'s card as on a photo\'s, and the notice shows in it', async () => {
+  const { env, fall } = await site();
+  const photo = seedPhoto(env, fall);
+  const clip = seedClip(env, fall, { sentAt: T0 + 1 });
+  const res = await press(env, await page(env), 0, { approve: photo });
+  assert.equal(res.location, `/admin/queue?done=approved&photo=${photo}&at=photo-${clip}#photo-${clip}`);
+  const html = await get(env, res.location);
+  assert.match(card(html, clip), new RegExp(`^<li class="waiting" id="photo-${clip}">\\s*<p role="status">Approved photo ${photo}\\.</p>\\s*<h3>Clip ${clip}</h3>`));
+  assert.equal(html.match(/role="status"/g).length, 1, 'the notice shows once, in the card');
+});
+
+test('#198: each notice names clips apart, and a press on photos alone reads as before', () => {
+  const albums = [{ address: '2026-10-04-fall-regatta', title: 'Fall Regatta', team: 'hoover-jrt', date: '2026-10-04', holding: false }];
+  const say = (query) => queueNotice(new URLSearchParams(query), albums).replace(/^\s*<p role="status">|<\/p>$/g, '');
+  const why = (what) => `A ${what} in "Not sure / other event" has no event to be public in, so it cannot be approved. Move it into its event below, then approve it there.`;
+  assert.equal(say('done=approved&clip=12'), 'Approved clip 12.');
+  assert.equal(say('done=approved&clips=2'), 'Approved 2 clips.');
+  assert.equal(say('done=approved&n=3&clips=1'), 'Approved 3 photos and 1 clip.');
+  assert.equal(say('done=approved&n=1&clips=2'), 'Approved 1 photo and 2 clips.');
+  assert.equal(say('done=approved&n=4'), 'Approved 4 photos.', 'photos alone, as before');
+  assert.equal(say('done=approved&photo=3&not-sure-clips=1'), `Approved photo 3. 1 clip was left waiting. ${why('clip')}`);
+  assert.equal(say('done=approved&clip=3&not-sure=1&not-sure-clips=1'), `Approved clip 3. 1 photo and 1 clip were left waiting. ${why('photo or clip')}`);
+  assert.equal(say('done=approved&photo=3&not-sure=2'), `Approved photo 3. 2 photos were left waiting. ${why('photo')}`, 'as before');
+  assert.equal(say('error=not-sure&clips=1'), `Nothing was approved. ${why('clip')}`);
+  assert.equal(say('error=not-sure&n=1&clips=1'), `Nothing was approved. ${why('photo or clip')}`);
+  assert.equal(say('error=not-sure&n=1'), `Nothing was approved. ${why('photo')}`, 'as before');
+  assert.equal(say('done=moved&clip=4&album=2026-10-04-fall-regatta'), 'Moved clip 4 to Fall Regatta (Hoover JRT, 4 October 2026). It waits there, ready to approve.');
+  assert.equal(say('done=moved&n=2&clips=1&album=2026-10-04-fall-regatta'), 'Moved 2 photos and 1 clip to Fall Regatta (Hoover JRT, 4 October 2026). They wait there, ready to approve.');
+  assert.equal(say('done=moved&clips=2&album=2026-10-04-fall-regatta'), 'Moved 2 clips to Fall Regatta (Hoover JRT, 4 October 2026). They wait there, ready to approve.');
+  assert.equal(say('done=rejected&clip=12'), 'Rejected clip 12. It is deleted.');
+  assert.equal(say('done=rejected&clips=2'), 'Rejected 2 clips. They are deleted.');
+  assert.equal(say('done=rejected&n=2&clips=1'), 'Rejected 2 photos and 1 clip. They are deleted, each photo with its three sizes.');
+  assert.equal(say('done=rejected&clip=12&kept-clips=1'), 'Rejected clip 12. It is deleted. The storage did not delete the files of 1 clip; the log names each one\'s folder.');
+  assert.equal(say('done=rejected&n=3&kept=1'), 'Rejected 3 photos. They are deleted, with their three sizes. The storage did not delete the files of 1 photo; the log names each one\'s folder.', 'as before');
+  assert.equal(say('done=saved&n=1&unsaved-clips=1'), 'Saved 1 caption. 1 caption was not saved: its clip was approved or hidden after this page was loaded.');
+  assert.equal(say('done=saved&n=0&unsaved=1&unsaved-clips=2'), 'No caption had changed. 3 captions were not saved: their photos and clips were approved or hidden after this page was loaded.');
+  assert.equal(say('done=approved&clip=5&unsaved-clips=2'), 'Approved clip 5. 2 captions were not saved: their clips were approved or hidden after this page was loaded.');
+  assert.equal(say('done=saved&n=1&unsaved=1'), 'Saved 1 caption. 1 caption was not saved: its photo was approved or hidden after this page was loaded.', 'as before');
+  // Beside an error that saved nothing, a clip's unsaved caption says nothing either.
+  assert.equal(say('error=form&unsaved-clips=1'), say('error=form'));
+  // A count that is not one names nothing, so a crafted link shows no sentence.
+  for (const query of ['done=approved&clip=<b>', 'done=approved&clips=0', 'done=rejected&clips=x', 'done=rejected&clip=-1', 'done=moved&clip=4']) {
+    assert.equal(queueNotice(new URLSearchParams(query), albums), '', query);
+  }
+  // What the routes write: one by its id and kind, more by how many of each,
+  // a 0 left out.
+  assert.deepEqual([acted([7]), acted([7], [7]), acted([7, 8, 9], [8]), acted([7, 8], [7, 8]), acted([7, 8])],
+    [{ photo: 7 }, { clip: 7 }, { n: 2, clips: 1 }, { n: null, clips: 2 }, { n: 2, clips: null }]);
+  assert.deepEqual([unsavedFields({ photos: 0, clips: 0 }), unsavedFields({ photos: 2, clips: 1 })],
+    [{ unsaved: null, 'unsaved-clips': null }, { unsaved: 2, 'unsaved-clips': 1 }]);
+});
+
+test('#198 the script: a clip\'s Reject names the clip and says it goes for good, and a photo\'s Reject after it puts the photo\'s words back', () => {
+  const s = runScript();
+  const said = () => [s.nodes['reject-title'].textContent, s.nodes['reject-text'].textContent];
+  s.click(s.clip);
+  assert.deepEqual(said(), ['Reject clip 14?', 'A rejected clip is deleted for good. This cannot be undone.']);
+  const confirm = s.nodes['reject-confirm'];
+  assert.deepEqual([confirm.textContent, confirm.value, confirm.attributes.form], ['Reject', '14', 'batch-c-form']);
+  assert.deepEqual(s.calls, ['showModal']);
+  s.click(s.one);
+  assert.deepEqual(said(), ['Reject photo 12?', PHOTO_WORDS]);
+});
+
+test('#198 the script: Reject all counts each kind in its batch and says what goes; a batch of photos alone reads as before', () => {
+  const s = runScript();
+  const said = () => [s.nodes['reject-title'].textContent, s.nodes['reject-text'].textContent, s.nodes['reject-confirm'].textContent];
+  s.click(s.mixed);
+  assert.deepEqual(said(), ['Reject all 3 photos and 2 clips in this batch?',
+    'Rejected photos and clips are deleted for good, each photo with all three of its sizes. This cannot be undone.', 'Reject 5']);
+  s.click(s.clips);
+  assert.deepEqual(said(), ['Reject all 2 clips in this batch?', 'A rejected clip is deleted for good. This cannot be undone.', 'Reject 2']);
+  // The control: the same button on photos alone.
+  s.click(s.all);
+  assert.deepEqual(said(), ['Reject all 5 photos in this batch?', PHOTO_WORDS, 'Reject 5']);
+});
+
+test('#198: the page marks what the script reads: a clip\'s Reject carries its kind, and Reject all how many clips its batch holds, only when it holds one', async () => {
+  const { env, fall } = await site();
+  const clip = seedClip(env, fall);
+  seedPhoto(env, fall, { sentAt: T0 + 6 });
+  seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 7 });
+  seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 8 });
+  const html = await page(env);
+  const openers = [...html.matchAll(/<button\b[^>]*data-reject="[^"]+"[^>]*>/g)].map((m) => m[0]);
+  assert.match(openers.find((o) => o.includes(`data-reject="${clip}"`)), /data-kind="clip"/);
+  const alls = openers.filter((o) => o.includes('data-reject="all"'));
+  assert.equal(alls.length, 2);
+  assert.match(alls[0], /data-count="2" data-clips="1"/);
+  // The control: a batch of photos carries no clip count, and a photo's
+  // Reject no kind.
+  assert.doesNotMatch(alls[1], /data-clips/);
+  assert.ok(openers.filter((o) => !o.includes(`data-reject="${clip}"`)).every((o) => !o.includes('data-kind')));
+  // And the dialog's words are an element the script can reach, a photo's.
+  assert.ok(block(html, 'dialog').includes(`<p id="reject-text">${PHOTO_WORDS}</p>`));
+});
+
+test('#198: every state of a page with clips passes the photo site\'s html-validate config, and the validator can fail it', async () => {
+  const { env, fall } = await site();
+  const notSure = env.DB.sqlite.prepare("SELECT address FROM albums WHERE holding = 1 AND team = 'hoover-jrt'").get().address;
+  // A batch of one clip, a batch of a photo and a QuickTime clip, and a clip
+  // in Not sure, whose card has no Approve.
+  seedClip(env, fall);
+  seedPhoto(env, fall, { batch: BATCH_B, sentAt: T0 + 6 });
+  const mixed = seedClip(env, fall, { batch: BATCH_B, sentAt: T0 + 7, contentType: 'video/quicktime', caption: 'a "quoted" <caption>' });
+  seedClip(env, notSure, { sentAt: T0 + 8 });
+  const batches = await waitingBatches(env.DB);
+  const notice = queueNotice(new URLSearchParams('done=approved&n=1&clips=1'));
+  for (const html of [await page(env), adminQueuePage({ batches, notice }), adminQueuePage({ batches, notice, at: `photo-${mixed}` })]) {
+    assert.equal(html.match(/<video /g).length, 3);
+    const report = await validate(html);
+    assert.deepEqual(report.results.flatMap((r) => r.messages.map((m) => `${m.ruleId}: ${m.message}`)), []);
+    // The control: a second h1 beside the lede.
+    assert.equal((await validate(html.replace('<p class="lede">', '<h1>again</h1><p class="lede">'))).valid, false);
+  }
+});
+
+test('#198: a clip is its card\'s width at its own shape, and on a phone runs edge to edge with the photo\'s two focus rings', () => {
+  const css = read('public', 'css', 'site.css');
+  const rule = (text, selector) => text.match(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.()[\]:>*]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
+  // At every width: the card's, its height from the frame size the page
+  // gives it, on night water until it plays.
+  assert.match(rule(css, '.waiting video'), /display: block;\s*width: 100%;\s*height: auto;\s*background: var\(--deep\);/);
+  const phone = css.match(/@media \(max-width: 30rem\) \{([\s\S]*?)\n\}/g)?.find((m) => m.includes('.waiting-screen'));
+  assert.ok(phone, 'no phone block for the queue');
+  // Edge to edge: the clip's box is left out of the card's margin, as the
+  // photo's link is, by one :not() with a list, whose specificity is the
+  // one :not() it replaced. So .waiting > .actions, the same specificity and
+  // later in the file, still takes the sticky buttons to the full width
+  // (#270). Two chained :not()s outrank it, and the buttons go back inside
+  // the margin (found writing #198's report, before any test held it).
+  const margin = '.waiting > :not(.waiting-screen, .waiting-clip)';
+  assert.match(rule(phone, margin), /margin-inline: var\(--space-4\);/);
+  assert.match(rule(phone, '.waiting > .actions'), /margin-inline: 0;/);
+  assert.ok(phone.indexOf(`${margin} {`) < phone.indexOf('.waiting > .actions {'), 'the actions rule must come after the margin rule');
+  assert.doesNotMatch(phone, /:not\([^)]*\):not\(/, 'chained :not()s outrank .waiting > .actions');
+  // The photo's two rings (#270), at its widths and offsets: --chalk on the
+  // box's edge, --deep inside it on the clip. The --chalk ring is a layer
+  // over the clip, since Chrome paints the player above an outline on its
+  // box (measured at 390 px at #198's review: that ring never showed).
+  assert.match(rule(phone, '.waiting-clip'), /position: relative;/);
+  const outer = rule(phone, '.waiting-clip:has(video:focus-visible)::after');
+  const inner = rule(phone, '.waiting-clip video:focus-visible');
+  assert.match(outer, /content: '';\s*position: absolute;\s*inset: 0;\s*border: calc\(var\(--space-1\) \/ 2\) solid var\(--chalk\);\s*pointer-events: none;/);
+  assert.equal(rule(phone, '.waiting-clip:has(video:focus-visible)'), '', 'an outline on the box paints under the player');
+  assert.match(inner, /outline-color: var\(--deep\);\s*outline-offset: calc\(-1 \* var\(--space-1\)\);/);
+  assert.match(rule(phone, '.waiting-screen:focus-visible'), /outline-offset: calc\(-1 \* var\(--space-1\) \/ 2\);/);
+  assert.match(rule(phone, '.waiting-screen:focus-visible img'), /outline: calc\(var\(--space-1\) \/ 2\) solid var\(--deep\);\s*outline-offset: calc\(-1 \* var\(--space-1\)\);/);
+  // A browser without :has() rings the box on any focus inside it.
+  assert.match(phone, /@supports not selector\(:has\(\*\)\) \{\s*\.waiting-clip:focus-within::after \{\s*content: '';\s*position: absolute;\s*inset: 0;\s*border: calc\(var\(--space-1\) \/ 2\) solid var\(--chalk\);/);
+  // The control: the matcher reads a rule's body, and a rule that is not
+  // there reads empty.
+  assert.equal(rule(phone, '.waiting-clip:hover'), '');
 });

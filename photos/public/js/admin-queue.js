@@ -9,20 +9,43 @@
  * functions/admin/queue.js, behind the admin guard; this file is public, and
  * holds no photo and no address.
  *
+ * Since #198 the dialog names a clip: a clip's Reject carries data-kind="clip",
+ * and Reject all how many of its batch are clips (data-clips), so the title
+ * counts each kind and the words say what goes. The page's own words are a
+ * photo's, and come back for the next photo.
+ *
  * The CSP allows no inline script, so this is a file of its own. */
 (() => {
   'use strict';
 
   const dialog = document.getElementById('reject-dialog');
   const title = document.getElementById('reject-title');
+  const text = document.getElementById('reject-text');
   const confirm = document.getElementById('reject-confirm');
+
+  // What a reject deletes: a photo's three sizes, a clip's one file.
+  const PHOTO_WORDS = text.textContent;
+  const CLIP_WORDS = 'A rejected clip is deleted for good. This cannot be undone.';
+  const BOTH_WORDS = 'Rejected photos and clips are deleted for good, each photo with all three of its sizes. This cannot be undone.';
+
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
   for (const button of document.querySelectorAll('button[data-reject]')) {
     button.addEventListener('click', () => {
       const all = button.dataset.reject === 'all';
-      const count = button.dataset.count;
-      title.textContent = all ? `Reject all ${count} photos in this batch?` : `Reject photo ${button.dataset.reject}?`;
-      confirm.textContent = all ? `Reject ${count}` : 'Reject';
+      if (all) {
+        const count = Number(button.dataset.count);
+        const clips = Number(button.dataset.clips ?? 0);
+        const photos = count - clips;
+        const both = [photos ? plural(photos, 'photo', 'photos') : '', clips ? plural(clips, 'clip', 'clips') : ''];
+        title.textContent = `Reject all ${both.filter(Boolean).join(' and ')} in this batch?`;
+        text.textContent = !clips ? PHOTO_WORDS : photos ? BOTH_WORDS : CLIP_WORDS;
+      } else {
+        const clip = button.dataset.kind === 'clip';
+        title.textContent = `Reject ${clip ? 'clip' : 'photo'} ${button.dataset.reject}?`;
+        text.textContent = clip ? CLIP_WORDS : PHOTO_WORDS;
+      }
+      confirm.textContent = all ? `Reject ${button.dataset.count}` : 'Reject';
       confirm.value = button.dataset.reject;
       confirm.setAttribute('form', button.dataset.form);
       dialog.showModal();

@@ -12,11 +12,16 @@
  * The batch's captions are saved first, as every press saves them
  * (lib/queue.js). A rejected photo's own caption goes with its row. 303 back
  * to the queue, at the next waiting photo, as approve.js says (#270).
+ *
+ * Since #198 a waiting clip is rejected here too: its row, then its one
+ * object. The notice names clips apart, as approve.js says, and the files the
+ * bucket kept by kind (&kept=<photos>, &kept-clips=<clips>), from the kind
+ * the DELETE returns.
  */
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
   QUEUE_FORM_BYTES, acted, nextWaiting, photoAt, queueLocation, readPress, rejectPhotos, saveCaptions, unsavedCaptions,
-  waitingOrder,
+  unsavedFields, waitingOrder,
 } from '../../../../lib/queue.js';
 import { teamOf } from '../../../../lib/teams.js';
 
@@ -25,13 +30,15 @@ export async function onRequestPost({ request, env }) {
   const team = teamOf(request);
   const press = readPress(await readForm(request, QUEUE_FORM_BYTES), 'reject');
   if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
-  const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
+  const unsaved = unsavedFields(await unsavedCaptions(env.DB, press.captions));
   await saveCaptions(env.DB, press.captions);
   const order = await waitingOrder(env.DB, team);
-  const { rejected, kept } = await rejectPhotos(env.DB, env.MEDIA, press.targets);
+  const { rejected, clips, kept, keptClips } = await rejectPhotos(env.DB, env.MEDIA, press.targets);
   const next = photoAt(nextWaiting(order, press.ids, press.targets, rejected));
-  if (!rejected.length) return seeOther(queueLocation({ error: 'gone', unsaved, team }, next));
-  return seeOther(queueLocation({ done: 'rejected', ...acted(rejected), kept: kept || null, unsaved, team }, next));
+  if (!rejected.length) return seeOther(queueLocation({ error: 'gone', ...unsaved, team }, next));
+  return seeOther(queueLocation({
+    done: 'rejected', ...acted(rejected, clips), kept: kept || null, 'kept-clips': keptClips || null, ...unsaved, team,
+  }, next));
 }
 
 /** GET changes nothing, as approve.js's GET says, and keeps the press's ?team=. */

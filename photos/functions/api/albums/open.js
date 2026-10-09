@@ -27,8 +27,19 @@
  *
  * A read only: it writes nothing, and no cache keeps it, so an album closed
  * on the admin page, or a team revoked, leaves the list at the next request.
+ *
+ * Since #198 it also answers `clip`, { seconds, bytes }: the longest and the
+ * largest clip this session may send (lib/photos.js, CLIP_SECONDS and
+ * CLIP_BYTES), so the share page can refuse one over its caps as soon as it is
+ * chosen, before any of it is sent. The page cannot tell a coach from a parent
+ * otherwise: the session routes answer 204 and nothing else. POST
+ * /api/upload/clips refuses an over-cap clip as well, whatever the page does.
+ * `clip.dayBytes` is the session's daily clip budget (CLIP_DAY_BYTES), which
+ * the page names when the start refuses a clip past it: only the server knows
+ * how much of it a day has spent, across every phone on an account.
  */
 import { openAlbums } from '../../../lib/albums.js';
+import { clipBytes, clipDayBytes, clipSeconds } from '../../../lib/photos.js';
 import { TEAMS, teamName } from '../../../lib/teams.js';
 
 const ORDER = TEAMS.map(({ team }) => team);
@@ -42,5 +53,6 @@ export async function onRequestGet({ env, data }) {
   const other = open.filter((album) => album.holding)
     .sort((a, b) => ORDER.indexOf(a.team) - ORDER.indexOf(b.team))
     .map(({ address, team }) => ({ address, team, teamName: teamName(team) }));
-  return Response.json({ albums, other }, { headers: { 'Cache-Control': 'no-store' } });
+  const clip = { seconds: clipSeconds(session), bytes: clipBytes(session), dayBytes: clipDayBytes(session) };
+  return Response.json({ albums, other, clip }, { headers: { 'Cache-Control': 'no-store' } });
 }

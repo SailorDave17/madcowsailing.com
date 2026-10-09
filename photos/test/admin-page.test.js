@@ -64,18 +64,22 @@ function todoList(html) {
     .map(([, classes, href, count, words]) => ({ classes, href, count: Number(count), words }));
 }
 
-/** A photo row in `state` (#154's shape), or a clip (#198's), in the album at `address`. */
+/**
+ * A photo row in `state` (#154's shape), or a clip (#198's), in the album at
+ * `address`. A clip `uploading` names its upload, as migration 0016 requires,
+ * and one in any other state names none.
+ */
 function seedRow(db, address, { kind = 'photo', state }) {
   const albumId = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   const key = db.sqlite.prepare('SELECT COUNT(*) AS n FROM photos').get().n.toString(16).padStart(32, '0');
-  const approvedAt = state === 'pending' ? null : T0 + 1;
+  const approvedAt = state === 'pending' || state === 'uploading' ? null : T0 + 1;
   const hiddenAt = state === 'hidden' ? T0 + 2 : null;
   if (kind === 'clip') {
     db.sqlite.prepare(
       'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
-      'captured_at, sent_at, width, height, bytes, content_type, duration_ms, approved_at, hidden_at) ' +
-      "VALUES (?, 'clip', ?, ?, 'b', 'parent', 1, 1, ?, ?, 1920, 1080, 5000000, 'video/mp4', 30000, ?, ?)",
-    ).run(albumId, state, key, T0, T0, approvedAt, hiddenAt);
+      'captured_at, sent_at, width, height, bytes, content_type, duration_ms, upload_id, approved_at, hidden_at) ' +
+      "VALUES (?, 'clip', ?, ?, 'b', 'parent', 1, 1, ?, ?, 1920, 1080, 5000000, 'video/mp4', 30000, ?, ?, ?)",
+    ).run(albumId, state, key, T0, T0, state === 'uploading' ? `upload-${key}` : null, approvedAt, hiddenAt);
     return;
   }
   db.sqlite.prepare(
@@ -98,18 +102,22 @@ function seedPerson(db, email, teams) {
 /** GET /admin over `db`, as the guard leaves it. */
 const homeOf = async (db) => (await home({ data: { admin: ADMIN }, env: { DB: db } })).text();
 
-test('/admin opens on what is waiting: photos, account requests and removal requests, in that order, each counted from the rows (#269, criterion 1)', async () => {
+test('/admin opens on what is waiting: photos and clips, account requests and removal requests, in that order, each counted from the rows (#269, criterion 1; #198)', async () => {
   const db = d1();
   seedAdmin(db);
   const fall = await createAlbum(db, FALL, T0);
-  // Counts chosen apart, 3, 2 and 1, so two counts swapped between items
-  // read wrong. Beside each, rows that must not count: an approved photo, and
-  // a waiting and a hidden clip (clips wait for #198), for the photos and the
-  // removal requests; for the requests, a person asking for both teams (one
-  // person, counted once), and people approved, turned down or revoked.
+  // Counts chosen apart, 3 photos and 4 clips, 2 and 1, so two counts
+  // swapped between items read wrong. Since #198 a waiting clip counts beside
+  // the photos, named apart (owner, at #198's pickup). Beside each, rows that
+  // must not count: an approved photo, a clip whose parts are still
+  // arriving, and a hidden clip, which is no removal request until #286
+  // brings clips into removals; for the requests, a person asking for both
+  // teams (one person, counted once), and people approved, turned down or
+  // revoked.
   for (let i = 0; i < 3; i++) seedRow(db, fall, { state: 'pending' });
+  for (let i = 0; i < 4; i++) seedRow(db, fall, { kind: 'clip', state: 'pending' });
   seedRow(db, fall, { state: 'approved' });
-  seedRow(db, fall, { kind: 'clip', state: 'pending' });
+  seedRow(db, fall, { kind: 'clip', state: 'uploading' });
   seedRow(db, fall, { state: 'hidden' });
   seedRow(db, fall, { kind: 'clip', state: 'hidden' });
   seedPerson(db, 'both@example.org', { 'hoover-jrt': 'requested', cohssa: 'requested' });
@@ -119,7 +127,7 @@ test('/admin opens on what is waiting: photos, account requests and removal requ
   seedPerson(db, 'gone@example.org', { 'hoover-jrt': 'revoked' });
   const html = await homeOf(db);
   assert.deepEqual(todoList(html), [
-    { classes: 'button todo-item', href: '/admin/queue', count: 3, words: 'photos waiting for approval' },
+    { classes: 'button todo-item', href: '/admin/queue', count: 3, words: 'photos and 4 clips waiting for approval' },
     { classes: 'button todo-item', href: '/admin/people', count: 2, words: 'account requests waiting' },
     { classes: 'button todo-item', href: '/admin/removals', count: 1, words: 'removal request waiting' },
   ]);

@@ -33,16 +33,25 @@
  * Reject read the queue's order first (waitingOrder), one more statement,
  * which reads every waiting row as the page's own load does.
  *
- * The queue shows photos only. A clip (#198) is a pending row too, and every
- * statement here names kind = 'photo', so a clip's id posted to a press
- * changes nothing; #198 adds clips to the queue.
- *
  * Since #228 a press can also move waiting photos into one of their team's
  * events (movePhotos), and a photo in a team's "Not sure / other event" is
  * never approved here (approvePhotos), until it is moved.
+ *
+ * Since #198 a clip waits here beside the photos (owner, at #198's pickup):
+ * it is shown, captioned, approved, moved and rejected as a photo is, in its
+ * batch, and every statement here takes both kinds but storedPhoto() and
+ * storedClip(), which serve one each. Its state keeps a clip still arriving
+ * in parts out: it is `uploading` until the server has checked it
+ * (lib/clips.js), and only `pending` waits. An approved clip is kept and
+ * shown nowhere public until #286, since every public and removals statement
+ * still names kind = 'photo' (lib/public.js, lib/removals.js). The presses
+ * name clips apart in their notices, from the kind each statement already
+ * returns, so no press makes a statement more for them (CLAUDE.md, item 16,
+ * counts them). Not chosen: a page of their own for clips, which would split
+ * a batch's photos from its clips.
  */
 import { CONTROL } from './albums.js';
-import { photoObjectKeys, readCaption } from './photos.js';
+import { clipObjectKey, photoObjectKeys, readCaption } from './photos.js';
 
 // The most photos one form shows, and so the most one press may name. A batch
 // holding more is shown in parts of this many, each its own form (owner, at
@@ -168,10 +177,10 @@ export function readPress(fields, name) {
 }
 
 /**
- * Save each caption that differs from what is stored, on photos still
- * waiting, and return the ids whose caption changed, in no set order. One
- * statement: the captions travel as a JSON object keyed by id. A caption the
- * CHECK would refuse never gets here, since readPress() refused it first.
+ * Save each caption that differs from what is stored, on photos and clips
+ * still waiting, and return the ids whose caption changed, in no set order.
+ * One statement: the captions travel as a JSON object keyed by id. A caption
+ * the CHECK would refuse never gets here, since readPress() refused it first.
  * Save captions lands on the last of them in the page's order (#270).
  */
 export async function saveCaptions(db, captions) {
@@ -180,7 +189,7 @@ export async function saveCaptions(db, captions) {
     .prepare(
       'UPDATE photos SET caption = c.caption ' +
       'FROM (SELECT CAST(key AS INTEGER) AS id, value AS caption FROM json_each(?)) AS c ' +
-      "WHERE photos.id = c.id AND photos.kind = 'photo' AND photos.state = 'pending' " +
+      "WHERE photos.id = c.id AND photos.state = 'pending' " +
       'AND photos.caption IS NOT c.caption ' +
       'RETURNING photos.id',
     )
@@ -190,75 +199,89 @@ export async function saveCaptions(db, captions) {
 }
 
 /**
- * How many of `captions` were typed for photos no longer waiting, approved or
- * hidden since the page loaded, and differ from what they carry, so will not
- * be saved. Run before the press saves or changes anything: after the save
- * every waiting photo's caption matches, so the state test would decide
- * nothing, and after an approval the press's own photos would count. A
- * photo rejected meanwhile has no row, and its caption no longer matters.
+ * How many of `captions` were typed for photos and clips no longer waiting,
+ * approved or hidden since the page loaded, and differ from what they carry,
+ * so will not be saved: { photos, clips }, each kind counted apart for the
+ * notice (#198), in the one statement. Run before the press saves or changes
+ * anything: after the save every waiting row's caption matches, so the state
+ * test would decide nothing, and after an approval the press's own photos
+ * would count. A photo rejected meanwhile has no row, and its caption no
+ * longer matters. A clip still uploading was never on the page, so only the
+ * two states a waiting row leaves for count.
  */
 export async function unsavedCaptions(db, captions) {
-  if (!Object.keys(captions).length) return 0;
+  if (!Object.keys(captions).length) return { photos: 0, clips: 0 };
   return db
     .prepare(
-      'SELECT COUNT(*) AS n FROM photos AS p ' +
+      "SELECT COUNT(CASE WHEN p.kind = 'photo' THEN 1 END) AS photos, " +
+      "COUNT(CASE WHEN p.kind = 'clip' THEN 1 END) AS clips FROM photos AS p " +
       'JOIN (SELECT CAST(key AS INTEGER) AS id, value AS caption FROM json_each(?)) AS c ON p.id = c.id ' +
-      "WHERE p.kind = 'photo' AND p.state <> 'pending' AND p.caption IS NOT c.caption",
+      "WHERE p.state IN ('approved', 'hidden') AND p.caption IS NOT c.caption",
     )
     .bind(JSON.stringify(captions))
-    .first('n');
+    .first();
 }
 
+/** unsavedCaptions()'s counts as the notice's fields, each left out at 0. */
+export const unsavedFields = ({ photos, clips }) => ({ unsaved: photos || null, 'unsaved-clips': clips || null });
+
+// The ids among a statement's RETURNING rows that are clips (#198), which a
+// notice names apart (acted).
+const clipIds = (rows) => rows.filter((row) => row.kind === 'clip').map((row) => row.id);
+
 /**
- * Approve the photos among `ids` that are still waiting, recording `now`, and
- * return the ids approved. Nothing else about any row changes.
+ * Approve the photos and clips among `ids` that are still waiting, recording
+ * `now`, and return { approved, clips }: the ids approved, and which of them
+ * are clips (#198), from the same statement. Nothing else about any row
+ * changes. An approved clip is kept and shown nowhere public until #286.
  *
- * A photo still in a team's "Not sure / other event" (#228) is left waiting:
- * it has no event to be public in until an admin moves it into one
- * (movePhotos). Migration 0015 refuses the change too, but it would refuse
- * the whole statement, so the photos beside it in a press would not be
- * approved either; here they are, and notSureWaiting() says why the rest
- * were not.
+ * A photo or clip still in a team's "Not sure / other event" (#228) is left
+ * waiting: it has no event to be public in until an admin moves it into one
+ * (movePhotos). Migration 0015 refuses the change too, whatever the kind, but
+ * it would refuse the whole statement, so the rows beside it in a press would
+ * not be approved either; here they are, and notSureWaiting() says why the
+ * rest were not.
  */
 export async function approvePhotos(db, ids, now) {
   const { results } = await db
     .prepare(
       "UPDATE photos SET state = 'approved', approved_at = ? " +
-      "WHERE kind = 'photo' AND state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
+      "WHERE state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
       'AND album_id NOT IN (SELECT id FROM albums WHERE holding = 1) ' +
-      'RETURNING id',
+      'RETURNING id, kind',
     )
     .bind(now, JSON.stringify(ids))
     .all();
-  return results.map((row) => row.id);
+  return { approved: results.map((row) => row.id), clips: clipIds(results) };
 }
 
 /**
- * How many of `ids` are photos waiting in a team's Not sure album (#228):
- * what an approval left alone, so the queue can say why.
+ * How many of `ids` wait in a team's Not sure album (#228), as { photos,
+ * clips } (#198): what an approval left alone, so the queue can say why.
  */
 export async function notSureWaiting(db, ids) {
   return db
     .prepare(
-      'SELECT COUNT(*) AS n FROM photos ' +
-      "WHERE kind = 'photo' AND state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
+      "SELECT COUNT(CASE WHEN kind = 'photo' THEN 1 END) AS photos, " +
+      "COUNT(CASE WHEN kind = 'clip' THEN 1 END) AS clips FROM photos " +
+      "WHERE state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
       'AND album_id IN (SELECT id FROM albums WHERE holding = 1)',
     )
     .bind(JSON.stringify(ids))
-    .first('n');
+    .first();
 }
 
 /**
- * The teams of the albums the waiting photos among `ids` are in: one team
- * for any press the page made, since a batch is one album. A press naming
- * none still waiting gets [], and one naming two teams was not made by the
- * page.
+ * The teams of the albums the waiting photos and clips among `ids` are in:
+ * one team for any press the page made, since a batch is one album. A press
+ * naming none still waiting gets [], and one naming two teams was not made by
+ * the page.
  */
 export async function waitingTeams(db, ids) {
   const { results } = await db
     .prepare(
       'SELECT DISTINCT a.team FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
-      "WHERE p.kind = 'photo' AND p.state = 'pending' AND p.id IN (SELECT value FROM json_each(?))",
+      "WHERE p.state = 'pending' AND p.id IN (SELECT value FROM json_each(?))",
     )
     .bind(JSON.stringify(ids))
     .all();
@@ -266,68 +289,90 @@ export async function waitingTeams(db, ids) {
 }
 
 /**
- * Move the photos among `ids` that are still waiting into the event at
- * `address` (#228), and return the ids moved. Any waiting photo moves, from
- * an event or from a Not sure album (owner, at #228's pickup), but only
- * within its team, and only into an event, open or closed, never into a Not
- * sure album. One statement, so the album's team is read as the photos move:
- * an album moved to the other team meanwhile takes nothing. A photo already
- * in that event is left as it is. Its batch stays, so the queue shows the
- * moved photos as a batch of the event they are in now (waitingBatches).
+ * Move the photos and clips among `ids` that are still waiting into the event
+ * at `address` (#228), and return { moved, clips }: the ids moved, and which
+ * of them are clips (#198). Any waiting photo moves, from an event or from a
+ * Not sure album (owner, at #228's pickup), but only within its team, and
+ * only into an event, open or closed, never into a Not sure album. One
+ * statement, so the album's team is read as the photos move: an album moved
+ * to the other team meanwhile takes nothing. A photo already in that event is
+ * left as it is. Its batch stays, so the queue shows the moved photos as a
+ * batch of the event they are in now (waitingBatches).
  */
 export async function movePhotos(db, ids, address) {
   const { results } = await db
     .prepare(
       'UPDATE photos SET album_id = t.id ' +
       'FROM (SELECT id, team FROM albums WHERE address = ? AND holding = 0) AS t ' +
-      "WHERE photos.kind = 'photo' AND photos.state = 'pending' " +
+      "WHERE photos.state = 'pending' " +
       'AND photos.id IN (SELECT value FROM json_each(?)) ' +
       'AND photos.album_id <> t.id ' +
       'AND photos.album_id IN (SELECT id FROM albums WHERE team = t.team) ' +
-      'RETURNING photos.id',
+      'RETURNING photos.id, photos.kind',
     )
     .bind(address, JSON.stringify(ids))
     .all();
-  return results.map((row) => row.id);
+  return { moved: results.map((row) => row.id), clips: clipIds(results) };
 }
 
+// The R2 keys a waiting row's media lies under: a photo's three sizes, or a
+// clip's one object (#198), all under its photos/<key>/ prefix.
+const objectKeys = (row) => (row.kind === 'clip'
+  ? [clipObjectKey(row.media_key)]
+  : Object.values(photoObjectKeys(row.media_key)));
+
 /**
- * Reject the photos among `ids` that are still waiting: delete their rows,
- * then their three objects each. Returns { rejected, kept }: the ids whose
- * rows were deleted, and how many of those photos' objects the bucket did
- * not delete.
+ * Reject the photos and clips among `ids` that are still waiting: delete
+ * their rows, then their objects, a photo's three and a clip's one. Returns
+ * { rejected, clips, kept, keptClips }: the ids whose rows were deleted,
+ * which of them were clips (#198), and how many photos and how many clips
+ * kept objects the bucket did not delete. The kind comes back from the
+ * DELETE itself, so a press makes no statement more for clips (CLAUDE.md,
+ * item 16, counts them).
  *
  * Rows first, the mirror of the upload's objects-first: either way no row
  * ever names objects that are gone. A delete the bucket refuses leaves
  * objects no row names, invisible and costing storage, so the log names each
- * photo's photos/<key>/ prefix, in the words the upload route uses, and
- * README.md says how to delete them by it.
+ * row's photos/<key>/ prefix, in the words the upload route uses, and
+ * README.md says how to delete them by it. A clip's object sits under the
+ * same prefix (lib/photos.js, clipObjectKey), so the same recipe covers it.
  */
 export async function rejectPhotos(db, bucket, ids) {
   const { results } = await db
     .prepare(
-      "DELETE FROM photos WHERE kind = 'photo' AND state = 'pending' " +
-      'AND id IN (SELECT value FROM json_each(?)) RETURNING id, media_key',
+      "DELETE FROM photos WHERE state = 'pending' " +
+      'AND id IN (SELECT value FROM json_each(?)) RETURNING id, media_key, kind',
     )
     .bind(JSON.stringify(ids))
     .all();
-  const rejected = results.map((row) => row.id);
-  const mediaKeys = results.map((row) => row.media_key);
+  // Whole rows per call, as many as R2's 1,000 keys take, so a refused call
+  // names exactly its rows: 333 photos, or 1,000 clips, or a mix. Until #198,
+  // when every row was a photo's three keys, that was a fixed 333.
+  const calls = [];
+  for (const row of results) {
+    const keys = objectKeys(row);
+    const last = calls.at(-1);
+    if (last && last.keys.length + keys.length <= DELETE_KEYS_MAX) {
+      last.rows.push(row);
+      last.keys.push(...keys);
+    } else {
+      calls.push({ rows: [row], keys });
+    }
+  }
   let kept = 0;
-  // Whole photos per call, so a refused call names exactly its photos.
-  const perCall = Math.floor(DELETE_KEYS_MAX / 3);
-  for (let i = 0; i < mediaKeys.length; i += perCall) {
-    const chunk = mediaKeys.slice(i, i + perCall);
+  let keptClips = 0;
+  for (const call of calls) {
     try {
-      await bucket.delete(chunk.flatMap((key) => Object.values(photoObjectKeys(key))));
+      await bucket.delete(call.keys);
     } catch (err) {
-      kept += chunk.length;
-      for (const mediaKey of chunk) {
+      for (const { kind, media_key: mediaKey } of call.rows) {
+        if (kind === 'clip') keptClips += 1;
+        else kept += 1;
         console.error(`queue: bucket did not delete photos/${mediaKey}/ after a reject:`, err instanceof Error ? err.message : String(err));
       }
     }
   }
-  return { rejected, kept };
+  return { rejected: results.map((row) => row.id), clips: clipIds(results), kept, keptClips };
 }
 
 /**
@@ -344,8 +389,17 @@ export function queueLocation(params, at = null) {
   return `/admin/queue${query ? `?${query}` : ''}${at ? `#${at}` : ''}`;
 }
 
-/** The notice's count for the photos a press acted on: one by its id, more by how many. */
-export const acted = (ids) => (ids.length === 1 ? { photo: ids[0] } : { n: ids.length });
+/**
+ * The notice's count for what a press acted on: one by its id, more by how
+ * many. `clips` are the ids among them that are clips (#198): one clip is
+ * `clip`, not `photo`, and more are counted apart, `n` photos and `clips`
+ * clips, each left out at 0, so a press that acted on photos alone reads as
+ * it did before clips.
+ */
+export const acted = (ids, clips = []) => {
+  if (ids.length === 1) return clips.length ? { clip: ids[0] } : { photo: ids[0] };
+  return { n: ids.length - clips.length || null, clips: clips.length || null };
+};
 
 /**
  * Every waiting photo, grouped by batch and album, oldest batch first, each
@@ -370,16 +424,24 @@ export const acted = (ids) => (ids.length === 1 ? { photo: ids[0] } : { n: ids.l
  *
  * A batch sent to a team's "Not sure / other event" says so (`album.holding`,
  * #228), so the page offers no approval for it.
+ *
+ * Since #198 a batch's `photos` holds its waiting clips too, in the same sent
+ * order, each with `kind` saying which it is. A photo carries its three
+ * sizes; a clip its frame size and how long it runs, in milliseconds. The
+ * list keeps its name, since every caller and the page's own order
+ * (waitingOrder) read it. A clip still `uploading` is not waiting.
  */
 export async function waitingBatches(db, team = null) {
+  // The columns from p.kind on are new since #198; the statement still opens
+  // on p.id, p.batch, p.sender, which test/not-sure.test.js reads it by.
   const statement = db.prepare(
-    'SELECT p.id, p.batch, p.sender, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
-    'p.grid_width, p.grid_height, p.screen_width, p.screen_height, ' +
+    'SELECT p.id, p.batch, p.sender, p.kind, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
+    'p.grid_width, p.grid_height, p.screen_width, p.screen_height, p.duration_ms, ' +
     'a.id AS album_id, a.title AS album_title, a.address AS album_address, a.team AS album_team, ' +
     'a.holding AS album_holding, acc.name AS account_name ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
     'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
-    "WHERE p.state = 'pending' AND p.kind = 'photo' " +
+    "WHERE p.state = 'pending' " +
     (team === null ? '' : 'AND a.team = ? ') +
     'ORDER BY p.sent_at, p.id',
   );
@@ -401,19 +463,25 @@ export async function waitingBatches(db, team = null) {
         photos: [],
       });
     }
-    batches.get(key).photos.push({
+    const common = {
       id: row.id,
+      kind: row.kind,
       sender: row.sender,
       accountName: row.account_name,
       caption: row.caption,
       capturedAt: row.captured_at,
       sentAt: row.sent_at,
-      sizes: {
-        grid: { width: row.grid_width, height: row.grid_height },
-        screen: { width: row.screen_width, height: row.screen_height },
-        full: { width: row.width, height: row.height },
-      },
-    });
+    };
+    batches.get(key).photos.push(row.kind === 'clip'
+      ? { ...common, width: row.width, height: row.height, durationMs: row.duration_ms }
+      : {
+        ...common,
+        sizes: {
+          grid: { width: row.grid_width, height: row.grid_height },
+          screen: { width: row.screen_width, height: row.screen_height },
+          full: { width: row.width, height: row.height },
+        },
+      });
   }
   return [...batches.values()].flatMap((batch, i) => {
     const parts = Math.ceil(batch.photos.length / PART_PHOTOS);
@@ -430,22 +498,25 @@ export async function waitingBatches(db, team = null) {
 }
 
 /**
- * What the admin home shows: how many photos wait, how many removal requests
- * wait (#158: a photo taken down with "Remove this photo" is hidden until an
- * admin puts it back or deletes it), and the bytes every stored row's objects
- * take, whatever its state. One query. The sum reads every row, about 11,000
- * at the storage allowance (CLAUDE.md item 8) against D1's 5 million a day,
- * and only an admin loads the home.
+ * What the admin home shows: how many photos wait, how many clips wait
+ * (`clips`, #198), how many removal requests wait (#158: a photo taken down
+ * with "Remove this photo" is hidden until an admin puts it back or deletes
+ * it), and the bytes every stored row's objects take, whatever its state. One
+ * query. The sum reads every row, about 11,000 at the storage allowance
+ * (CLAUDE.md item 8) against D1's 5 million a day, and only an admin loads
+ * the home. A clip still uploading has no bytes yet, and a removal request is
+ * a photo's until #286 brings clips into removals.
  */
 export async function queueSummary(db) {
   const row = await db
     .prepare(
       "SELECT COUNT(CASE WHEN state = 'pending' AND kind = 'photo' THEN 1 END) AS waiting, " +
+      "COUNT(CASE WHEN state = 'pending' AND kind = 'clip' THEN 1 END) AS clips, " +
       "COUNT(CASE WHEN state = 'hidden' AND kind = 'photo' THEN 1 END) AS removals, " +
       'COALESCE(SUM(bytes), 0) AS bytes FROM photos',
     )
     .first();
-  return { waiting: row.waiting, removals: row.removals, bytes: row.bytes };
+  return { waiting: row.waiting, clips: row.clips, removals: row.removals, bytes: row.bytes };
 }
 
 /**
@@ -453,7 +524,8 @@ export async function queueSummary(db) {
  * image route serves from: a waiting photo in the queue, and an approved or
  * hidden one too, so a size opened from the queue still opens after the
  * approval. A photo is never `uploading` (the table's CHECK keeps that for
- * clips), so the kind is the whole test.
+ * clips), so the kind is the whole test. A clip is never a photo here: it
+ * has storedClip().
  */
 export async function storedPhoto(db, id) {
   if (id === null) return null;
@@ -462,4 +534,22 @@ export async function storedPhoto(db, id) {
     .bind(id)
     .first();
   return row?.media_key ?? null;
+}
+
+/**
+ * A stored clip (#198): { mediaKey, contentType, bytes }, or null for an id
+ * that is none, a photo, or a clip still `uploading`, whose object is not
+ * whole and has not been checked (lib/clips.js). What the admin clip route
+ * serves from (functions/api/admin/clips/[id].js): a waiting clip in the
+ * queue, and an approved or hidden one too, as storedPhoto() serves a photo.
+ * `bytes` is the object's size as the server read it, which answers a range
+ * past the end without reading the bucket.
+ */
+export async function storedClip(db, id) {
+  if (id === null) return null;
+  const row = await db
+    .prepare("SELECT media_key, content_type, bytes FROM photos WHERE id = ? AND kind = 'clip' AND state <> 'uploading'")
+    .bind(id)
+    .first();
+  return row ? { mediaKey: row.media_key, contentType: row.content_type, bytes: row.bytes } : null;
 }

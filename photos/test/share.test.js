@@ -6,7 +6,9 @@
 // SQLite holding the real migrations (test/d1.js) and an R2 stand-in
 // (test/r2.js). So a photo this page sends is a photo the server stores, and
 // the contract between them (seconds not milliseconds, a lowercase batch,
-// three sizes of one shape) is tested from both ends at once.
+// three sizes of one shape) is tested from both ends at once. Since #198 the
+// same holds for a clip: test/mp4.js's byte-built clips go through
+// js/clip.js's walker on the page and the real clip routes into the bucket.
 //
 // The stand-ins cannot show pixels. The browser runs on #155's pull request
 // do: Chrome 154 against a local copy of the site, the stored JPEGs read back
@@ -31,17 +33,27 @@ import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js
 import { onRequestGet as openAlbumsRoute } from '../functions/api/albums/open.js';
 import { onRequestPost as joinRoute } from '../functions/api/join.js';
 import { onRequest as uploadGuard } from '../functions/api/upload/_middleware.js';
+import { onRequestPost as clipStartRoute } from '../functions/api/upload/clips/index.js';
+import { onRequestDelete as clipAbandonRoute } from '../functions/api/upload/clips/[id]/index.js';
+import { onRequestPost as clipCompleteRoute } from '../functions/api/upload/clips/[id]/complete.js';
+import { onRequestPut as clipPartRoute } from '../functions/api/upload/clips/[id]/parts/[n].js';
 import { onRequestPost as uploadRoute } from '../functions/api/upload/index.js';
 import { onRequestGet as sessionRoute } from '../functions/api/upload/session.js';
 import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
+import { clipLength } from '../lib/admin-page.js';
 import { createAlbum } from '../lib/albums.js';
+import { STALE_SECONDS, clearStaleClips } from '../lib/clips.js';
 import { readJpeg } from '../lib/jpeg.js';
-import { CAPTION_MAX, DAILY_UPLOADS, SIZES, sizesAgree } from '../lib/photos.js';
+import {
+  CAPTION_MAX, CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS, DAILY_UPLOADS, SIZES, clipObjectKey, sizesAgree,
+} from '../lib/photos.js';
 import { COOKIE_NAME, coachTag, nowSeconds, signCoachSession } from '../lib/session.js';
+import { PART_BYTES, partCount, partPieces, planClip } from '../public/js/clip.js';
 import { COACH } from './access.js';
 import { d1, seedCodes } from './d1.js';
 import { idb } from './idb.js';
 import { exif, exifWith, jpeg, metadataMarkers, withSegments, xmp } from './jpeg.js';
+import { RECORDED, SINCE_1904, androidMp4, iphoneMov, mvhd, plainClip, rawTrailer } from './mp4.js';
 import { r2 } from './r2.js';
 import { share, worker } from './worker.js';
 
@@ -49,6 +61,17 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
 const SCRIPT = read('public', 'js', 'share.js');
 const HTML = read('public', 'share', 'index.html');
+const CLIP_SCRIPT = readFileSync(join(ROOT, 'public', 'js', 'clip.js'));
+
+// The clip routes (#198), served by pattern, since their paths carry the
+// upload's id and the part's number: the step's name, its method, its path,
+// and the route behind it.
+const CLIP_ROUTES = [
+  ['start', 'POST', /^\/api\/upload\/clips$/, clipStartRoute],
+  ['part', 'PUT', /^\/api\/upload\/clips\/([^/]+)\/parts\/([^/]+)$/, clipPartRoute],
+  ['complete', 'POST', /^\/api\/upload\/clips\/([^/]+)\/complete$/, clipCompleteRoute],
+  ['abandon', 'DELETE', /^\/api\/upload\/clips\/([^/]+)$/, clipAbandonRoute],
+];
 
 const SITE = 'https://photos.madcowsailing.com';
 const OLD = 'Q2WE-R4TY-V6PA';
@@ -272,11 +295,21 @@ function canvasMaker(encoder, canvases) {
  * Every database holds each team's "Not sure / other event" album, open
  * (migration 0015, #228); `made.notSure` names them by team. `notSure: false`
  * closes both before the page opens, for a site with nothing open at all.
+ *
+ * For clips (#198): the page has js/clip.js's four as the module puts them
+ * on window, planClip counted in `page.walker.plans`. `net.clipCalls` holds
+ * every request to the clip routes ({ step, id, n, attempt, bytes, body,
+ * token, aborted }), `net.clipIntercept(call)` answers one instead of the
+ * route (a Response; 'network', no answer; or 'lost', the route run and its
+ * answer lost on the way back), and `net.clipHold(call)` holds one until
+ * page.releaseClip(), or until the page aborts it. `timers: 'fast'` gives the
+ * page a setTimeout that waits no time, and `timers: 'held'` one that never
+ * fires; either records each wait asked for in `page.waits`.
  */
 async function load({
   hash = `#code=${CODE}`, albums = null, turns = true, encoder = {}, hold = false, slow = false,
   search = '', db = null, session = null, register = 'ok', holdJoin = false, accountTeams = ['hoover-jrt'],
-  notSure = true,
+  notSure = true, timers = 'real',
 } = {}) {
   const env = { DB: d1(), MEDIA: r2(), SITE_ENV: 'production', COACH_EMAILS: COACH, ...KEYS };
   seedCodes(env.DB, OLD, CODE);
@@ -324,9 +357,11 @@ async function load({
   // With `slow`, each photo's decode waits for page.decode() to let it go,
   // so a test can act while a photo is still being made ready.
   const bitmaps = [];
-  const decoder = { turns, open: 0, maxOpen: 0, waiting: [] };
+  // `asked` counts every decode asked for, the probe's and a refused one's.
+  const decoder = { turns, open: 0, maxOpen: 0, waiting: [], asked: 0 };
   const probeKnown = described.get(sha(PROBE_BYTES));
   async function createImageBitmap(blob) {
+    decoder.asked += 1;
     const known = described.get(sha(new Uint8Array(await blob.arrayBuffer())));
     if (slow && known !== probeKnown) await new Promise((resolve) => decoder.waiting.push(resolve));
     if (!known) throw new Error('InvalidStateError: The source image could not be decoded.');
@@ -354,12 +389,29 @@ async function load({
   // fetch: through the chain Pages runs in front of each route, with a
   // browser's cookie jar and its Origin on a POST.
   const jar = new Map();
-  const net = { posted: [], inFlight: 0, maxInFlight: 0, waiting: [], hold, intercept: null, albumsAnswer: null, calls: [] };
-  const run = (handlers, request) => {
+  const net = {
+    posted: [], inFlight: 0, maxInFlight: 0, waiting: [], hold, intercept: null, albumsAnswer: null, calls: [],
+    clipCalls: [], clipIntercept: null, clipHold: null, clipWaiting: [], clipsInFlight: 0, maxClipsInFlight: 0,
+  };
+  const run = (handlers, request, params = {}) => {
     const data = {};
-    const step = (i) => handlers[i]({ request, env, data, params: {}, waitUntil() {}, next: () => step(i + 1) });
+    const step = (i) => handlers[i]({ request, env, data, params, waitUntil() {}, next: () => step(i + 1) });
     return step(0);
   };
+  const aborted = () => new DOMException('This operation was aborted', 'AbortError');
+  // A held clip request: it goes on when page.releaseClip() lets it, and a
+  // page that aborts it meanwhile gets an AbortError, as from a browser.
+  const held = (call, signal) => new Promise((resolve, reject) => {
+    const go = () => resolve();
+    net.clipWaiting.push(go);
+    signal?.addEventListener('abort', () => {
+      const at = net.clipWaiting.indexOf(go);
+      if (at === -1) return;
+      net.clipWaiting.splice(at, 1);
+      call.aborted = true;
+      reject(aborted());
+    });
+  });
   async function fetch(path, init = {}) {
     const method = init.method ?? 'GET';
     net.calls.push(`${method} ${path}`);
@@ -367,9 +419,42 @@ async function load({
     if (method !== 'GET') headers.set('Origin', SITE);
     headers.set('CF-Connecting-IP', '203.0.113.7');
     if (jar.size) headers.set('Cookie', [...jar].map(([k, v]) => `${k}=${v}`).join('; '));
+    // A browser sends a Blob's length (a clip's part, #198), and the part
+    // route reads it before any byte. Other bodies are counted as they come.
+    if (init.body instanceof Blob) headers.set('Content-Length', String(init.body.size));
     const request = new Request(`${SITE}${path}`, { method, headers, body: init.body });
+    const clip = CLIP_ROUTES.find(([, verb, pattern]) => verb === method && pattern.test(path));
     let response;
-    if (path === '/api/upload') {
+    if (clip) {
+      const [step, , pattern, route] = clip;
+      const [, id, n] = pattern.exec(path);
+      const call = {
+        step, id: id === undefined ? null : Number(id), n: n === undefined ? null : Number(n), aborted: false,
+        bytes: init.body instanceof Blob ? init.body.size : null, token: headers.get('Clip-Upload'),
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
+      };
+      call.attempt = net.clipCalls.filter((c) => c.step === step && c.id === call.id && c.n === call.n).length + 1;
+      net.clipCalls.push(call);
+      net.inFlight += 1;
+      net.clipsInFlight += 1;
+      net.maxInFlight = Math.max(net.maxInFlight, net.inFlight);
+      net.maxClipsInFlight = Math.max(net.maxClipsInFlight, net.clipsInFlight);
+      try {
+        if (init.signal?.aborted) throw aborted();
+        if (net.clipHold?.(call)) await held(call, init.signal);
+        const canned = net.clipIntercept?.(call);
+        if (canned === 'network') throw new TypeError('Failed to fetch');
+        const params = { ...(id === undefined ? {} : { id }), ...(n === undefined ? {} : { n }) };
+        if (canned === 'lost') {
+          await run([root, ...uploadGuard, route], request, params);
+          throw new TypeError('Failed to fetch');
+        }
+        response = canned ?? await run([root, ...uploadGuard, route], request, params);
+      } finally {
+        net.inFlight -= 1;
+        net.clipsInFlight -= 1;
+      }
+    } else if (path === '/api/upload') {
       net.inFlight += 1;
       net.maxInFlight = Math.max(net.maxInFlight, net.inFlight);
       try {
@@ -437,6 +522,29 @@ async function load({
     },
   };
 
+  // js/clip.js's four, as the module puts them on window for the page to
+  // find (#198), with planClip counted so a test sees what reached it.
+  const walker = { plans: 0 };
+  const MadcowClip = Object.freeze({
+    PART_BYTES, partCount, partPieces,
+    planClip: (...args) => {
+      walker.plans += 1;
+      return planClip(...args);
+    },
+  });
+  const waits = [];
+  const pageTimeout = {
+    real: setTimeout,
+    fast: (fn, ms) => {
+      waits.push(ms);
+      return setTimeout(fn, 0);
+    },
+    held: (fn, ms) => {
+      waits.push(ms);
+      return -1;
+    },
+  }[timers];
+
   const objectUrls = new Map();
   let urls = 0;
   const context = {
@@ -454,7 +562,8 @@ async function load({
       },
       revokeObjectURL: (url) => objectUrls.delete(url),
     },
-    URLSearchParams, Blob, File, FormData, crypto, atob, console, setTimeout,
+    URLSearchParams, Blob, File, FormData, crypto, atob, console, setTimeout: pageTimeout, clearTimeout,
+    AbortController, MadcowClip,
     Date: PageDate,
     navigator,
     ...(db ? { indexedDB: db.indexedDB } : {}),
@@ -463,12 +572,14 @@ async function load({
 
   const $ = (id) => document.byId.get(id);
   const page = {
-    env, made, net, jar, decoder, bitmaps, canvases, objectUrls, location, document, $, registrations, db,
-    // Each photo's list item, read back into what a visitor sees.
+    env, made, net, jar, decoder, bitmaps, canvases, objectUrls, location, document, $, registrations, db, walker, waits,
+    // Each photo's or clip's list item, read back into what a visitor sees.
+    // `status` is the element `text` is read from; `frame` holds a photo's
+    // preview, or a clip's name and length (#198).
     items: () => $('photo-list').children.map((li) => {
       const [frame, state, label, caption, counter, actions] = li.children;
       const [tryAgain, remove] = actions.children;
-      return { li, state: li.getAttribute('data-state'), text: state.textContent, img: frame.children[0], label, caption, counter, tryAgain, remove };
+      return { li, state: li.getAttribute('data-state'), text: state.textContent, status: state, frame, img: frame.children[0], label, caption, counter, tryAgain, remove };
     }),
     choose(...files) {
       $('photo-input').files = files;
@@ -489,6 +600,13 @@ async function load({
     release(n = Infinity) {
       for (let i = 0; i < n && net.waiting.length; i++) net.waiting.shift()();
     },
+    releaseClip(n = Infinity) {
+      for (let i = 0; i < n && net.clipWaiting.length; i++) net.clipWaiting.shift()();
+    },
+    // The day's uploads spent, every session's together, and the bucket's
+    // multipart uploads, for a clip's tests.
+    sentToday: () => env.DB.sqlite.prepare('SELECT COALESCE(SUM(sent), 0) AS n FROM upload_counts').get().n,
+    uploads: () => [...env.MEDIA.uploads.values()],
     decode: () => decoder.waiting.shift()(),
     releaseJoin: () => net.joinHeld(),
     rows: () => env.DB.sqlite.prepare('SELECT p.*, a.address FROM photos p JOIN albums a ON a.id = p.album_id ORDER BY p.id').all().map((r) => ({ ...r })),
@@ -514,9 +632,14 @@ async function until(ready, what, ms = 10_000) {
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 // Settled means every listed photo is done AND no upload is in flight: a
 // photo taken off the list is not listed, and an assertion that it was never
-// sent means nothing if it is read while that upload could still land.
+// sent means nothing if it is read while that upload could still land. A
+// clip's requests count as in flight too (#198), and a clip Remove is still
+// asking about is not done, between the tries of its question too (#198's
+// review). It is read at once, so a press that starts a request only some
+// turns later (Remove during a clip's wait between tries) needs its own wait
+// for that request.
 const settled = (page) => until(
-  () => page.net.inFlight === 0 && page.items().every((i) => !['preparing', 'queued', 'sending'].includes(i.state)),
+  () => page.net.inFlight === 0 && page.items().every((i) => !['preparing', 'queued', 'sending', 'checking'].includes(i.state)),
   'every photo settled, nothing in flight',
 );
 const joined = async (page) => {
@@ -1312,8 +1435,9 @@ test('a phone at the day\'s cap: the photo and every queued one fail, and nothin
   page.release();
   await settled(page);
   assert.equal(page.net.posted.length, 3);
-  // The number is the server's own cap, so the message cannot drift from it.
-  assert.ok(page.items().every((i) => i.text === `Failed. This phone, or your account, has sent today's limit of ${DAILY_UPLOADS} photos. Try again tomorrow.`));
+  // The number is the server's own cap, so the message cannot drift from it,
+  // and it counts clips as well since #198, so the message says so.
+  assert.ok(page.items().every((i) => i.text === `Failed. This phone, or your account, has sent today's limit of ${DAILY_UPLOADS} photos and clips. Try again tomorrow.`));
 });
 
 test('the summary is a live region written once per change: choosing is one write, Send one, then each photo done', async () => {
@@ -1540,8 +1664,8 @@ test('Remove is offered until a photo starts sending, and a queued one removed n
 const INBOX = 'madcow-shared';
 const FILES = 'files';
 const DAY = 24 * 60 * 60 * 1000;
-const SHARED_FAILED = "The photos you shared couldn't be kept on this phone. Share them again.";
-const SHARED_EMPTY = "No photos arrived with that share. Share them from your phone's gallery or Files app instead.";
+const SHARED_FAILED = "What you shared couldn't be kept on this phone. Share it again.";
+const SHARED_EMPTY = "Nothing arrived with that share. Share from your phone's gallery or Files app instead.";
 const waiting = (n, noun = n === 1 ? 'it' : 'they') =>
   `${n} photo${n === 1 ? '' : 's'} you shared ${n === 1 ? 'is' : 'are'} waiting on this phone. ` +
   `Open your invite link, or sign in as a coach, and ${noun} will be ready to send. Shared photos are kept here for a day.`;
@@ -1836,4 +1960,1448 @@ test('#193: while an invite is opening, the page does not read the store or desc
   page.releaseJoin();
   await joined(page);
   await until(() => page.items()[0]?.state === 'ready', 'taken in once joined');
+});
+
+// ---- #198: clips, sent in parts ------------------------------------------
+//
+// A clip goes through js/clip.js's walker on the phone, then through the real
+// clip routes into the bucket, as a photo goes through the upload route. The
+// clips are test/mp4.js's, each shaped like one camera's, and every location,
+// make, model and serial planted in them is FICTIONAL: a test reads that each
+// planted value was in the file chosen and is nowhere in what the bucket
+// holds.
+
+/** A clip as a phone's picker hands it over. */
+const clipFile = (bytes, { name = 'IMG_0001.MOV', type = 'video/quicktime', lastModified = 1_790_000_000_000 } = {}) =>
+  new File([bytes], name, { type, lastModified });
+
+/** A clip `seconds` long in one small part, holding nothing to blank: test/mp4.js's plainClip. */
+const lasting = (seconds, options = {}) =>
+  plainClip({ clip: { movie: mvhd({ time: [0, 0], timescale: 600, duration: 600 * seconds }), ...options } }).file;
+
+// The iPhone's clip with media enough for two parts, its moov in the second,
+// as test/clip-upload.test.js sends it: 25 MiB, so it is made once.
+let twoParts = null;
+const iphoneTwoParts = () => (twoParts ??= iphoneMov({ clip: { tail: PART_BYTES } }));
+
+/** The walker's plan of `bytes`, as the page makes it. */
+const planOf = (bytes) => planClip(async (offset, length) => bytes.subarray(offset, offset + length), bytes.length);
+
+/** `bytes` as `plan` says to send them: up to plan.bytes, with every edit made. */
+function applied(bytes, plan) {
+  const out = bytes.slice(0, plan.bytes);
+  for (const edit of plan.edits) {
+    if (edit.zeros === undefined) out.set(edit.bytes, edit.offset);
+    else out.fill(0, edit.offset, edit.offset + edit.zeros);
+  }
+  return out;
+}
+
+/** Where `needle` (text read one byte a character, or bytes) first sits in `haystack`, or -1. */
+const find = (haystack, needle) => Buffer.from(haystack.buffer, haystack.byteOffset, haystack.length)
+  .indexOf(typeof needle === 'string' ? Buffer.from(needle, 'latin1') : Buffer.from(needle));
+
+/** What the bucket holds for a clip's row, or null. */
+const storedClip = (page, row) => page.env.MEDIA.objects.get(clipObjectKey(row.media_key))?.body ?? null;
+
+/** The clip requests the page made, in order: "start", "part 1", "complete", "abandon". */
+const steps = (page) => page.net.clipCalls.map((c) => (c.n === null ? c.step : `${c.step} ${c.n}`));
+
+/** A File that records how the page reads it: each slice, and any read of the whole. */
+class WatchedFile extends File {
+  slices = [];
+  whole = 0;
+
+  slice(...range) {
+    this.slices.push(range);
+    return super.slice(...range);
+  }
+
+  arrayBuffer() {
+    this.whole += 1;
+    return super.arrayBuffer();
+  }
+}
+
+const CLIP_UNCHECKABLE = "The photo site can't check this file as a clip, so it won't be sent. It takes MP4 and MOV clips as a phone or camera records them.";
+const CLIP_UNREAD = "Couldn't read this clip from the phone, so it won't be sent. Remove it, then add it again.";
+const OFFLINE = "Failed. Couldn't reach the photo site. Check your signal, then try again.";
+const CLIP_REFUSED = "Failed. The photo site couldn't take this clip. Try again, and if it fails again, leave it out.";
+const CLIP_KEPT = "Failed. The photo site found details still in this clip that it doesn't keep, and deleted it. Leave this clip out.";
+const CLIP_GONE = 'Failed. The photo site lost track of this clip before it was finished. Try again to send it from the start.';
+const CLIP_OVER = 'Failed. The photo site says this clip is too long or too large for you to send. Trim it, then add it again.';
+// The figure is the list's dayBytes for a parent, lib/photos.js's own.
+const CLIP_DAY = `Failed. This phone, or your account, has sent today's ${CLIP_DAY_BYTES.everyone / 1024 ** 3} GB of clips. Photos can still go; try clips again tomorrow.`;
+
+test('#198: the page loads the walker as a module ahead of share.js, stamped from its own bytes, and finds the four names clip.js puts on window', () => {
+  const scripts = [...HTML.match(/<head>([\s\S]*?)<\/head>/)[1].matchAll(/<script\b([^>]*)><\/script>/g)].map((m) => m[1].trim());
+  // Deferred scripts, a module's included, run in the order they are written.
+  assert.deepEqual(scripts.map((s) => s.match(/src="([^"?]+)/)[1]), ['/js/clip.js', '/js/share.js']);
+  assert.match(scripts[0], /^type="module" src="\/js\/clip\.js\?v=[0-9a-f]{10}"$/);
+  assert.match(scripts[1], /\bdefer\b/);
+  // tools/assetver.py's stamp, the first 10 hex digits of the file's sha256:
+  // a stale one serves a browser the walker it kept for up to 4 hours.
+  assert.equal(scripts[0].match(/\?v=([0-9a-f]{10})/)[1], sha(CLIP_SCRIPT).slice(0, 10));
+  // What this harness hands the page is what the module puts on window, and
+  // the page reaches for nothing else of it.
+  assert.match(CLIP_SCRIPT.toString('utf8'), /\nif \(typeof window !== 'undefined'\) window\.MadcowClip = Object\.freeze\(\{ PART_BYTES, partCount, partPieces, planClip \}\);\n$/);
+  assert.deepEqual([...new Set([...SCRIPT.matchAll(/MadcowClip\.(\w+)/g)].map((m) => m[1]))].sort(), ['partCount', 'partPieces', 'planClip']);
+});
+
+test('#198: beside Add photos, the page says clips can go too, in D11\'s minutes, and its picker offers videos', () => {
+  const sender = HTML.match(/<div class="sender" id="sender" hidden>([\s\S]*?)<\/div>/)[1];
+  const words = sender.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const [, parent, coach] = words.match(/You can send clips too, up to (\d+) minutes long, or (\d+) minutes if you're a coach\./) ?? [];
+  assert.equal(Number(parent) * 60, CLIP_SECONDS.everyone);
+  assert.equal(Number(coach) * 60, CLIP_SECONDS.coach);
+  assert.match(sender, />Add photos<input type="file" id="photo-input" accept="image\/\*,video\/\*" multiple><\/label>/);
+});
+
+test('#198: a file is a clip by its type or its name, whatever its bytes; anything else, a HEIC included, takes the photo path, and a clip is never decoded', async () => {
+  // Every file here holds a HEIC's first bytes, an ftyp box as an MP4's
+  // starts, so only the type and the name can tell the paths apart.
+  const heic = new Uint8Array(await heicFile().arrayBuffer());
+  const page = await load();
+  await joined(page);
+  const clips = [['upload', 'video/mp4'], ['IMG_0001.MOV', ''], ['clip.mp4', ''], ['GOPR0001.M4V', ''], ['old.3gp', ''], ['screen.mkv', 'video/x-matroska']];
+  page.choose(...clips.map(([name, type]) => new File([heic], name, { type })));
+  await until(() => page.items().every((i) => i.state === 'unreadable'), 'each refused');
+  assert.deepEqual(page.items().map((i) => i.text), new Array(clips.length).fill(CLIP_UNCHECKABLE));
+  assert.equal(page.walker.plans, clips.length);
+  assert.equal(page.decoder.asked, 0, 'a clip was handed to the image decoder');
+  const [first] = page.items();
+  assert.equal(first.frame.textContent, 'Clip 1');
+  assert.equal(first.remove.getAttribute('aria-label'), 'Remove clip 1');
+  assert.equal(page.summary(), "6 clips can't be sent.");
+
+  // The control: the same bytes, typed or named as photos.
+  const shots = [['IMG_0002.HEIC', 'image/heic'], ['photo.heif', ''], ['clip.mp4.jpg', ''], ['movie.mpeg', '']];
+  page.choose(...shots.map(([name, type]) => new File([heic], name, { type })));
+  await until(() => page.items().length === 10 && page.items().every((i) => i.state === 'unreadable'), 'each refused');
+  const said = page.items().slice(clips.length).map((i) => i.text);
+  assert.deepEqual(said.map((text) => (text.includes('HEIC') ? 'heic' : text.includes('as a photo') ? 'decode' : text)), ['heic', 'heic', 'decode', 'decode']);
+  assert.equal(page.walker.plans, clips.length, 'a photo reached the clip walker');
+  assert.ok(page.decoder.asked >= shots.length);
+  assert.equal(page.items()[clips.length].img.alt, 'Photo 7');
+  assert.equal(page.items()[clips.length].remove.getAttribute('aria-label'), 'Remove photo 7');
+  assert.equal(page.summary(), "4 photos and 6 clips can't be sent.");
+});
+
+test('#198: a clip the phone cannot hand over, or that changed after it was chosen, says to add it again, not that it is no clip', async () => {
+  class GoneClip extends File {
+    slice() {
+      return { arrayBuffer: () => Promise.reject(new DOMException('The file could not be read.', 'NotReadableError')) };
+    }
+  }
+  // Grown since it was chosen: its size says 100 bytes more than it holds,
+  // so a read the walker makes past its last box comes back short.
+  class ChangedClip extends File {
+    get size() {
+      return super.size + 100;
+    }
+  }
+  const page = await load();
+  await joined(page);
+  page.choose(new GoneClip([lasting(30)], 'IMG_0003.MOV', { type: 'video/quicktime' }), new ChangedClip([lasting(30)], 'IMG_0004.MOV', { type: 'video/quicktime' }));
+  await until(() => page.items().every((i) => i.state === 'unreadable'), 'both refused');
+  assert.deepEqual(page.items().map((i) => i.text), [CLIP_UNREAD, CLIP_UNREAD]);
+  // The control: the same clip, as it is, is taken.
+  page.choose(clipFile(lasting(30), { name: 'IMG_0005.MOV' }));
+  await until(() => page.items()[2]?.state === 'ready', 'the clip as it is, ready');
+});
+
+test('#198: an iPhone\'s clip goes in its two parts, each its own size, through the real routes; the bucket holds nothing the camera planted, and the row waits with the server\'s reading', async () => {
+  const { file: bytes, planted } = iphoneTwoParts();
+  const plan = await planOf(bytes);
+  assert.equal(partCount(plan.bytes), 2, 'the fixture is two parts long');
+  const file = new WatchedFile([bytes], 'IMG_0001.MOV', { type: 'video/quicktime', lastModified: 1_790_000_000_000 });
+  const page = await load();
+  await joined(page);
+  page.choose(file);
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  const [item] = page.items();
+  // No picture: its name and its length, as the admin queue shows a length.
+  assert.equal(item.frame.textContent, `Clip 1, ${clipLength(plan.durationMs)}`);
+  assert.equal(item.label.textContent, 'Caption for clip 1 (optional)');
+  assert.equal(item.tryAgain.getAttribute('aria-label'), 'Try again: clip 1');
+  assert.equal(page.summary(), '1 clip ready to send.');
+  // Made ready from small reads of the file, never the whole of it, and no
+  // part of its media read at all.
+  assert.ok(file.slices.length > 0 && file.slices.every(([from, to]) => to - from <= 64 * 1024), JSON.stringify(file.slices));
+  page.type(item.caption, ' Downwind at the gate ');
+  item.status.history = [];
+  page.click(page.$('send'));
+  await settled(page);
+  await page.env.MEDIA.idle();
+
+  // One start, declaring what the walker plans to send; each part its own
+  // size with the start's token; one complete naming both.
+  assert.deepEqual(steps(page), ['start', 'part 1', 'part 2', 'complete']);
+  const [start, one, two, complete] = page.net.clipCalls;
+  assert.match(start.body.batch, BATCH);
+  assert.deepEqual(start.body, {
+    album: page.made.today, batch: start.body.batch, caption: 'Downwind at the gate', bytes: plan.bytes,
+    durationMs: plan.durationMs, contentType: 'video/quicktime',
+  });
+  assert.deepEqual([one.bytes, two.bytes], [PART_BYTES, plan.bytes - PART_BYTES]);
+  assert.ok([one, two, complete].every((c) => c.token === one.token && /^clip1\./.test(c.token)));
+  assert.deepEqual(complete.body.parts.map((p) => p.partNumber), [1, 2]);
+  assert.equal(complete.body.captured, RECORDED, 'the time its mvhd held before the walker zeroed it');
+
+  // Waiting for approval, with the server's own reading of it.
+  const [row] = page.rows();
+  assert.deepEqual(
+    { kind: row.kind, state: row.state, type: row.content_type, ms: row.duration_ms, frame: [row.width, row.height], bytes: row.bytes, captured: row.captured_at, caption: row.caption, address: row.address, upload: row.upload_id },
+    { kind: 'clip', state: 'pending', type: 'video/quicktime', ms: plan.durationMs, frame: [1080, 1920], bytes: plan.bytes, captured: RECORDED, caption: 'Downwind at the gate', address: page.made.today, upload: null },
+  );
+  // The bucket holds exactly what the walker planned and nothing the camera
+  // planted; the file chosen held every one of them (the control).
+  const stored = storedClip(page, row);
+  assert.ok(Buffer.from(stored).equals(Buffer.from(applied(bytes, plan))), 'the bucket holds other bytes than the plan');
+  for (const [what, value] of Object.entries(planted)) {
+    assert.ok(find(bytes, value) >= 0, `the fixture never held its ${what}`);
+    assert.equal(find(stored, value), -1, `the stored clip still holds its ${what}`);
+  }
+  // Its own text counted the parts; the summary never did.
+  assert.deepEqual(item.status.history, ['Queued', 'Sending…', 'Sending… 1 of 2', 'Sending… 2 of 2', 'Sending… 2 of 2', 'Sent']);
+  assert.equal(page.summary(), "Sent 1 clip. Clips aren't shown on the site yet.");
+  assert.equal(file.whole, 0, 'the clip was read whole to send it');
+  assert.equal(page.sentToday(), 1);
+});
+
+test('#198: a clip with a raw trailer after its last box declares and sends only its boxes, and the trailer stays on the phone', async () => {
+  const trailer = rawTrailer();
+  const { file: bytes } = androidMp4({ clip: { trailer } });
+  const plan = await planOf(bytes);
+  assert.equal(plan.bytes, bytes.length - trailer.length);
+  const page = await sendOne(clipFile(bytes, { name: 'VID_20261001_101500.mp4', type: 'video/mp4' }));
+  const [row] = page.rows();
+  assert.equal(row.state, 'pending');
+  assert.equal(page.net.clipCalls[0].body.bytes, plan.bytes);
+  assert.deepEqual(page.net.clipCalls.filter((c) => c.step === 'part').map((c) => c.bytes), [plan.bytes]);
+  const stored = storedClip(page, row);
+  assert.equal(stored.length, plan.bytes);
+  // The trailer's fictional serial: in the file chosen, not in the bucket.
+  assert.ok(find(bytes, 'IXS9F1CT10N0') >= 0);
+  assert.equal(find(stored, 'IXS9F1CT10N0'), -1);
+});
+
+test('#198: a parent\'s clip over 3 minutes, or over 1 GB, says so with its own figures and sends nothing; the same long clip from a coach goes', async () => {
+  // A file the size of a long 4K clip that never holds it: a small clip's
+  // boxes, its mdat running to the end, and a size that says 2 GB.
+  class BigFile extends File {
+    get size() {
+      return 2 * 1024 ** 3;
+    }
+  }
+  const page = await load();
+  await joined(page);
+  page.choose(clipFile(lasting(240)), new BigFile([plainClip({ clip: { mdat: 'toEnd' } }).file], 'GX010001.MP4', { type: 'video/mp4' }));
+  await until(() => page.items().every((i) => i.state === 'unreadable'), 'both refused');
+  assert.deepEqual(page.items().map((i) => i.text), [
+    "This clip runs 4:00, longer than the 3 minutes you can send, so it won't be sent. Trim it, then add it again.",
+    "This clip is 2 GB, larger than the 1 GB you can send, so it won't be sent. Trim it, then add it again.",
+  ]);
+  assert.equal(CLIP_BYTES.everyone, 1024 ** 3, 'the page\'s figure is the server\'s cap');
+  page.click(page.$('send'));
+  await tick();
+  assert.deepEqual(page.net.clipCalls, [], 'a clip over its caps was sent');
+  assert.equal(page.summary(), "Nothing new to send. Add photos first. 2 clips can't be sent.");
+
+  // The same 4 minutes from a coach, whose cap is 15.
+  const coach = await sendOne(clipFile(lasting(240)), { hash: '', session: 'coach' });
+  const [row] = coach.rows();
+  assert.deepEqual([row.state, row.duration_ms, row.sender], ['pending', 240_000, 'coach']);
+});
+
+test('#198: a clip at its caps exactly is not refused: 3:00 from a parent goes, and 1 GB reaches the start', async () => {
+  const page = await sendOne(clipFile(lasting(180)));
+  assert.deepEqual([page.rows()[0].state, page.rows()[0].duration_ms], ['pending', 180_000]);
+  class GigFile extends File {
+    get size() {
+      return 1024 ** 3;
+    }
+  }
+  const gig = await load();
+  await joined(gig);
+  gig.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'unavailable' }, { status: 503 }) : undefined);
+  gig.choose(new GigFile([plainClip({ clip: { mdat: 'toEnd' } }).file], 'GX010002.MP4', { type: 'video/mp4' }));
+  await until(() => gig.items()[0]?.state === 'ready', 'not refused');
+  gig.click(gig.$('send'));
+  await settled(gig);
+  assert.deepEqual(steps(gig), ['start']);
+  assert.equal(gig.net.clipCalls[0].body.bytes, 1024 ** 3);
+  assert.equal(gig.items()[0].text, "Failed. The photo site isn't taking clips right now. Try again in a few minutes.");
+});
+
+/**
+ * A File of `size` bytes that never holds them: `head`, then zeros made of
+ * one MiB shared by reference (a Blob of Blobs is not copied), then `tail`.
+ */
+function composed(head, size, tail, name = 'GX010003.MP4') {
+  const mib = new Blob([new Uint8Array(1024 * 1024)]);
+  const fill = size - head.length - tail.length;
+  return new File([head, ...new Array(Math.floor(fill / 2 ** 20)).fill(mib), new Uint8Array(fill % 2 ** 20), tail], name, { type: 'video/mp4' });
+}
+
+/** A small clip whose last box, a 64-bit mdat, says it runs to byte `end` of the file. */
+function mdatTo(end) {
+  const head = plainClip({ clip: { mdat: 'large' } }).file;
+  const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  let at = 0;
+  while (String.fromCharCode(...head.subarray(at + 4, at + 8)) !== 'mdat') at += view.getUint32(at);
+  view.setBigUint64(at + 8, BigInt(end - at));
+  return head;
+}
+
+test('#198: the caps are held to what is sent: boxes that fit 1 GB go, though a trailer takes the file past it, and boxes a byte over do not', async () => {
+  const GiB = 1024 ** 3;
+  const trailer = rawTrailer();
+  const page = await load();
+  await joined(page);
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'unavailable' }, { status: 503 }) : undefined);
+  page.choose(composed(mdatTo(GiB), GiB + trailer.length, trailer), composed(mdatTo(GiB + 1), GiB + 1 + trailer.length, trailer));
+  await until(() => page.items().every((i) => ['ready', 'unreadable'].includes(i.state)), 'both judged');
+  const [fits, over] = page.items();
+  assert.equal(fits.state, 'ready', 'a trailer the page does not send was held to the cap');
+  assert.equal(over.text, "This clip is 1.1 GB, larger than the 1 GB you can send, so it won't be sent. Trim it, then add it again.");
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(steps(page), ['start']);
+  assert.equal(page.net.clipCalls[0].body.bytes, GiB, 'the start declared the file, not the boxes');
+});
+
+test('#198: a clip exactly one part long goes in one part, counted from what is sent, its trailer left behind', async () => {
+  // An iPhone's clip whose boxes end at exactly PART_BYTES, then a trailer:
+  // counted by the file's size it would be two parts.
+  const tail = PART_BYTES - iphoneMov().file.length;
+  const trailer = rawTrailer();
+  const { file: boxes } = iphoneMov({ clip: { tail, trailer } });
+  assert.equal(boxes.length, PART_BYTES + trailer.length);
+  assert.deepEqual([partCount(PART_BYTES), partCount(boxes.length)], [1, 2]);
+  const page = await sendOne(clipFile(boxes));
+  assert.deepEqual(steps(page), ['start', 'part 1', 'complete']);
+  assert.deepEqual([page.net.clipCalls[0].body.bytes, page.net.clipCalls[1].bytes], [PART_BYTES, PART_BYTES]);
+  const [row] = page.rows();
+  assert.deepEqual([row.state, row.bytes, storedClip(page, row).length], ['pending', PART_BYTES, PART_BYTES]);
+});
+
+test('#198: a part that fails twice is tried again alone, after 1 then 3 seconds, and the clip still arrives', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  const answers = ['network', Response.json({ error: 'unavailable' }, { status: 503 })];
+  page.net.clipIntercept = (call) => (call.step === 'part' && call.n === 2 ? answers[call.attempt - 1] : undefined);
+  page.choose(clipFile(iphoneTwoParts().file));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(steps(page), ['start', 'part 1', 'part 2', 'part 2', 'part 2', 'complete']);
+  assert.deepEqual(page.waits, [1000, 3000]);
+  assert.equal(page.rows()[0].state, 'pending');
+  assert.equal(page.items()[0].text, 'Sent');
+});
+
+test('#198: a part that fails four times fails the clip with Try again and gives its upload back, and Try again sends it from the start', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  let down = true;
+  page.net.clipIntercept = (call) => (down && call.step === 'part' && call.n === 2 ? 'network' : undefined);
+  page.choose(clipFile(iphoneTwoParts().file));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(steps(page), ['start', 'part 1', 'part 2', 'part 2', 'part 2', 'part 2', 'abandon']);
+  assert.deepEqual(page.waits, [1000, 3000, 9000]);
+  const [item] = page.items();
+  assert.deepEqual([item.state, item.text, item.tryAgain.hidden], ['failed', OFFLINE, false]);
+  // Abandoned: no row, the bucket's upload aborted and its part gone, and
+  // the day's upload given back.
+  assert.deepEqual(page.rows(), []);
+  assert.deepEqual(page.uploads().map((u) => [u.state, u.parts.size]), [['aborted', 0]]);
+  assert.equal(page.sentToday(), 0);
+
+  down = false;
+  page.click(item.tryAgain);
+  await settled(page);
+  assert.deepEqual(steps(page).slice(7), ['start', 'part 1', 'part 2', 'complete'], 'Try again did not start a new upload from its first part');
+  assert.equal(page.rows()[0].state, 'pending');
+  assert.deepEqual(page.uploads().map((u) => u.state), ['aborted', 'completed']);
+  assert.equal(page.sentToday(), 1);
+});
+
+test('#198: the complete is tried again too, and one whose answer was lost is answered as stored, with nothing sent twice', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  // The route joins and checks the clip; its answer never reaches the page.
+  page.net.clipIntercept = (call) => (call.step === 'complete' && call.attempt === 1 ? 'lost' : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(steps(page), ['start', 'part 1', 'complete', 'complete']);
+  assert.deepEqual(page.waits, [1000]);
+  assert.equal(page.items()[0].text, 'Sent');
+  assert.deepEqual(page.rows().map((r) => r.state), ['pending']);
+  assert.equal(page.sentToday(), 1);
+});
+
+// What a clip says for each answer it can get, where it gets it, and
+// whether the page then abandons its upload (the server has let go of it
+// already after a 404, and a start that failed made none).
+// Each answer: where it comes, the words it gives, whether the upload is then
+// abandoned, and whether the clip is refused for good. A 422 or a 413 offers
+// no Try again, since sending the clip again meets the same refusal (owner,
+// at #198's review).
+const CLIP_ANSWERS = [
+  ['start', () => 'network', OFFLINE, false, false],
+  ['start', () => Response.json({ error: 'unavailable' }, { status: 503 }), "Failed. The photo site isn't taking clips right now. Try again in a few minutes.", false, false],
+  ['start', () => Response.json({ error: 'too-long' }, { status: 413 }), CLIP_OVER, false, true],
+  ['start', () => Response.json({ error: 'daily-cap' }, { status: 429 }), `Failed. This phone, or your account, has sent today's limit of ${DAILY_UPLOADS} photos and clips. Try again tomorrow.`, false, false],
+  // The day's clip budget (SA-1, owner at #198's review), named from the list.
+  ['start', () => Response.json({ error: 'clip-bytes' }, { status: 429 }), CLIP_DAY, false, false],
+  ['part', () => Response.json({ error: 'part' }, { status: 400 }), CLIP_REFUSED, true, false],
+  ['part', () => Response.json({ error: 'upload' }, { status: 404 }), CLIP_GONE, false, false],
+  ['part', () => Response.json({ error: 'session' }, { status: 401 }), 'Failed. Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.', true, false],
+  ['complete', () => Response.json({ error: 'kept' }, { status: 422 }), CLIP_KEPT, true, true],
+  ['complete', () => Response.json({ error: 'upload' }, { status: 404 }), CLIP_GONE, false, false],
+  ['complete', () => Response.json({ error: 'too-long' }, { status: 413 }), CLIP_OVER, true, true],
+  ['complete', () => Response.json({ error: 'not-clip' }, { status: 415 }), CLIP_REFUSED, true, false],
+  // The one complete refusal that leaves the row uploading (complete.js), so
+  // only the page's abandon gives the day back (#198's review).
+  ['complete', () => Response.json({ error: 'parts' }, { status: 400 }), CLIP_REFUSED, true, false],
+];
+
+test('#198: each answer a clip can get says why in its own words, is never tried again under 500, and Try again then sends it, unless the clip is refused for good', async () => {
+  for (const [step, answer, message, abandoned, final] of CLIP_ANSWERS) {
+    const label = `${step}: ${message}`;
+    const page = await load({ timers: 'fast' });
+    await joined(page);
+    let once = true;
+    page.net.clipIntercept = (call) => {
+      if (call.step !== step || !once) return undefined;
+      once = false;
+      return answer();
+    };
+    page.choose(clipFile(lasting(30)));
+    await until(() => page.items()[0]?.state === 'ready', 'ready');
+    page.click(page.$('send'));
+    await settled(page);
+    const [item] = page.items();
+    assert.deepEqual([item.state, item.text, item.tryAgain.hidden], ['failed', message, final], label);
+    assert.equal(page.net.clipCalls.filter((c) => c.step === step).length, 1, `${label}: tried again`);
+    assert.equal(steps(page).includes('abandon'), abandoned, `${label}: abandoned or not`);
+    assert.deepEqual(page.waits, [], label);
+    // The summary asks for Try again only where it is offered.
+    assert.equal(page.summary().includes('press Try again'), !final, `${label}: ${page.summary()}`);
+    // A clip refused for good stays as it is; a 401 ends the session, which a
+    // new link restores; the rest go again.
+    if (final || message.includes('has ended')) continue;
+    page.click(item.tryAgain);
+    await settled(page);
+    assert.equal(page.items()[0].state, 'sent', label);
+  }
+});
+
+test('#198: a start whose part count is not the walker\'s is abandoned with nothing sent', async () => {
+  const page = await load();
+  await joined(page);
+  const token = `clip1.41.4096.${'A'.repeat(43)}`;
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ id: 41, token, parts: 2 }, { status: 201 }) : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(steps(page), ['start', 'abandon']);
+  assert.deepEqual([page.net.clipCalls[1].id, page.net.clipCalls[1].token], [41, token]);
+  assert.equal(page.items()[0].text, CLIP_REFUSED);
+  // The control: the route's own count, one part, goes on.
+  page.net.clipIntercept = null;
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  assert.deepEqual(steps(page).slice(2), ['start', 'part 1', 'complete']);
+});
+
+test('#198: Remove while a clip sends cuts off its part in flight, abandons its upload, and the bucket keeps nothing of it', async () => {
+  const page = await load();
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'part' && call.n === 2;
+  page.choose(clipFile(iphoneTwoParts().file));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'part 2 in flight');
+  const [item] = page.items();
+  assert.deepEqual([item.state, item.text, item.remove.hidden], ['sending', 'Sending… 2 of 2', false]);
+  assert.equal(page.uploads()[0].parts.size, 1, 'part 1 is in the bucket');
+  page.click(item.remove);
+  assert.equal(page.items().length, 0);
+  assert.equal(page.document.activeElement, page.$('photo-input'), 'focus went to the page with the last item removed');
+  await settled(page);
+  await page.env.MEDIA.idle();
+  const part = page.net.clipCalls.find((c) => c.step === 'part' && c.n === 2);
+  assert.equal(part.aborted, true, 'the part in flight went on');
+  assert.deepEqual(steps(page), ['start', 'part 1', 'part 2', 'abandon']);
+  assert.equal(page.net.clipCalls.at(-1).token, part.token);
+  assert.deepEqual(page.rows(), []);
+  assert.deepEqual(page.uploads().map((u) => [u.state, u.parts.size]), [['aborted', 0]]);
+  assert.equal(page.env.MEDIA.objects.size, 0);
+  assert.equal(page.sentToday(), 0, 'its day was not given back');
+  assert.equal(page.summary(), '');
+});
+
+test('#198: a clip removed while its upload starts is abandoned once the start answers; Remove is withdrawn while the server checks its parts', async () => {
+  const page = await load();
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'start';
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the start in flight');
+  page.click(page.items()[0].remove);
+  page.releaseClip();
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(steps(page), ['start', 'abandon']);
+  assert.deepEqual(page.rows(), []);
+  assert.deepEqual(page.uploads().map((u) => u.state), ['aborted']);
+  assert.equal(page.sentToday(), 0);
+
+  // Offered while its part goes; withdrawn, focus and all, once the server
+  // is joining and checking the parts, when it may be stored already.
+  const late = await load();
+  await joined(late);
+  late.net.clipHold = (call) => call.step === 'part' || call.step === 'complete';
+  late.choose(clipFile(lasting(30)));
+  await until(() => late.items()[0]?.state === 'ready', 'ready');
+  late.click(late.$('send'));
+  await until(() => late.net.clipWaiting.length === 1, 'the part in flight');
+  const [item] = late.items();
+  assert.equal(item.remove.hidden, false);
+  item.remove.focus();
+  late.releaseClip();
+  await until(() => late.net.clipCalls.at(-1).step === 'complete' && late.net.clipWaiting.length === 1, 'the complete in flight');
+  assert.deepEqual([item.state, item.remove.hidden], ['sending', true]);
+  assert.equal(late.document.activeElement, item.caption, 'focus fell to the page with Remove hidden');
+  late.releaseClip();
+  await settled(late);
+  assert.equal(late.items()[0].state, 'sent');
+});
+
+test('#198: Remove while a clip waits to try a part again ends the wait, and the upload is abandoned with nothing tried after it', async () => {
+  const page = await load({ timers: 'held' });
+  await joined(page);
+  page.net.clipIntercept = (call) => (call.step === 'part' ? 'network' : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await until(() => page.waits.length === 1, 'waiting to try the part again');
+  const [item] = page.items();
+  assert.deepEqual([item.state, item.remove.hidden, page.waits], ['sending', false, [1000]]);
+  page.click(item.remove);
+  // Nothing is in flight as Remove is pressed, so settled() alone would
+  // read the store before the abandon has started.
+  await until(() => steps(page).includes('abandon') && page.net.inFlight === 0, 'the upload abandoned');
+  await page.env.MEDIA.idle();
+  assert.deepEqual(steps(page), ['start', 'part 1', 'abandon']);
+  assert.deepEqual(page.rows(), []);
+  assert.deepEqual(page.uploads().map((u) => u.state), ['aborted']);
+  assert.equal(page.sentToday(), 0);
+});
+
+test('#198: a clip waits for its caps without holding up the photos chosen after it', async () => {
+  const page = await load();
+  page.net.albumsAnswer = () => 'network';
+  await until(() => !page.$('sender').hidden && !page.$('album-note').hidden, 'the albums could not be read');
+  page.choose(clipFile(lasting(30)), photoFile());
+  await until(() => page.items()[1]?.state === 'ready', 'the photo made ready while the clip waits');
+  assert.equal(page.items()[0].state, 'preparing');
+  assert.equal(page.items()[0].frame.textContent, 'Clip 1, 0:30', 'planned, though not yet held to its caps');
+  page.net.albumsAnswer = null;
+  page.click(page.$('album-again'));
+  await until(() => page.items()[0].state === 'ready', 'the clip ready once its caps came');
+});
+
+test('#198: one clip sends at a time, in one of the three places, and photos take the others and pass a clip waiting its turn', async () => {
+  const page = await load({ hold: true });
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'part';
+  page.choose(clipFile(lasting(30)), clipFile(lasting(40), { name: 'IMG_0002.MOV' }), photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1 && page.net.waiting.length === 2, 'a clip and two photos in flight');
+  for (let i = 0; i < 200; i++) await tick();
+  assert.deepEqual(page.items().map((i) => i.state), ['sending', 'queued', 'sending', 'sending', 'queued']);
+  // A photo done: the next photo goes, past the clip waiting for the first.
+  page.release(1);
+  await until(() => page.items()[4].state === 'sending', 'the last photo passed the waiting clip');
+  assert.equal(page.items()[1].state, 'queued');
+  page.net.hold = false;
+  page.release();
+  page.net.clipHold = null;
+  page.releaseClip();
+  await settled(page);
+  assert.ok(page.items().every((i) => i.state === 'sent'));
+  assert.equal(page.net.maxClipsInFlight, 1, 'two clips were sent at once');
+  assert.equal(page.net.maxInFlight, 3);
+  assert.deepEqual(page.rows().filter((r) => r.kind === 'clip').map((r) => r.duration_ms), [30_000, 40_000]);
+  assert.equal(page.summary(), "Sent 3 photos and 2 clips. The photos will appear in the album once they're reviewed. Clips aren't shown on the site yet.");
+});
+
+test('#198: the summary names photos and clips while a clip is among them, written once per change, and a clip\'s parts never reach it', async () => {
+  const page = await load({ hold: true });
+  await joined(page);
+  const summary = page.$('send-status');
+  summary.history = [];
+  page.choose(photoFile(), photoFile({ width: 3000, height: 2000 }), clipFile(iphoneTwoParts().file));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  await tick();
+  assert.deepEqual(summary.history, ['2 photos and 1 clip ready to send.'], 'choosing wrote more than once');
+
+  summary.history = [];
+  page.click(page.$('send'));
+  await until(() => page.net.waiting.length === 2, 'the two photos held');
+  assert.deepEqual(summary.history, ['Sending 2 photos and 1 clip: 0 sent.'], 'one press of Send wrote more than once');
+  await until(() => page.items()[2].state === 'sent', 'the clip sent, its two parts counted in its own text');
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+  await tick();
+  const writes = summary.history;
+  assert.equal(writes.at(-1), "Sent 2 photos and 1 clip. The photos will appear in the album once they're reviewed. Clips aren't shown on the site yet.");
+  const counts = writes.slice(1, -1).map((text) => Number(/^Sending 2 photos and 1 clip: ([12]) sent\.$/.exec(text)?.[1]));
+  assert.ok(counts.every((n, i) => n > (i ? counts[i - 1] : 0)), JSON.stringify(writes));
+  for (let i = 1; i < writes.length; i++) assert.notEqual(writes[i], writes[i - 1], 'written again with the words it already held');
+
+  // One photo beside a clip is named as one.
+  const two = await load();
+  await joined(two);
+  two.choose(photoFile(), clipFile(lasting(30)));
+  await until(() => two.items().every((i) => i.state === 'ready'), 'ready');
+  assert.equal(two.summary(), '1 photo and 1 clip ready to send.');
+  two.click(two.$('send'));
+  await settled(two);
+  assert.equal(two.summary(), "Sent 1 photo and 1 clip. The photo will appear in the album once it's reviewed. Clips aren't shown on the site yet.");
+});
+
+test('#198: a clip\'s capture time is the time its camera recorded when a phone could have recorded it then, else the file\'s date', async () => {
+  const lastModified = 1_790_123_456_789;
+  const fileDate = 1_790_123_456;
+  const now = CLOCK / 1000;
+  const dated = (unix) => plainClip({ clip: { movie: mvhd({ timescale: 600, duration: 600 * 30, time: [unix + SINCE_1904, unix + SINCE_1904] }) } }).file;
+  // [what the clip's mvhd says, in Unix seconds, and what its row keeps]
+  const cases = [
+    [RECORDED, RECORDED],
+    [946_684_801, 946_684_801], // a second into 2000
+    [946_684_800, fileDate], // 2000 beginning: a camera's clock never set
+    [0, fileDate], // 1970
+    [now + 24 * 60 * 60, now + 24 * 60 * 60], // a day ahead of the phone's clock
+    [now + 24 * 60 * 60 + 1, fileDate], // further ahead
+  ];
+  const page = await load();
+  await joined(page);
+  // The last says nothing at all (a zero time), as plainClip's clips do.
+  page.choose(...cases.map(([unix], i) => clipFile(dated(unix), { name: `IMG_${i}.MOV`, lastModified })), clipFile(lasting(30), { lastModified }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(page.rows().map((r) => r.captured_at), [...cases.map(([, kept]) => kept), fileDate]);
+});
+
+test('#198: an album closed while a clip\'s parts go: the complete is refused, the clip fails with the album\'s words, and the list reloads choosing nothing', async () => {
+  const page = await load({ albums: TWO_ALBUMS });
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'part';
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the part in flight');
+  page.env.DB.sqlite.prepare('UPDATE albums SET closed_at = 1 WHERE address = ?').run(page.made.today);
+  page.net.clipHold = null;
+  page.releaseClip();
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.equal(page.items()[0].text, CLOSED);
+  assert.deepEqual(page.rows(), []);
+  assert.equal(page.env.MEDIA.objects.size, 0, 'the refused clip was left in the bucket');
+  assert.equal(page.sentToday(), 0);
+  await until(() => !page.$('album').options.some((o) => o.value === page.made.today), 'the list reloaded without the closed album');
+  assert.equal(page.$('album').value, '');
+});
+
+test('#198: a clip shared from the gallery through the real worker is offered, sent, and its record deleted once stored; while it waits the note names it', async () => {
+  const shared = (name) => clipFile(androidMp4().file, { name, type: 'video/mp4' });
+  const db = idb();
+  await shareFrom(db, [shared('VID_20261001_101500.mp4')]);
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await joined(page);
+  await until(() => page.items()[0]?.state === 'ready', 'offered, ready to send');
+  assert.equal(page.items()[0].frame.textContent, 'Clip 1, 0:05');
+  assert.equal(inboxFiles(db).length, 1, 'kept until it is stored');
+  page.click(page.$('send'));
+  await settled(page);
+  const [row] = page.rows();
+  assert.deepEqual([row.kind, row.state, row.content_type], ['clip', 'pending', 'video/mp4']);
+  await until(() => inboxFiles(db).length === 0, 'its record deleted once stored');
+
+  // With no session, the note counts what waits by kind.
+  const alone = idb();
+  await shareFrom(alone, [shared('VID_1.mp4')]);
+  const one = await load({ hash: '', search: '?shared', db: alone });
+  await until(() => note(one) !== null, 'the note');
+  assert.equal(note(one), '1 clip you shared is waiting on this phone. Open your invite link, or sign in as a coach, and it will be ready to send. Shared clips are kept here for a day.');
+  const mixed = idb();
+  await shareFrom(mixed, [photoFile(), shared('VID_2.mp4')]);
+  const both = await load({ hash: '', search: '?shared', db: mixed });
+  await until(() => note(both) !== null, 'the note');
+  assert.equal(note(both), '1 photo and 1 clip you shared are waiting on this phone. Open your invite link, or sign in as a coach, and they will be ready to send. Shared photos and clips are kept here for a day.');
+});
+
+// ---- #198's review: the share page's skeptic, kept as tests ----------------
+//
+// A read-only skeptic tried to break the clip path once it was built. Each
+// test below began as one of its repros: the first three hold what was then
+// fixed, and the rest paths that no test held, each shown by a mutant the
+// suite let through.
+
+test('#198: Try again starts a clip afresh, "Sending…" with Remove offered while the new start runs, whether the last try failed at a part or was refused at the complete', async () => {
+  // Part 2 fails four times; then Try again, the new start held.
+  let page = await load({ timers: 'fast' });
+  await joined(page);
+  let down = true;
+  page.net.clipIntercept = (call) => (down && call.step === 'part' && call.n === 2 ? 'network' : undefined);
+  page.choose(clipFile(iphoneTwoParts().file));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.items()[0].state, 'failed');
+  down = false;
+  page.net.clipHold = (call) => call.step === 'start';
+  page.click(page.items()[0].tryAgain);
+  await until(() => page.net.clipWaiting.length === 1, 'the new start held');
+  assert.deepEqual([page.items()[0].text, page.items()[0].remove.hidden], ['Sending…', false], 'after a part failed');
+  page.releaseClip();
+  await settled(page);
+  assert.equal(page.items()[0].state, 'sent');
+
+  // The complete refused once; then Try again, the new start held: the last
+  // try's finishing no longer hides Remove.
+  page = await load({ timers: 'fast' });
+  await joined(page);
+  let once = true;
+  page.net.clipIntercept = (call) => {
+    if (call.step !== 'complete' || !once) return undefined;
+    once = false;
+    return Response.json({ error: 'not-clip' }, { status: 415 });
+  };
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.items()[0].state, 'failed');
+  page.net.clipHold = (call) => call.step === 'start';
+  page.click(page.items()[0].tryAgain);
+  await until(() => page.net.clipWaiting.length === 1, 'the new start held');
+  assert.deepEqual([page.items()[0].text, page.items()[0].remove.hidden], ['Sending…', false], 'after the complete failed');
+  page.releaseClip();
+  await settled(page);
+
+  // The control: a first send reads the same while its start runs.
+  page = await load();
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'start';
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the start held');
+  assert.deepEqual([page.items()[0].text, page.items()[0].remove.hidden], ['Sending…', false], 'a first send');
+  page.releaseClip();
+  await settled(page);
+});
+
+test('#198: an abandon that got no answer is sent again before Try again\'s new start, so the day counts one upload for one clip', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  let down = true;
+  page.net.clipIntercept = (call) => (down && (call.step === 'part' || call.step === 'abandon') ? 'network' : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  // Four lost parts and a lost abandon: the upload is still the server's.
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['uploading'], 1]);
+  down = false;
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  assert.deepEqual(steps(page).slice(-4), ['abandon', 'start', 'part 1', 'complete']);
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+});
+
+test('#198: Remove on a failed clip whose abandon got no answer sends the abandon again, and the day is given back', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  let down = true;
+  page.net.clipIntercept = (call) => (down && (call.step === 'part' || call.step === 'abandon') ? 'network' : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['uploading'], 1]);
+  down = false;
+  page.click(page.items()[0].remove);
+  await until(() => page.net.inFlight === 0 && steps(page).filter((s) => s === 'abandon').length === 2, 'abandoned again');
+  await page.env.MEDIA.idle();
+  assert.deepEqual([page.items().length, page.rows().length, page.sentToday()], [0, 0, 0]);
+});
+
+test('#198: a clip removed while its upload starts keeps its turn until that upload is let go of: no second clip starts beside it', async () => {
+  const page = await load();
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'start' && page.net.clipCalls.filter((c) => c.step === 'start').length === 1;
+  page.choose(clipFile(lasting(30)), clipFile(lasting(40), { name: 'IMG_0002.MOV' }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the first start held');
+  page.click(page.items()[0].remove);
+  // A photo made ready runs the queue again.
+  page.choose(photoFile());
+  await until(() => page.items().at(-1)?.state === 'ready', 'the photo ready');
+  for (let i = 0; i < 50; i += 1) await tick();
+  assert.deepEqual(steps(page), ['start'], 'a second clip started beside the first');
+  page.releaseClip();
+  await settled(page);
+  await until(() => page.net.inFlight === 0, 'quiet');
+  assert.equal(page.net.maxClipsInFlight, 1);
+  assert.deepEqual(steps(page), ['start', 'abandon', 'start', 'part 1', 'complete']);
+});
+
+test('#198: Remove on a shared clip while it sends deletes its record from the phone and abandons its upload', async () => {
+  const db = idb();
+  await shareFrom(db, [clipFile(androidMp4().file, { name: 'VID_9.mp4', type: 'video/mp4' })]);
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent' });
+  await joined(page);
+  await until(() => page.items()[0]?.state === 'ready', 'offered');
+  page.net.clipHold = (call) => call.step === 'part';
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the part in flight');
+  assert.equal(inboxFiles(db).length, 1);
+  page.click(page.items()[0].remove);
+  await until(() => inboxFiles(db).length === 0, 'its record deleted on Remove');
+  await until(() => steps(page).includes('abandon') && page.net.inFlight === 0, 'abandoned');
+  await page.env.MEDIA.idle();
+  assert.deepEqual(page.uploads().map((u) => u.state), ['aborted']);
+});
+
+test('#198: a coach\'s clip over a parent\'s 1 GiB but under 4 GiB is not refused, and reaches the start declaring its size', async () => {
+  const GiB = 1024 ** 3;
+  const page = await load({ hash: '', session: 'coach' });
+  await until(() => page.$('album').options.some((o) => o.value), 'albums listed');
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'unavailable' }, { status: 503 }) : undefined);
+  page.choose(composed(mdatTo(2 * GiB), 2 * GiB, new Uint8Array(0)));
+  await until(() => ['ready', 'unreadable'].includes(page.items()[0]?.state), 'judged');
+  assert.equal(page.items()[0].state, 'ready', page.items()[0].text);
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.net.clipCalls[0]?.body.bytes, 2 * GiB);
+});
+
+test('#198: Send pressed while a clip still waits its turn to be made ready queues it, and it is sent', async () => {
+  const page = await load();
+  await joined(page);
+  page.choose(photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }), clipFile(lasting(30)));
+  assert.equal(page.items()[3].state, 'preparing');
+  page.click(page.$('send'));
+  assert.equal(page.items()[3].state, 'queued');
+  await settled(page);
+  assert.deepEqual(page.items().map((i) => i.state), ['sent', 'sent', 'sent', 'sent']);
+});
+
+test('#198: a clip\'s length is rounded up, so one 0.4 s over a parent\'s 3 minutes reads past the cap, in its words and its frame', async () => {
+  const page = await load();
+  await joined(page);
+  const over = plainClip({ clip: { movie: mvhd({ time: [0, 0], timescale: 1000, duration: 180_400 }) } }).file;
+  page.choose(clipFile(over));
+  await until(() => page.items()[0]?.state === 'unreadable', 'refused');
+  assert.equal(page.items()[0].text, "This clip runs 3:01, longer than the 3 minutes you can send, so it won't be sent. Trim it, then add it again.");
+  assert.equal(page.items()[0].frame.textContent, 'Clip 1, 3:01');
+});
+
+test('#198: a part answered 401 fails the clip and every queued photo, and the session ends', async () => {
+  const page = await load({ hold: true });
+  await joined(page);
+  page.net.clipIntercept = (call) => (call.step === 'part' ? Response.json({ error: 'session' }, { status: 401 }) : undefined);
+  page.choose(clipFile(lasting(30)), photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }), photoFile({ width: 3100, height: 2000 }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await until(() => page.items()[0].state === 'failed', 'the clip failed');
+  assert.deepEqual(page.items().map((i) => i.state), ['failed', 'sending', 'sending', 'failed', 'failed']);
+  assert.ok(page.$('join-status').textContent.startsWith('Your sign-in or invite has ended'));
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+});
+
+test('#198: a clip refused 403 team at its start fails the photos queued for that album, and the list reloads choosing nothing', async () => {
+  const page = await load({ hash: '', session: 'account', albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'], hold: true });
+  await signedIn(page);
+  page.$('album').value = page.made.cohssa;
+  page.net.clipHold = (call) => call.step === 'start';
+  page.choose(clipFile(lasting(30)), photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1 && page.net.waiting.length === 2, 'the clip\'s start and two photos in flight');
+  page.env.DB.sqlite.prepare("UPDATE account_teams SET state = 'revoked' WHERE account_id = 1 AND team = 'cohssa'").run();
+  page.releaseClip();
+  await until(() => page.items()[0].state === 'failed', 'the clip failed');
+  assert.equal(page.items()[0].text, TEAM_REFUSED);
+  assert.equal(page.items()[3].text, TEAM_REFUSED);
+  await until(() => !page.$('album').options.some((o) => o.value === page.made.cohssa), 'reloaded without the team');
+  assert.equal(page.$('album').value, '');
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+});
+
+test('#198: a clip refused 429 at its start fails every queued item, a clip behind it included', async () => {
+  const page = await load({ hold: true });
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'start';
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'daily-cap' }, { status: 429 }) : undefined);
+  page.choose(clipFile(lasting(30)), photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }), clipFile(lasting(40), { name: 'IMG_0002.MOV' }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1 && page.net.waiting.length === 2, 'in flight');
+  page.releaseClip();
+  await until(() => page.items()[0].state === 'failed', 'the clip failed');
+  assert.deepEqual(page.items().map((i) => i.state), ['failed', 'sending', 'sending', 'failed', 'failed']);
+  assert.ok(page.items()[4].text.includes('500 photos and clips'));
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+});
+
+test('#198: a clip refused 429 clip-bytes at its start fails every queued clip, and the photos still go (SA-1)', async () => {
+  const page = await load({ hold: true });
+  await joined(page);
+  page.net.clipHold = (call) => call.step === 'start';
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'clip-bytes' }, { status: 429 }) : undefined);
+  page.choose(clipFile(lasting(30)), photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }), clipFile(lasting(40), { name: 'IMG_0002.MOV' }));
+  await until(() => page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1 && page.net.waiting.length === 2, 'in flight');
+  page.releaseClip();
+  await until(() => page.items()[0].state === 'failed', 'the clip failed');
+  assert.equal(page.items()[4].state, 'failed', 'the clip queued behind it');
+  assert.notEqual(page.items()[3].state, 'failed', 'a queued photo, which the budget does not count');
+  assert.deepEqual([page.items()[0].text, page.items()[4].text], [CLIP_DAY, CLIP_DAY]);
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+  assert.deepEqual(page.items().map((i) => i.state), ['failed', 'sent', 'sent', 'sent', 'failed']);
+  assert.equal(page.net.clipCalls.filter((c) => c.step === 'start').length, 1, 'the clip queued behind it was sent, only to be refused');
+});
+
+test('#198: a clip refused clip-bytes by a list that named no day\'s budget says "today\'s limit of clips", not a figure it does not have', async () => {
+  const page = await load();
+  page.net.albumsAnswer = () => Response.json({
+    albums: [{ address: page.made.today, title: 'Tuesday practice', kind: 'practice', date: dayOffset(0), team: 'hoover-jrt', teamName: 'Hoover JRT' }],
+    other: [],
+    clip: { seconds: CLIP_SECONDS.everyone, bytes: CLIP_BYTES.everyone },
+  });
+  await joined(page);
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'clip-bytes' }, { status: 429 }) : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.items()[0].text, 'Failed. This phone, or your account, has sent today\'s limit of clips. Photos can still go; try clips again tomorrow.');
+});
+
+test('#198: a complete refused 400 parts, which leaves the row uploading, is abandoned by the page, and the day is given back', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.net.clipIntercept = (call) => (call.step === 'complete' ? Response.json({ error: 'parts' }, { status: 400 }) : undefined);
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(steps(page), ['start', 'part 1', 'complete', 'abandon']);
+  assert.deepEqual([page.rows().length, page.sentToday()], [0, 0]);
+});
+
+test('#198: a part answered a plain 500, as the runtime answers an uncaught error, is tried again after a second, and the clip arrives', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  let once = true;
+  page.net.clipIntercept = (call) => {
+    if (call.step !== 'part' || !once) return undefined;
+    once = false;
+    return new Response('Internal Server Error', { status: 500 });
+  };
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.items()[0].state, 'sent');
+  assert.deepEqual(steps(page), ['start', 'part 1', 'part 1', 'complete']);
+  assert.deepEqual(page.waits, [1000]);
+});
+
+test('#198: a clip whose camera recorded no time and whose file is dated before 1970 is captured at 0, a time the server takes', async () => {
+  const page = await load();
+  await joined(page);
+  page.choose(clipFile(lasting(30), { lastModified: -5_000 }));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.equal(page.items()[0].state, 'sent', page.items()[0].text);
+  assert.equal(page.rows()[0].captured_at, 0);
+});
+
+// ---- #198's review: a complete that got no answer -----------------------
+//
+// Any one of a complete's four tries can store the clip and lose its answer
+// on the way back. The review's refuter showed what the page did then: it
+// abandoned the upload, the DELETE was answered as settled, and Try again
+// stored the clip a second time, spending a second of the day's 500; or
+// Remove took the item off while the clip waited in the queue. The owner's
+// decisions at the review gate: the page keeps the complete on the clip, Try
+// again sends that complete again before anything else, and Remove asks with
+// the DELETE, whose 409 says the clip arrived. The refuter's probes A, C, D,
+// F and G are each one of the tests below.
+
+/**
+ * Sends the page's clips with every try of each complete answered as
+ * `complete(call)` says ('lost', the route run and its answer lost;
+ * 'network'; or a Response), then lets every request through again.
+ */
+async function sendLosing(page, complete) {
+  page.net.clipIntercept = (call) => (call.step === 'complete' ? complete(call) : undefined);
+  await until(() => page.items().length > 0 && page.items().every((i) => i.state === 'ready'), 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  page.net.clipIntercept = null;
+}
+
+const ARRIVED = 'Sent. It reached the photo site before you pressed Remove.';
+const UNAVAILABLE = "Failed. The photo site isn't taking clips right now. Try again in a few minutes.";
+
+test('#198 (review): a complete that stored the clip and lost every answer fails with Try again, which sends that complete again: Sent, stored once, nothing else sent', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'lost');
+  await page.env.MEDIA.idle();
+  // Stored by its first try, and nothing abandoned.
+  assert.deepEqual(steps(page), ['start', 'part 1', 'complete', 'complete', 'complete', 'complete']);
+  const [item] = page.items();
+  assert.deepEqual([item.state, item.text, item.tryAgain.hidden, item.remove.hidden], ['failed', OFFLINE, false, false]);
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+  assert.equal(page.summary(), 'Sent 0 of 1. 1 failed: press Try again on it.');
+  // Its caption went with the start, so it is fixed while the complete is
+  // kept (owner, at #198's review).
+  assert.equal(item.caption.readOnly, true, 'the caption of a clip whose complete is kept can be edited');
+  const lost = page.net.clipCalls.at(-1);
+
+  page.click(item.tryAgain);
+  await settled(page);
+  // The same complete, under the same token, and nothing more.
+  assert.deepEqual(steps(page).slice(6), ['complete']);
+  const again = page.net.clipCalls.at(-1);
+  assert.deepEqual([again.id, again.token, again.body], [lost.id, lost.token, lost.body]);
+  assert.equal(page.items()[0].text, 'Sent');
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+  assert.deepEqual(page.uploads().map((u) => u.state), ['completed']);
+  assert.equal(page.summary(), "Sent 1 clip. Clips aren't shown on the site yet.");
+});
+
+for (const [what, later, words] of [
+  ['never reach the site', () => 'network', OFFLINE],
+  ['are answered 503', () => Response.json({ error: 'unavailable' }, { status: 503 }), UNAVAILABLE],
+]) {
+  test(`#198 (review): a complete whose first try stored the clip and whose three more ${what} fails in that answer's words, abandons nothing, and Try again sends it again: stored once`, async () => {
+    const page = await load({ timers: 'fast' });
+    await joined(page);
+    page.choose(clipFile(lasting(30)));
+    await sendLosing(page, (call) => (call.attempt === 1 ? 'lost' : later()));
+    const [item] = page.items();
+    assert.deepEqual([item.state, item.text, item.tryAgain.hidden, item.remove.hidden], ['failed', words, false, false]);
+    assert.deepEqual(steps(page), ['start', 'part 1', 'complete', 'complete', 'complete', 'complete']);
+    assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+    page.click(item.tryAgain);
+    await settled(page);
+    assert.deepEqual(steps(page).slice(6), ['complete']);
+    assert.equal(page.items()[0].text, 'Sent');
+    assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+  });
+}
+
+test('#198 (review): a complete that never arrived is joined by Try again from the parts already in the bucket, with no part sent again', async () => {
+  const { file: bytes } = iphoneTwoParts();
+  const plan = await planOf(bytes);
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(bytes));
+  await sendLosing(page, () => 'network');
+  // Nothing abandoned: the row still uploading, both parts in the bucket.
+  assert.deepEqual(steps(page), ['start', 'part 1', 'part 2', 'complete', 'complete', 'complete', 'complete']);
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['uploading'], 1]);
+  assert.deepEqual(page.uploads().map((u) => [u.state, u.parts.size]), [['open', 2]]);
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  assert.deepEqual(steps(page).slice(7), ['complete']);
+  assert.equal(page.items()[0].text, 'Sent');
+  const [row] = page.rows();
+  assert.deepEqual([row.state, page.sentToday()], ['pending', 1]);
+  assert.ok(Buffer.from(storedClip(page, row)).equals(Buffer.from(applied(bytes, plan))), 'the bucket holds other bytes than the plan');
+});
+
+test('#198 (review): a complete sent again and answered 404, its upload cleared by the sweep a day on, starts afresh in the same press, into the album chosen now', async () => {
+  const page = await load({ timers: 'fast', albums: TWO_ALBUMS });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'network');
+  assert.deepEqual(page.rows().map((r) => [r.state, r.address]), [['uploading', page.made.today]]);
+  assert.equal(await clearStaleClips(page.env, Math.floor(Date.now() / 1000) + STALE_SECONDS), 1, 'the sweep cleared nothing');
+  page.$('album').value = page.made.past;
+  page.net.clipHold = (call) => call.step === 'complete' || call.step === 'start';
+  page.click(page.items()[0].tryAgain);
+  await until(() => page.net.clipWaiting.length === 1, 'the complete sent again, held');
+  // A complete sent again is a complete: Remove is withdrawn while it goes.
+  assert.deepEqual([steps(page).at(-1), page.items()[0].text, page.items()[0].remove.hidden], ['complete', 'Sending…', true]);
+  page.releaseClip();
+  await until(() => steps(page).at(-1) === 'start' && page.net.clipWaiting.length === 1, 'the new start, held');
+  // Offered again while the new start runs, as for any start.
+  assert.deepEqual([page.items()[0].text, page.items()[0].remove.hidden], ['Sending…', false]);
+  page.net.clipHold = null;
+  page.releaseClip();
+  await settled(page);
+  assert.deepEqual(steps(page).slice(6), ['complete', 'start', 'part 1', 'complete']);
+  assert.equal(page.items()[0].text, 'Sent');
+  assert.deepEqual(page.rows().map((r) => [r.state, r.address]), [['pending', page.made.past]]);
+});
+
+test('#198 (review): a complete sent again and refused for good says so in today\'s words, offers no Try again, and gives the upload back', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'network');
+  page.net.clipIntercept = (call) => (call.step === 'complete' ? Response.json({ error: 'kept' }, { status: 422 }) : undefined);
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(steps(page).slice(6), ['complete', 'abandon']);
+  const [item] = page.items();
+  assert.deepEqual([item.state, item.text, item.tryAgain.hidden, item.remove.hidden], ['failed', CLIP_KEPT, true, false]);
+  assert.equal(item.caption.readOnly, false, 'a clip refused at its complete kept its caption fixed');
+  assert.equal(page.summary(), 'Sent 0 of 1. 1 failed.');
+  assert.deepEqual([page.rows().length, page.sentToday()], [0, 0]);
+});
+
+test('#198 (review): a complete sent again into an album that has closed fails in the album\'s words, stops only what is queued for that album, and stores nothing', async () => {
+  const page = await load({ timers: 'fast', albums: TWO_ALBUMS, hold: true });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'network');
+  // Its upload started in today's album, which closes; the sender has the
+  // other one chosen when they press Try again.
+  page.env.DB.sqlite.prepare('UPDATE albums SET closed_at = 1 WHERE address = ?').run(page.made.today);
+  page.$('album').value = page.made.past;
+  page.net.clipHold = (call) => call.step === 'complete';
+  page.click(page.items()[0].tryAgain);
+  await until(() => page.net.clipWaiting.length === 1, 'the complete sent again, held');
+  // Three photos for the album chosen now: two go beside the clip, one waits.
+  page.choose(photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }));
+  await until(() => page.items().slice(1).every((i) => i.state === 'ready'), 'the photos ready');
+  page.click(page.$('send'));
+  await until(() => page.net.waiting.length === 2, 'two photos held');
+  assert.equal(page.items()[3].state, 'queued');
+  page.net.clipHold = null;
+  page.releaseClip();
+  await until(() => page.items()[0].state === 'failed', 'the clip failed');
+  assert.deepEqual([page.items()[0].text, page.items()[0].tryAgain.hidden], [CLOSED, false]);
+  assert.notEqual(page.items()[3].state, 'failed', 'a photo queued for the album chosen now was stopped as if that album had closed');
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(page.items().map((i) => i.state), ['failed', 'sent', 'sent', 'sent']);
+  assert.deepEqual(page.rows().map((r) => [r.kind, r.address]), new Array(3).fill(['photo', page.made.past]));
+  assert.deepEqual(steps(page).slice(6), ['complete', 'abandon']);
+  assert.equal(page.sentToday(), 3);
+  // Refused, its complete is not kept: Try again starts afresh, into the
+  // album chosen now, with no complete sent first.
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  assert.deepEqual(steps(page).slice(8), ['start', 'part 1', 'complete']);
+  assert.deepEqual([page.items()[0].text, page.rows().filter((r) => r.kind === 'clip').map((r) => r.address)], ['Sent', [page.made.past]]);
+});
+
+test('#198 (review): Remove on a clip whose complete stored it and lost every answer asks first, and the clip shows Sent, saying it arrived before Remove; Remove sends no complete', async () => {
+  const db = idb();
+  await shareFrom(db, [clipFile(androidMp4().file, { name: 'VID_7.mp4', type: 'video/mp4' })]);
+  const page = await load({ hash: '', search: '?shared', db, session: 'parent', timers: 'fast' });
+  await joined(page);
+  await sendLosing(page, () => 'lost');
+  assert.equal(inboxFiles(db).length, 1, 'its record deleted while the page could not say it had arrived');
+  page.net.clipHold = (call) => call.step === 'abandon';
+  page.click(page.items()[0].remove);
+  await until(() => page.net.clipWaiting.length === 1, 'the question held');
+  // The item stays while the server is asked: Remove and Try again
+  // withdrawn, the caption fixed, and the focus on it.
+  const asking = page.items()[0];
+  assert.deepEqual(
+    [asking.state, asking.text, asking.remove.hidden, asking.tryAgain.hidden, asking.caption.readOnly],
+    ['checking', 'Checking whether it arrived…', true, true, true],
+  );
+  assert.equal(page.document.activeElement, asking.caption, 'focus fell to the page with Remove hidden');
+  page.releaseClip();
+  await settled(page);
+  const [item] = page.items();
+  assert.deepEqual([item.state, item.text, item.remove.hidden, item.tryAgain.hidden], ['sent', ARRIVED, true, true]);
+  assert.deepEqual(steps(page).slice(6), ['abandon'], 'Remove sent more than its question');
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+  assert.equal(page.summary(), "Sent 1 clip. Clips aren't shown on the site yet.");
+  await until(() => inboxFiles(db).length === 0, 'its record deleted once it was known to have arrived');
+});
+
+test('#198 (review): Remove on a clip whose complete never arrived asks first; the DELETE takes the upload back, and the item goes with the day given back', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'network');
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['uploading'], 1]);
+  page.click(page.items()[0].remove);
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(steps(page).slice(6), ['abandon'], 'Remove sent more than its question');
+  assert.deepEqual([page.items().length, page.rows().length, page.sentToday()], [0, 0, 0]);
+  assert.deepEqual(page.uploads().map((u) => u.state), ['aborted']);
+  assert.equal(page.document.activeElement, page.$('photo-input'), 'focus went to the page with the last item removed');
+});
+
+test('#198 (review): a clip that goes once the server answers moves the focus as Remove does only from where Remove left it; a sender who moved on keeps their place', async () => {
+  for (const movedOn of [false, true]) {
+    const page = await load({ timers: 'fast' });
+    await joined(page);
+    page.choose(clipFile(lasting(30)));
+    await sendLosing(page, () => 'network');
+    page.choose(photoFile());
+    await until(() => page.items()[1]?.state === 'ready', 'the photo ready');
+    page.net.clipHold = (call) => call.step === 'abandon';
+    page.click(page.items()[0].remove);
+    await until(() => page.net.clipWaiting.length === 1, 'the question held');
+    const photo = page.items()[1];
+    if (movedOn) photo.caption.focus();
+    page.releaseClip();
+    await settled(page);
+    assert.equal(page.items().length, 1);
+    assert.equal(
+      page.document.activeElement, movedOn ? photo.caption : photo.remove,
+      movedOn ? 'the focus was taken from the caption the sender had moved to' : 'the focus did not move to the next Remove',
+    );
+  }
+});
+
+test('#198 (review): Remove whose question gets no answer, or a 5xx, through all its tries leaves the clip failed with Remove and Try again; a later Remove that is answered settles it', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'lost');
+  for (const [answer, words] of [[() => 'network', OFFLINE], [() => Response.json({ error: 'unavailable' }, { status: 503 }), UNAVAILABLE]]) {
+    page.net.clipIntercept = (call) => (call.step === 'abandon' ? answer() : undefined);
+    page.waits.length = 0;
+    page.click(page.items()[0].remove);
+    await settled(page);
+    const [item] = page.items();
+    assert.deepEqual([item.state, item.text, item.remove.hidden, item.tryAgain.hidden], ['failed', words, false, false]);
+    assert.deepEqual(page.waits, [1000, 3000, 9000], 'the question was not tried again as a complete is');
+  }
+  assert.deepEqual(steps(page).slice(6), new Array(8).fill('abandon'));
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+  page.net.clipIntercept = null;
+  page.click(page.items()[0].remove);
+  await settled(page);
+  assert.equal(page.items()[0].text, ARRIVED);
+  assert.deepEqual(steps(page).slice(14), ['abandon']);
+});
+
+test('#198 (review): an abandon answered 409 after a part failed is settled, as any answer under 500 is: Try again starts afresh, and Remove takes the item at once', async () => {
+  for (const press of ['tryAgain', 'remove']) {
+    const page = await load({ timers: 'fast' });
+    await joined(page);
+    let down = true;
+    page.net.clipIntercept = (call) => {
+      if (!down) return undefined;
+      if (call.step === 'part') return 'network';
+      return call.step === 'abandon' ? Response.json({ error: 'stored' }, { status: 409 }) : undefined;
+    };
+    page.choose(clipFile(lasting(30)));
+    await until(() => page.items()[0]?.state === 'ready', 'ready');
+    page.click(page.$('send'));
+    await settled(page);
+    assert.deepEqual(steps(page), ['start', 'part 1', 'part 1', 'part 1', 'part 1', 'abandon']);
+    assert.deepEqual([page.items()[0].state, page.items()[0].text], ['failed', OFFLINE]);
+    // The control for the caption: a clip that failed at a part keeps none.
+    assert.equal(page.items()[0].caption.readOnly, false, 'a clip that failed at a part had its caption fixed');
+    down = false;
+    page.click(page.items()[0][press]);
+    await settled(page);
+    assert.deepEqual(steps(page).slice(6), press === 'tryAgain' ? ['start', 'part 1', 'complete'] : [], `${press}: the 409 was read as anything but settled`);
+    assert.deepEqual(page.items().map((i) => i.state), press === 'tryAgain' ? ['sent'] : []);
+  }
+});
+
+test('#198 (review): Remove on a clip holding both an abandon that got no answer and a complete that got none lets go of the first before it asks about the second', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  // Its first press: four lost parts, and the abandon lost too. Its second:
+  // that abandon lost again, then a new upload whose complete stored it and
+  // lost every answer.
+  let press = 1;
+  page.net.clipIntercept = (call) => {
+    if (press === 1 && (call.step === 'part' || call.step === 'abandon')) return 'network';
+    if (press === 2 && call.step === 'abandon') return 'network';
+    return press === 2 && call.step === 'complete' ? 'lost' : undefined;
+  };
+  page.choose(clipFile(lasting(30)));
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  press = 2;
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['uploading', 'pending'], 2]);
+  const [left, stored] = page.rows().map((r) => r.id);
+  press = 3;
+  page.click(page.items()[0].remove);
+  await settled(page);
+  await page.env.MEDIA.idle();
+  assert.deepEqual(page.net.clipCalls.slice(-2).map((c) => [c.step, c.id]), [['abandon', left], ['abandon', stored]]);
+  assert.equal(page.items()[0].text, ARRIVED);
+  assert.deepEqual([page.rows().map((r) => [r.id, r.state]), page.sentToday()], [[[stored, 'pending']], 1]);
+});
+
+// The verifier's round on the fix (#198's review) found each of these held
+// by no test: a one-line change to any of them passed the whole suite.
+
+for (const [what, answer, words] of [
+  ['gets no answer', () => 'network', OFFLINE],
+  ['is answered 503', () => Response.json({ error: 'unavailable' }, { status: 503 }), UNAVAILABLE],
+]) {
+  test(`#198 (review): a complete sent again that ${what} through all its tries is kept, tried as a complete is; a later press sends it once more, and it is stored once`, async () => {
+    const page = await load({ timers: 'fast' });
+    await joined(page);
+    page.choose(clipFile(lasting(30)));
+    await sendLosing(page, () => 'lost');
+    page.net.clipIntercept = (call) => (call.step === 'complete' ? answer() : undefined);
+    page.waits.length = 0;
+    page.click(page.items()[0].tryAgain);
+    await settled(page);
+    let [item] = page.items();
+    assert.deepEqual([item.state, item.text, item.tryAgain.hidden, item.remove.hidden], ['failed', words, false, false]);
+    // Not abandoned, and not refused: abandoning it here is the duplicate
+    // the review found, one press later.
+    assert.deepEqual(steps(page).slice(6), ['complete', 'complete', 'complete', 'complete']);
+    assert.deepEqual(page.waits, [1000, 3000, 9000], 'the complete sent again was not tried as a complete is');
+    assert.equal(item.caption.readOnly, true, 'the caption of a clip whose complete is kept can be edited');
+    page.net.clipIntercept = null;
+    page.click(item.tryAgain);
+    await settled(page);
+    assert.deepEqual(steps(page).slice(10), ['complete']);
+    [item] = page.items();
+    assert.equal(item.text, 'Sent');
+    assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+  });
+}
+
+test('#198 (review): Remove on a clip whose upload the sweep has cleared asks, the DELETE answers 404, and the item goes; a focus a tap never moved, on the page\'s body, moves as Remove moves it', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'network');
+  page.choose(photoFile());
+  await until(() => page.items()[1]?.state === 'ready', 'the photo ready');
+  assert.equal(await clearStaleClips(page.env, Math.floor(Date.now() / 1000) + STALE_SECONDS), 1, 'the sweep cleared nothing');
+  page.net.clipHold = (call) => call.step === 'abandon';
+  page.click(page.items()[0].remove);
+  await until(() => page.net.clipWaiting.length === 1, 'the question held');
+  // Safari does not focus a tapped button, so the focus can be the body.
+  page.document.body.focus();
+  const photo = page.items()[1];
+  page.net.clipHold = null;
+  page.releaseClip();
+  await settled(page);
+  assert.deepEqual(steps(page).slice(6), ['abandon']);
+  assert.deepEqual(page.items().map((i) => i.state), ['ready'], 'a clip with nothing stored could not be removed');
+  assert.equal(page.document.activeElement, photo.remove, 'the focus stayed on the page\'s body');
+});
+
+test('#198 (review): Remove on a clip whose complete got no answer, queued by Try again behind a clip that sends, asks first too: Sent, saying it arrived, and never started again', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'lost');
+  page.choose(clipFile(lasting(40), { name: 'IMG_0002.MOV' }));
+  await until(() => page.items()[1]?.state === 'ready', 'the second clip ready');
+  page.net.clipHold = (call) => call.step === 'start';
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the second clip\'s start held');
+  page.click(page.items()[0].tryAgain);
+  assert.deepEqual([page.items()[0].state, page.items()[0].remove.hidden], ['queued', false]);
+  page.net.clipHold = null;
+  page.click(page.items()[0].remove);
+  await until(() => page.items()[0].state !== 'checking', 'the question answered');
+  assert.deepEqual([page.items()[0].state, page.items()[0].text], ['sent', ARRIVED]);
+  page.releaseClip();
+  await settled(page);
+  // The second clip's start, Remove's question, then the second clip's part
+  // and complete: no start for the first.
+  assert.deepEqual(steps(page).slice(6), ['start', 'abandon', 'part 1', 'complete']);
+  assert.deepEqual([page.items().map((i) => i.state), page.rows().map((r) => r.state)], [['sent', 'sent'], ['pending', 'pending']]);
+});
+
+test('#198 (review): a photo refused 429 for the day stops the queue but for a clip whose complete got no answer, which then goes and is stored at once, spending nothing', async () => {
+  const page = await load({ timers: 'fast', hold: true });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'lost');
+  page.choose(photoFile(), photoFile({ width: 3000, height: 2000 }), photoFile({ width: 2000, height: 3000 }));
+  await until(() => page.items().slice(1).every((i) => i.state === 'ready'), 'the photos ready');
+  page.click(page.$('send'));
+  await until(() => page.net.waiting.length === 3, 'three photos held');
+  // Try again queues the clip behind them.
+  page.click(page.items()[0].tryAgain);
+  assert.equal(page.items()[0].state, 'queued');
+  page.net.intercept = () => Response.json({ error: 'daily-cap' }, { status: 429 });
+  page.release(1);
+  await until(() => page.items()[0].state !== 'queued', 'the clip went or was stopped');
+  assert.notEqual(page.items()[0].state, 'failed', 'the day\'s 500 stopped a clip whose Try again spends none of them');
+  page.net.hold = false;
+  page.release();
+  await settled(page);
+  assert.deepEqual([page.items()[0].state, page.items()[0].text], ['sent', 'Sent']);
+  assert.deepEqual(steps(page).slice(6), ['complete']);
+  assert.deepEqual(page.rows().filter((r) => r.kind === 'clip').map((r) => r.state), ['pending']);
+});
+
+test('#198 (review): a clip refused 429 clip-bytes stops the clips queued behind it but for one whose complete got no answer, which then goes and is stored at once', async () => {
+  const page = await load({ timers: 'fast' });
+  await joined(page);
+  page.choose(clipFile(lasting(30)));
+  await sendLosing(page, () => 'lost');
+  page.choose(clipFile(lasting(40), { name: 'IMG_0002.MOV' }));
+  await until(() => page.items()[1]?.state === 'ready', 'the second clip ready');
+  page.net.clipHold = (call) => call.step === 'start';
+  page.net.clipIntercept = (call) => (call.step === 'start' ? Response.json({ error: 'clip-bytes' }, { status: 429 }) : undefined);
+  page.click(page.$('send'));
+  await until(() => page.net.clipWaiting.length === 1, 'the second clip\'s start held');
+  page.click(page.items()[0].tryAgain);
+  assert.equal(page.items()[0].state, 'queued');
+  page.net.clipHold = null;
+  page.releaseClip();
+  await settled(page);
+  assert.deepEqual(page.items().map((i) => [i.state, i.text]), [['sent', 'Sent'], ['failed', CLIP_DAY]]);
+  assert.deepEqual(steps(page).slice(6), ['start', 'complete']);
+  assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
 });

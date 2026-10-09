@@ -28,6 +28,12 @@
  * Each team's list ends with "Not sure / other event" (#228), for photos
  * from an event nobody has added yet, which the page never preselects.
  *
+ * Clips (#198; CLAUDE.md, The photo site, items 10 and 33) take a path of
+ * their own: never decoded, planned by js/clip.js (loaded before this
+ * script) to overwrite their location and camera details in place, refused
+ * over this session's caps before any of it goes, and sent in parts of 25
+ * MiB, one clip at a time, through the routes under /api/upload/clips/.
+ *
  * Shared photos (#193). The installed site is in an Android phone's Share
  * menu. share/sw.js keeps the photos a gallery shares to it in this phone's
  * browser storage and opens this page with ?shared. With a session they go
@@ -165,6 +171,22 @@
   // The latest capture time the server takes: the last second of 9999.
   const LATEST = 253_402_300_799;
 
+  // A clip, by its type or its name (#198), never by its first bytes: a HEIC
+  // photo starts with the same ftyp box an MP4 does.
+  const CLIP_NAME = /\.(?:mp4|mov|m4v|3gp)$/i;
+  // How long a part, the complete, or the abandon Remove sends to ask
+  // whether a clip arrived waits before each of its three more tries, after
+  // no answer or a 5xx: a moment's lost signal, or the runtime restarting
+  // (item 10), passes without the sender pressing anything.
+  const RETRY_WAITS = [1000, 3000, 9000];
+  // The request header carrying a clip's upload token (lib/clips.js).
+  const UPLOAD = 'Clip-Upload';
+  // 2000-01-01 in Unix seconds. A recorded time before it is a camera whose
+  // clock was never set.
+  const SINCE_2000 = 946_684_800;
+  // A GB as /policy names the caps ("1 GB"): 1024³ bytes.
+  const GB = 1024 ** 3;
+
   // A 2 x 1 JPEG whose EXIF says "turn 90° clockwise to view" (orientation
   // 6), 187 bytes, in base64. A browser that turns photos upright as it
   // decodes them decodes this one 1 x 2. Built by test/jpeg.js (jpeg() and
@@ -173,30 +195,49 @@
   const PROBE =
     '/9j/4QAiRXhpZgAASUkqAAgAAAABABIBAwABAAAABgAAAAAAAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAIDAREAAhEAAxEA/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAgADAAA/AAP/2Q==';
 
-  // What each photo shows, by state. "Queued" is a photo waiting its turn
-  // after Send, which may still be being made ready.
+  // What each photo or clip shows, by state. "Queued" is one waiting its
+  // turn after Send, which may still be being made ready. A clip counts its
+  // parts here while it sends (#198), never in the summary. "Checking" is a
+  // clip whose complete got no answer while Remove asks the server whether
+  // it arrived (#198's review), and one that had arrived says so once Sent.
   const STATES = {
     preparing: () => 'Getting ready…',
     ready: () => 'Ready to send',
     queued: () => 'Queued',
-    sending: () => 'Sending…',
-    sent: () => 'Sent',
-    failed: (photo) => `Failed. ${FAILURES[photo.reason]}`,
-    unreadable: (photo) => UNREADABLE[photo.reason],
+    sending: (item) => (item.parts ? `Sending… ${item.part} of ${item.parts}` : 'Sending…'),
+    checking: () => 'Checking whether it arrived…',
+    sent: (item) => (item.arrived ? 'Sent. It reached the photo site before you pressed Remove.' : 'Sent'),
+    failed: (item) => `Failed. ${FAILURES[item.reason](item.kind)}`,
+    unreadable: (item) => (item.kind === 'clip' ? CLIP_UNREADABLE[item.reason](item) : UNREADABLE[item.reason]),
   };
 
-  // Why a photo did not send, by the answer POST /api/upload gave.
+  // Why a photo or a clip did not send, by the answer it got; `kind` names
+  // it where the words do.
   const FAILURES = {
-    offline: "Couldn't reach the photo site. Check your signal, then try again.",
-    ended: 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.',
-    album: 'That album has closed. Choose another album above, then try again.',
+    offline: () => "Couldn't reach the photo site. Check your signal, then try again.",
+    ended: () => 'Your sign-in or invite has ended. Sign in again, or open the newest invite link you were sent, then try again.',
+    album: () => 'That album has closed. Choose another album above, then try again.',
     // #223: an account sends to its approved teams' albums only, so this is
     // an album the list offered before a team was taken off the account.
-    team: "Your account can't send to that team's albums. Choose another album above, then try again.",
-    // An account's 500 are shared by every phone signed in to it (#223).
-    cap: "This phone, or your account, has sent today's limit of 500 photos. Try again tomorrow.",
-    unavailable: "The photo site isn't taking photos right now. Try again in a few minutes.",
-    refused: "The photo site couldn't take this photo. Try again, and if it fails again, leave it out.",
+    team: () => "Your account can't send to that team's albums. Choose another album above, then try again.",
+    // An account's 500 are shared by every phone signed in to it (#223), and
+    // a clip is one of them, as a photo is (#198).
+    cap: () => "This phone, or your account, has sent today's limit of 500 photos and clips. Try again tomorrow.",
+    unavailable: (kind) => `The photo site isn't taking ${kind}s right now. Try again in a few minutes.`,
+    refused: (kind) => `The photo site couldn't take this ${kind}. Try again, and if it fails again, leave it out.`,
+    // A clip's own (#198). 422: the server's check found something the
+    // walker overwrites still holding data, and deleted the clip.
+    kept: () => "The photo site found details still in this clip that it doesn't keep, and deleted it. Leave this clip out.",
+    // 404: its upload is gone, cleared a day after it started, taken back
+    // by another of its completes, or never this session's (a rejoin since
+    // makes it so), so it can only start again (#198's review).
+    gone: () => 'The photo site lost track of this clip before it was finished. Try again to send it from the start.',
+    // 413: over this session's caps by the server's own reading, as when a
+    // role changed after the page read them.
+    over: () => 'The photo site says this clip is too long or too large for you to send. Trim it, then add it again.',
+    // 429 'clip-bytes': the day's clip budget is spent (#198's review); photos
+    // still go, since only clips count against it.
+    'clip-day': () => `This phone, or your account, has sent today's ${caps?.dayBytes ? gb(caps.dayBytes) : 'limit'} of clips. Photos can still go; try clips again tomorrow.`,
   };
 
   // Why a photo cannot be sent from this browser at all. Chrome cannot open
@@ -214,16 +255,55 @@
     encode: "This browser couldn't get this photo ready to send, so it won't be sent. Try adding it from another browser.",
   };
 
+  // Why a clip cannot be sent at all (#198): the walker would not take it,
+  // the phone would not hand it over, or it is over a cap. Over a cap, the
+  // words give its length or size and the cap: trimming is what the sender
+  // can do.
+  const CLIP_UNREADABLE = {
+    clip: () => "The photo site can't check this file as a clip, so it won't be sent. It takes MP4 and MOV clips as a phone or camera records them.",
+    read: () => "Couldn't read this clip from the phone, so it won't be sent. Remove it, then add it again.",
+    long: ({ plan, cap }) => `This clip runs ${clock(plan.durationMs)}, longer than the ${minutes(cap.seconds)} you can send, so it won't be sent. Trim it, then add it again.`,
+    large: ({ plan, cap }) => `This clip is ${gb(plan.bytes)}, larger than the ${gb(cap.bytes)} you can send, so it won't be sent. Trim it, then add it again.`,
+  };
+
+  // A clip's length as m:ss, rounded up as the admin queue's is
+  // (lib/admin-page.js, clipLength): no clip reads 0:00, and none a moment
+  // over a cap reads as the cap. A size is rounded up too, to a tenth of a GB.
+  function clock(ms) {
+    const seconds = Math.ceil(ms / 1000);
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+  const minutes = (seconds) => (seconds % 60 ? clock(seconds * 1000) : `${seconds / 60} minute${seconds === 60 ? '' : 's'}`);
+  const gb = (bytes) => `${Math.ceil((bytes / GB) * 10) / 10} GB`;
+
   const photos = [];
   let serial = 0;
   let making = Promise.resolve();
   let active = 0;
   let notice = '';
   let upright = null;
+  // The longest and largest clip this session may send, from GET
+  // /api/albums/open (#198): nothing else tells the page a coach from a
+  // parent. `capsKnown` settles with the first answer that carries them, and
+  // `caps` follows every later one, so a role changed since is read too.
+  let caps = null;
+  let knowCaps;
+  const capsKnown = new Promise((resolve) => {
+    knowCaps = resolve;
+  });
 
-  const plural = (n) => `${n} photo${n === 1 ? '' : 's'}`;
-  const count = (state) => photos.filter((photo) => photo.state === state).length;
-  const inFlight = () => count('queued') + count('sending');
+  // How many photos and clips `list` holds, in words: "3 photos", "1 clip",
+  // "2 photos and 1 clip". With no clip in it, the words are a photo's alone,
+  // as they were before clips (#198).
+  function many(list) {
+    const clips = list.filter((one) => one.kind === 'clip').length;
+    const say = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+    const shots = say(list.length - clips, 'photo');
+    return !clips ? shots : clips === list.length ? say(clips, 'clip') : `${shots} and ${say(clips, 'clip')}`;
+  }
+  const kindOf = (file) => (file.type.startsWith('video/') || CLIP_NAME.test(file.name) ? 'clip' : 'photo');
+  const of = (...states) => photos.filter((photo) => states.includes(photo.state));
+  const inFlight = () => of('queued', 'sending').length;
 
   function element(tag, className = '') {
     const made = document.createElement(tag);
@@ -284,12 +364,20 @@
     }
     let albums = null;
     let other = [];
+    let clip = null;
     if (response.ok) {
       try {
-        ({ albums, other = [] } = await response.json());
+        ({ albums, other = [], clip = null } = await response.json());
       } catch {
         albums = null;
       }
+    }
+    // The clip caps (#198), whole numbers over 0 or not taken at all. The
+    // day's clip budget is only named in words: the server keeps the count.
+    if (Number.isSafeInteger(clip?.seconds) && clip.seconds > 0 && Number.isSafeInteger(clip.bytes) && clip.bytes > 0) {
+      const dayBytes = Number.isSafeInteger(clip.dayBytes) && clip.dayBytes > 0 ? clip.dayBytes : null;
+      caps = { seconds: clip.seconds, bytes: clip.bytes, dayBytes };
+      knowCaps();
     }
     showAlbums(Array.isArray(albums) ? albums : null, 'listed', pick, Array.isArray(other) ? other : []);
   }
@@ -599,6 +687,7 @@
 
   async function makeReady(photo) {
     if (photo.removed) return;
+    if (photo.kind === 'clip') return planFor(photo);
     try {
       photo.ready = await prepare(photo.file);
     } catch (err) {
@@ -621,6 +710,64 @@
     pump();
   }
 
+  // ---- Making a clip ready (#198)
+
+  // A clip, in the same chain as the photos, one at a time: the walker reads
+  // its boxes with small reads of the file, never the whole of it, which a
+  // coach's 4 GiB would need in memory, and plans the edits and the length
+  // to send. The caps are waited for off the chain, so photos chosen after a
+  // clip are made ready while the album list loads.
+  async function planFor(clip) {
+    const { file } = clip;
+    const read = (offset, length) => file.slice(offset, offset + length).arrayBuffer().then((bytes) => new Uint8Array(bytes));
+    let plan = null;
+    try {
+      plan = await MadcowClip.planClip(read, file.size);
+    } catch {
+      // A read that failed or came back short, the file gone or changed since
+      // it was chosen: no verdict on the clip, which planClip gives as { error }.
+    }
+    if (clip.removed) return;
+    if (!plan || plan.error) {
+      clip.reason = plan ? 'clip' : 'read';
+      set(clip, 'unreadable');
+      return;
+    }
+    clip.length = clock(plan.durationMs);
+    renumber();
+    capsKnown.then(() => judge(clip, plan));
+  }
+
+  // A planned clip held to this session's caps (CLAUDE.md item 33): refused
+  // before any of it is sent, or made ready as a photo is. The size compared
+  // is what is sent, plan.bytes, never file.size: a trailer is left behind.
+  function judge(clip, plan) {
+    if (clip.removed) return;
+    clip.plan = plan;
+    clip.cap = caps;
+    if (plan.durationMs > caps.seconds * 1000) clip.reason = 'long';
+    else if (plan.bytes > caps.bytes) clip.reason = 'large';
+    else {
+      clip.ready = { plan, captured: capturedOf(plan, clip.file) };
+      if (clip.state === 'preparing') set(clip, 'ready');
+      pump();
+      return;
+    }
+    set(clip, 'unreadable');
+  }
+
+  // When a clip was recorded, in Unix seconds, for its row: its mvhd's time,
+  // read before the walker zeroes it, when a phone could have recorded it
+  // then (after 2000 began, and no more than a day ahead of this phone's
+  // clock); else the file's date, as for a photo with no EXIF time. A camera
+  // whose clock was never set writes 1904, 1970 or 2000.
+  function capturedOf(plan, file) {
+    const at = plan.recordedAt;
+    return at !== null && at > SINCE_2000 && at <= Date.now() / 1000 + 24 * 60 * 60
+      ? at
+      : Math.max(0, Math.floor(file.lastModified / 1000));
+  }
+
   // ---- The list
 
   // `stored` gives, for a photo shared from another app (#193), the id of its
@@ -629,7 +776,7 @@
   function add(files, stored = []) {
     for (const [i, file] of files.entries()) {
       serial += 1;
-      const photo = { id: `photo-${serial}`, file, state: 'preparing', ready: null, album: null, batch: null, reason: null, removed: false, stored: stored[i] ?? null };
+      const photo = { id: `photo-${serial}`, kind: kindOf(file), file, state: 'preparing', ready: null, album: null, batch: null, reason: null, removed: false, stored: stored[i] ?? null };
       photo.view = render(photo);
       photos.push(photo);
       list.append(photo.view.item);
@@ -644,9 +791,13 @@
   function render(photo) {
     const item = element('li', 'photo');
     const frame = element('div', 'photo-frame');
-    const preview = element('img');
-    preview.alt = '';
-    preview.hidden = true;
+    // A clip shows no picture (#198): nothing of it is decoded, and the CSP
+    // refuses a blob: video. Its frame names it and says how long it runs.
+    const preview = element(photo.kind === 'clip' ? 'p' : 'img', photo.kind === 'clip' ? 'clip-frame' : '');
+    if (photo.kind === 'photo') {
+      preview.alt = '';
+      preview.hidden = true;
+    }
     frame.append(preview);
     const state = element('p', 'photo-state');
     const label = element('label');
@@ -680,19 +831,36 @@
     return { item, preview, state, label, caption, counter, tryAgain, remove };
   }
 
-  // Each photo is named by its place in the list, so a screen reader says
-  // which photo a caption or a button belongs to. A removal renumbers.
+  // Each photo or clip is named by its kind and its place in the list, so a
+  // screen reader says which one a caption or a button belongs to: "photo 2",
+  // or "clip 2" where a photo would say "photo" (#198). A removal renumbers.
   function renumber() {
     photos.forEach((photo, i) => {
       const n = i + 1;
-      photo.view.label.textContent = `Caption for photo ${n} (optional)`;
-      photo.view.preview.alt = `Photo ${n}`;
-      photo.view.tryAgain.setAttribute('aria-label', `Try again: photo ${n}`);
-      photo.view.remove.setAttribute('aria-label', `Remove photo ${n}`);
+      const { view } = photo;
+      view.label.textContent = `Caption for ${photo.kind} ${n} (optional)`;
+      if (photo.kind === 'clip') view.preview.textContent = `Clip ${n}${photo.length ? `, ${photo.length}` : ''}`;
+      else view.preview.alt = `Photo ${n}`;
+      view.tryAgain.setAttribute('aria-label', `Try again: ${photo.kind} ${n}`);
+      view.remove.setAttribute('aria-label', `Remove ${photo.kind} ${n}`);
     });
   }
 
   const REMOVABLE = new Set(['preparing', 'ready', 'queued', 'failed', 'unreadable']);
+  // Remove is offered until a photo starts sending. A clip offers it while
+  // its parts go too (#198), which abandons its upload, but not once the
+  // server is joining and checking them, when it may be stored before an
+  // abandon could reach it, a complete sent again by Try again included. Nor
+  // while Remove itself asks whether a clip arrived ('checking'). A failed
+  // clip whose complete got no answer offers it, and it asks first (askFirst).
+  const removable = (item) => REMOVABLE.has(item.state) || (item.kind === 'clip' && item.state === 'sending' && !item.finishing);
+
+  // A clip's refusals that sending it again cannot change (#198): the site
+  // found details in it that it does not keep, or it runs too long or is too
+  // large. Its words say what to do instead, so it offers no Try again
+  // (owner, at #198's review).
+  const FINAL = new Set(['kept', 'over']);
+  const retryable = (item) => item.state === 'failed' && !FINAL.has(item.reason);
 
   function set(photo, state) {
     // Read before anything is hidden: Chrome blurs a focused element the
@@ -703,9 +871,14 @@
     const view = photo.view;
     view.item.setAttribute('data-state', state);
     view.state.textContent = STATES[state](photo);
-    view.tryAgain.hidden = state !== 'failed';
-    view.remove.hidden = !REMOVABLE.has(state);
-    view.caption.readOnly = state === 'sending' || state === 'sent';
+    view.tryAgain.hidden = !retryable(photo);
+    view.remove.hidden = !removable(photo);
+    // A caption is fixed while its photo sends and once it is sent, and
+    // while Remove asks whether a clip arrived, which may turn out Sent. So
+    // is a clip's whose complete got no answer (owner, at #198's review):
+    // its caption went with the start, and an edit then would show words
+    // the stored row never got.
+    view.caption.readOnly = state === 'sending' || state === 'checking' || state === 'sent' || Boolean(photo.unsettled);
     const noCaption = state === 'unreadable';
     view.label.hidden = noCaption;
     view.caption.hidden = noCaption;
@@ -720,19 +893,70 @@
     update();
   }
 
+  // Remove takes a photo or clip off the list at once, except a failed clip
+  // whose complete got no answer: that clip may be stored already, so Remove
+  // asks the server first (askFirst).
   function removePhoto(photo) {
+    if (!photos.includes(photo) || !removable(photo)) return;
+    if (photo.unsettled) askFirst(photo);
+    else takeOut(photo);
+  }
+
+  // The item off the list. A clip sending stops (#198): its part in flight
+  // is cut off, and the sending loop abandons its upload. An upload a failed
+  // try could not let go of goes now too, best effort. Focus moves to the
+  // next item's Remove, or its caption where Remove is hidden, or to Add
+  // photos once none is left; `refocus` false leaves it where it is.
+  function takeOut(photo, refocus = true) {
     const at = photos.indexOf(photo);
-    if (at === -1 || !REMOVABLE.has(photo.state)) return;
     photos.splice(at, 1);
     photo.removed = true;
+    photo.stop?.abort();
+    if (photo.leftover) abandon(photo.leftover);
     forget(photo.stored);
     if (photo.view.preview.src) URL.revokeObjectURL(photo.view.preview.src);
     photo.view.item.remove();
     renumber();
     update();
+    if (!refocus) return;
     const next = photos[at] ?? photos[at - 1];
     if (!next) picker.focus();
     else (next.view.remove.hidden ? next.view.caption : next.view.remove).focus();
+  }
+
+  // Remove on a failed clip whose complete got no answer (owner, at #198's
+  // review): the abandon asks, and the server says. The item stays,
+  // checking, with Remove and Try again withdrawn while the DELETE goes,
+  // tried again as a complete is. A 409 says the clip arrived before Remove:
+  // it shows Sent, saying so, and waits in the queue as any clip does. No
+  // answer or a 5xx is still unknown, so it fails again with that reason,
+  // and a later Remove asks again. Any other answer settles it as letGo
+  // reads one, a 204 or a 404 having stored nothing, and the item goes as
+  // Remove takes any item. Remove never sends the complete, so it never
+  // stores a clip.
+  //
+  // An upload a failed try could not let go of goes first, best effort: if
+  // its DELETE is lost again, it stays until the sweep, as after Try again,
+  // even where the clip turns out Sent. The focus moves as Remove moves it
+  // only from where Remove left it, in this item: a sender who has moved on
+  // while the DELETE went keeps their place.
+  async function askFirst(clip) {
+    const { upload } = clip.unsettled;
+    set(clip, 'checking');
+    if (clip.leftover) await letGo(clip, clip.leftover);
+    const response = await tries(clip, () => abandon(upload));
+    if (response?.status === 409) {
+      clip.unsettled = null;
+      clip.arrived = true;
+      forget(clip.stored);
+      set(clip, 'sent');
+    } else if (!response || response.status >= 500) {
+      if (response) await answered(clip, response);
+      else fail(clip, 'offline');
+    } else {
+      const { caption, tryAgain, remove } = clip.view;
+      takeOut(clip, [caption, tryAgain, remove, document.body, null].includes(document.activeElement));
+    }
   }
 
   // ---- Sending
@@ -769,9 +993,10 @@
     pump();
   });
 
-  // A failed photo goes again into the album chosen now, in its first batch.
+  // A failed photo goes again into the album chosen now, in its first batch,
+  // unless it is a clip whose complete got no answer (uploadClip).
   function resend(photo) {
-    if (photo.state !== 'failed') return;
+    if (!retryable(photo)) return;
     if (!albumField.value) {
       notice = 'Choose an album first.';
       update();
@@ -785,14 +1010,22 @@
     pump();
   }
 
-  // Starts queued photos that are ready, no more than AT_ONCE at a time.
+  // Starts queued photos and clips that are ready, no more than AT_ONCE at a
+  // time. A clip takes one of those places, and one clip sends at a time
+  // (#198): photos take the others, and pass a clip waiting its turn. A clip
+  // is counted until its sending ends, not while it is listed, so one removed
+  // while its upload starts keeps its turn until that upload is let go of.
+  let clipsInFlight = 0;
   function pump() {
     while (active < AT_ONCE) {
-      const photo = photos.find((one) => one.state === 'queued' && one.ready);
+      const photo = photos.find((one) => one.state === 'queued' && one.ready && (one.kind === 'photo' || clipsInFlight === 0));
       if (!photo) return;
+      const clip = photo.kind === 'clip';
       active += 1;
-      upload(photo).finally(() => {
+      if (clip) clipsInFlight += 1;
+      (clip ? uploadClip(photo) : upload(photo)).finally(() => {
         active -= 1;
+        if (clip) clipsInFlight -= 1;
         pump();
       });
     }
@@ -826,6 +1059,21 @@
       set(photo, 'sent');
       return;
     }
+    await answered(photo, response);
+  }
+
+  // The answers only a clip's routes give (#198), each its own reason.
+  const CLIP_ANSWERS = { 404: 'gone', 413: 'over', 422: 'kept' };
+
+  // What an answer other than success does to the photo or clip it answered,
+  // and to the rest of the queue.
+  async function answered(photo, response) {
+    // What a refusal stops of the queue below, but for a 401, never takes a
+    // clip whose complete got no answer: its Try again sends only that
+    // complete, which spends none of the day's 500 or its clip budget, goes
+    // to the album its upload started in, and meets any refusal itself
+    // (#198's review). An ended session refuses that complete as well.
+    const stoppable = (one) => one.state === 'queued' && !one.unsettled;
     if (response.status === 401) {
       // The session has ended: every queued photo would get the same answer,
       // so none of them is sent until the parent opens the new link.
@@ -837,7 +1085,7 @@
       // full only to be refused, so they stop here too. Only those: a later
       // Send or a Try again may have queued photos for another album.
       fail(photo, 'album');
-      for (const waiting of photos.filter((one) => one.state === 'queued' && one.album === photo.album)) fail(waiting, 'album');
+      for (const waiting of photos.filter((one) => stoppable(one) && one.album === photo.album)) fail(waiting, 'album');
       loadAlbums({ pick: false });
     } else if (response.status === 403 && (await errorOf(response)) === 'team') {
       // #223: the account is no longer approved for that album's team. Every
@@ -845,16 +1093,209 @@
       // list reloads without the team's albums and preselects nothing, as
       // after a 409.
       fail(photo, 'team');
-      for (const waiting of photos.filter((one) => one.state === 'queued' && one.album === photo.album)) fail(waiting, 'team');
+      for (const waiting of photos.filter((one) => stoppable(one) && one.album === photo.album)) fail(waiting, 'team');
       loadAlbums({ pick: false });
+    } else if (response.status === 429 && photo.kind === 'clip' && (await errorOf(response)) === 'clip-bytes') {
+      // The day's clip budget is spent (#198's review): every clip queued
+      // behind it would be refused too, and only those, since photos do not
+      // count against it.
+      fail(photo, 'clip-day');
+      for (const waiting of photos.filter((one) => stoppable(one) && one.kind === 'clip')) fail(waiting, 'clip-day');
     } else if (response.status === 429) {
       fail(photo, 'cap');
-      for (const waiting of photos.filter((one) => one.state === 'queued')) fail(waiting, 'cap');
+      for (const waiting of photos.filter(stoppable)) fail(waiting, 'cap');
     } else if (response.status === 503) {
       fail(photo, 'unavailable');
     } else {
-      fail(photo, 'refused');
+      fail(photo, (photo.kind === 'clip' && CLIP_ANSWERS[response.status]) || 'refused');
     }
+  }
+
+  // ---- Sending a clip (#198)
+
+  // fetch for a clip's routes: same-origin, never cached, and null for a
+  // request that got no answer, one Remove cut off included.
+  async function send(path, init) {
+    try {
+      return await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...init });
+    } catch {
+      return null;
+    }
+  }
+
+  // Waits `ms`, or less when Remove stops the clip meanwhile.
+  function pause(ms, signal) {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal.addEventListener('abort', done);
+    });
+  }
+
+  // A part, the complete, or the abandon Remove sends to ask whether a clip
+  // arrived, tried up to three more times, alone, when it gets no answer or
+  // a 5xx (CLAUDE.md item 10). The last answer, or null when none came. The
+  // complete is safe to send again: a clip it already stored answers 201
+  // (lib/clips.js). So is that abandon: one that took the upload back answers
+  // 404 the next time, which says the same, nothing stored, and a stored clip
+  // answers 409 every time. The start is never sent again, since one whose
+  // answer was lost has started an upload all the same.
+  async function tries(clip, request) {
+    for (let i = 0; ; i += 1) {
+      const response = await request();
+      if (clip.removed || (response && response.status < 500) || i === RETRY_WAITS.length) return response;
+      await pause(RETRY_WAITS[i], clip.stop.signal);
+      if (clip.removed) return null;
+    }
+  }
+
+  // Lets go of an upload the page will not finish: the server deletes its
+  // row and its parts and gives back its share of the day's 500. Best
+  // effort: one left behind is cleared a day after it started.
+  const abandon = ({ id, token }) => send(`/api/upload/clips/${id}`, { method: 'DELETE', headers: { [UPLOAD]: token } });
+
+  // abandon(), for an upload a failed part or a refused clip leaves, keeping
+  // it on the clip when the DELETE gets no answer or a 5xx, so Try again or
+  // Remove sends it again first: an upload left to the sweep keeps its share
+  // of the day's 500, which the sweep never gives back (#198's review). Any
+  // other answer settles it, a 404 (gone already) or a 401 (a session that
+  // can no longer reach it) included. So does a 409, a clip stored already,
+  // which an upload let go of here cannot be: no complete was sent for it,
+  // or its complete was refused, which none is once the clip is stored. Only
+  // Remove's own question reads a 409 as a clip that arrived (askFirst).
+  async function letGo(clip, upload) {
+    const response = await abandon(upload);
+    clip.leftover = response && response.status < 500 ? null : upload;
+  }
+
+  // A clip that will not complete fails with the reason its last answer
+  // gives, and its upload is abandoned unless the server has let go of it
+  // already (404). That is a part that failed, or a complete the server
+  // answered with a refusal, a 404 or a 401: a complete that got no answer
+  // or a 5xx is kept instead (completed). Try again starts a new upload,
+  // from the first part.
+  async function gaveUp(clip, response, upload) {
+    if (response) await answered(clip, response);
+    else fail(clip, 'offline');
+    if (response?.status !== 404) await letGo(clip, upload);
+  }
+
+  // A clip's complete, tried again as a part is: the etags its parts were
+  // answered with and its capture time, under the upload's token. Sent again
+  // by Try again, the same three go.
+  const complete = (clip, { upload, etags, captured }) => tries(clip, () => send(`/api/upload/clips/${upload.id}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [UPLOAD]: upload.token },
+    body: JSON.stringify({ parts: etags, captured }),
+  }));
+
+  // What a complete's last answer does to its clip. 201: stored. No answer
+  // or a 5xx says nothing either way, since any one of its tries may have
+  // stored the clip and lost the answer: so nothing is abandoned, and the
+  // complete is kept on the clip (`unsettled`) for Try again to send again
+  // and Remove to ask about, while the clip fails with the reason its last
+  // answer gives. #198's review measured the abandon it replaced: the
+  // DELETE was answered as settled, and Try again stored the clip twice.
+  // Any other answer gives up as a part's does (gaveUp).
+  async function completed(clip, response, unsettled) {
+    if (response?.status === 201) {
+      clip.unsettled = null;
+      forget(clip.stored);
+      set(clip, 'sent');
+    } else if (!response || response.status >= 500) {
+      clip.unsettled = unsettled;
+      if (response) await answered(clip, response);
+      else fail(clip, 'offline');
+    } else {
+      clip.unsettled = null;
+      await gaveUp(clip, response, unsettled.upload);
+    }
+  }
+
+  // A clip goes as POST /api/upload/clips, PUT each part, then POST the
+  // complete (the routes' header comments are the contract). It declares and
+  // sends plan.bytes, never file.size: a trailer after the last box is not
+  // sent, and the server refuses a stored clip of any other size.
+  //
+  // A clip whose last complete got no answer sends that complete again
+  // first, before any start (owner, at #198's review). A clip it stored
+  // answers 201, and one whose complete never arrived is joined now from
+  // the parts already in the bucket, with no part sent again. Only a 404, no
+  // such upload, starts afresh, in the same press, into the album chosen
+  // now; any other answer is the server's word on the clip (completed).
+  async function uploadClip(clip) {
+    // Every try starts afresh, Try again's included: no progress and no
+    // finishing flag left from the last one, before the item shows its state
+    // (#198's review: it showed "Sending… 2 of 2" with Remove hidden). A
+    // complete sent again is a complete, so Remove is withdrawn while it goes.
+    const stop = new AbortController();
+    const unsettled = clip.unsettled ?? null;
+    Object.assign(clip, { stop, part: 0, parts: 0, finishing: unsettled !== null });
+    set(clip, 'sending');
+    const { file } = clip;
+    const { plan, captured } = clip.ready;
+    // An upload the last try could not let go of goes first.
+    if (clip.leftover) await letGo(clip, clip.leftover);
+    if (clip.removed) return null;
+    if (unsettled) {
+      // Its answer is about the album its upload started in, so a 409 stops
+      // what is queued for that album, not for the one chosen now.
+      const chosen = clip.album;
+      clip.album = unsettled.album;
+      const again = await complete(clip, unsettled);
+      if (again?.status !== 404) return completed(clip, again, unsettled);
+      Object.assign(clip, { unsettled: null, album: chosen, finishing: false });
+      set(clip, 'sending');
+    }
+    const caption = clean(clip.view.caption.value);
+    let response = await send('/api/upload/clips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        album: clip.album, batch: clip.batch, caption: caption || null,
+        bytes: plan.bytes, durationMs: plan.durationMs, contentType: plan.contentType,
+      }),
+    });
+    const started = response?.status === 201 ? await response.json().catch(() => null) : null;
+    const upload = Number.isSafeInteger(started?.id) && typeof started.token === 'string' ? { id: started.id, token: started.token } : null;
+    // Removed while it started: the start is let finish, so an upload it made
+    // can be abandoned rather than left for a day.
+    if (clip.removed) return upload && abandon(upload);
+    if (!response) return fail(clip, 'offline');
+    if (response.status !== 201) return answered(clip, response);
+    // The start counts the parts from the size declared, with the same
+    // module; counts that differ would send parts the route refuses.
+    if (!upload || started.parts !== MadcowClip.partCount(plan.bytes)) {
+      fail(clip, 'refused');
+      return upload && letGo(clip, upload);
+    }
+    clip.parts = started.parts;
+    const etags = [];
+    for (let n = 1; n <= clip.parts; n += 1) {
+      clip.part = n;
+      set(clip, 'sending');
+      // Slices of the file, which the browser reads as it sends, and the
+      // walker's edits for this part alone. ArrayBuffer.isView, not
+      // instanceof Uint8Array: js/clip.js makes the edits in its own realm,
+      // which the tests' node:vm keeps apart from this script's.
+      const body = new Blob(MadcowClip.partPieces(plan, n).map((piece) => (ArrayBuffer.isView(piece) ? piece : file.slice(piece.from, piece.to))));
+      response = await tries(clip, () => send(`/api/upload/clips/${upload.id}/parts/${n}`, {
+        method: 'PUT', headers: { [UPLOAD]: upload.token }, body, signal: stop.signal,
+      }));
+      if (clip.removed) return abandon(upload);
+      const etag = response?.status === 200 ? (await response.json().catch(() => null))?.etag : null;
+      if (typeof etag !== 'string') return gaveUp(clip, response, upload);
+      etags.push({ partNumber: n, etag });
+    }
+    // The server joins the parts and checks the clip; Remove is withdrawn.
+    clip.finishing = true;
+    set(clip, 'sending');
+    const finish = { upload, etags, captured, album: clip.album };
+    return completed(clip, await complete(clip, finish), finish);
   }
 
   function fail(photo, reason) {
@@ -864,23 +1305,43 @@
 
   // ---- The summary
 
+  // The counts name both kinds when a clip is among them (#198), "Sending 2
+  // photos and 1 clip", and read as they always have when none is.
   function summaryText() {
-    const sent = count('sent');
-    const failed = count('failed');
-    const sending = inFlight();
-    const waiting = count('ready') + count('preparing');
-    const unreadable = count('unreadable');
+    const sent = of('sent');
+    const failed = of('failed');
+    const sending = of('queued', 'sending');
+    const waiting = of('ready', 'preparing');
+    const unreadable = of('unreadable');
+    const [done, lost] = [sent.length, failed.length];
     const parts = notice ? [notice] : [];
-    if (sending > 0) {
-      parts.push(`Sending ${plural(sent + failed + sending)}: ${sent} sent${failed ? `, ${failed} failed` : ''}.`);
-    } else if (failed > 0) {
-      parts.push(`Sent ${sent} of ${sent + failed}. ${failed} failed: press Try again on ${failed === 1 ? 'it' : 'each one'}.`);
-    } else if (sent > 0) {
-      parts.push(`Sent ${plural(sent)}. They'll appear in the album once they're reviewed.`);
+    if (sending.length > 0) {
+      parts.push(`Sending ${many([...sent, ...failed, ...sending])}: ${done} sent${lost ? `, ${lost} failed` : ''}.`);
+    } else if (lost > 0) {
+      // Try again is asked for only where it is offered: a clip refused for
+      // good (FINAL) says in its own words what to do instead.
+      const again = failed.filter(retryable).length;
+      const press = again === lost ? `: press Try again on ${lost === 1 ? 'it' : 'each one'}`
+        : again > 0 ? ": press Try again where it's offered" : '';
+      parts.push(`Sent ${done} of ${done + lost}. ${lost} failed${press}.`);
+    } else if (done > 0) {
+      parts.push(`Sent ${many(sent)}. ${shown(sent)}`);
     }
-    if (waiting > 0) parts.push(`${plural(waiting)} ${sent + failed + sending ? 'more ' : ''}ready to send.`);
-    if (unreadable > 0) parts.push(`${plural(unreadable)} can't be sent from this browser.`);
+    if (waiting.length > 0) parts.push(`${many(waiting)} ${done + lost + sending.length ? 'more ' : ''}ready to send.`);
+    // A clip over a cap is not this browser's doing, so with one among them
+    // the reason is left to each one's own words.
+    if (unreadable.length > 0) parts.push(`${many(unreadable)} can't be sent${unreadable.some((one) => one.kind === 'clip') ? '' : ' from this browser'}.`);
     return parts.join(' ');
+  }
+
+  // Where what was sent will show once it is approved: a photo in its album;
+  // a clip nowhere on the site yet, until #286 brings clips to the albums.
+  function shown(sent) {
+    const clips = sent.filter((one) => one.kind === 'clip').length;
+    const shots = sent.length - clips;
+    if (!clips) return "They'll appear in the album once they're reviewed.";
+    const later = "Clips aren't shown on the site yet.";
+    return shots ? `The photo${shots === 1 ? '' : 's'} will appear in the album once ${shots === 1 ? "it's" : "they're"} reviewed. ${later}` : later;
   }
 
   // The live region is written once for everything that changed together
@@ -923,8 +1384,9 @@
   // (measured on Android at #193's review), and sharing again from Chrome
   // would do the same, so it names another way.
   const SHARED_NOTES = {
-    failed: "The photos you shared couldn't be kept on this phone. Share them again.",
-    empty: "No photos arrived with that share. Share them from your phone's gallery or Files app instead.",
+    // Since #198 a share may hold clips, so these name no kind (owner).
+    failed: "What you shared couldn't be kept on this phone. Share it again.",
+    empty: "Nothing arrived with that share. Share from your phone's gallery or Files app instead.",
   };
 
   // How the share that opened this page went, from share/sw.js's ?shared:
@@ -1030,20 +1492,23 @@
     showShared(trouble(waiting));
   }
 
-  // Without one: they stay, and the page says how many are waiting.
+  // Without one: they stay, and the page says how many are waiting, of each
+  // kind when a clip is among them (#198).
   async function waitShared() {
     const waiting = await shared();
     const problem = trouble(waiting);
     if (problem) showShared(problem);
-    else showShared(waiting?.length ? 'waiting' : null, waiting?.length ?? 0);
+    else showShared(waiting?.length ? 'waiting' : null, (waiting ?? []).map(({ file }) => ({ kind: kindOf(file) })));
   }
 
-  function showShared(state, n = 0) {
+  function showShared(state, kinds = []) {
     sharedNote.hidden = state === null;
     if (state === 'waiting') {
-      sharedNote.textContent = `${plural(n)} you shared ${n === 1 ? 'is' : 'are'} waiting on this phone. ` +
-        `Open your invite link, or sign in as a coach, and ${n === 1 ? 'it' : 'they'} will be ready to send. ` +
-        'Shared photos are kept here for a day.';
+      const one = kinds.length === 1;
+      const clips = kinds.filter((file) => file.kind === 'clip').length;
+      sharedNote.textContent = `${many(kinds)} you shared ${one ? 'is' : 'are'} waiting on this phone. ` +
+        `Open your invite link, or sign in as a coach, and ${one ? 'it' : 'they'} will be ready to send. ` +
+        `Shared ${!clips ? 'photos' : clips === kinds.length ? 'clips' : 'photos and clips'} are kept here for a day.`;
     } else sharedNote.textContent = SHARED_NOTES[state] ?? '';
   }
 

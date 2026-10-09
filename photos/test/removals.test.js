@@ -98,7 +98,7 @@ function seed(env, address, { state = 'approved', captured = T0, caption = null,
   return Number(lastInsertRowid);
 }
 
-/** An approved clip (#198's shape), which a takedown must leave alone until #198. */
+/** An approved clip (#198's shape), which a takedown must leave alone until #286. */
 function seedClip(env, address, state = 'approved') {
   const albumId = env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   const { lastInsertRowid } = env.DB.sqlite.prepare(

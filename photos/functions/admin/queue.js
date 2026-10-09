@@ -21,6 +21,9 @@
  * photo's card or a batch's section, where the notice then shows. The page
  * only compares it with the ids it renders, so anything else shows the notice
  * at the top, as before.
+ *
+ * Since #198 the waiting clips are in their batches too, each played through
+ * functions/api/admin/clips/[id].js, and loaded only when played.
  */
 import { adminQueuePage, queueNotice } from '../../lib/admin-page.js';
 import { allAlbums } from '../../lib/albums.js';

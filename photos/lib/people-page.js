@@ -240,6 +240,12 @@ function revokeForm(person) {
 
 // "Hide all their photos" (#225), for an account with a photo waiting or
 // public. Its box names the count and must be ticked, here and by the route.
+//
+// It hides photos only (owner, at #198's pickup): a clip waits in the queue
+// beside the photos since #198, and Hide all leaves it there until #286
+// brings clips into it and into removals. So the box says what becomes of
+// their waiting clips, and where to reject them, under the box itself, which
+// counts photos alone (lib/people.js, peopleLists).
 function hideForm(person) {
   const { waiting, approved } = person.photos;
   const total = waiting + approved;
@@ -249,8 +255,9 @@ function hideForm(person) {
   return `<form method="post" action="/api/admin/people/hide" class="album-form person-form">
           <input type="hidden" name="account" value="${person.id}">
           <p class="choices"><label><input type="checkbox" name="confirm" value="hide" required> Hide the ${plural(total, 'photo', 'photos')} ${name} sent (${which})</label></p>
+          <p class="hint" id="hide-${person.id}-clips">Their waiting clips are not hidden. Reject those in <a href="/admin/queue">the queue</a>.</p>
           <p class="actions">
-            <button type="submit" class="button button-quiet" aria-label="Hide all their photos: ${name}">Hide all their photos</button>
+            <button type="submit" class="button button-quiet" aria-label="Hide all their photos: ${name}" aria-describedby="hide-${person.id}-clips">Hide all their photos</button>
           </p>
         </form>`;
 }

@@ -20,11 +20,18 @@
  * elsewhere or one replayed; the queue then says why it was left
  * (?error=not-sure, at the batch, which says it too, or &not-sure=n beside
  * photos that were approved).
+ *
+ * Since #198 a waiting clip is approved here as a photo is, and kept, shown
+ * nowhere public until #286. The notice names clips apart (lib/queue.js,
+ * acted): &clip=<id> for one, &clips=<n> beside &n=<photos>, and the same
+ * split for the captions not saved and the Not sure rows left waiting
+ * (&unsaved-clips=, &not-sure-clips=), each read in the statement that
+ * already counted it, so the press makes no statement more.
  */
 import { readForm, seeOther } from '../../../../lib/form.js';
 import {
   QUEUE_FORM_BYTES, acted, approvePhotos, nextWaiting, notSureWaiting, photoAt, queueLocation, readPress, saveCaptions,
-  unsavedCaptions, waitingOrder,
+  unsavedCaptions, unsavedFields, waitingOrder,
 } from '../../../../lib/queue.js';
 import { nowSeconds } from '../../../../lib/session.js';
 import { teamOf } from '../../../../lib/teams.js';
@@ -34,17 +41,24 @@ export async function onRequestPost({ request, env }) {
   const press = readPress(await readForm(request, QUEUE_FORM_BYTES), 'approve');
   if (press.error) return seeOther(queueLocation({ error: press.error, photo: press.photo, team }));
   // Counted first: after the approval its own photos would count too.
-  const unsaved = (await unsavedCaptions(env.DB, press.captions)) || null;
+  const unsaved = unsavedFields(await unsavedCaptions(env.DB, press.captions));
   await saveCaptions(env.DB, press.captions);
   const order = await waitingOrder(env.DB, team);
-  const approved = await approvePhotos(env.DB, press.targets, nowSeconds());
-  const notSure = approved.length === press.targets.length ? null : (await notSureWaiting(env.DB, press.targets)) || null;
+  const { approved, clips } = await approvePhotos(env.DB, press.targets, nowSeconds());
+  // Read only when the press left some of what it named waiting.
+  const counted = approved.length === press.targets.length ? null : await notSureWaiting(env.DB, press.targets);
+  const notSure = counted && (counted.photos || counted.clips) ? counted : null;
   const next = photoAt(nextWaiting(order, press.ids, press.targets, approved));
   if (!approved.length) {
-    if (notSure) return seeOther(queueLocation({ error: 'not-sure', n: notSure, unsaved, team }, press.anchor));
-    return seeOther(queueLocation({ error: 'gone', unsaved, team }, next));
+    if (notSure) {
+      return seeOther(queueLocation({ error: 'not-sure', n: notSure.photos || null, clips: notSure.clips || null, ...unsaved, team }, press.anchor));
+    }
+    return seeOther(queueLocation({ error: 'gone', ...unsaved, team }, next));
   }
-  return seeOther(queueLocation({ done: 'approved', ...acted(approved), 'not-sure': notSure, unsaved, team }, next));
+  return seeOther(queueLocation({
+    done: 'approved', ...acted(approved, clips), 'not-sure': notSure?.photos || null, 'not-sure-clips': notSure?.clips || null,
+    ...unsaved, team,
+  }, next));
 }
 
 /**

@@ -1,14 +1,17 @@
-/* The photo site's service worker (#193): it takes the photos another app
- * shares to the installed site, and does nothing else.
+/* The photo site's service worker (#193): it takes the photos and clips
+ * another app shares to the installed site, and does nothing else.
  *
  * On Android, a phone's gallery lists the installed site in its Share menu
- * (manifest.webmanifest, share_target). Sharing to it is a POST of the chosen
- * files to /share/receive, as a page navigation. This worker answers that one
- * POST: it puts the files in this phone's browser storage (IndexedDB), one
- * record per file, and sends the browser on to the share page,
- * /share/?shared, which offers them in its list (js/share.js). Nothing is sent
- * anywhere: a file reaches the server only when the sender presses Send, made
- * into the three JPEGs the share page makes of any photo.
+ * (manifest.webmanifest, share_target), for clips as well as photos since
+ * #198. Sharing to it is a POST of the chosen files to /share/receive, as a
+ * page navigation. This worker answers that one POST: it puts the files in
+ * this phone's browser storage (IndexedDB), one record per file, and sends
+ * the browser on to the share page, /share/?shared, which offers them in its
+ * list (js/share.js). Nothing is sent anywhere: a file reaches the server
+ * only when the sender presses Send, made into the three JPEGs the share page
+ * makes of any photo, or, for a clip, sent in parts with its location and
+ * camera details overwritten (js/clip.js). A clip is kept here as it was
+ * shared, as a photo is, so this file needed no change of code for #198.
  *
  * The files wait in storage, not in memory, so they survive what unloads the
  * page: the sign-in round trip (a coach with no upload session signs in at
@@ -65,7 +68,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 // The share page, told how the share went: ?shared when the files are kept,
-// ?shared=empty when the share carried no photo the worker could read (a
+// ?shared=empty when the share carried no file the worker could read (a
 // share from Chrome itself arrives that way, measured on Android for #193),
 // ?shared=failed when they could not be kept. A 303, so the page loads with a
 // GET and a reload never posts the files again.
@@ -87,9 +90,10 @@ async function receive(request) {
   let files;
   try {
     const form = await request.formData();
-    // A form field is a string or a file; only a file with bytes is a photo.
-    // A string has no size, so the size test alone would drop it too: the
-    // typeof says what is meant, and no test can tell the two apart.
+    // A form field is a string or a file; only a file with bytes is a photo
+    // or a clip, and which it is the share page decides (#198). A string has
+    // no size, so the size test alone would drop it too: the typeof says
+    // what is meant, and no test can tell the two apart.
     files = form.getAll(FIELD).filter((entry) => typeof entry !== 'string' && entry.size > 0);
   } catch {
     return back('failed');

@@ -16,8 +16,8 @@
  * database: #154's photos table references albums (id), and D1 enforces
  * foreign keys in every query (developers.cloudflare.com/d1/sql-api/
  * foreign-keys, read 2026-09-28). So no count taken first can be overtaken by
- * an upload landing between it and the DELETE. The count is read only to say
- * why the DELETE failed.
+ * an upload landing between it and the DELETE. The counts, photos and clips
+ * apart since #198, are read only to say why the DELETE failed.
  *
  * Every album belongs to a team since #227 (lib/teams.js), chosen when it is
  * added and changed by an edit. Its team's section of the site lists it, and
@@ -255,8 +255,11 @@ export async function setAlbumOpen(db, address, open, now) {
 /**
  * Delete an empty album. Answers { deleted: true }, { missing: true } when
  * there was no album there, { notSure: true } when it is a team's Not sure
- * album, which migration 0015 never lets go (#228), or { photos: n } when the
- * database refused because n photos still name it.
+ * album, which migration 0015 never lets go (#228), or, when the database
+ * refused because rows still name it, how many: { photos, clips,
+ * approvedClips, uploadingClips }. Photos and clips are counted apart since
+ * #198 (owner, at #198's review), with the clips no admin page shows: an
+ * approved one, which nothing lists until #286, and one still being sent.
  */
 export async function deleteAlbum(db, address) {
   if (!isAddress(address)) return { missing: true };
@@ -270,9 +273,16 @@ export async function deleteAlbum(db, address) {
     if (!/FOREIGN KEY constraint failed/.test(message)) throw err;
   }
   // Only reached when a photos table exists and a row in it names this album.
-  const photos = await db
-    .prepare('SELECT COUNT(*) AS n FROM photos WHERE album_id = (SELECT id FROM albums WHERE address = ?)')
+  // One statement, so every count is read from the same rows.
+  const counts = await db
+    .prepare(
+      "SELECT COUNT(CASE WHEN kind = 'photo' THEN 1 END) AS photos, " +
+      "COUNT(CASE WHEN kind = 'clip' THEN 1 END) AS clips, " +
+      "COUNT(CASE WHEN kind = 'clip' AND state = 'approved' THEN 1 END) AS approved, " +
+      "COUNT(CASE WHEN kind = 'clip' AND state = 'uploading' THEN 1 END) AS uploading " +
+      'FROM photos WHERE album_id = (SELECT id FROM albums WHERE address = ?)',
+    )
     .bind(address)
-    .first('n');
-  return { photos };
+    .first();
+  return { photos: counts.photos, clips: counts.clips, approvedClips: counts.approved, uploadingClips: counts.uploading };
 }

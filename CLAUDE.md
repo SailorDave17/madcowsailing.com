@@ -80,7 +80,12 @@ before approving them (item 32). #268, the first of epic #267's, deleted
 the Access application in front of `/admin` on production, so an admin
 signs in once, with the password and the emailed code (item 30). #269 made
 the admin home open on what is waiting, each count a full-width button to
-its page (item 30). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+its page (item 30). #198 let the share page send clips, in parts of 25 MiB,
+their location and camera data overwritten on the phone and checked again
+on arrival, up to 10 GB of a session's clips a day (40 GB a coach's); a
+clip waits in `/admin/queue` beside the photos, where an admin plays,
+approves, rejects or moves it, and #286 shows approved clips on the public
+pages (item 33). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -591,7 +596,7 @@ are unchanged.
 | Meter | Free allowance | Where it ends here | The paid step |
 |---|---|---|---|
 | Requests (Functions and Workers together) | 100,000 a day, for the account | about 2,439 album views a day (item 2), minus what clips take (item 10) | Workers Paid, $5 a month: 10 million a month, then $0.30 per million |
-| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. **The password hash does not fit** (#218, read on the develop preview on 2026-10-05 by the same method, `?run=hash` and `?run=none` each alone in its own minute). On the free plan 2 of the 20 hashes were cut, answering 503 with status `exceededResources` at 10.0 and 22.7 ms of CPU, and the 18 that ran read 114.6 / 118.7 / 124.3 ms (`sampleInterval` 1.38). On Workers Paid, from a deployment made after the upgrade: 136.5 / 149.5 / 155.0 ms, 0 errors (`sampleInterval` 1.11), against the control's 1.6 / 1.9 / 2.3 ms (2.5). **A deployment live at the upgrade kept a 50 ms cut**: the preview's cut 4 of 20 hashes at 50.0 to 104.2 ms until it was redeployed. Production's deployment then, release `d02da44`, was made before the upgrade too, so by the same reading it keeps that cut until the next release deploys (not measured on production; its routes read under 10 ms above, and nothing there hashes yet). Clip parts: the video stories | Workers Paid, **in force since 2026-10-05**: 30 million CPU ms a month, then $0.02 per million. The project's own CPU time limit (Settings → General) is blank, so the plan's default applies |
+| CPU | 10 ms per request | measured per route on production on 2026-10-01 (#161), each route driven alone for 20 requests in its own UTC minute, then read from the GraphQL Analytics API's `pagesFunctionsInvocationsAdaptiveGroups` by `datetimeMinute` (an Account Analytics: Read token; the schema gives the unit as microseconds). Each minute's request total had to equal the 20 sent, so no other traffic was in it. p50 / p90 / p99: `/` 2.4 / 5.4 / 7.1 ms; an album page of 12 photos 1.9 / 2.5 / 7.2 ms; the image route 2.2 / 3.1 / 7.5 ms; the admin home behind the Access token check 2.7 / 4.2 / 9.2 ms; 0 errors. At 20 requests, p99 is about the minute's slowest request, and on every route that one took 7–9 ms. The admin home's came within 0.8 ms of the limit. Two minutes were sampled (`sampleInterval` 1.25 and 1.82), so their quantiles come from about 16 and 11 requests. The Metrics tab cannot split by route, and the tail output Cloudflare documents carries no CPU field. **The password hash does not fit** (#218, read on the develop preview on 2026-10-05 by the same method, `?run=hash` and `?run=none` each alone in its own minute). On the free plan 2 of the 20 hashes were cut, answering 503 with status `exceededResources` at 10.0 and 22.7 ms of CPU, and the 18 that ran read 114.6 / 118.7 / 124.3 ms (`sampleInterval` 1.38). On Workers Paid, from a deployment made after the upgrade: 136.5 / 149.5 / 155.0 ms, 0 errors (`sampleInterval` 1.11), against the control's 1.6 / 1.9 / 2.3 ms (2.5). **A deployment live at the upgrade kept a 50 ms cut**: the preview's cut 4 of 20 hashes at 50.0 to 104.2 ms until it was redeployed. Production's deployment then, release `d02da44`, was made before the upgrade too, so by the same reading it keeps that cut until the next release deploys (not measured on production; its routes read under 10 ms above, and nothing there hashes yet). Clip parts: #198 measures a 25 MB part on the `develop` preview after its merge, by the same method (item 33) | Workers Paid, **in force since 2026-10-05**: 30 million CPU ms a month, then $0.02 per million. The project's own CPU time limit (Settings → General) is blank, so the plan's default applies |
 | R2 storage | 10 GB-month | about 11,000 photos, or about 30–50 three-minute clips (item 9) | $0.015 per GB-month |
 | R2 writes (Class A) | 1 million a month | 3 per photo, about 12 per clip | $4.50 per million |
 | R2 reads (Class B) | 10 million a month | 40 per album view: about 2.93 million a month at the request ceiling | $0.36 per million |
@@ -646,7 +651,10 @@ A clip may run for up to 3 minutes. That was the owner's figure for pricing, and
 video stories confirm it. Apple gives 70–105 MB for a minute of 1080p, the iPhone's
 default ([Apple](https://support.apple.com/en-us/127765)), so a 3-minute clip is roughly
 200–300 MB. Apple's figures are for exporting from iMovie, not for camera originals, so
-treat them as an estimate.
+treat them as an estimate. A coach's clip may run for 15 minutes (D11). #198 adds a size
+cap beside each: 1 GiB for a parent's clip and 4 GiB for a coach's (`CLIP_BYTES` in
+`lib/photos.js`; owner, item 33), and a day's budget for a session's clips together, 10 GiB
+and a coach's 40 GiB (`CLIP_DAY_BYTES`; owner, after the security audit, item 33).
 
 ### 10. Video: uploaded in parts, blanked in the browser, checked on the server
 
@@ -667,12 +675,14 @@ when it restarts, which happens a few times a week. The binding does the auth, s
 credential reaches the browser and nothing leaves the site's domain. R2 aborts an
 unfinished multipart upload after 7 days by default
 ([R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/));
-a lifecycle rule on the bucket shortens that to 1 day.
+a lifecycle rule on the bucket shortens that to 1 day. It is on both buckets since
+2026-10-08 (#198, item 33).
 
 Whether a free Function can pass a 25 MB part into R2 within its 10 ms of CPU is not
 documented. **The first video story measures it before building on it.** If a part does
 not fit, the answer is Workers Paid, whose CPU limit defaults to 30 seconds, not a
-different upload path.
+different upload path. The account has been on Workers Paid since 2026-10-05, so #198
+built first and measures a part on the `develop` preview after its merge (item 33).
 
 **Location and camera data.** The page removes them before uploading, without
 re-encoding. A hand-written walker goes through the file's boxes (the named blocks an
@@ -700,8 +710,8 @@ identity. The test is `exiftool -a -G1 -ee -u`, run on real iPhone and Android c
 before and after the walker: afterwards it must find no location, make, model,
 software, lens or free-text device tags. `-ee` reads timed metadata, and `-u` shows the
 vendor GPS boxes that exiftool otherwise hides. The promise covers location and camera
-data. The boxes playback needs still carry creation times; the video stories decide
-whether to zero those too.
+data. The boxes playback needs carry creation times too, and #198 zeroes them in place
+(owner, item 33).
 
 **The server checks rather than strips.** R2 cannot patch a stored object, and rewriting a
 300 MB clip through a free Function would not fit its CPU. So when an upload completes,
@@ -720,7 +730,9 @@ carry the same `Cache-Control: private, max-age=300` as photos. Every range requ
 Functions request. A third-party trace from 2023, not a Cloudflare figure, saw Chrome and
 Firefox make 3–4 requests per play, and Safari one request per few MB
 ([zeng.dev](https://www.zeng.dev/post/2023-http-range-and-play-mp4-in-browser/)). For a
-250 MB clip that is about 70 requests.
+250 MB clip that is about 70 requests. Since #198 the admin queue plays a waiting clip
+this way, through `functions/api/admin/clips/[id].js`; serving one on the public pages
+is #286 (item 33).
 
 **Open until the video stories measure it:** clips are stored as recorded, so an iPhone's
 HEVC clip stays HEVC. Whether every browser the families use plays HEVC was not
@@ -937,7 +949,10 @@ applications and their policies.
   ([foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/), read
   2026-09-28). So the refusal holds whatever state the photo is in, and an upload that
   lands mid-delete cannot slip past a count taken first. The route catches the failure and
-  only then counts the photos, to say how many. `test/albums.test.js` holds the rule on
+  only then counts the photos, to say how many. Since #198's review it counts photos and
+  clips apart in that one statement, with how many clips are approved or still being
+  sent, which no admin page shows, and the page names both kinds (item 33). An album
+  holding photos alone lands and reads as before. `test/albums.test.js` holds the rule on
   #154's real `photos` table (a stand-in until #154 made it), and `test/upload.test.js`
   holds it on photos sent through the upload route. The schema test fails if any table
   but `photos` names albums, since the count reads `photos`, or if `photos.album_id` lacks
@@ -1023,7 +1038,8 @@ every answer are in the route's header comment.
   holds the code can join again for a new session; rotating the code does that
   (item 11). Not chosen: adding a sitewide cap of 2,000 a day, which lets any code
   holder use up the day for every parent (the tradeoff #177 turned down for
-  joins); or 200 per session.
+  joins); or 200 per session. Since #198 a clip spends one too, and its size
+  of a day's clip budget beside it (item 33), which has the same limit.
 - **What an upload costs D1.** *Measured on the preview database, 2026-09-29, with
   `meta.rows_written`:* the photo insert writes 5 rows (the table, its three
   indexes and the AUTOINCREMENT counter) and the cap's upsert 1, so a stored photo
@@ -1039,11 +1055,17 @@ every answer are in the route's header comment.
   not kept in a state. The accepted cost is that the clip columns were chosen
   before the clip design exists, so #198 may still need one more column, which is
   additive. Not chosen: a second migration for video, and building the clip upload
-  in #154.
+  in #154. #198 did add a migration, 0016, but no column: it confirms these as
+  0005 made them and adds ten triggers holding a clip's row to them (item 33).
+  Its other migration, 0017, adds a column to `upload_counts`, not `photos`:
+  the day's clip bytes (item 33).
 - **A clip's row can start empty** (owner, 2026-09-29, at #154's review).
   `captured_at`, `width`, `height` and `bytes` are required by a CHECK in every
-  state but `uploading`, not by NOT NULL. A clip's row is made when its first part
-  arrives, before the server can check what the page says about it. And SQLite can
+  state but `uploading`, not by NOT NULL. A clip's row is made when its upload
+  starts (#198: before its first part), before the server can check what the page
+  says about it. #198 fills `width`, `height` and `bytes` from the server's own
+  reading of the clip once its parts are joined, and `captured_at` from the time
+  the page read before zeroing it (item 33). And SQLite can
   loosen a NOT NULL only by rebuilding the table, which the additive-only rule
   (item 6) forbids, so this had to be settled before production had the table.
   0005 was edited in place for it, and preview's empty copy was dropped and applied
@@ -1055,6 +1077,7 @@ every answer are in the route's header comment.
 - **The clip upload is its own story**, #198, filed at #154's review (owner,
   2026-09-29) as a placeholder under #147, carrying D11's caps, a size cap, the
   bucket's lifecycle rule and the part-CPU measurement item 10 asks for first.
+  Built 2026-10-08, widened to the admin queue (item 33).
 - **A coach's upload has its own marker** (owner, 2026-09-29, for #192). `sender` is
   `parent` or `coach`, and a coach's row names no code generation, since no code
   opened the session. Not chosen: leaving #192 to add the column. #192 writes it,
@@ -1132,6 +1155,61 @@ image decoder, and sends through the real routes into SQLite, so the page and
   accessibility 100, against `develop`'s 97, 97 and 97. The point it costs is
   `share.js`'s size, measured by swapping the branch's script for `develop`'s: the
   page's CSS and markup cost nothing.
+- **Since #198 a clip goes too** (item 33 has the owner's decisions). A file
+  is a clip by its type (`video/…`) or its name (`.mp4`, `.mov`, `.m4v`,
+  `.3gp`, any case); anything else, a HEIC included, takes the photo path,
+  and a clip is never decoded. It is planned in the making chain by
+  `MadcowClip.planClip` over `file.slice` reads, never the whole file, and
+  judged against the caps `GET /api/albums/open` gives, waited for off the
+  chain so a failed list holds up no photo. Its frame is text, "Clip n,
+  m:ss", numbered by place in the one list as a photo is. One clip sends at
+  a time, in one of the three places. The start declares `plan.bytes`, then
+  each part goes as a `Blob` of file slices and the walker's edits, then the
+  complete. **Parts and the complete are tried again on no answer or a 5xx,
+  after 1, 3 and 9 seconds; the start never is**, since a start whose answer
+  was lost has made an upload and spent one of the 500, while the complete
+  answers 201 for a clip already stored. A clip that gives up after its start
+  abandons its upload at once (`DELETE`, which gives the day back), unless
+  the last answer was 404, **or the complete's tries all got no answer or a
+  5xx**: any one of them may have stored the clip, so the complete is kept
+  on the clip (`unsettled`: the upload, the etags, the capture time and the
+  upload's album) and the clip fails in that answer's words (item 33, owner
+  at #198's review). **Try again sends that complete again first**, with
+  Remove withdrawn as for any complete: 201 is Sent, a complete that never
+  arrived is joined from the parts already in the bucket with none sent
+  again, 404 starts afresh in the same press into the album chosen now, no
+  answer or a 5xx keeps it, and any other answer is the server's word on the
+  clip, as a first complete's. **Remove on such a clip asks first**: "Checking
+  whether it arrived…", with Remove and Try again withdrawn and the caption
+  fixed, any leftover let go of, then the `DELETE`, tried as a complete is,
+  since every try's answer means the same. 409 `stored` shows "Sent. It
+  reached the photo site before you pressed Remove."; no answer or a 5xx
+  fails it again; 204, 404 or 401 settles it as `letGo` reads one, and the
+  item goes, the focus moving only from inside the item. Remove never sends
+  the complete. While its complete is unanswered a clip's caption is
+  read-only (owner): the caption went with the start. A clip being checked
+  is in neither the summary's counts nor flight. A refusal that stops the
+  queue (the 500, the clip budget, a closed album, a revoked team) leaves a
+  queued clip whose complete is kept, since its Try again sends only that
+  complete; a 401 stops it too, as the session refuses that complete. A
+  `DELETE` that gets no
+  answer is kept on the
+  clip and sent again before Try again's new start, or on Remove, since the
+  sweep that would otherwise clear it a day later gives nothing back (#198's
+  review); a start whose answer was lost made an upload the page never
+  learns of, which only the sweep clears. A clip refused for good (422, or
+  413 too long or large) offers no Try again, and the summary asks for Try
+  again only where it is offered (owner). One clip at a time is counted by
+  clips sending, not by the list, so a clip removed while its upload starts
+  keeps its turn until that upload is let go of. `captured` is `mvhd`'s time when it is after
+  2000-01-01 and no more than a day past the page's clock, else the file's
+  date. An edit's bytes are told from a file range with
+  `ArrayBuffer.isView`, not `instanceof Uint8Array`: `partPieces` makes them
+  in `clip.js`'s realm, and across realms (the tests' `node:vm`)
+  `instanceof` is false and the page would send the whole file for each
+  edit. `share.js` grew from 46,162 bytes to 71,793 (15,428 to 23,502
+  with `gzip -9 -n`), much of it comments, and `/share/` now loads
+  `clip.js` too (37,686; 12,919), measured once #198's review fixes were in.
 
 ### 16. The approval queue
 
@@ -1280,9 +1358,17 @@ here; an approved one leaves the public page through #158.
 - **Since #228 a batch also has Move**, which moves one waiting photo, or
   the batch, into one of its team's events or a new one, and a batch in a
   team's "Not sure / other event" has no Approve (item 32).
-- **Clips are not in the queue yet.** Every statement names `kind = 'photo'`,
-  so a clip's id posted to a press changes nothing; the clip story, #198, adds
-  them.
+- **Clips wait here too, since #198** (item 33). A checked clip is a card in
+  its batch, "Clip <id>", with its length and frame size, and plays through
+  `functions/api/admin/clips/[id].js` (206 ranges), loading nothing until
+  Play. Every press takes it as it takes a photo, by the same names and
+  values, and reads its kind from the statement it already makes (`RETURNING
+  …, kind`), so no press makes a statement more and the counts below hold.
+  Notices and counts name the two kinds apart, and read as before when no
+  clip is among them. A reject deletes a clip's one object, in calls of whole
+  rows up to R2's 1,000 keys. A clip still `uploading` is not waiting, so it
+  is never shown or pressed. An approved clip is kept and shown nowhere
+  public until #286.
 - **A coach's photo says "sent by a coach"** beside when it was taken (owner,
   at #192's pickup), per photo rather than per batch, so it stays true
   whatever a batch holds. It does not say which coach: the row keeps no
@@ -1301,7 +1387,9 @@ own team's albums (item 28).
 
 - **Only an approved photo is public.** Every public statement names
   `state = 'approved' AND kind = 'photo'`, so a waiting, hidden or rejected
-  photo is never listed, counted or served, and clips wait for #198. A closed
+  photo is never listed, counted or served, and clips wait for #286: since
+  #198 an admin can approve one, and it is kept and shown nowhere public
+  (item 33). A closed
   album stays listed (item 13). An album holding no approved photo is not
   listed, and its address answers the site's 404 page: the route calls
   `next()`, and Pages' static files hold nothing under `/albums/`. The same
@@ -1640,7 +1728,9 @@ down, and `functions/remove.js` asks first for a browser without JavaScript.
   owner"** as the criterion was written, for item 18's reason.
 - **The admin home counts the hidden photos** as removal requests waiting,
   photos only: every statement names `kind = 'photo'`, and clips wait for
-  #198.
+  #286, which shows them and so gives them a takedown. Until then an approved
+  clip is deleted on request by hand (#198, item 33; README.md, Deleting a
+  clip by hand).
 - **Anyone can hide every photo from enough addresses.** Ten an hour per
   address stops one person, not a crowd of IPv6 /64s, and "Put it back" is
   one photo at a time. D7 accepts that anyone can hide a photo; this is that
@@ -1873,7 +1963,17 @@ hold a session (reasoned, from cairn's
   at #193's review), in "What the site keeps".
 - **Photos only until #198** (owner, at pickup). The share target accepts
   `image/*`, so the Share menu lists the app only when photos are chosen.
-  #198 carries the criterion to add `video/*` once a clip can be sent.
+  #198 carries the criterion to add `video/*` once a clip can be sent. Since
+  #198 it accepts `video/*` too, in its one field still named `photos`; the
+  worker keeps any file it is given, so a shared clip waits in IndexedDB as
+  a photo does and leaves only as the page sends it (item 33). An app
+  installed before #198 keeps `image/*` until Chrome rebuilds it: `accept`
+  is built into the installed app (`android-pwa-share-target-measured` in
+  cairn), and Chrome checks the manifest at a launch when it has not in 24
+  hours, then builds the new app once every window is closed and the phone
+  is plugged in on Wi-Fi ([web.dev](https://web.dev/articles/manifest-updates),
+  updated 2024-09-19; read at #198's review). **Add photos** takes clips
+  meanwhile.
 - **`/share/receive` is also a Function**, for a share that reaches the
   server because no worker is there to take it (site data cleared while the
   app stayed on the home screen). Pages answers a POST to a static path with
@@ -1881,7 +1981,8 @@ hold a session (reasoned, from cairn's
   phone shows as a blank page. The Function reads no body and answers 303 to
   `/share/?shared=failed`, which says to share again; loading the page
   registers the worker again.
-- **A deploy reaches an installed app the next time it opens.** The page is
+- **A deploy reaches an installed app the next time it opens**, all but the
+  share target's types, which wait for Chrome's rebuild (above). The page is
   never answered from a copy, a new worker takes over at once (`skipWaiting`,
   `clients.claim`), and the page registers it with `updateViaCache: 'none'`,
   which is what fetches the worker past the browser's cache. `_headers` gives
@@ -2765,12 +2866,15 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   preselecting nothing, as after a 409.
 - **The daily cap is the account's** (`sessionKey`: `account.<id>`, issued
   time left out), so every phone signed in to it shares its 500, and
-  signing in again opens no new 500 (criterion 5).
+  signing in again opens no new 500 (criterion 5). Since #198 its phones
+  share the day's clip budget the same way (item 33).
 - **A clip's length goes by role** (criterion 4, D11): `clipSeconds(session)`
   in `lib/photos.js` gives 15 minutes (`CLIP_SECONDS.coach`) to a coach's
   Access session or an account approved as a coach, and 3 to everyone else.
   The guard reads the role on every request, so a role changed at approval
-  applies from the next upload. #198 reads it; nothing sends a clip yet.
+  applies from the next upload. #198 reads it at a clip's start and again at
+  its complete, beside `clipBytes(session)`'s 1 GiB and 4 GiB, and
+  `clipDayBytes(session)`'s 10 GiB and 40 GiB at the start (item 33).
 - **The queue and removals pages name the account** ("sent by <name>",
   escaped), by a LEFT JOIN on `accounts`. A coach's Access sign-in still
   says only "sent by a coach" on the queue, and the invite link and a
@@ -2920,7 +3024,10 @@ request:
   the criterion's list left out, until #226 retires the invite link; and
   storage stays text, since there is no page for it to link to. The counts
   are unchanged: `queueSummary` and `waitingRequests`, whole-site, photos
-  only.
+  only. Since #198 `queueSummary` also counts the waiting clips, and the
+  queue's button names both kinds: "3 photos and 1 clip waiting for
+  approval", "1 clip waiting for approval" with no photo, and today's words
+  with no clip (owner, item 33).
 - **Locally the code cannot be emailed** (`.dev.vars` holds no Resend key),
   so `scripts/access-dev.mjs` signs an admin session for the local account
   `ADMIN_DEV_ACCOUNT` names, with the local key, on every request it
@@ -3239,6 +3346,327 @@ The rest were taken while building:
   the move, the event is kept and the notice says both.
 - **`/policy` says the album a photo was sent to, "or the event an admin
   moved it into"**: a move changes `album_id`, and the row keeps no other.
+
+### 33. Clips: sent in parts, checked, and waiting in the queue
+
+**Built in #198, 2026-10-08** (epic #147), on item 10's design. A parent or
+coach sends a clip from `/share/` as an R2 multipart upload, in parts of 25
+MiB. The page first blanks the clip's location and camera data in place
+(`public/js/clip.js`, `planClip`). Once the parts are joined, the server
+reads the clip's boxes with ranged reads (`checkClip`) and deletes a clip
+still holding anything outside the keep-list. A checked clip waits in
+`/admin/queue` beside the photos, where an admin plays it through
+`functions/api/admin/clips/[id].js` (206 ranges) and approves, rejects,
+moves or captions it as a photo. Nothing public shows a clip yet: that is
+#286. `lib/clips.js`, the four routes under `functions/api/upload/clips/`,
+migrations 0016 and 0017 and `lib/queue.js` hold it; README.md, The photo site,
+Uploads and Approving, is the operating record. The owner's decisions,
+through the question tool:
+
+- **The story widened to the admin queue** (owner, at pickup, against the
+  recommendation). On `develop` every queue, approval, Move and image
+  statement named `kind = 'photo'`, so a clip the story stored would have
+  waited where no admin could see it, billed from the day it landed (item
+  8). #198 shows clips in the queue, plays them, and approves, rejects,
+  moves and captions them; public serving (the album pages, the lightbox,
+  Remove this photo and Hide all for a clip) is #286. Not chosen: the sender
+  as filed with the queue filed as a sibling (the recommendation), which
+  leaves a release where clips arrive and no admin sees them; splitting
+  first and building the server half alone; running groom-backlog on the
+  video half first.
+- **Size caps: 1 GiB for a parent's clip, 4 GiB for a coach's** (the
+  recommendation), `CLIP_BYTES` and `clipBytes(session)` in `lib/photos.js`,
+  beside D11's 3 and 15 minutes (`CLIP_SECONDS`). The page refuses a clip
+  over either before sending anything, and the start route refuses it again
+  before any part is stored; the complete refuses a clip the server itself
+  reads as longer. Not chosen: 512 MiB and 2 GiB, which refuses a 3-minute
+  4K phone clip; one 4 GiB cap for everyone.
+- **Criterion 1's CPU figure is measured after the merge** (the
+  recommendation): a 25 MB part on the `develop` preview, by item 8's
+  per-minute GraphQL method, at the story's step 9. The account has been on
+  Workers Paid since 2026-10-05, which is the criterion's own fallback. Not
+  chosen: annotating it moot; shipping a probe to `develop` before any clip
+  code.
+- **Criterion 4's clips: the owner's Samsung over adb, and published sample
+  originals** standing in for the iPhone and the action camera. Those two
+  halves are real device files, not the owner's devices. Not chosen: an
+  iPhone lent for a session; an action camera of the owner's.
+- **The recorded times are zeroed** (the recommendation). `mvhd`, `tkhd`
+  and `mdhd` carry when the clip was made and last changed; the walker
+  zeroes both times in place, and the server's check refuses a clip that
+  still holds one, so `/policy`'s promise of no hidden details holds for
+  clips. The row still records when the clip was taken: `captured_at` is the
+  page's reading of `mvhd` before zeroing, or the file's date when that is
+  missing or implausible. A player shows the file's date as 1904. Not
+  chosen: keeping the times, with a `/policy` sentence saying so. Item 10
+  had left this to the video stories.
+- **Hide all stays photo-only, and says so** (the recommendation).
+  `/admin/people`'s box says the person's waiting clips are not hidden and
+  are rejected in the queue. Not chosen: Hide all hiding waiting clips too,
+  which brings clips into `/admin/removals` (#286's); Hide all rejecting
+  them, which "Put it back" cannot undo.
+- **A clip card loads nothing until Play** (the recommendation):
+  `preload="none"`, with the clip's length and frame size in text. The
+  queue reloads after every press, and every range request is a Functions
+  request. Not chosen: `preload="metadata"`, a first frame for 1 to 3
+  requests per clip on every load.
+- **Counts name both kinds** (the recommendation): "3 photos and 1 clip
+  waiting for approval", and today's words exactly when no clip waits. Not
+  chosen: one neutral count, which changes today's wording for photos; a
+  fourth to-do button, on a phone's first screen that #269 measured as
+  already full at 320 by 568.
+- **The lifecycle rule was applied in the dashboard** (the recommendation),
+  2026-10-08 at about 17:52 UTC: "Abort unfinished uploads after 1 day" on
+  `madcowphotos-preview` and `madcowphotos`, the whole bucket, beside R2's
+  own 7-day default. The session filled in each form, and each Save waited
+  for the owner's go-ahead; both lists were read back after a reload.
+  **R2's Add dialog opens with "Delete uploaded objects after:" ticked.**
+  Saved that way with a number in it, a rule deletes every object in the
+  bucket after that many days, every approved photo included. It was
+  unticked on both. Not chosen: a short-lived R2 token and `wrangler r2
+  bucket lifecycle add`; changing R2's default rule from 7 days to 1, whose
+  name would then say nothing of the change.
+- **A QuickTime file with no ftyp is a MOV** (owner, once the walker was
+  built, the recommendation): one whose first box is `wide`, `mdat`,
+  `moov`, `free` or `skip`, as QuickTime files were before `ftyp` existed.
+  A current iPhone's Live Photo video starts that way (an iPhone 14 Pro's,
+  iOS 17.0: `wide`, `mdat`, `moov`), and the build spec had refused it as
+  not a clip. Read as a MOV, the published one blanked clean: exiftool found
+  none of its 24 identity tags afterwards, and every frame hashed the same.
+  Not chosen: refusing it, which refuses a Live Photo's video picked as a
+  file.
+- **The share page's words for a clip give its own reason** (owner, the
+  recommendation): a clip over a cap says its own length or size beside the
+  cap ("This clip runs 4:00, longer than the 3 minutes you can send, so it
+  won't be sent. Trim it, then add it again."), and a 422 says the site
+  found details still in it and deleted it. Not chosen: one line for every
+  server refusal, which tells a clip deleted for leftover details to try
+  again, where it fails the same way.
+- **The summary says clips are not shown yet** (owner, the recommendation):
+  "Sent 2 photos and 1 clip. The photos will appear in the album once
+  they're reviewed. Clips aren't shown on the site yet." With no clip it
+  reads as before; #286 changes the one sentence. Not chosen: saying only
+  what was sent, which drops the photos' line; saying who sees a clip,
+  the longest to hear.
+- **Photo-only words change only where a clip makes them wrong** (owner, the
+  recommendation): the line asking to keep the page open until everything
+  says Sent, and the two notes about shared files. Not chosen: leaving
+  every line, where "every photo says Sent" reads as done while a clip
+  still sends; naming clips everywhere, title and heading included.
+- **A clip refused for good offers no Try again** (owner, at the share
+  page's review, the recommendation): a 422 (details the site does not
+  keep) or a 413 (too long or too large). Its words already say to leave it
+  out or trim it, and sending it again, up to 4 GiB, meets the same refusal.
+  The summary asks for Try again only where it is offered. Not chosen:
+  changing the summary only, which still offers a resend that cannot work;
+  leaving it as built.
+- **Remove is withdrawn while the server joins and checks a clip's parts**
+  (owner, the recommendation). Not chosen: Remove to the end, where a clip
+  stored a moment before the abandon waits in the queue though the page
+  dropped it.
+- **Two rare queue notices keep a photo's words** (owner, the
+  recommendation): "gone", when a press names a clip another admin got to
+  first, and the over-200 caption error, which only a page without its
+  script reaches. Naming the kind there costs a statement every press makes,
+  or a form field. Not chosen: neutral words for both, which change today's
+  photo wording; a hidden field per batch listing its clips.
+- **The `SET rowid` hole in #224's and #228's guards is its own story,
+  #288** (owner, the recommendation), found while building 0016 (below).
+  Not chosen: folding both fixes into 0016 before it is applied anywhere,
+  which widens #198; recording it as a stated limit with no fix.
+- **A day's clips have a size budget: 10 GiB a session, 40 GiB a coach's**
+  (owner, at #198's review, the recommendation), after the security audit's
+  SA-1. The 500 alone bounded a day of photos at about 2.2 GB but let a day
+  of clips reach 500 GiB, or 2 TB from a coach, billed until an admin
+  rejected them (item 8). `CLIP_DAY_BYTES` and `clipDayBytes(session)` in
+  `lib/photos.js`; `spendDailyClip` spends one of the 500 and the clip's
+  declared size in one statement, kept in `upload_counts.clip_bytes`
+  (migration 0017), and the start refuses past either with 429,
+  `daily-cap` or `clip-bytes`. The size goes back with the one, wherever
+  that is given back. The complete refuses a stored clip of any size but the
+  one the start spent, so the budget counts what is stored. Ten parents' 1
+  GiB clips, or ten of a coach's, fit a day. `/policy` says so in Clips, and
+  in what the site keeps. Like the 500 (item 14), it bounds a session, not a
+  leaked code: whoever holds the code can join again for a new session and
+  a new day's budget, and rotating the code stops that (item 11). Not
+  chosen: leaving the count as the only bound, which a misused invite link
+  turns into storage billing; a story after #198.
+- **A complete that got no answer is asked about, never abandoned** (owner,
+  at #198's review, fixing all 11 of its findings). Any one of a
+  complete's tries may have stored the clip, and the review measured the
+  old abandon being answered as settled and Try again storing the clip
+  twice. So the page keeps the complete, and **Try again sends it again
+  first**: 201 is Sent, a complete that never arrived is joined from the
+  parts already in the bucket with none sent again, and a 404 starts
+  afresh in the same press. **Remove asks through the abandon**, which
+  answers 409 `stored` for a clip this session already stored; the page then
+  shows "Sent. It reached the photo site before you pressed Remove." Remove
+  never sends the complete: the owner first chose to re-send it, and amended
+  that at a second question once it was seen to store a clip whose complete
+  never arrived, after the sender had pressed Remove. Not chosen: the
+  session withdrawing its own stored clip through the abandon, which widens
+  that route into a way to delete one; Remove taking the item as before,
+  which leaves a stored clip waiting that the sender removed.
+- **The gap a rejoin leaves is a stated limit** (owner, the recommendation).
+  The clip token is signed over `sessionKey`, which holds a parent's or a
+  coach's join time, so after a lost complete and then a rejoin before the
+  press, the server reads the old token as another session's and answers
+  404: Try again stores the clip a second time, and Remove takes off an item
+  whose clip is stored. Measured on the share page's harness. An account's
+  key has no join time, so an account is not affected. The second copy
+  waits for approval, where an admin rejects it. Not chosen: keeping the
+  complete across a 401, which still meets the 404 after a rejoin; the page
+  counting its own joins, which covers one tab only; a token that survives
+  a rejoin, which reopens the token decision below. **A clip an admin
+  rejects before Try again is the same limit** (owner, the recommendation,
+  from the fix's verifier): the reject deletes the row, the complete sent
+  again answers 404, and the page sends the clip afresh, so it waits again.
+  Not chosen: remembering rejects on the server, which needs a migration
+  and reverses item 16's row-first delete; failing on that 404 instead of
+  starting afresh, which the next press repeats.
+- **A caption is read-only while its clip's complete is unanswered**
+  (owner, the recommendation). The caption went with the start, so an edit
+  then would show words the stored row never got. Not chosen: leaving it
+  editable; putting the start's caption back once the clip shows Sent,
+  which makes the sender's edit visibly disappear.
+- **An album holding a clip names it in the delete refusal** (owner, at
+  #198's review, the recommendation). One statement counts photos and clips
+  apart, with how many clips are approved or still being sent, and the
+  notice reads "it holds 2 photos and 1 clip". A clip no admin page shows
+  gets a sentence saying where it goes: "An approved clip is not on any
+  admin page yet: the site's owner deletes it by hand." and "A clip still
+  being sent is cleared a day after it started if it is never finished."
+  An album holding photos alone lands and reads as before. Not chosen:
+  naming both kinds with no pointer, which leaves an admin looking for a
+  clip no page shows; keeping the photo words beside the rare notices
+  above.
+
+The rest were taken while building:
+
+- **An upload belongs to the session that started it, by a signed token**,
+  `clip1.<id>.<bytes>.<sig>`: an HMAC with the session key over the id, the
+  declared size and `sessionKey(session)`, answered at the start and sent
+  back in a `Clip-Upload` header on every part, complete and abort, and
+  checked in constant time. Another phone, session or size reads as an
+  unknown upload (404). Its prefix is `clip1.`, not `c1.`, which a coach's
+  cookie uses. Not chosen: matching the row's sender columns, which lets any
+  coach carry on any coach's upload; a column holding a hash of the session,
+  which keeps coach-identifying data on the row (#192).
+- **No new column and no new index: 0016 is ten triggers.** The declared
+  size travels in the token, as 0005 chose not to store page-declared values
+  while a clip uploads. The triggers hold a clip's type to the two the check
+  gives, its type and a length over 0 outside `uploading`, its upload id
+  while uploading and at no other time, `uploading` left only for `pending`
+  and never entered again, and every row's kind, through a REPLACE INTO or a
+  moved id too. Not chosen: the caps in triggers as well, two places to
+  change them. Either order of applying 0016 and deploying the code is safe:
+  nothing before #198 writes a clip.
+- **0016's guard against a REPLACE has an update side with no column list.**
+  *Measured on node:sqlite 3.53 and local D1:* a `BEFORE UPDATE OF id`
+  trigger does not fire on `SET rowid`, `SET oid` or `SET _rowid_`, so
+  `UPDATE OR REPLACE … SET rowid = <id>` moves a row onto another's id
+  unseen. `photos_id_kept_on_update` fires on every update and looks past
+  its first test only when the id moves. Its insert side reads only an id
+  over 0, since `NEW.id` is -1 in a `BEFORE INSERT` that names no id, and a
+  row given -1 by hand would otherwise fail every later clip. An upsert or
+  `INSERT OR IGNORE` naming a clip's id is refused, not skipped: a `BEFORE
+  INSERT` trigger runs before the conflict clause, and nothing here inserts
+  that way. Not chosen: guarding `media_key`, whose clash removes a row and
+  adds one under a new id, so no id changes kind or state. 0013's
+  `accounts_admin_not_displaced_by_key` and 0015's
+  `albums_holding_kept_on_update` are `UPDATE OF id` triggers and miss the
+  same spellings. Measured on local D1, an `UPDATE OR REPLACE … SET rowid`
+  past the first removed the owner's row, and one past the second left an
+  approved photo in a Not sure album. Only a statement typed by hand reaches
+  either; #288 closes both.
+- **A clip spends one of the day's 500** at its start, with its declared
+  size of the day's clip budget, both given back on the day they were spent
+  (the row's `sent_at`, not now) when it is abandoned, fails the check, or
+  its album closes or its team is revoked while the parts arrive. The size
+  given back is the token's, the one the start spent. A refusal reads which
+  limit refused with one statement more, made only then.
+- **0017 is applied before the code, unlike 0016.** A clip's start names
+  `clip_bytes`, and so does every give-back, a photo's included, so code
+  ahead of the column answers 503 to every clip and logs every photo's
+  give-back as failed. The column is `NOT NULL DEFAULT 0` with a
+  `CHECK (clip_bytes >= 0)`, so every row before it reads 0 and the
+  give-back's `MAX(…, 0)` is the second guard, not the only one.
+- **An abandoned upload is cleared a day after it started**, at most 20 at a
+  time, at the start of every clip and on every admin home load, since
+  Pages runs no scheduled job: one `DELETE … RETURNING` of the rows still
+  uploading, then each one's R2 upload aborted and any object deleted. That
+  matches the lifecycle rule. No day's upload is given back: that day is
+  over.
+- **The page sends the parts' etags at the complete**: the R2 binding has
+  no call that lists an upload's parts. `uploadPart` takes a body of known
+  length, so the part route checks that `Content-Length` is the part's exact
+  size before it reads a byte; R2 itself checks that the parts are the same
+  size only at `complete()`. Its errors carry their code at the end of the
+  message, as "(10024)": NoSuchUpload 10024, InvalidPart 10025 and 10048,
+  EntityTooSmall 10011. After the join, or a NoSuchUpload (joined by a
+  complete whose answer was lost, or aborted), the route reads the stored
+  object with one `head()` for its size and type: R2's documentation types
+  `complete()`'s answer as an object without saying it carries the type the
+  upload started with. A retried complete for a clip already checked
+  answers 201.
+- **A refusal takes the row back first**, and only while it is still
+  uploading, then the parts or object, then the day's upload, for the
+  reason a reject deletes its row first (item 16): a complete that finished
+  the clip meanwhile has made it pending, and then nothing touches its
+  object.
+- **A complete that finds its row gone says so.** When `finishClip` finds
+  no row uploading and `dropClip` takes none back, the complete reads the
+  row again: one there was stored by another complete (201), none was taken
+  by the day-old sweep, by an overlapping complete refused 409, or by the
+  sender's Remove (404 `upload`, which the page offers Try again for), and a
+  read that fails is 503. It answered 201 for both until #198's review,
+  which showed Sent for a clip with no row and no object. **The abandon does
+  the same** when its own take-back finds nothing: a row a complete still
+  running stored meanwhile is 409 `stored`, none is 404, since a 404 there
+  would have Remove drop a stored clip (the fix's verifier, *measured* with
+  the two routes interleaved).
+- **The walker, beyond item 10's rules.** Inside kept boxes it zeroes every
+  `hdlr`'s manufacturer, flags and name (box bytes 20 on), a visual sample
+  entry's vendor and compressor name, and an audio sample entry's vendor
+  only, since its version and revision decide QuickTime's layout; `stsd` is
+  still never blanked. It refuses a fragmented file: no phone camera's
+  writer was found that makes one, and the browser's recorder does. It sends
+  nothing after the last whole top-level box, where Insta360's GPS records
+  and Samsung's SEF trailer sit, so no offset moves. It blanks `tref` in a
+  kept track, which links only to tracks it blanks. Every sample entry of a
+  kept track must be on a codec allow-list (`VIDEO_FORMATS`,
+  `AUDIO_FORMATS`), so an MJPEG track whose frames carry EXIF cannot pass.
+  A frame that reads 0 wide or 0 high, by `tkhd` and then by the sample
+  entry's coded size, is malformed: 0005's CHECK would refuse it in the row,
+  which reached the page as an outage after every part had gone and was
+  re-sent in full on every Try again (#198's review).
+  Its own defaults, each stated in `public/js/clip.js` where it is used: at
+  most 64 top-level boxes, since each is one ranged read on the server; one
+  `moov`, since players differ on which of two they read; a photo told apart
+  by its major brand alone; every chunk a kept track plays inside a
+  top-level `mdat`; a blanked track's `dref` held to the same
+  self-contained rule; and a trailer known by bytes that read as no box
+  type. *Measured in Node 24 on this machine, not on the edge:* the largest
+  real clip read, an 11.6 MB HERO5, planned in 3.4 ms and its copy checked
+  in 1.0 ms; a `moov` the size a 15-minute 60 fps clip carries (778 KB)
+  planned in 5.6 ms and checked in 2.5 ms.
+- **The length a clip is held to is `mvhd`'s**, the movie's own duration,
+  which is what a player shows. A file edited to understate it passes the
+  length cap and is held by the size cap alone. The share page sends what
+  the walker read, so only a request made by hand meets this.
+- **One clip sends at a time**, taking one of the page's three slots, and
+  photos keep the others. The page learns its caps from `GET
+  /api/albums/open`, which answers `clip: { seconds, bytes, dayBytes }` for
+  the session beside `albums` and `other`. `dayBytes` is only named, when
+  the start refuses a clip with `clip-bytes`: the server alone knows how
+  much of a day is spent, across an account's phones. That refusal fails the
+  clip and every queued clip, and photos still go.
+- **The page and the server read one keep-list.** `share.js` is a classic
+  deferred script, so `/share/` loads `/js/clip.js` before it with `<script
+  type="module">`, which sets `window.MadcowClip`; `lib/clips.js` imports the
+  same file through the Functions bundler.
+- **The admin clip route decides 206 from the parsed request**, never from
+  whether R2's object carries a `range`: miniflare sets one on every get.
 
 ## The two-presentation rule
 

@@ -6,8 +6,9 @@
  * Only an approved photo is public (epic #147, D2). Every statement here
  * names state = 'approved' AND kind = 'photo', so a pending, hidden or
  * rejected photo is never listed, counted or served, and a clip waits for
- * its own story (#198). A closed album's approved photos stay public (#153),
- * so nothing here reads closed_at.
+ * #286, which serves it: since #198 an admin can approve one, and it is kept
+ * and shown nowhere. A closed album's approved photos stay public (#153), so
+ * nothing here reads closed_at.
  *
  * An album is in the order its photos were taken: captured_at, then id, so
  * two photos taken in the same second keep the order they were sent in. The
