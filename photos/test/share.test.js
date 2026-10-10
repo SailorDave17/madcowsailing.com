@@ -380,7 +380,14 @@ async function load({
   // nothing.
   const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
   const open = [];
-  for (const [, close, tag, attrs, closed] of HTML.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(\/?)(\w+)([^>]*?)(\/?)>/g)) {
+  // Until none is left, as the reads below strip them, so a comment one
+  // pass uncovers goes too (CodeQL's js/incomplete-multi-character-sanitization).
+  let markup = HTML;
+  for (let before = null; before !== markup;) {
+    before = markup;
+    markup = markup.replace(/<!--[\s\S]*?-->/g, '');
+  }
+  for (const [, close, tag, attrs, closed] of markup.matchAll(/<(\/?)(\w+)([^>]*?)(\/?)>/g)) {
     if (close) {
       const at = open.findLastIndex((one) => one.tag === tag);
       if (at >= 0) open.length = at;
