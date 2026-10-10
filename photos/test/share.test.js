@@ -36,6 +36,7 @@ import vm from 'node:vm';
 
 import { onRequest as root } from '../functions/_middleware.js';
 import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js';
+import { onRequestPost as createEventRoute } from '../functions/api/albums/index.js';
 import { onRequestGet as openAlbumsRoute } from '../functions/api/albums/open.js';
 import { onRequest as uploadGuard } from '../functions/api/upload/_middleware.js';
 import { onRequestPost as clipStartRoute } from '../functions/api/upload/clips/index.js';
@@ -46,7 +47,7 @@ import { onRequestPost as uploadRoute } from '../functions/api/upload/index.js';
 import { onRequestGet as sessionRoute } from '../functions/api/upload/session.js';
 import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
 import { clipLength } from '../lib/admin-page.js';
-import { createAlbum } from '../lib/albums.js';
+import { EVENTS_A_DAY, EVENT_DAYS_AHEAD, EVENT_DAYS_BACK, TITLE_MAX, createAlbum } from '../lib/albums.js';
 import { STALE_SECONDS, clearStaleClips } from '../lib/clips.js';
 import { readJpeg } from '../lib/jpeg.js';
 import {
@@ -162,6 +163,9 @@ class Element {
     this.tagName = tag.toUpperCase();
     this.children = [];
     this.parent = null;
+    // The element with an id it sits inside in the page's markup, for one
+    // the markup holds (load() reads the nesting), since only those are made.
+    this.htmlParent = null;
     this.attributes = new Map();
     this.listeners = {};
     this.shown = true;
@@ -169,6 +173,7 @@ class Element {
     this.id = '';
     this.text = '';
     this.textWrites = 0;
+    document.elements?.push(this);
   }
 
   // Hiding the focused element blurs it at once, as Chrome 154 does: a
@@ -196,11 +201,31 @@ class Element {
     this.text = String(value);
   }
 
+  // A string appended is a text node, as a browser's append() makes one
+  // (#273's team choices are a radio and its team's name).
   append(...nodes) {
-    for (const node of nodes) {
+    for (const given of nodes) {
+      const node = typeof given === 'string' ? Object.assign(new Element(this.ownerDocument, '#text'), { text: given }) : given;
       node.remove();
       node.parent = this;
       this.children.push(node);
+    }
+  }
+
+  // Whether `node` is this element or inside it: its parent if the page put
+  // it somewhere, else where the markup put it.
+  contains(node) {
+    for (let at = node; at; at = at.parent ?? at.htmlParent) if (at === this) return true;
+    return false;
+  }
+
+  // A form's reset(): each input inside it back to its markup's value, and
+  // no radio checked, since none of the page's is checked in its markup.
+  reset() {
+    for (const el of this.ownerDocument.elements) {
+      if (el.tagName !== 'INPUT' || !this.contains(el)) continue;
+      if (el.type === 'radio') el.checked = false;
+      else el.ownValue = el.defaultValue ?? '';
     }
   }
 
@@ -330,17 +355,47 @@ async function load({
   made.notSure = Object.fromEntries(env.DB.sqlite.prepare('SELECT team, address FROM albums WHERE holding = 1').all().map((r) => [r.team, r.address]));
   if (!notSure) env.DB.sqlite.prepare('UPDATE albums SET closed_at = 1 WHERE holding = 1').run();
 
-  const document = { activeElement: null, byId: new Map() };
+  const document = { activeElement: null, byId: new Map(), elements: [] };
   document.body = new Element(document, 'body');
   document.activeElement = document.body;
-  // One element per id the page's HTML carries, hidden where the HTML hides it.
+  // One element per id the page's HTML carries, hidden where the HTML hides
+  // it. An input keeps its markup's value, as #273's kind radios name theirs.
   for (const [, tag, attrs] of HTML.matchAll(/<(\w+)\s([^>]*\bid="[^"]+"[^>]*)>/g)) {
     const el = new Element(document, tag);
     el.id = attrs.match(/\bid="([^"]+)"/)[1];
     el.hidden = /\shidden(\s|$)/.test(` ${attrs}`);
-    if (tag === 'input') el.type = attrs.match(/\btype="([^"]+)"/)?.[1] ?? 'text';
+    if (tag === 'input') {
+      el.type = attrs.match(/\btype="([^"]+)"/)?.[1] ?? 'text';
+      el.name = attrs.match(/\bname="([^"]+)"/)?.[1] ?? '';
+      el.defaultValue = attrs.match(/\bvalue="([^"]*)"/)?.[1] ?? '';
+      el.ownValue = el.defaultValue;
+    }
     if (el.type === 'file') el.files = [];
     document.byId.set(el.id, el);
+  }
+  // Which of those each one sits inside, from the markup's nesting, so that
+  // contains() answers for the page's markup as a browser does: #273's form
+  // hands the focus on only from inside itself. Comments are taken out first
+  // (one names "<code>"), and a void element or a self-closed shape opens
+  // nothing.
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+  const open = [];
+  // Until none is left, as the reads below strip them, so a comment one
+  // pass uncovers goes too (CodeQL's js/incomplete-multi-character-sanitization).
+  let markup = HTML;
+  for (let before = null; before !== markup;) {
+    before = markup;
+    markup = markup.replace(/<!--[\s\S]*?-->/g, '');
+  }
+  for (const [, close, tag, attrs, closed] of markup.matchAll(/<(\/?)(\w+)([^>]*?)(\/?)>/g)) {
+    if (close) {
+      const at = open.findLastIndex((one) => one.tag === tag);
+      if (at >= 0) open.length = at;
+      continue;
+    }
+    const el = document.byId.get(attrs.match(/\bid="([^"]+)"/)?.[1]);
+    if (el) el.htmlParent = open.findLast((one) => one.el)?.el ?? null;
+    if (!closed && !VOID.has(tag)) open.push({ tag, el });
   }
   const canvases = [];
   const makeCanvas = canvasMaker(encoder, canvases);
@@ -401,6 +456,7 @@ async function load({
   const jar = new Map();
   const net = {
     posted: [], inFlight: 0, maxInFlight: 0, waiting: [], hold, intercept: null, albumsAnswer: null, sessionAnswer: null, calls: [], cookies: [],
+    created: [], createAnswer: null,
     clipCalls: [], clipIntercept: null, clipHold: null, clipWaiting: [], clipsInFlight: 0, maxClipsInFlight: 0,
   };
   const run = (handlers, request, params = {}) => {
@@ -486,7 +542,20 @@ async function load({
     } else if (path === '/api/albums/open') {
       const canned = net.albumsAnswer?.();
       if (canned === 'network') throw new TypeError('Failed to fetch');
-      response = canned ?? await run([root, albumsGuard, openAlbumsRoute], request);
+      response = canned ?? await run([root, ...albumsGuard, openAlbumsRoute], request);
+    } else if (path === '/api/albums' && method === 'POST') {
+      // #273: making an event, through the directory's guard into the route.
+      // `net.created` holds each body the page posted.
+      net.created.push(JSON.parse(init.body));
+      const canned = net.createAnswer?.();
+      if (canned === 'network') throw new TypeError('Failed to fetch');
+      // 'lost' runs the real route and then loses its answer, as a weak signal
+      // can after the event is made; 'lost-503' runs it and answers 503 (#273's
+      // review).
+      const lost = canned === 'lost' || canned === 'lost-503';
+      response = canned && !lost ? canned : await run([root, ...albumsGuard, createEventRoute], request);
+      if (canned === 'lost') throw new TypeError('Failed to fetch');
+      if (canned === 'lost-503') response = Response.json({ error: 'unavailable' }, { status: 503 });
     }
     else throw new Error(`the page fetched ${path}, which this stand-in does not serve`);
     // Each Set-Cookie as a browser takes it: Max-Age=0 deletes the cookie.
@@ -593,6 +662,37 @@ async function load({
       input.value = value;
       for (const fn of input.listeners.input ?? []) fn({});
     },
+    // An event on `el` and then on each element it sits in, as a browser
+    // bubbles input, change and submit (#273's form listens on itself).
+    fire(el, type, event = {}) {
+      for (let at = el; at; at = at.parent ?? at.htmlParent) for (const fn of at.listeners[type] ?? []) fn(event);
+      return event;
+    },
+    // A choice in the album list as a person makes one: its value, then
+    // change (#273 opens the new event's form on it).
+    pick(value) {
+      $('album').value = value;
+      page.fire($('album'), 'change');
+    },
+    // Typed into a field of the new event's form, or a radio chosen in it,
+    // the others of its name let go, as a browser does.
+    fill(input, value) {
+      input.value = value;
+      page.fire(input, 'input');
+    },
+    check(radio) {
+      for (const other of document.elements) if (other.type === 'radio' && other.name === radio.name) other.checked = false;
+      radio.checked = true;
+      page.fire(radio, 'input');
+    },
+    // Enter, or a press of "Create the event": the form's submit, whose
+    // default, a page load, the script must prevent.
+    submit() {
+      const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+      return page.fire($('event-form'), 'submit', event);
+    },
+    // The events made from this page, as the database holds them.
+    events: () => env.DB.sqlite.prepare('SELECT address, team, title, kind, held_on, created_by, provisional FROM albums WHERE created_by IS NOT NULL ORDER BY id').all().map((r) => ({ ...r })),
     fireWindow(type, event = {}) {
       for (const fn of windowListeners[type] ?? []) fn(event);
       return event;
@@ -750,8 +850,10 @@ test('the preselect: an album held today, else the latest past one, never a futu
     } else {
       assert.equal(select.value, page.made[expected]);
     }
-    // Each team's Not sure album too (#228), never preselected.
-    assert.equal(select.options.filter((o) => o.value).length, albums.length + 2, 'every open album stays in the list');
+    // Each team's Not sure album too (#228), never preselected, and "Create a
+    // new event" last (#273).
+    assert.equal(select.options.filter((o) => o.value).length, albums.length + 3, 'every open album stays in the list');
+    assert.equal(select.options.at(-1).value, 'new');
     assert.notEqual(select.value, page.made.notSure['hoover-jrt']);
   }
 });
@@ -801,8 +903,10 @@ test('#227: the albums are grouped under each team\'s name, in the order the tea
     [page.made.districts, page.made.league, page.made.notSure.cohssa],
     [page.made.today, page.made.past, page.made.notSure['hoover-jrt']],
   ]);
-  // Every option sits in a group, and the preselect still finds today's album inside one.
-  assert.deepEqual(select.children.map((c) => c.tagName), ['OPTGROUP', 'OPTGROUP']);
+  // Every album's option sits in a group, and the preselect still finds
+  // today's album inside one. "Create a new event" is no album, and comes
+  // after the groups (#273).
+  assert.deepEqual(select.children.map((c) => c.tagName), ['OPTGROUP', 'OPTGROUP', 'OPTION']);
   assert.equal(select.value, page.made.today);
   // Sending from a grouped list goes to the album chosen in it.
   select.value = page.made.league;
@@ -835,7 +939,7 @@ test('#227: with nothing preselected, the blank choice comes before the groups, 
   // Hoover JRT has no event open, so its group holds only its Not sure
   // choice (#228), after the teams with events.
   assert.deepEqual(select.children.map((c) => [c.tagName, c.tagName === 'OPTION' ? c.textContent : c.getAttribute('label')]),
-    [['OPTION', 'Choose an album'], ['OPTGROUP', 'COHSSA'], ['OPTGROUP', 'Hoover JRT']]);
+    [['OPTION', 'Choose an album'], ['OPTGROUP', 'COHSSA'], ['OPTGROUP', 'Hoover JRT'], ['OPTION', 'Create a new event']]);
   assert.equal(select.value, '');
 });
 
@@ -864,12 +968,12 @@ test('#228 criterion 1: each team\'s "Not sure / other event" comes after its ev
   const none = await load({ albums: [] });
   await joined(none);
   assert.equal(none.$('album-note').hidden, true);
-  assert.deepEqual(none.$('album').options.map((o) => o.value), ['', none.made.notSure['hoover-jrt'], none.made.notSure.cohssa]);
+  assert.deepEqual(none.$('album').options.map((o) => o.value), ['', none.made.notSure['hoover-jrt'], none.made.notSure.cohssa, 'new']);
   assert.equal(none.$('album').options[0].textContent, 'Choose an album');
   // The control: with both closed, neither is offered.
   const closed = await load({ notSure: false });
   await joined(closed);
-  assert.deepEqual(closed.$('album').options.map((o) => o.value), [closed.made.today]);
+  assert.deepEqual(closed.$('album').options.map((o) => o.value), [closed.made.today, 'new']);
 });
 
 test('with no album open, the page says so and offers to check again, which lists one opened since', async () => {
@@ -1448,8 +1552,9 @@ test('after an album closes mid-send, nothing is preselected: Try again asks for
   await until(() => page.items()[0].state === 'failed', 'failed');
   assert.equal(page.items()[0].text, CLOSED);
   await until(() => !page.$('album').options.some((o) => o.value === page.made.today), 'the list reloaded without the closed album');
-  // The blank, the past album, and each team's Not sure choice (#228).
-  assert.equal(page.$('album').options.length, 4);
+  // The blank, the past album, each team's Not sure choice (#228), and
+  // "Create a new event" (#273).
+  assert.equal(page.$('album').options.length, 5);
   // Not quietly the past album: the parent picks where these photos go.
   assert.equal(page.$('album').value, '');
   assert.equal(page.$('album').options[0].textContent, 'Choose an album');
@@ -1477,8 +1582,9 @@ test('signed in to an account, the page lists only its approved teams\' albums, 
   const page = await load({ albums: BOTH_TEAMS, accountTeams: ['hoover-jrt'] });
   await signedIn(page);
   assert.equal(page.$('join-status').textContent, "You're set to send photos from this phone.");
-  // Its own team's Not sure choice too (#228), and not COHSSA's.
-  assert.deepEqual(page.$('album').options.map((o) => o.value), [page.made.hoover, page.made.notSure['hoover-jrt']], 'COHSSA is not this account\'s');
+  // Its own team's Not sure choice too (#228), and not COHSSA's, then
+  // "Create a new event" (#273).
+  assert.deepEqual(page.$('album').options.map((o) => o.value), [page.made.hoover, page.made.notSure['hoover-jrt'], 'new'], 'COHSSA is not this account\'s');
   page.choose(photoFile());
   await until(() => page.items()[0]?.state === 'ready', 'made ready');
   page.click(page.$('send'));
@@ -1491,7 +1597,7 @@ test('signed in to an account, the page lists only its approved teams\' albums, 
   const both = await load({ albums: BOTH_TEAMS, accountTeams: ['hoover-jrt', 'cohssa'] });
   await signedIn(both);
   assert.deepEqual(both.$('album').options.map((o) => o.value).filter(Boolean).sort(),
-    [both.made.cohssa, both.made.hoover, ...Object.values(both.made.notSure)].sort());
+    [both.made.cohssa, both.made.hoover, ...Object.values(both.made.notSure), 'new'].sort());
 });
 
 test('a team taken off the account while sending: every photo queued for its album stops with the team\'s words, and the list reloads without it (#223)', async () => {
@@ -3583,4 +3689,452 @@ test('#198 (review): a clip refused 429 clip-bytes stops the clips queued behind
   assert.deepEqual(page.items().map((i) => [i.state, i.text]), [['sent', 'Sent'], ['failed', CLIP_DAY]]);
   assert.deepEqual(steps(page).slice(6), ['start', 'complete']);
   assert.deepEqual([page.rows().map((r) => r.state), page.sentToday()], [['pending'], 1]);
+});
+
+// ---- #273: an approved sender creates an event from the send page --------
+//
+// "Create a new event" is the album list's last choice, and its form posts to
+// POST /api/albums through the directory's guard into the real route, so an
+// event this page makes is a row the server wrote. The route dates the window
+// a sender may give by the server's clock (nowSeconds(), Date.now), which
+// pinServerClock() sets to the page's: the phone's today is the 30th and
+// UTC's the 29th, in every run, whatever day it runs on. It moves with real
+// time from there, so until() still times out.
+
+function pinServerClock(t) {
+  const real = Date.now;
+  const offset = CLOCK - real();
+  t.mock.method(Date, 'now', () => real() + offset);
+}
+
+// The words the form shows (share.js), written out so a change shows here.
+// The numbers in them are the library's.
+const HINT = "Name the event, not the sailors: leave out any child's name. The title is public once a photo in it is approved.";
+const CREATED = (title) => `Created “${title}” and chose it as the album.`;
+const CONNECTION = "Couldn't create the event. Check your connection and try again.";
+const EVENT_REFUSED = 'The photo site couldn\'t create the event. Try again, and if it fails again, send to “Not sure / other event” for now.';
+const TEAM_GONE = 'Your account is no longer approved for that team, so the photo site made no event.';
+const FIELD_WORDS = {
+  team: 'Choose the team the event is for.',
+  title: `Give the event a title, up to ${TITLE_MAX} characters.`,
+  kind: 'Choose regatta or practice.',
+  date: `Choose a date from ${EVENT_DAYS_BACK} days ago through tomorrow.`,
+};
+
+// A team's choice in the form, which the page builds (#273).
+const teamRadio = (page, team) => page.$('event-teams').children.map((label) => label.children[0]).find((radio) => radio.value === team);
+
+// "Create a new event" chosen and the form filled in as a person would: a
+// title, a kind, a date, and a team where the form asks one.
+function fillEvent(page, { title = 'Harbor Cup', kind = 'regatta', date = dayOffset(0), team = null } = {}) {
+  page.pick('new');
+  page.fill(page.$('event-title'), title);
+  page.check(page.$(`event-${kind}`));
+  page.fill(page.$('event-date'), date);
+  if (team) page.check(teamRadio(page, team));
+}
+
+test('#273 criterion 1: "Create a new event" is the list\'s last choice, outside the team groups, offered once a list is read, and never on a list that could not be read', async () => {
+  const page = await load({ albums: BOTH_TEAMS });
+  await joined(page);
+  const select = page.$('album');
+  const last = select.children.at(-1);
+  assert.deepEqual([last.tagName, last.value, last.textContent], ['OPTION', 'new', 'Create a new event']);
+  assert.equal(select.options.filter((o) => o.value === 'new').length, 1);
+  // The newer of the two held today is still preselected, never the new event.
+  assert.equal(select.value, page.made.cohssa);
+
+  // No album open at all: it is offered, and the note says so.
+  const none = await load({ albums: [], notSure: false });
+  await until(() => !none.$('album-note').hidden, 'the note shown');
+  assert.deepEqual(none.$('album').options.map((o) => [o.value, o.textContent]), [['', 'No album open'], ['new', 'Create a new event']]);
+  assert.equal(none.$('album-note').textContent, 'No album is taking photos right now. Create a new event above, or check again later.');
+  // Chosen there, it stays chosen while Check again reads the list again.
+  none.pick('new');
+  const address = await createAlbum(none.env.DB, { team: 'hoover-jrt', title: 'Opened late', kind: 'practice', date: dayOffset(-5) }, 1_790_000_000);
+  none.click(none.$('album-again'));
+  await until(() => none.$('album').options.some((o) => o.value === address), 'the list read again');
+  assert.equal(none.$('album').value, 'new');
+  assert.equal(none.$('event-form').hidden, false);
+
+  // A list that could not be read offers nothing to make an event in.
+  const failed = await load();
+  failed.net.albumsAnswer = () => 'network';
+  await until(() => !failed.$('album-note').hidden, 'the list could not be read');
+  assert.deepEqual(failed.$('album').options.map((o) => o.textContent), ['No albums loaded']);
+  // The control: Check again reads it, and the choice is there.
+  failed.net.albumsAnswer = null;
+  failed.click(failed.$('album-again'));
+  await until(() => failed.$('album').options.at(-1)?.value === 'new', 'offered once the list is read');
+});
+
+test('#273 criterion 1: choosing "Create a new event" shows its form and leaves the focus on the list; an album chosen, or Cancel, hides it, handing the focus to the list only from inside the form', async () => {
+  const page = await load({ albums: TWO_ALBUMS });
+  await joined(page);
+  const select = page.$('album');
+  const form = page.$('event-form');
+  assert.equal(form.hidden, true, 'the form shows before it is chosen');
+  select.focus();
+  page.pick('new');
+  assert.equal(form.hidden, false);
+  assert.equal(page.document.activeElement, select, 'choosing it moved the focus (WCAG 3.2.2)');
+  // Another album chosen hides it, and the focus stays where it is.
+  page.pick(page.made.past);
+  assert.equal(form.hidden, true);
+  assert.equal(page.document.activeElement, select);
+  page.pick('new');
+  page.$('send').focus();
+  page.pick(page.made.past);
+  assert.equal(page.document.activeElement, page.$('send'), 'a focus outside the form was moved');
+  // Cancel, from inside the form: the album chosen before is chosen again,
+  // and the focus goes to the list. The control: Cancel held the focus as
+  // it was pressed, and a hidden form would keep it.
+  page.pick('new');
+  page.fill(page.$('event-title'), 'Harbor Cup');
+  page.$('event-cancel').focus();
+  assert.equal(page.document.activeElement, page.$('event-cancel'));
+  page.click(page.$('event-cancel'));
+  assert.equal(form.hidden, true);
+  assert.equal(select.value, page.made.past, 'Cancel left "Create a new event" chosen');
+  assert.equal(page.document.activeElement, select, 'Cancel left the focus in a hidden form');
+  assert.deepEqual(page.net.created, []);
+});
+
+test('#273 criteria 1 and 3: the title\'s hint, linked to it, says to leave children\'s names out; its maxlength is TITLE_MAX; no kind is chosen; Create is no accent; and share.js\'s date window is lib/albums.js\'s', () => {
+  const input = HTML.match(/<input id="event-title"[^>]*>/)?.[0];
+  assert.ok(input, 'no title field');
+  assert.match(input, new RegExp(`\\smaxlength="${TITLE_MAX}"[\\s>]`));
+  assert.ok(input.match(/\saria-describedby="([^"]+)"/)[1].split(' ').includes('event-title-hint'), 'the hint is not linked');
+  assert.equal(HTML.match(/<span class="hint" id="event-title-hint">([^<]*)<\/span>/)?.[1], HINT);
+  // Each kind a choice (the admin form's rule): neither radio is checked.
+  for (const kind of ['regatta', 'practice']) {
+    assert.match(HTML, new RegExp(`<input type="radio" id="event-${kind}" name="event-kind" value="${kind}" required>`));
+  }
+  // Send is the page's one accent.
+  assert.match(HTML, /<button type="submit" class="button" id="event-create">Create the event<\/button>/);
+  assert.equal(Number(SCRIPT.match(/const EVENT_DAYS_BACK = (\d+);/)?.[1]), EVENT_DAYS_BACK);
+  assert.equal(Number(SCRIPT.match(/const EVENT_DAYS_AHEAD = (\d+);/)?.[1]), EVENT_DAYS_AHEAD);
+});
+
+test('#273 criteria 1 and 2: an account approved for one team is asked no team and makes the event in it; one approved for two must choose, and makes nothing until it does', async (t) => {
+  pinServerClock(t);
+  const one = await load({ albums: [], accountTeams: ['cohssa'] });
+  await joined(one);
+  one.pick('new');
+  assert.equal(one.$('event-team').hidden, true);
+  assert.deepEqual(one.$('event-teams').children, []);
+  fillEvent(one, { title: 'Spring scrimmage', kind: 'practice', date: dayOffset(-2) });
+  one.submit();
+  await until(() => one.$('event-form').hidden, 'made');
+  assert.deepEqual(one.net.created, [{ team: 'cohssa', title: 'Spring scrimmage', kind: 'practice', date: dayOffset(-2) }]);
+  assert.deepEqual(one.events().map((e) => [e.team, e.created_by]), [['cohssa', 1]]);
+
+  const two = await load({ albums: [] });
+  await joined(two);
+  two.pick('new');
+  assert.equal(two.$('event-team').hidden, false);
+  assert.deepEqual(two.$('event-teams').children.map((label) => [label.children[0].value, label.textContent.trim()]),
+    [['hoover-jrt', 'Hoover JRT'], ['cohssa', 'COHSSA']]);
+  fillEvent(two, { title: 'Spring scrimmage', kind: 'practice', date: dayOffset(-2) });
+  two.submit();
+  assert.equal(two.$('event-team-error').textContent, FIELD_WORDS.team);
+  assert.equal(two.$('event-team-error').hidden, false);
+  assert.deepEqual(['hoover-jrt', 'cohssa'].map((team) => teamRadio(two, team).getAttribute('aria-invalid')), ['true', 'true']);
+  assert.equal(two.document.activeElement, teamRadio(two, 'hoover-jrt'));
+  for (let i = 0; i < 20; i++) await tick();
+  assert.deepEqual(two.net.created, []);
+  // The control: with a team chosen, the event is made in it.
+  two.check(teamRadio(two, 'cohssa'));
+  two.submit();
+  await until(() => two.$('event-form').hidden, 'made');
+  assert.deepEqual(two.events().map((e) => e.team), ['cohssa']);
+  assert.equal(two.$('event-team-error').hidden, true);
+});
+
+test('#273 criterion 1 (D4): the date starts at the phone\'s today and offers 30 days back through tomorrow; a date outside it is refused on the page, and the window\'s first day is made', async (t) => {
+  pinServerClock(t);
+  const page = await load({ albums: [] });
+  await joined(page);
+  page.pick('new');
+  const date = page.$('event-date');
+  assert.deepEqual([date.value, date.min, date.max], [dayOffset(0), dayOffset(-EVENT_DAYS_BACK), dayOffset(EVENT_DAYS_AHEAD)]);
+  // The phone's today is the 30th, a day ahead of UTC's (the first test).
+  assert.deepEqual([date.min, date.max], ['2026-08-31', '2026-10-01']);
+  fillEvent(page, { team: 'hoover-jrt' });
+  for (const day of [dayOffset(-EVENT_DAYS_BACK - 1), dayOffset(EVENT_DAYS_AHEAD + 1), '']) {
+    page.fill(date, day);
+    page.submit();
+    assert.equal(page.$('event-date-error').textContent, FIELD_WORDS.date, day);
+    assert.equal(date.getAttribute('aria-invalid'), 'true');
+    assert.equal(page.document.activeElement, date);
+    page.document.activeElement = page.document.body;
+  }
+  for (let i = 0; i < 20; i++) await tick();
+  assert.deepEqual(page.net.created, []);
+  // The control: the window's first day is made, through the real route.
+  page.fill(date, dayOffset(-EVENT_DAYS_BACK));
+  page.submit();
+  await until(() => page.$('event-form').hidden, 'made');
+  assert.deepEqual(page.events().map((e) => e.held_on), [dayOffset(-EVENT_DAYS_BACK)]);
+  assert.equal(date.getAttribute('aria-invalid'), 'false');
+});
+
+test('#273 criterion 1 (D3): "Is it one of these?" lists the chosen team\'s open events within 3 days of the date, not one 4 days away nor another team\'s; choosing one chooses it and makes nothing', async (t) => {
+  pinServerClock(t);
+  // The event is dated the 28th, the day after Chatham's clocks went
+  // forward. Counted on local midnights the 24th is 4 days less an hour
+  // away, which a floor of the days would count as 3.
+  const page = await load({
+    albums: [
+      { key: 'after', title: 'Harbor Cup', kind: 'regatta', date: dayOffset(1) },
+      { key: 'before', title: 'Lake series', kind: 'regatta', date: dayOffset(-6) },
+      { key: 'other', team: 'cohssa', title: 'District practice', kind: 'practice', date: dayOffset(-2) },
+    ],
+  });
+  await joined(page);
+  assert.deepEqual([dayOffset(-2), dayOffset(1), dayOffset(-6)], ['2026-09-28', '2026-10-01', '2026-09-24']);
+  const labelOf = (address) => page.$('album').options.find((o) => o.value === address).textContent;
+  const listed = () => page.$('event-match-list').children.map((li) => li.children[0].textContent);
+  fillEvent(page, { title: 'Harbor Cup day 2', date: dayOffset(-2), team: 'hoover-jrt' });
+  const submitted = page.submit();
+  assert.equal(submitted.defaultPrevented, true, 'the form would load a page');
+  assert.equal(page.$('event-matches').hidden, false);
+  assert.deepEqual(listed(), [labelOf(page.made.after)], 'not the one 4 days before, nor COHSSA\'s');
+  assert.match(listed()[0], /^Harbor Cup \(/);
+  assert.equal(page.$('event-anyway').textContent, 'No, create Harbor Cup day 2');
+  assert.equal(page.document.activeElement, page.$('event-matches'));
+  // The control for the team: made for COHSSA, COHSSA's event is the one
+  // asked about. Changing the team hides the question first, so "No, create"
+  // never names what is no longer typed.
+  page.check(teamRadio(page, 'cohssa'));
+  assert.equal(page.$('event-matches').hidden, true, 'a change left the question up');
+  page.submit();
+  assert.deepEqual(listed(), [labelOf(page.made.other)]);
+  // Choosing one chooses that event, closes the form, and makes nothing.
+  page.check(teamRadio(page, 'hoover-jrt'));
+  page.submit();
+  page.click(page.$('event-match-list').children[0].children[0]);
+  assert.equal(page.$('album').value, page.made.after);
+  assert.equal(page.$('event-form').hidden, true);
+  assert.equal(page.document.activeElement, page.$('album'));
+  for (let i = 0; i < 20; i++) await tick();
+  assert.deepEqual(page.net.created, []);
+  assert.deepEqual(page.events(), []);
+});
+
+test('#273 criterion 1 (D3): "Is it one of these?" never lists a team\'s Not sure album, even one the list dates beside the event', async () => {
+  const page = await load({ albums: [] });
+  // A list in which the Not sure album carries a date, as no list does, so
+  // only the page's choice of the events alone keeps it out.
+  page.net.albumsAnswer = () => Response.json({
+    albums: [{ address: `${dayOffset(-2)}-harbor-cup`, title: 'Harbor Cup', kind: 'regatta', date: dayOffset(-2), team: 'hoover-jrt', teamName: 'Hoover JRT' }],
+    other: [{ address: page.made.notSure['hoover-jrt'], title: 'Not sure / other event', date: dayOffset(-2), team: 'hoover-jrt', teamName: 'Hoover JRT' }],
+    teams: [{ team: 'hoover-jrt', teamName: 'Hoover JRT' }],
+  });
+  await joined(page);
+  fillEvent(page, { title: 'Harbor Cup day 2', date: dayOffset(-2) });
+  page.submit();
+  // The control: the event dated beside it is listed.
+  assert.deepEqual(page.$('event-match-list').children.map((li) => li.children[0].textContent),
+    [page.$('album').options.find((o) => o.value === `${dayOffset(-2)}-harbor-cup`).textContent]);
+});
+
+test('#273 review: a create whose answer is lost, or a 503 after it made the event, reads the list again, so the next press asks "Is it one of these?" about that event and makes no second one', async (t) => {
+  pinServerClock(t);
+  const reads = (page) => page.net.calls.filter((c) => c === 'GET /api/albums/open').length;
+  const listed = (page) => page.$('event-match-list').children.map((li) => li.children[0].textContent);
+  for (const mode of ['lost', 'lost-503']) {
+    const page = await load({ albums: [] });
+    await joined(page);
+    fillEvent(page, { title: 'Lake series', date: dayOffset(0), team: 'hoover-jrt' });
+    const before = reads(page);
+    page.net.createAnswer = () => mode;
+    page.submit();
+    await until(() => page.$('event-status').textContent === CONNECTION, `${mode}: the page said to try again`);
+    assert.equal(page.events().length, 1, `${mode}: the route made the event`);
+    assert.equal(reads(page), before + 1, `${mode}: the list was read again before the page said so`);
+    assert.equal(page.$('event-form').hidden, false, `${mode}: the form keeps what was typed`);
+    // Pressed again, the event the lost create made is asked about, and
+    // nothing more is posted.
+    page.net.createAnswer = null;
+    page.submit();
+    assert.equal(page.$('event-matches').hidden, false, `${mode}: nothing was asked`);
+    assert.deepEqual(listed(page), [page.$('album').options.find((o) => o.value === page.events()[0].address).textContent]);
+    for (let i = 0; i < 20; i++) await tick();
+    assert.equal(page.net.created.length, 1, `${mode}: a second create was posted`);
+    assert.equal(page.events().length, 1);
+  }
+  // The same through "No, create": its answer lost, the question closes, so
+  // pressing again goes through the check, which now lists the event made.
+  const page = await load({ albums: [{ key: 'near', title: 'Harbor Cup', kind: 'regatta', date: dayOffset(-1) }] });
+  await joined(page);
+  fillEvent(page, { title: 'Harbor Cup practice', kind: 'practice', date: dayOffset(0), team: 'hoover-jrt' });
+  page.submit();
+  assert.equal(page.$('event-matches').hidden, false);
+  page.net.createAnswer = () => 'lost';
+  page.click(page.$('event-anyway'));
+  await until(() => page.$('event-status').textContent === CONNECTION, 'the page said to try again');
+  assert.equal(page.$('event-matches').hidden, true, '"No, create" is still up to post again');
+  page.net.createAnswer = null;
+  page.submit();
+  assert.equal(listed(page).length, 2, 'the event the lost press made is asked about beside the near one');
+  assert.equal(page.net.created.length, 1);
+  // The control: an answer that made nothing (a 409) reads no list, since no
+  // event can have been made.
+  const full = await load({ albums: [] });
+  await joined(full);
+  fillEvent(full, { title: 'Lake series', date: dayOffset(0), team: 'hoover-jrt' });
+  const at = reads(full);
+  full.net.createAnswer = () => Response.json({ error: 'full' }, { status: 409 });
+  full.submit();
+  await until(() => full.$('event-status').textContent === 'Every address for that date and title is taken. Change the title.', 'the 409 said');
+  assert.equal(reads(full), at);
+});
+
+test('#273 criteria 1, 4 and 7: "No, create" makes one event through the real route, chosen and offered at once beside each team\'s Not sure; a photo sent then lands in it', async (t) => {
+  pinServerClock(t);
+  const page = await load({ albums: [{ key: 'near', title: 'Harbor Cup', kind: 'regatta', date: dayOffset(-1) }] });
+  await joined(page);
+  fillEvent(page, { title: 'Harbor Cup practice', kind: 'practice', date: dayOffset(0), team: 'hoover-jrt' });
+  page.submit();
+  assert.equal(page.$('event-matches').hidden, false, 'nothing was asked');
+  // Pressed twice before the answer: one event.
+  page.click(page.$('event-anyway'));
+  page.click(page.$('event-anyway'));
+  await until(() => page.$('event-form').hidden, 'made, and the form closed');
+  const address = `${dayOffset(0)}-harbor-cup-practice`;
+  assert.deepEqual(page.events(), [
+    { address, team: 'hoover-jrt', title: 'Harbor Cup practice', kind: 'practice', held_on: dayOffset(0), created_by: 1, provisional: 1 },
+  ]);
+  assert.equal(page.net.created.length, 1);
+  const select = page.$('album');
+  assert.equal(select.value, address, 'the event made is chosen');
+  assert.match(select.options.find((o) => o.value === address).textContent, /^Harbor Cup practice \(/);
+  assert.deepEqual(select.options.filter((o) => Object.values(page.made.notSure).includes(o.value)).map((o) => o.textContent),
+    ['Not sure / other event', 'Not sure / other event'], 'each team\'s Not sure is still offered (criterion 7)');
+  assert.equal(select.options.at(-1).value, 'new');
+  assert.equal(page.$('event-status').textContent, CREATED('Harbor Cup practice'));
+  assert.equal(page.document.activeElement, select, 'the focus was left in a hidden form');
+  assert.equal(page.summary(), '', 'the form wrote to the sending summary');
+  // The form starts afresh the next time.
+  page.pick('new');
+  assert.deepEqual([page.$('event-title').value, page.$('event-regatta').checked, page.$('event-practice').checked], ['', false, false]);
+  page.pick(address);
+  page.choose(photoFile());
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.click(page.$('send'));
+  await settled(page);
+  assert.deepEqual(page.rows().map((r) => [r.address, r.state]), [[address, 'pending']]);
+});
+
+test('#273 criterion 1: with no open event near its date, Create makes the event at once, and a second press while it is on its way makes no second', async (t) => {
+  pinServerClock(t);
+  const page = await load({ albums: [{ key: 'far', title: 'Harbor Cup', kind: 'regatta', date: dayOffset(-20) }] });
+  await joined(page);
+  fillEvent(page, { title: 'Lake series', date: dayOffset(0), team: 'hoover-jrt' });
+  page.submit();
+  page.submit();
+  assert.equal(page.$('event-status').textContent, 'Creating the event…');
+  await until(() => page.$('event-form').hidden, 'made');
+  assert.equal(page.$('event-matches').hidden, true, 'an event 20 days away was asked about');
+  assert.equal(page.net.created.length, 1);
+  assert.deepEqual(page.events().map((e) => e.address), [`${dayOffset(0)}-lake-series`]);
+  assert.equal(page.$('album').value, `${dayOffset(0)}-lake-series`);
+  // The control: a press once it is made makes another.
+  fillEvent(page, { title: 'Lake series', date: dayOffset(-10), team: 'hoover-jrt' });
+  page.submit();
+  await until(() => page.$('event-form').hidden, 'made again');
+  assert.equal(page.events().length, 2);
+});
+
+test('#273: Send and Try again refuse "Create a new event" as they refuse no album, and send nothing', async () => {
+  const page = await load({ hold: true, albums: TWO_ALBUMS });
+  await joined(page);
+  page.choose(photoFile());
+  await until(() => page.items()[0]?.state === 'ready', 'ready');
+  page.pick('new');
+  page.click(page.$('send'));
+  await tick();
+  assert.equal(page.summary(), 'Choose an album first. 1 photo ready to send.');
+  assert.equal(page.document.activeElement, page.$('album'));
+  assert.equal(page.net.posted.length, 0);
+  // The control: an album chosen, Send sends; that album closes on the way.
+  page.pick(page.made.today);
+  page.env.DB.sqlite.prepare('UPDATE albums SET closed_at = 1 WHERE address = ?').run(page.made.today);
+  page.click(page.$('send'));
+  await until(() => page.net.waiting.length === 1, 'sent, and held');
+  page.net.hold = false;
+  page.release();
+  await until(() => page.items()[0].state === 'failed', 'refused: the album closed');
+  await until(() => !page.$('album').options.some((o) => o.value === page.made.today), 'the list read again');
+  page.pick('new');
+  page.click(page.items()[0].tryAgain);
+  await tick();
+  assert.ok(page.summary().startsWith('Choose an album first.'), page.summary());
+  assert.equal(page.items()[0].state, 'failed');
+  assert.equal(page.net.posted.length, 1);
+  // The control: an album chosen, Try again sends.
+  page.pick(page.made.past);
+  page.click(page.items()[0].tryAgain);
+  await settled(page);
+  assert.deepEqual(page.rows().map((r) => r.address), [page.made.past]);
+});
+
+test('#273 criterion 1: each answer that makes no event says why in the form\'s own status line, or beside the field it names, and the form keeps what was typed', async (t) => {
+  pinServerClock(t);
+  const page = await load({ albums: [] });
+  await joined(page);
+  fillEvent(page, { title: 'Harbor Cup', date: dayOffset(0), team: 'hoover-jrt' });
+  for (const [answer, words] of [
+    [() => Response.json({ error: 'full' }, { status: 409 }), 'Every address for that date and title is taken. Change the title.'],
+    [() => Response.json({ error: 'events' }, { status: 429, headers: { 'Retry-After': '14400' } }),
+      `You have made ${EVENTS_A_DAY} events today, the most a day allows. Send to “Not sure / other event” for now, and an admin will move the photos.`],
+    [() => Response.json({ error: 'unavailable' }, { status: 503 }), CONNECTION],
+    [() => 'network', CONNECTION],
+    [() => Response.json({ error: 'origin' }, { status: 403 }), EVENT_REFUSED],
+    [() => Response.json({ error: 'form' }, { status: 400 }), EVENT_REFUSED],
+    [() => Response.json({ error: 'too-large' }, { status: 413 }), EVENT_REFUSED],
+    [() => new Response('Internal Server Error', { status: 500 }), EVENT_REFUSED],
+  ]) {
+    page.net.createAnswer = answer;
+    page.submit();
+    await until(() => page.$('event-status').textContent === words, words);
+    assert.equal(page.$('event-form').hidden, false);
+    assert.equal(page.$('event-title').value, 'Harbor Cup');
+  }
+  // A field the server names is marked, with its words, and takes the focus.
+  for (const [field, input] of [['title', page.$('event-title')], ['kind', page.$('event-regatta')], ['date', page.$('event-date')], ['team', teamRadio(page, 'hoover-jrt')]]) {
+    page.net.createAnswer = () => Response.json({ error: field }, { status: 400 });
+    page.submit();
+    await until(() => page.$(`event-${field}-error`).textContent === FIELD_WORDS[field], field);
+    assert.equal(page.$(`event-${field}-error`).hidden, false);
+    assert.equal(input.getAttribute('aria-invalid'), 'true');
+    assert.equal(page.document.activeElement, input);
+    assert.equal(page.$('event-status').textContent, '');
+  }
+  assert.equal(page.summary(), '', 'the form wrote to the sending summary');
+  assert.deepEqual(page.events(), []);
+  // A sign-in that has ended, through the real guard: the page's own words
+  // for it, at the top and in the form.
+  page.net.createAnswer = null;
+  endSession(page);
+  page.submit();
+  await until(() => page.$('event-status').textContent === ENDED, 'ended');
+  assert.equal(page.$('join-status').textContent, ENDED);
+  assert.deepEqual(page.events(), []);
+});
+
+test('#273 criteria 1 and 2: a team taken off the account before Create says so, reads the list again, and keeps the form open with "Create a new event" chosen', async (t) => {
+  pinServerClock(t);
+  const page = await load({ albums: BOTH_TEAMS });
+  await joined(page);
+  fillEvent(page, { title: 'Harbor Cup', date: dayOffset(-10), team: 'cohssa' });
+  page.env.DB.sqlite.prepare("UPDATE account_teams SET state = 'revoked' WHERE account_id = 1 AND team = 'cohssa'").run();
+  page.submit();
+  await until(() => page.$('event-status').textContent === TEAM_GONE, 'refused 403 team');
+  assert.ok(!page.$('album').options.some((o) => o.value === page.made.cohssa), 'the list was not read again');
+  assert.equal(page.$('album').value, 'new', 'the reload did not keep "Create a new event" chosen');
+  assert.equal(page.$('event-form').hidden, false);
+  assert.equal(page.$('event-team').hidden, true, 'one team left, and still asked which');
+  assert.deepEqual(page.events(), []);
 });

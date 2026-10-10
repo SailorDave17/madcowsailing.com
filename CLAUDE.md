@@ -97,7 +97,11 @@ account's clips a day (40 GB a coach's); a clip waits in `/admin/queue`
 beside the photos, where an admin plays, approves, rejects or moves it, and
 #286 shows approved clips on the public pages (item 33). #310 took clips
 into Hide all on `/admin/people` and into `/admin/removals`, where an admin
-puts one back or deletes it (item 33). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
+puts one back or deletes it (item 33). #273 let an account approved for a
+team create an event for it from the share page, at most 10 a UTC day,
+offered at once to the team's senders and public once an admin approves a
+photo in it; its address is made again from its date and title at its first
+approval, and `/admin/albums` names who made it (item 34). The `develop` preview sits behind Access. The domain has served a holding page since release `50992c3`
 (2026-09-27), and the public albums since release `5a5b2f2` (2026-09-30, #157).
 Each story reaches it with the next promotion, so read `release`, not this
 paragraph, for what production holds
@@ -164,7 +168,8 @@ story, this is the paragraph to check.*
 │   │                         asks without JavaScript, api/remove.js takes it
 │   │                         down), api/upload/ and api/albums/ behind
 │   │                         the upload guard (api/upload/index.js takes a
-│   │                         photo, #154), and admin/ and api/admin/
+│   │                         photo, #154; api/albums/index.js makes a
+│   │                         sender's event, #273), and admin/ and api/admin/
 │   │                         behind the admin guard (admin/albums.js the albums, #153;
 │   │                         admin/queue.js the approval queue, #156, with
 │   │                         api/admin/queue/ and api/admin/photos/;
@@ -845,7 +850,10 @@ wrong. The letters I, L and O are read as 1, 1 and 0.
   write does. `test/guard.test.js` calls
   every Function route outside its `PUBLIC` list with seven bad cookies, a parent's
   and a coach's (#192), and requires 401, and holds every upload write to 403
-  without the site's Origin.
+  without the site's Origin. *Since #273 `functions/api/albums/` runs the
+  same pair, for a sender's new event (`POST /api/albums`, item 34), and the
+  test's Origin loop takes every write in a guarded directory rather than
+  the upload directory's alone.*
   An admin route (#151) answers to the admin guard instead: #151's Access check
   (item 12), since #224 the site's admin session (item 30), and since #268 with no
   Access application in front of it on any hostname. The test knows admin routes by
@@ -971,14 +979,20 @@ applications and their policies.
 **Built in #153, 2026-09-28.** The owner keeps one album per regatta or practice day on
 `/admin/albums`, in the `albums` table (migration 0004). `lib/albums.js` holds the rules.
 
-- **The address is made once and never changes.** It is the date, then the title with
+- **The address is made once and never changes**, on every album but a sender's
+  event before its first approval (item 34). It is the date, then the title with
   accents dropped, lowercased, and every run of anything but a–z and 0–9 made one hyphen,
   cut back to a whole word within 60 characters: `2026-10-04-fall-regatta`. A title with
   no letter or digit takes its kind's name. A second album with the same date and title
-  gets `-2`, then `-3`, and the UNIQUE constraint decides, so two made at once cannot
-  share one. Once all 50 are held, adding says so on the page and makes nothing. Editing the title, kind or date keeps the address, so a shared link keeps
+  gets `-2`, then `-3`, picked in the one statement that inserts it, so two made at once
+  cannot share one, with the UNIQUE constraint beneath it; since #273 the pick also passes
+  over every address an event had before its first approval. Once all 50 are held, adding says so on the page and makes nothing. Editing the title, kind or date keeps the address, so a shared link keeps
   working. Not chosen: an address that follows the title, which breaks every link sent
-  before an edit.
+  before an edit. *(This said "made once and never changes" with no exception, and "the
+  UNIQUE constraint decides", until #273. A sender's event keeps a provisional address
+  until an admin first approves a photo or clip in it, which makes it again from the
+  date and title, and nothing in it is public before then. `createAlbum` tried each
+  address in its own `INSERT` and caught the UNIQUE refusal; it is one statement now.)*
 - **A title is 1 to 80 characters on one line, with no control character**, stored as
   typed, markup included.
   Every page escapes it where it shows it; `GET /api/albums/open` returns it as JSON
@@ -992,6 +1006,9 @@ applications and their policies.
 - **Each team also has a "Not sure / other event" since #228**, which is no
   event: this page only closes and reopens it, in a section of its own, and
   none of its photos is ever approved (item 32).
+- **An account approved for a team also makes an event for it since #273**,
+  from the share page (`POST /api/albums`). This page names the account that
+  made it, and marks its address provisional until its first approval (item 34).
 - **Deleting an album that holds a photo is refused by the database.** Owner's choice
   at #153's pickup: #154's `photos.album_id` must be `REFERENCES albums (id)`, with no
   `ON DELETE` action. D1 enforces foreign keys in every query, and a violating statement
@@ -1011,7 +1028,10 @@ applications and their policies.
   its pickup; and moving the refusal into #154.
 - **The open list lives at `/api/albums/open`**, the path the story named, in its own
   directory whose `_middleware.js` runs the same `requireUploadSession` as
-  `api/upload/`. `test/guard.test.js` checks both directories.
+  `api/upload/`, and since #273 the same `requireSameOrigin` after it: the directory
+  also takes `POST /api/albums`, a sender's new event (item 34). `test/guard.test.js`
+  checks both directories. *(This said the directory runs "the same
+  `requireUploadSession`", which was all it ran, until #273.)*
 - **"Newest first" is the latest date first, a future one included**, so an album made
   ahead of time for next week's regatta sorts above today's practice. Which album the
   share page preselects is #155's to decide: only one held today, else the most recent
@@ -1343,12 +1363,21 @@ here; an approved one leaves the public page through #158.
   besides the admin guard's own read: two for Save captions, four for Reject,
   four for Approve or five when it approves fewer than it named, and five for
   Move into an event, six when the move finds none of its photos still
-  waiting. Into a new event, `createAlbum`'s
-  tries for a free address take the place of the event's read, so five at the
-  first address. #270 added the read of the queue's order (below) to Approve
+  waiting. **Since #273 Approve makes one statement more for each sender's
+  event whose address it fixes** (item 34), in the approval's own batch, so
+  five with one; a form holds one batch, in one album, so a press from the
+  page fixes at most one. The read when it approves fewer is `leftWaiting`,
+  which counts the Not sure rows and the rows of an event still provisional
+  in one statement. Into a new event, `createAlbum`'s one statement takes the
+  place of the event's read, so five whether or not the date and title's
+  first address is held. #270 added the read of the queue's order (below) to Approve
   and Reject, and to Move when nothing moves, and took two reads off Move's
   success. `test/queue.test.js` and `test/not-sure.test.js` count them. *(This
-  said "at most three" until #270's review, which counted.)*
+  said "at most three" until #270's review, which counted. Until #273 the
+  read when Approve approves fewer was `notSureWaiting`, which counted the Not
+  sure rows alone, and Move into a new event said "`createAlbum`'s tries for a
+  free address take the place of the event's read, so five at the first
+  address": each address tried was a statement, six at the second.)*
   D1 allows
   50 queries a request on the free plan and 100 bound parameters a query
   ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/), read
@@ -1363,7 +1392,9 @@ here; an approved one leaves the public page through #158.
   #270's pickup; not chosen: the top of the queue). Approve and Reject read
   the queue's order first (`waitingOrder`, the page's own query, so a
   filtered page stays on its team), which reads every waiting row once more
-  a press, as the page's load after it does. **Save captions lands on the
+  a press, as the page's load after it does. *Since #273 Approve reads
+  `waitingBatches`, the read `waitingOrder` makes, and takes from it both the
+  order and the sender's events whose address it fixes (item 34).* **Save captions lands on the
   card of the last caption it changed**, in the page's order, and at the
   batch when none changed (owner, at #270's review): Enter in a caption field
   presses it, and landing at the batch's heading sent an admin typing in
@@ -1707,6 +1738,12 @@ until #226).
   sends, and nothing reads it; the daily count is per account. The head
   comment's rows for retired things went or became dated history, and the
   change log has a #226 entry.
+- **#273 put the events an account makes on the page** (2026-10-09, its
+  criterion 9): "What an account keeps" and "Having an account deleted" name
+  them, describe an event's title without promising a check of it, say a
+  public event's title stays in its address, and offer to change the titles
+  of a deleted person's events. The owner's choices behind the wording are
+  item 34's D9 and D10.
 - **The scrambled address counts for an hour and has no upper bound.** It is
   deleted by the first join after it is an hour old (item 11), and in the
   off-season that can be months. The page says exactly that. *(This bullet
@@ -3027,7 +3064,8 @@ The rest are defaults, recorded on #223 at pickup or taken while building:
   its photos stay with `account_id` NULL and the sender still saying
   whether a coach's account sent them, and the day's count under
   `account.<id>` stays until anyone's first upload of a later day.
-  `test/policy.test.js`'s by-hand delete test holds both.
+  `test/policy.test.js`'s by-hand delete test holds both. *Since #273 the
+  events it made stay too, with `created_by` NULL (item 34).*
 - **`lib/account-session.js` no longer imports `lib/session.js`.** The
   guard now reads it, and the import back made a cycle in which
   `ACCOUNT_SESSION_DAYS = SESSION_DAYS` would meet an unset constant
@@ -4088,6 +4126,299 @@ What #310 changed:
   every photo and clip it sent"; nothing public changed. One approved clip
   asked for by email is still deleted by hand (README.md, Deleting a clip
   by hand), which now points at Hide all for everything a person sent.
+
+### 34. Sender-made events: made from the share page, their address fixed at the first approval
+
+**Built in #273, 2026-10-09** (epic #267). An account approved for a team
+creates an event for it from `/share/`'s "Create a new event", for photos
+from a regatta or practice nobody has added yet, which until then went to
+the team's "Not sure / other event" for an admin to move (item 32). The
+event is an `albums` row like an admin's, naming the account that made it
+(`created_by`), and its address is provisional until an admin first
+approves a photo or clip in it. `POST /api/albums`
+(`functions/api/albums/index.js`, whose header comment has every answer),
+`lib/albums.js` (`readEventFields`, `createEvent`, `fixAddress`,
+`addressCandidates`), the approval's batch in `lib/queue.js`
+(`approvePhotos`, `provisionalAlbums`, `leftWaiting`), migration 0018 and
+the share page hold it. README.md, The photo site, Albums, is the operating
+record.
+
+The owner's decisions in the criteria, taken at the groom-backlog gate and
+after it:
+
+- **The address is made from the date and title, and made again at the
+  event's first approval** (owner, 2026-10-08), from the date and title as
+  they are then, so a rename before anything in it is public is in the
+  address it goes public under. From then on it never changes, and a rename
+  changes the title only, as item 13 has it for every album. This replaced
+  the owner's choice of 2026-10-07, an address fixed when the event is made,
+  which accepted a sender's typo staying in the address for good.
+  `albums.address` stays `NOT NULL UNIQUE` (0004), so the migration stays
+  additive. **A photo or a clip fixes it** (owner, 2026-10-09): the first of
+  either an admin approves.
+- **10 events per account per UTC day** (owner, 2026-10-08; `EVENTS_A_DAY`),
+  where the filing left the number to pickup. The eleventh is `429
+  {"error":"events"}`, with `Retry-After` to the next UTC day, and the share
+  page says so.
+- **The title field says not to name children** (owner, 2026-10-08). The
+  team's senders see the title at once, it is public from the first approved
+  photo, and its words are in the address the event goes public under.
+- **A send to the address an event had before its first approval lands in
+  the event** (owner, 2026-10-09), where it had been refused as a closed
+  album (`409 {"error":"album"}`, which the page shows as "That album has
+  closed"). A phone that loaded the share page before the approval holds the
+  old address, and would otherwise fail every photo and clip it still had to
+  send. The criterion left the mechanism to the builder (below).
+
+The owner's choices at pickup, 2026-10-09, through the question tool (on
+#273, issuecomment-6090192985), each the recommendation except D1. They are
+numbered as on the issue, and are #273's, not the D-numbers of epics #147
+and #216:
+
+- **D1: the migration is 0018.** The owner asked the builder to read
+  `develop` and decide. `test/site.test.js` refuses a gap in the migration
+  numbers, and `develop` still ended at 0017 after #331; #288's text takes
+  the next free number when another migration lands first, so #288 and #302
+  move up, which was said on both issues. Criterion 5's "#288 holds 0018"
+  gets a dated note when its box is ticked. Not chosen (both offered):
+  landing #288 first, so this story takes 0019 as its criterion said; and
+  building on 0019 and rebasing once #288 lands. `test/site.test.js` refuses
+  0019 as a gap until 0018 exists, so either holds this story's preview apply
+  and merge on #288.
+- **D2: the earlier address is kept for the event's life**
+  (`albums.earlier_address`). It is the one choice under which a share page
+  loaded before the approval can never land photos in another event: while
+  it is kept, no album can be given it. Before the approval the team's
+  senders see it, as the event's address in the share page's list; after it
+  no page shows it, the admin pages included, and `/policy` says it is kept.
+  *(The pickup comment said "only admins and the database see it", which the
+  /policy agent found false while writing the page: the open list offers the
+  provisional address to every sender on the team, and no admin page reads
+  `earlier_address`.)* Not chosen (both offered): clearing it 7 days after
+  the approval, or when the event closes, either of which frees the address
+  for another event, so a page loaded long before could land photos in it.
+- **D3: "Is it one of these?" comes after the first press of Create, and
+  only when there are matches**, the team's open events within 3 days of the
+  date. Each match is a button that chooses that event, then `No, create
+  <title>`. A sender whose event matches nothing makes it with one press.
+  Not chosen (both offered): a list under the date field that updates as the
+  date and team change, with Create always one press, which on a phone can sit
+  under the keyboard unseen, so duplicates get through; and both together,
+  the most code in `share.js`, which sits near its performance floor.
+- **D4: a sender dates an event from 30 days back through tomorrow**
+  (`EVENT_DAYS_BACK`, `EVENT_DAYS_AHEAD`). The share page offers that window
+  on the phone's own date, and tomorrow allows for time zones, since the
+  server's day is UTC's. A phone's date is at most a day either side of
+  UTC's, so `readEventFields` takes one day more each way, which every
+  phone's window fits inside, and answers `400 {"error":"date"}` past it.
+  Not chosen (both offered): 14 days back through 14 ahead, which also lets a
+  parent set up next weekend's regatta; and any real date, as Add album takes,
+  where a mistyped year sorts first in every team sender's list until an
+  admin fixes it (item 13: newest first, a future date included).
+- **D5: when every address the date and title can take is held at the
+  first approval, the event keeps the address it was made with**, and the
+  approval goes through (`fixAddress` offers it as the last choice). It takes
+  51 albums sharing a date and title. Not chosen (offered): refusing to
+  approve that event's photos, with a notice, until an admin renames it, which
+  keeps the address following the title but blocks the queue.
+- **D6: `/admin/albums` marks a sender's event's address provisional until
+  its first approval.** The row keeps the address in its `<code>`, followed
+  by "provisional: made again from the date and title when its first photo
+  or clip is approved", and the Saved notice says the same, so an admin who
+  renames one knows the address will follow. Not chosen (both offered): no
+  address until it is fixed ("made when its first photo or clip is
+  approved"), simpler to read but hiding what senders' phones send to; and
+  changing only the Saved notice, which leaves the row reading as final.
+- **D7: a sender's event is preselected like any album**, by item 13's rule:
+  the one held today, else the most recent past one, never a future one. The
+  open list carries nothing about who made an event. A same-day duplicate
+  made after the coach's event becomes the preselect, since the later id
+  sorts first; "Is it one of these?" and #275's merge are the guards. Not
+  chosen (both offered): preferring an admin's event on the same day, and
+  never preselecting a sender's event for anyone but its maker, each of which
+  needs a flag in the open list.
+- **D8: the daily cap counts the events the account made that UTC day that
+  still exist**, read from `albums` itself (`created_by`, `created_at`, by
+  0018's index), with no table of its own, so an event an admin deletes the
+  same day frees a place. Not chosen (offered): a per-day count kept apart,
+  as `upload_counts` keeps the day's uploads, which a delete would not give
+  back and which matches "creates at most 10" to the letter, at the cost of a
+  table naming the account: a `TABLES` entry, a `/policy` line and a rule for
+  it when the account is deleted.
+- **D9: `/policy` describes the title and promises no check of it**: the
+  team's senders see it at once, it is public from the first approved photo,
+  one of the site's admins can change it, and children's names are to be
+  left out of it. That is item 18's rule, the check described rather than
+  promised as an outcome. Not chosen (both offered): saying an admin sees the
+  title at the first approval and can change it before it goes up, which
+  reads as a check admins must then make; and holding the first approval
+  until an admin confirms the title, a queue step outside the criteria.
+- **D10: `/policy`'s "Having an account deleted" offers to change the titles
+  of the events the person made**, as it offers to take their photos down,
+  and an event already public keeps its address, since a public address
+  never changes. The page says "the address of an event already public stays
+  as it is" (owner, at #273's review, 2026-10-09): D10's own words, "its
+  address stays as it is", are false for an event not yet approved, whose
+  changed title goes into the address its first approval makes. Not chosen
+  there: D10's words exactly, and a second clause saying both cases. An
+  admin changes each under Edit on `/admin/albums` before the delete, while
+  the event still names the account (README.md, Approving accounts and
+  Deleting an account by hand). Not chosen (offered): not offering it, and
+  saying only that a public event's title is public and stays in its
+  address, which leaves someone who named themselves in a title no stated
+  way to change it.
+
+The builder's choices, recorded on #273 at pickup (criteria 8 and 10 left
+them open):
+
+- **The create is `POST /api/albums`**, and `functions/api/albums/_middleware.js`
+  runs `[requireUploadSession, requireSameOrigin]`, so a page elsewhere
+  cannot post into a sender's session (`403 {"error":"origin"}`), while `GET
+  /api/albums/open`, a read, needs no Origin. `test/guard.test.js`'s Origin
+  loop takes every write in a guarded directory, so a later write under any
+  guard is held to the check without anyone listing it. Not chosen: a route
+  under `api/upload/`, which has the check already, for a write that makes
+  an album rather than storing an upload, away from the open list it adds
+  to.
+- **Provisional is a flag of its own**, `albums.provisional`, 0 or 1 with a
+  default of 0, so every album made before 0018 reads as fixed with no
+  UPDATE of a stored row. Not chosen: reading it from `created_by`, which a
+  deletion sets to NULL, so a deleted sender's event would read as fixed;
+  or from the event's photos, which can be hidden or deleted after they were
+  public.
+- **One statement picks every address**: `createAlbum` (an admin's album and
+  Move's new event), `createEvent` and `fixAddress` each take the first of
+  base, base-2 … base-50 (`addressCandidates`) that no album holds as its
+  address or its earlier address (`FREE`), through `json_each` over the
+  candidates, in the statement that writes it. So a lookup by either finds
+  one album, and Move into a new event is five statements whatever is held
+  (item 16). Not chosen: `createAlbum`'s retry loop, one `INSERT` per
+  address, whose catch read only the UNIQUE message for `albums.address`, so
+  a clash with an earlier address, refused by 0018's trigger in its own
+  words, would have answered 500. It could also run 50 statements in one
+  request, which with the guard's read passes the 50 queries a request D1
+  allows on the free plan (item 16).
+- **`createEvent` is one guarded `INSERT … SELECT`**: the team approved for
+  the account now, the day's count under 10, and a free address, all in the
+  statement that makes the event, so a team revoked meanwhile, or a burst of
+  presses at the cap, makes nothing more than it should (cairn:
+  `a-count-then-record-limit-is-not-a-limit`). Which one refused is read with
+  one statement more, made only then: `403 team`, `429 events` or `409
+  full`. The route refuses a team the guard's read does not hold before
+  either statement, and logs no title.
+- **The share page asks for the team only when the account has two**, so a
+  post naming none takes the one team (`readEventFields`). `GET
+  /api/albums/open` now answers `teams`, the teams the account is approved
+  for now, since the albums alone cannot say it: a team with no open event
+  and its Not sure album closed names none. A sender's event is listed as
+  any album is, from the moment it is made, to every account approved for
+  its team, and nothing in the list says who made it (criterion 5).
+- **The earlier address is read in all three statements an upload finds its
+  album by**: `openAlbum`, `insertPhoto` and `insertClip` match `address = ?
+  OR earlier_address = ?`. So a photo whose sizes are being stored when the
+  approval lands still finds the event in the statement that writes its row,
+  and a clip's parts and complete go by its id and `album_id`, so a clip
+  started before the approval finishes after it unchanged. Not chosen:
+  inserting by the id `openAlbum` read, which changes both upload routes and
+  both insert functions for the same result.
+- **The remake runs in the approval's own batch, before the approval**:
+  `approvePhotos(db, ids, now, fixes)`, its events taken from the queue's one
+  read (`waitingBatches`, whose album now carries its kind, date and
+  `provisional`). So the address and the approval land together or not at
+  all, and no public page ever shows the address the event had before. The
+  approval passes over every album still provisional, as it passes over a Not
+  sure album, and the remake's `WHERE` names the title, kind and date the
+  press read, so an event renamed while the press ran keeps its photos
+  waiting rather than public under an address that would change;
+  `leftWaiting` counts them, and the queue says so (`?error=changed&n=`, or
+  `&changed=` beside photos that were approved). The next press reads the
+  new title and fixes it. The remake's `WHERE` also requires one of the
+  press's photos or clips to be still waiting in the event, as the batch's
+  next statement reads it: a reject or a Hide all landing between the press's
+  read and its batch would otherwise fix the address with nothing approved,
+  and a later rename would miss the address the event goes public under
+  (found by the build's address tests in a scratch run; the remake changes
+  nothing then, and the event stays provisional). An address that is already
+  one of its date and title's candidates stays, so an event made at base-2
+  does not move to base because base came free. 0018's photos triggers are the backstop for a
+  statement typed by hand. Not chosen: a trigger that remakes the address,
+  which `test/site.test.js`'s additive check refuses, since its body would
+  update a row, and which SQL cannot write, since `slugify` drops accents
+  and cuts to a whole word in JavaScript.
+- **0018's other triggers** (its header gives each one's words):
+  `albums_provisional_one_way`, provisional goes from 1 to 0 and never back;
+  `albums_earlier_address_kept_on_insert` and `_on_update`, no album's
+  address is another's earlier address, nor its earlier address another's
+  address, which refuses a statement typed by hand that every route already
+  avoids, with a `WHEN` reading earlier addresses only, so a REPLACE of an
+  event by its address goes through as 0015's tests hold (no REPLACE guard,
+  unlike 0015's for `holding`: below); and
+  `photos_provisional_never_shown_on_insert` and `_on_update`, a photo or
+  clip in a provisional event is never approved, and hidden only while
+  waiting (Hide all's `approved_at` 0), as 0015 holds a Not sure album's. Its
+  indexes are a unique partial one on `earlier_address`, since `ADD COLUMN`
+  cannot carry UNIQUE, which the upload lookup reads, and a partial one on
+  `(created_by, created_at)` for the cap and the delete's SET NULL. **No
+  trigger refuses a change to a fixed address**: no route changes one but
+  the remake, which names `provisional = 1` in its `WHERE`, and a `BEFORE
+  UPDATE OF address` trigger would fire before 0015's and take that
+  trigger's words in its tests.
+- **`created_by` is `REFERENCES accounts (id) ON DELETE SET NULL`**
+  (criterion 9), as 0012's `photos.account_id` is. SQLite adds a REFERENCES
+  column under enforced foreign keys only with a NULL default (cairn:
+  `sqlite-a-references-column-cannot-be-added-with-a-default`), and a
+  deleted account's events stay, naming nobody, with no statement of their
+  own in README's delete by hand or #225's. A provisional one is still fixed
+  at its first approval, which is why the flag does not read `created_by`.
+  `allAlbums`, for the admin pages alone, names the account (`madeBy`, by a
+  LEFT JOIN); no reader a sender or the public reaches selects it.
+- **0018 is applied before the code that reads it**, as item 6 orders:
+  before the merge into `develop`, and before the promotion. #273's code
+  names the new columns in every album read and every upload, so on a
+  database without them every album read fails; the older code never names
+  them, and every row it writes reads as fixed and made by an admin. 0015
+  waited until the step before its code reached each database (item 32),
+  because the older code misread its rows; 0018 adds no row.
+
+At the review (2026-10-09: `review-fanout`, 11 confirmed; `security-audit`,
+nothing introduced; a `ux-design` audit, one failure introduced), the owner
+chose:
+
+- **A create whose answer is lost reads the list again.** No answer, or any
+  5xx, can follow an event already made, so the share page reads `GET
+  /api/albums/open` before it says to try again and closes "Is it one of
+  these?", and the next press asks about the event the lost create made
+  instead of making it twice at `-2` (reproduced by the review). Not chosen:
+  an idempotency key, which needs a column; saying "it may have been created"
+  on a match, which cannot tell the sender's own event from a teammate's.
+- **Every admin press finds an event by its earlier address too**:
+  `albumAt`, `updateAlbum`, `notSureAlbum`, `setAlbumOpen` and `deleteAlbum`
+  match `address = ? OR earlier_address = ?` (`AT`), and `/admin/albums`'
+  notice finds the event by either. So Close, Reopen, Edit, Delete and Move
+  posted from a page loaded before the first approval act on the event,
+  where they said it did not exist.
+- **`.album-facts` wraps**: a one-word name in "made by" made `/admin/albums`
+  360 px wide at 320 (WCAG 1.4.10); `test/admin-phone.test.js` holds the line.
+- **0018 has no REPLACE guards, folded into #288**: a REPLACE naming a fixed
+  album's id with `provisional = 1`, an UPDATE OR REPLACE moving a provisional
+  album onto another's id, and a REPLACE clashing on `earlier_address`'s
+  unique index (six measured). Each takes a statement typed by hand, no route
+  writes one, and #288 is the story for the hand-typed holes in these guards.
+  Not chosen: editing 0018 with a preview reset, or a second file. 0018's
+  header says so.
+- **Two limits stated, not fixed**: after an address is made again, a reload
+  of the share page drops a choice held by the earlier address (uploads to it
+  still land; the fix would put earlier addresses in every sender's list);
+  and the read saying why a create was refused is a second round trip, so a
+  cap refusal reads "full" if an admin deletes one of the account's events
+  in that instant.
+
+What #273 made false elsewhere is amended in place, each changed sentence
+here with a note saying what it said until #273: item 13's address that
+never changes and its open-list directory, item 16's statement counts, item
+11's Origin check, and item 18's and item 29's records of the policy and of
+a deleted account. README.md's Albums, Approving, The public albums, The
+policy, Approving accounts and Deleting an account by hand say what changed.
 
 ## The two-presentation rule
 

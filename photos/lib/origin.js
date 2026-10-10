@@ -8,9 +8,14 @@
  *
  * The site's own Origin is the origin the request arrived on, so this holds on
  * photos.madcowsailing.com, madcowphotos.pages.dev, a preview and localhost
- * alike. POST /api/join (#150) checks it itself, since it is not behind a
- * directory guard; every admin route gets it from its directory's
- * _middleware.js (#152), so a later admin write cannot miss it.
+ * alike. A route outside every guarded directory checks it itself, as
+ * POST /api/join (#150), the sign-in and the takedown do. Every route in a
+ * guarded directory gets it from that directory's _middleware.js, behind the
+ * session guard, so a later write there cannot miss it: the admin pages and
+ * API (#152), the uploads (#154), the account page (#222), and since #273 the
+ * albums directory, where a sender makes an event (POST /api/albums). Until
+ * #273 that directory held reads only and ran no Origin guard.
+ * test/guard.test.js holds every write in each of them to it.
  */
 
 export function sameOrigin(request) {
@@ -24,7 +29,8 @@ const SAFE_METHODS = new Set(['GET', 'HEAD']);
 /**
  * Middleware: any method but GET and HEAD needs the site's own Origin, or it
  * answers 403 {"error":"origin"} and the route never runs.
- * test/guard.test.js holds every admin route to it.
+ * test/guard.test.js holds every write in every guarded directory to it:
+ * admin, account, upload and, since #273, albums.
  */
 export function requireSameOrigin(context) {
   const { request } = context;

@@ -197,8 +197,11 @@
 }
 
 /* A title is 1 to 80 characters as the admin typed it, and one long word
-   made the page 383 px wide at 320 until it could wrap (#271). */
-.album h3 {
+   made the page 383 px wide at 320 until it could wrap (#271). Since #273 the
+   facts line names the account that made a sender's event, and a one-word
+   name made it 360 px wide at 320 (#273's ux audit). */
+.album h3,
+.album-facts {
   overflow-wrap: anywhere;
 }
 
@@ -410,7 +413,10 @@
   margin-block-start: var(--space-3);
 }
 
-.sender .field label,
+/* A field's own label, not its choices': a radio's label in the new event's
+   form (#273) keeps .album-form's look, which `.sender .field label` beat
+   until then by coming later. */
+.sender .field > label,
 .photo label {
   display: block;
   font-family: var(--font-mono);
@@ -474,6 +480,37 @@
 .button-quiet:hover {
   background: var(--blue);
   color: var(--chalk);
+}
+
+/* ---- Share: a new event (#273) -------------------------------------- */
+
+/* The form is .album-form's fields. A fieldset is never narrower than its
+   widest content unless told, which held the queue's Move 717 px wide on a
+   phone (#270), so each of its fieldsets is told. */
+.event-form fieldset {
+  min-inline-size: 0;
+}
+
+/* "Is it one of these?": one event a row. A title is as typed, one long word
+   included, so its button wraps rather than widening the page, as does "No,
+   create" with the title in it. */
+.event-matches {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-2);
+}
+
+.event-form .button {
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+/* A field with a reason beside it, as on /ask: the thicker edge is a second
+   sign beside the words, never the only one (WCAG 1.4.1). */
+.event-form input[aria-invalid="true"]:not([type="radio"]) {
+  border-width: 3px;
 }
 
 /* One column on a phone, as many as fit on a wider screen. */

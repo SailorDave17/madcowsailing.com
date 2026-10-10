@@ -77,6 +77,11 @@ export async function onRequestPost({ request, env }) {
       team: from, title: fields['new-title'], kind: fields['new-kind'], date: fields['new-date'],
     });
     if (error) return back({ error: `new-${error}` });
+    // One statement whichever address it takes (lib/albums.js, since #273),
+    // so a Move into a new event is as many statements as one into an event,
+    // the insert in place of the event's read. Until #273 createAlbum tried
+    // each address in turn, one statement more for each held. An event made
+    // here is an admin's: its address is fixed from the start.
     address = await createAlbum(env.DB, album, nowSeconds());
     if (!address) return back({ error: 'new-full' });
     made = 1;

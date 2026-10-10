@@ -7,6 +7,13 @@
  * changes after. Then 303 back to the page, which names the new album and
  * its address, or says which field was wrong, or that every address this
  * date and title can take is held, and saves nothing.
+ *
+ * An admin's album is fixed from the start and names no account. Since #273
+ * the one exception is an event a sender makes on the share page (POST
+ * /api/albums): its address is provisional until an admin first approves a
+ * photo or clip in it, and that approval makes it again from the event's
+ * date and title as they are then (lib/albums.js, fixAddress). After that it
+ * never changes either.
  */
 import { createAlbum, readAlbumFields } from '../../../../lib/albums.js';
 import { readForm, seeOther } from '../../../../lib/form.js';

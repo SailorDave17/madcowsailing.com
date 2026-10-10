@@ -36,7 +36,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=9c9232e3e3">
+<link rel="stylesheet" href="/css/site.css?v=b36bb0e44e">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 <!-- #193: the share page is the installed app's start page. The manifest
      names the app, its icons and the Android share target; share.js
@@ -52,7 +52,7 @@
      runs deferred, and deferred scripts run in the order they are written,
      so it is there before share.js runs. -->
 <script type="module" src="/js/clip.js?v=3781fa9e3f"></script>
-<script src="/js/share.js?v=4f5100fbca" defer></script>
+<script src="/js/share.js?v=1532783c86" defer></script>
 </head>
 
 <body>
@@ -147,6 +147,57 @@
           <option value="">Loading albums…</option>
         </select>
       </p>
+      <!-- #273: a sender makes an event for their team when it is not listed.
+           share.js ends the list with "Create a new event" once it is read,
+           and shows this form when that is chosen, without moving the focus.
+           The fields are an admin's new album's (lib/admin-page.js,
+           albumFields), no kind chosen so each is a choice, and the title's
+           maxlength is TITLE_MAX (lib/albums.js), which test/share.test.js
+           holds. share.js builds the team's choices from GET /api/albums/open,
+           only for an account approved for both, and fills the date with the
+           phone's today and the window a sender may give. "Is it one of
+           these?" lists the team's open events near the date after the first
+           press of Create (owner, at #273's pickup), and the owner approved
+           the hint's words at #273's review. No <div> in here: the tests read the
+           sender block up to its first closing div. The status line after the
+           form says what a press did, so it outlasts the form; the sending
+           summary never does. -->
+      <form class="album-form event-form" id="event-form" aria-label="New event" novalidate hidden>
+        <fieldset class="field" id="event-team" aria-describedby="event-team-error" hidden>
+          <legend>Team</legend>
+          <span class="field-error" id="event-team-error" hidden></span>
+          <p class="choices" id="event-teams"></p>
+        </fieldset>
+        <p class="field">
+          <label for="event-title">Title</label>
+          <span class="hint" id="event-title-hint">Name the event, not the sailors: leave out any child's name. The title is public once a photo in it is approved.</span>
+          <span class="field-error" id="event-title-error" hidden></span>
+          <input id="event-title" type="text" required maxlength="80" autocomplete="off" aria-describedby="event-title-hint event-title-error">
+        </p>
+        <fieldset class="field" aria-describedby="event-kind-error">
+          <legend>Kind</legend>
+          <span class="field-error" id="event-kind-error" hidden></span>
+          <p class="choices">
+            <label><input type="radio" id="event-regatta" name="event-kind" value="regatta" required> Regatta</label>
+            <label><input type="radio" id="event-practice" name="event-kind" value="practice" required> Practice</label>
+          </p>
+        </fieldset>
+        <p class="field">
+          <label for="event-date">Date</label>
+          <span class="field-error" id="event-date-error" hidden></span>
+          <input id="event-date" type="date" required aria-describedby="event-date-error">
+        </p>
+        <fieldset id="event-matches" tabindex="-1" hidden>
+          <legend>Is it one of these?</legend>
+          <ul class="event-matches" id="event-match-list"></ul>
+          <p><button type="button" class="button button-quiet" id="event-anyway">No, create it</button></p>
+        </fieldset>
+        <p class="actions">
+          <button type="submit" class="button" id="event-create">Create the event</button>
+          <button type="button" class="button button-quiet" id="event-cancel">Cancel</button>
+        </p>
+      </form>
+      <p id="event-status" role="status"></p>
       <p id="album-note" hidden></p>
       <p><button type="button" class="button" id="album-again" hidden>Check again</button></p>
       <p class="actions">

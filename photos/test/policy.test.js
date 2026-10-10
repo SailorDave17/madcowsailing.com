@@ -17,12 +17,13 @@ import {
   REQUEST_BUDGET_PER_HOUR, REQUEST_LIMIT, REQUEST_WINDOW_SECONDS, requestAccount,
 } from '../lib/accounts.js';
 import { adminHome } from '../lib/admin-page.js';
-import { createAlbum } from '../lib/albums.js';
+import { createAlbum, createEvent, openAlbum, openAlbums, updateAlbum } from '../lib/albums.js';
 import { HTML_CACHE, sectionPage, teamListPage } from '../lib/public-page.js';
-import { approvedPhoto } from '../lib/public.js';
+import { approvedPhoto, publicAlbum, publicAlbums } from '../lib/public.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { LINK_SECONDS, clearExpiredLinks, tokenHash } from '../lib/password-link.js';
-import { approveTeams, hidePhotos, promoteAdmin, rejectTeams, revokeTeams, sendLink } from '../lib/people.js';
+import { approveTeams, deleteAccount, hidePhotos, promoteAdmin, rejectTeams, revokeTeams, sendLink } from '../lib/people.js';
+import { approvePhotos, provisionalAlbums, waitingBatches } from '../lib/queue.js';
 import {
   CODES_PER_DAY, CODE_COOKIE, CODE_DIGITS, CODE_SECONDS, CODE_TRIES, clearExpiredCodes, codeCookie, startCode,
 } from '../lib/admin-code.js';
@@ -601,6 +602,9 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     // #224, criterion 1: admin_codes (0013), an HMAC keyed with
     // SESSION_SIGNING_KEY, and made_at, kept a day.
     'if you are an admin, each code emailed to you to sign in, only as a hash made with a secret key, and when it was sent;',
+    // #273, criteria 5 and 9: albums.created_by (0018), and created_at (0004),
+    // which every album has had.
+    'which events you made from the page you send from, and when;',
     'which photos and clips you sent from it.', // D17; #198's clips name it too
   ]);
   has(words(html), [
@@ -610,7 +614,9 @@ test('"What an account keeps" lists what an account keeps, who sees it, and for 
     // D17. "On the site": Resend, named below, sees what it sends.
     'On the site, only its admins see any of it.',
     'Every admin sees every account, for both teams.', // D15's admin role has no team
-    'No public page, photo or download shows who sent a photo.', // #223's criterion 3
+    // #223's criterion 3, and #273's criterion 5 for an event, each held on
+    // every public route by test/account-upload.test.js.
+    'No public page, photo or download shows who sent a photo or made an event.',
     // #221's link: 7 days (owner, at #221's pickup), once, replaced by a
     // newer one only once that one's email is sent (#221's review), and
     // deleted by /admin/people's load or the next link made, an approval's
@@ -752,7 +758,15 @@ const ACCOUNT_ROWS = [
   ['10 reset requests an hour from', ['RESET_REQUEST_LIMIT', 'claimResetRequest', 'reset_request_log', 'migrations/0009_sign_in.sql', 'clearExpiredResetRequests', 'functions/admin/index.js']],
   ['Pwned Passwords sees 5', ['pwned', 'PWNED_RANGE_URL', 'lib/password-rules.js', 'https://api.pwnedpasswords.com/range/', 'https://haveibeenpwned.com/API/v3', '2026-10-06', '#222\'s pickup']],
   ['Which photos it sent', ['D17', 'account_id', 'migrations/0012_photos_account.sql', 'insertPhoto', '#223']],
+  // #273, criterion 9: the events an account makes, who sees one and when,
+  // its title and address, and the address it had before its first
+  // approval, each claim in its own row; the owner's D2 and D9.
+  ['Which events it made', ['created_by', 'migrations/0018_sender_events.sql', 'createEvent', 'lib/albums.js', 'created_at', 'migrations/0004_albums.sql', '#273\'s criteria 5 and 9', 'allAlbums', 'admin pages alone']],
   ['On the site, only the admins', ['D17', 'D15']],
+  ['An event is shown to its team at', ['openAlbums', 'lib/albums.js', 'functions/api/albums/open.js', 'every account approved for its team and no other', '#273\'s criterion 4', 'lib/public.js reads approved photos only', '#227', 'epic #267\'s decisions of 2026-10-07']],
+  ['Its title public, and in an', ['fixAddress', 'lib/albums.js', 'approvePhotos', 'lib/queue.js', 'approval\'s own batch', 'owner, 2026-10-08 and 2026-10-09', '#273\'s criterion 3']],
+  ['An admin can change the title;', ['#273\'s pickup', '(D9)', 'promises no check', 'updateAlbum', 'lib/albums.js', 'functions/api/admin/albums/update.js']],
+  ['The address before the first', ['earlier_address', 'migrations/0018_sender_events.sql', 'openAlbum', 'insertPhoto', 'lib/photos.js', 'insertClip', 'lib/clips.js', '#273\'s criterion 10', 'the event\'s life', '#273\'s pickup', 'D2', 'publicAlbum', 'lib/public.js', 'its address alone']],
   ['The admins\' log names the person,', ['#221\'s criterion 5', 'admin_log', 'migrations/0008_admin_people.sql', 'no foreign key', 'approveTeams', 'rejectTeams', 'sendLink', 'same batch as the link', 'promoteAdmin', 'demoteAdmin', '#224\'s criterion 6', 'revokeTeams', 'hidePhotos', 'deleteAccount', 'allowAddress', '#225\'s criterion 6', '#219\'s review', 'clips', '#310\'s criteria 1 and 8']],
   ['Approved or turned down per', ['D16', 'approveTeams', 'rejectTeams', 'lib/people.js', 'nothing deletes from admin_log']],
   ['No sailor\'s name', ['D18']],
@@ -768,6 +782,10 @@ const ACCOUNT_ROWS = [
   ['Deleted on request, by email,', ['#219\'s pickup', '#219\'s review', 'confirmed by reply', '#220', 'deleteAccount', 'functions/api/admin/people/delete.js', '#225\'s pickup']],
   ['A revoked address stays, as a', ['#219\'s review', 'revoked_addresses', 'migrations/0014_revoked_addresses.sql', 'revokeTeams', 'emailHash', 'ADDRESS_HASH_KEY', 'ON DELETE SET NULL', 'requestAccount', '#225\'s criterion 5', 'approveTeams', 'allowAddress', '#225\'s pickup']],
   ['The photos stay, and no longer', ['#219\'s pickup', 'D17', 'ON DELETE SET NULL', 'migrations/0012_photos_account.sql', '#223', 'deleteAccount', 'hidden_at', 'HIDDEN_DAY_SECONDS', '#225\'s review']],
+  // #273, criterion 9, and the owner's D10: the events stay and stop naming
+  // the account, and a title is changed on request as photos come down.
+  ['The events stay, and no longer', ['ON DELETE SET NULL', 'created_by', 'migrations/0018_sender_events.sql', 'README\'s by-hand delete', 'deleteAccount', 'lib/people.js', '#273\'s criterion 9', 'fixAddress']],
+  ['An event\'s title changed on', ['#273\'s pickup', '(D10)', 'updateAlbum', 'fixAddress', 'provisional', 'public event only']],
   ['Restore points, up to 30 days', ['"30 days (Workers Paid) / 7 days (Free)"', 'https://developers.cloudflare.com/d1/platform/limits/']],
 ];
 
@@ -838,6 +856,17 @@ test('the head comment traces every account claim in its own row, and the code i
     // #274
     readAdminSession: '../lib/admin-session.js',
     onRequestPost: '../functions/api/admin/forget.js',
+    // #273
+    createEvent: '../lib/albums.js',
+    allAlbums: '../lib/albums.js',
+    openAlbums: '../lib/albums.js',
+    openAlbum: '../lib/albums.js',
+    fixAddress: '../lib/albums.js',
+    updateAlbum: '../lib/albums.js',
+    approvePhotos: '../lib/queue.js',
+    insertClip: '../lib/clips.js',
+    publicAlbum: '../lib/public.js',
+    deleteAccount: '../lib/people.js',
   };
   for (const [name, module] of Object.entries(exported)) {
     assert.equal(typeof (await import(module))[name], 'function', `${module} no longer exports ${name}`);
@@ -1072,7 +1101,9 @@ const TABLES = {
   account_request_log: 'keyed network addresses, which name no account; a row\'s time matches its account\'s for the hour it is kept, and nothing once the account is gone',
   account_request_budget: 'a count per hour',
   account_request_mail: 'when the admins were last emailed',
-  albums: 'albums, which name no account',
+  // #273. An admin's album names no account; an event a sender made names
+  // the account in created_by until the account is deleted.
+  albums: 'albums, each naming the account that made it, if a sender did, until the account is deleted (ON DELETE SET NULL, #273)',
   photos: 'photos, each naming the account that sent it until the account is deleted (ON DELETE SET NULL, #223)',
   upload_counts: 'a count per account under its id (#223), for the day; per upload session too, until #226',
   // The invite link's three, which #226 retired. No migration dropped them
@@ -1188,6 +1219,12 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     accountId: 1, version: 1, email: 'Delete.Me@Example.org', now, site: 'https://photos.madcowsailing.com',
   });
   assert.equal(code.outcome, 'sent');
+  // #273: an event the account to delete made from the share page, as an
+  // account approved for Hoover JRT, so the delete has an album to stop
+  // naming it on (0018's ON DELETE SET NULL). Without it the check below
+  // would pass on albums by never meeting a created_by.
+  const event = await createEvent(db, { team: 'hoover-jrt', title: 'Harbor Sprint', kind: 'practice', date: '2026-10-03' }, 1, now);
+  assert.deepEqual(event, { address: '2026-10-03-harbor-sprint' });
   const logged = db.sqlite.prepare('SELECT action, name, email FROM admin_log WHERE account_id = 1 ORDER BY id').all().map((r) => ({ ...r }));
   assert.deepEqual(logged.map((r) => r.action), ['role', 'approve', 'link', 'reject', 'approve', 'revoke', 'promote']);
 
@@ -1219,11 +1256,11 @@ test('README\'s by-hand account delete, run only once the account\'s own address
     return [...new Set(found)].sort();
   };
   // The control: before the delete, the check finds the account, its teams,
-  // its link (#221), the photo it sent (#223), its sign-in code (#224) and
-  // its revoked address's row (#225).
+  // its link (#221), the photo it sent (#223), its sign-in code (#224), its
+  // revoked address's row (#225) and the event it made (#273).
   assert.deepEqual(naming(), [
-    'account_teams.account_id', 'accounts.email', 'accounts.id', 'admin_codes.account_id', 'password_links.account_id', 'photos.account_id',
-    'revoked_addresses.account_id',
+    'account_teams.account_id', 'accounts.email', 'accounts.id', 'admin_codes.account_id', 'albums.created_by', 'password_links.account_id',
+    'photos.account_id', 'revoked_addresses.account_id',
   ]);
 
   // The owner's account is never deleted, by this statement or any other
@@ -1250,6 +1287,11 @@ test('README\'s by-hand account delete, run only once the account\'s own address
   // a coach's" (#223).
   assert.deepEqual({ ...db.sqlite.prepare("SELECT state, sender, code_generation, account_id FROM photos WHERE media_key = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'").get() },
     { state: 'pending', sender: 'coach', code_generation: 0, account_id: null });
+  // The event stays, at its address and with its title, and no longer
+  // records who made it: "The events you made stay, and no longer record
+  // who made them" (#273, criterion 9).
+  assert.deepEqual({ ...db.sqlite.prepare('SELECT address, title, created_by FROM albums WHERE address = ?').get(event.address) },
+    { address: event.address, title: 'Harbor Sprint', created_by: null });
   // The day's count stays under the account's id, as /policy says, until
   // anyone's first upload of a later day clears it (#223).
   const countOf = () => db.sqlite.prepare("SELECT session FROM upload_counts WHERE session = 'account.1'").all().length;
@@ -2157,5 +2199,150 @@ test('README\'s by-hand clip delete lists the approved clips, and deletes the on
   assert.equal(run(waiting), 0);
   assert.equal(run(photo), 0);
   assert.deepEqual(db.sqlite.prepare('SELECT id FROM photos ORDER BY id').all().map((left) => left.id), [other, waiting, photo]);
+});
+
+// ---- #273: the events an account makes --------------------------------------
+//
+// Criterion 9: "What an account keeps" and "Having an account deleted" name
+// the events an account made, and say a public event's title is public and
+// stays in its address, each claim with a row in the trace table
+// (ACCOUNT_ROWS, above) and a line here. The owner's D9 sets what the page
+// says of a title, D2 what it says of the address an event had before its
+// first approval, and D10 the offer to change a title.
+
+// One paragraph of a section, whole and stopping at its own </p>, as
+// checkParagraph reads the check's.
+const paragraphOf = (heading, lead) => {
+  const found = section(heading).match(new RegExp(`<p>\\s*(${lead}(?:(?!</p>)[\\s\\S])*)</p>`));
+  assert.ok(found, `"${heading}" has no paragraph starting "${lead}"`);
+  return words(found[1]);
+};
+
+test('"What an account keeps" says who sees an event an account makes and from when, that its title is then public and stays in its address, and where the address it had before goes (#273, criterion 9; the owner\'s D2 and D9)', () => {
+  // The whole paragraph, sentence by sentence, so a clause dropped from any
+  // of them fails here.
+  assert.equal(paragraphOf('What an account keeps', 'An event you make'), [
+    // D9: shown to the team's senders at once (#273's criterion 4) ...
+    'An event you make on the page you send from is shown there at once to everyone with an account approved for its team.',
+    // ... and public from its first approved photo, as every album is (#227).
+    'Anyone can see it once one of the site\'s admins approves a photo in it, and its title is then public.',
+    // The owner, 2026-10-08 and 2026-10-09: made again at the first approval
+    // of a photo or a clip (fixAddress, in approvePhotos' batch), and fixed
+    // from then on.
+    'Its address is made from its date and title when the first photo or clip in it is approved, and never changes after, so the title it had then stays in its address.',
+    // D9: one of the site's admins can change it; leave children's names out.
+    'One of the site\'s admins can change the title. Leave children\'s names out of it.',
+    // D2: the earlier address, kept for the event's life (earlier_address,
+    // 0018), which a share page loaded before still sends to (criterion 10)
+    // and publicAlbum never reads. Not "seen only by the admins": the
+    // team's senders were offered it until the approval (the test below).
+    'If the title or date is changed before that first approval, the address the event had until then stays with it, so a page loaded before then still sends there, and no public page shows that address.',
+  ].join(' '));
+  // It follows the paragraph saying only the admins see what an account
+  // keeps, so who made an event is among what they alone see.
+  const paragraphs = [...section('What an account keeps').matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => words(m[1]));
+  const admins = paragraphs.findIndex((paragraph) => paragraph.startsWith('On the site, only its admins see any of it.'));
+  assert.ok(admins > 0, 'no paragraph on who sees what an account keeps');
+  assert.ok(paragraphs[admins + 1].startsWith('An event you make'), paragraphs[admins + 1]);
+  // D9: the page promises no check of a title.
+  assert.doesNotMatch(paragraphOf('What an account keeps', 'An event you make'), /\bcheck/i, 'the page promises a check of an event\'s title');
+  // The control: the same pattern finds the check a photo is promised.
+  assert.match(paragraphOf('Every photo is checked first', 'Nothing sent shows up'), /\bcheck/i);
+});
+
+test('"Having an account deleted" says the events stay and stop naming the account, that a public event\'s title stays in its address, and offers to change a title as it offers to take the photos down (#273, criterion 9; the owner\'s D10)', () => {
+  const html = section('Having an account deleted');
+  const paragraphs = [...html.matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => words(m[1]));
+  const photos = paragraphs.findIndex((paragraph) => paragraph.startsWith('The photos and clips you sent stay'));
+  assert.ok(photos > 0, 'no paragraph on the photos');
+  // D10: straight after the photos' takedown, since it is offered the same
+  // way, in the same email. "Already public": a title changed before the
+  // first approval is in the address that approval makes (fixAddress), so
+  // the address stays as it is only once the event is public.
+  assert.equal(paragraphs[photos + 1], 'The events you made stay, and no longer record who made them. '
+    + 'Once a photo in one is approved, its title is public and stays in its address. '
+    + 'To have an event\'s title changed, say so in the same email; the address of an event already public stays as it is.');
+  // "The same email" is the one the section's first paragraph links, and
+  // the page's three links to the address stay three (held above).
+  assert.equal(html.split('mailto:').length - 1, 1);
+});
+
+test('the page\'s event claims are what the code does: shown at once to its team, public from its first approved photo, an address made then from the title and fixed after, the one before kept and public nowhere, and a deleted account\'s event still public, naming nobody (#273, criteria 3, 9 and 10)', async () => {
+  const db = d1();
+  const now = 1_790_000_000;
+  db.sqlite.exec(
+    "INSERT INTO accounts (email, name, role, requested_at) VALUES ('maker@example.org', 'Morgan Maker', 'parent', 1);" +
+    "INSERT INTO account_teams (account_id, team, state) VALUES (1, 'hoover-jrt', 'approved');",
+  );
+  const made = { team: 'hoover-jrt', title: 'Harbor Sprint', kind: 'practice', date: '2026-09-19' };
+  assert.deepEqual(await createEvent(db, made, 1, now), { address: '2026-09-19-harbor-sprint' });
+  const id = db.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get('2026-09-19-harbor-sprint').id;
+  const row = () => ({ ...db.sqlite.prepare('SELECT address, earlier_address, title, provisional, created_by, created_at FROM albums WHERE id = ?').get(id) });
+  // "which events you made from the page you send from, and when".
+  assert.deepEqual(row(), {
+    address: '2026-09-19-harbor-sprint', earlier_address: null, title: 'Harbor Sprint', provisional: 1, created_by: 1, created_at: now,
+  });
+  // "shown there at once": the share page's list holds it now, at the
+  // address it was made with. Which accounts the list is given to is the
+  // open route's to decide (#273's criterion 4), and test/account-upload.
+  // test.js reads it as a teammate.
+  assert.ok((await openAlbums(db)).some((album) => album.address === '2026-09-19-harbor-sprint'), 'the share page\'s list does not hold the new event');
+
+  let key = 0;
+  const send = () => Number(db.sqlite.prepare(
+    'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, account_id, ' +
+    'captured_at, sent_at, width, height, grid_width, grid_height, screen_width, screen_height, bytes) ' +
+    "VALUES (?, 'photo', 'pending', ?, 'b', 'parent', 0, 0, 1, 1, 2, 4, 3, 4, 3, 4, 3, 10)",
+  ).run(id, String(++key).padStart(32, '0')).lastInsertRowid);
+  // An approval as /admin/queue presses it: the fixes read from the queue.
+  const approve = async (ids, at, fixes) =>
+    (await approvePhotos(db, ids, at, fixes ?? provisionalAlbums(await waitingBatches(db), ids))).approved;
+  const first = send();
+  // "Anyone can see it once one of the site's admins approves a photo in
+  // it": nobody before.
+  assert.equal(await publicAlbum(db, '2026-09-19-harbor-sprint'), null);
+  assert.deepEqual(await publicAlbums(db), []);
+
+  // "If the title or date is changed before that first approval": an
+  // admin's edit, which leaves the address until the approval makes it.
+  assert.equal(await updateAlbum(db, '2026-09-19-harbor-sprint', { ...made, title: 'Lake Day Regatta' }), true);
+  assert.equal(row().address, '2026-09-19-harbor-sprint');
+  assert.deepEqual(await approve([first], now + 60), [first]);
+  // "Its address is made from its date and title when the first photo or
+  // clip in it is approved", and "the address the event had until then
+  // stays with it".
+  assert.deepEqual(row(), {
+    address: '2026-09-19-lake-day-regatta', earlier_address: '2026-09-19-harbor-sprint', title: 'Lake Day Regatta', provisional: 0, created_by: 1, created_at: now,
+  });
+  // "and its title is then public".
+  assert.equal((await publicAlbum(db, '2026-09-19-lake-day-regatta'))?.title, 'Lake Day Regatta');
+  assert.deepEqual((await publicAlbums(db)).map((album) => [album.address, album.title]), [['2026-09-19-lake-day-regatta', 'Lake Day Regatta']]);
+  // "so a page loaded before then still sends there, and no public page
+  // shows that address".
+  assert.equal((await openAlbum(db, '2026-09-19-harbor-sprint'))?.address, '2026-09-19-lake-day-regatta');
+  assert.equal(await publicAlbum(db, '2026-09-19-harbor-sprint'), null, 'the address from before the approval is a public page');
+
+  // "never changes after, so the title it had then stays in its address": a
+  // later title change, and an approval handed a fix for it, change the
+  // title only. The first approval above is the control: the same fix on a
+  // provisional event made its address again.
+  assert.equal(await updateAlbum(db, '2026-09-19-lake-day-regatta', { ...made, title: 'Sprint Day' }), true);
+  const second = send();
+  const fix = { id, address: '2026-09-19-lake-day-regatta', title: 'Sprint Day', kind: 'practice', date: '2026-09-19' };
+  assert.deepEqual(await approve([second], now + 120, [fix]), [second]);
+  assert.deepEqual(row(), {
+    address: '2026-09-19-lake-day-regatta', earlier_address: '2026-09-19-harbor-sprint', title: 'Sprint Day', provisional: 0, created_by: 1, created_at: now,
+  });
+
+  // "The events you made stay, and no longer record who made them. Once a
+  // photo in one is approved, its title is public and stays in its
+  // address": the delete /admin/people presses (README's by-hand delete is
+  // held above).
+  assert.equal(await deleteAccount(db, { accountId: 1, admin: 'owner@example.com', now: now + 180 }), true);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM accounts').get().n, 0);
+  assert.deepEqual(row(), {
+    address: '2026-09-19-lake-day-regatta', earlier_address: '2026-09-19-harbor-sprint', title: 'Sprint Day', provisional: 0, created_by: null, created_at: now,
+  });
+  assert.equal((await publicAlbum(db, '2026-09-19-lake-day-regatta'))?.title, 'Sprint Day');
 });
 

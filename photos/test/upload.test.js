@@ -819,7 +819,7 @@ const touchesPhotos = (sql) => {
   return TOUCHES_PHOTOS.some((pattern) => pattern.test(code));
 };
 
-test('one migration makes the photos table, and only #223\'s column, #228\'s guard and #198\'s clip rules touch it after', () => {
+test('one migration makes the photos table, and only #223\'s column, #228\'s guard, #198\'s clip rules and #273\'s guard touch it after', () => {
   // 0005 carries every state the epic needs, so the stories after it add no
   // column to it but one (#154, criterion 7). 0012 is that column: the
   // account that sent a photo, which 0005's sender CHECK has no room for
@@ -827,11 +827,17 @@ test('one migration makes the photos table, and only #223\'s column, #228\'s gua
   // two triggers refuse approving a photo in a Not sure album (owner, at
   // #228's pickup). Nor does 0016: its ten triggers hold a clip's row to what
   // the clip routes write, which confirms 0005's clip columns as they are
-  // (#198, criterion 7; test/clip-rules.test.js). All three are additive,
-  // which test/site.test.js holds of every migration.
+  // (#198, criterion 7; test/clip-rules.test.js). Nor does 0018 (#273): its
+  // columns are on albums, and its two photos_provisional_never_shown
+  // triggers refuse approving a photo or clip in a sender's event before its
+  // address is fixed, as 0015's do for a Not sure album
+  // (test/event-address.test.js). All four are additive, which
+  // test/site.test.js holds of every migration.
   const files = readdirSync(MIGRATIONS).sort();
   const touching = files.filter((file) => touchesPhotos(readFileSync(new URL(file, MIGRATIONS), 'utf8')));
-  assert.deepEqual(touching, ['0005_photos.sql', '0012_photos_account.sql', '0015_not_sure_albums.sql', '0016_clip_rules.sql']);
+  assert.deepEqual(touching, [
+    '0005_photos.sql', '0012_photos_account.sql', '0015_not_sure_albums.sql', '0016_clip_rules.sql', '0018_sender_events.sql',
+  ]);
 });
 
 test('the check above sees every way a later migration could change the table', () => {

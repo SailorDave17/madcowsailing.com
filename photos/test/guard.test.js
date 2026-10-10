@@ -32,8 +32,12 @@
 //     and the coaches' sign-in set until #226, a parent's or a coach's, live
 //     or not, deleting it in the same answer (#226). An account's session
 //     that carries one gets past the guard, and the old cookie is deleted
-//     there too. A write under api/upload/ answers 403 to an account's
-//     session without the site's own Origin (#154).
+//     there too. A write under api/upload/ (#154) or api/albums/ (#273),
+//     every write past the upload guard, answers 403 to an account's session
+//     without the site's own Origin. Until #273 the albums directory held
+//     reads only and ran no Origin guard; since a sender makes an event there
+//     (POST /api/albums), the loop below holds every guarded directory alike,
+//     so a write added to either cannot miss it.
 // A route that skips its guard, whether it sits outside its directory or the
 // directory loses its _middleware.js, fails here. The only routes excused are
 // PUBLIC, each with its reason; adding one there is a decision, and belongs
@@ -280,9 +284,10 @@ test('the upload directory runs the one guard, then the Origin guard (#154)', as
   assert.deepEqual(mod.onRequest, [requireUploadSession, requireSameOrigin]);
 });
 
-test('the albums directory runs the same guard (#153)', async () => {
+test('the albums directory runs the one guard, then the Origin guard, since a sender makes an event there (#153, #273 criterion 8)', async () => {
+  // Until #273 it ran the upload guard alone, holding reads only.
   const mod = await import(pathToFileURL(join(FUNCTIONS, 'api', 'albums', '_middleware.js')));
-  assert.equal(mod.onRequest, requireUploadSession);
+  assert.deepEqual(mod.onRequest, [requireUploadSession, requireSameOrigin]);
 });
 
 test('both admin directories run the admin session guard, then the Origin guard (#224)', async () => {
@@ -393,10 +398,13 @@ for (const file of guarded) {
         assert.deepEqual(res.headers.getSetCookie(), [DELETE_OLD], `functions/${file} left the old cookie in place`);
       });
     }
-    // An upload write needs the site's own Origin as well as a session (#154),
-    // so a page elsewhere cannot post into an account's session. The albums
-    // directory holds reads only, and runs no Origin guard.
-    if (SAFE.includes(method) || !file.startsWith('api/upload/')) continue;
+    // A write needs the site's own Origin as well as a session, so a page
+    // elsewhere cannot post into an account's session: an upload's (#154) and
+    // an event's (POST /api/albums, #273). Every write in every directory the
+    // upload guard covers is held, not a list of them, so a write added to
+    // either directory, or a new guarded directory, is held from its first
+    // commit.
+    if (SAFE.includes(method)) continue;
     for (const [name, origin] of Object.entries(FOREIGN_ORIGINS)) {
       test(`${method} ${routePath(file)} with an account's current session and ${name}: 403 (#223)`, async () => {
         const res = await call(file, method, undefined, undefined, origin, accountLive);
@@ -415,12 +423,16 @@ for (const file of guarded) {
   }
 }
 
-test('at least one upload route takes a write, so the Origin checks above check something', async () => {
+test('an upload route and an albums route each take a write, so the Origin checks above check something in both directories (#154, #273 criterion 8)', async () => {
   const writes = [];
-  for (const file of guarded.filter((f) => f.startsWith('api/upload/'))) {
-    writes.push(...(await methodsOf(file)).filter((m) => !SAFE.includes(m)));
+  for (const file of guarded) {
+    for (const method of (await methodsOf(file)).filter((m) => !SAFE.includes(m))) writes.push(`${method} ${file}`);
   }
-  assert.ok(writes.length > 0);
+  // Named, so the loop is proven to reach the two writes it exists for: a
+  // photo's upload and a sender's event. Counting writes alone would pass
+  // with the albums directory's skipped, as it was until #273.
+  assert.ok(writes.includes('POST api/upload/index.js'), writes.join('\n'));
+  assert.ok(writes.includes('POST api/albums/index.js'), writes.join('\n'));
 });
 
 // The admin routes (#224, criterion 5): every way an admin session can fail
