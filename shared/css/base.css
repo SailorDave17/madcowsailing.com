@@ -32,6 +32,16 @@ video {
   height: auto;
 }
 
+/* The hidden attribute is a user-agent rule, so any author rule that sets
+   display beats it, the reset above included. gallery.js hides the
+   lightbox's <video> and <img> with it, and on the sailing site the hidden
+   video was laid out beside the photo anyway, an empty player that pushed
+   the photo 150 px off a phone's screen (#203). The photo site restated this
+   rule in its own site.css first, for share.js's hidden "Try again", which
+   .button's inline-block showed; it lives here for all three sites since
+   #203. */
+[hidden] { display: none !important; }
+
 /* ---- Type ---- */
 
 h1,

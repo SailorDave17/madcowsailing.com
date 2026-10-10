@@ -11,14 +11,9 @@
    then this file carried a copy of sailing's, which carried a copy of hq's;
    the photo site was the third copy that made the move worth it. This site
    uses base.css's defaults for both values that differ by site: the 2rem
-   header mark and the left-aligned footer. */
-
-/* ---- Hidden --------------------------------------------------------- */
-
-/* The hidden attribute is a user-agent rule, so any author rule that sets
-   display beats it: .button's inline-block would show share.js's hidden
-   "Try again". Restated here so a hidden element stays hidden. */
-[hidden] { display: none !important; }
+   header mark and the left-aligned footer. The [hidden] rule this file
+   restated for share.js's "Try again" is in base.css since #203, which
+   needed it on the sailing site's lightbox too. */
 
 /* ---- Page head ------------------------------------------------------ */
 
