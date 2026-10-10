@@ -37,6 +37,14 @@
  * `clip.dayBytes` is the session's daily clip budget (CLIP_DAY_BYTES), which
  * the page names when the start refuses a clip past it: only the server knows
  * how much of it a day has spent, across every phone on an account.
+ *
+ * Since #273 it also answers `teams`, [{team, teamName}, …]: the teams the
+ * account is approved for now, in the order the teams are listed, which the
+ * share page's "Create a new event" offers (asking which only when there are
+ * two). The albums alone cannot say it: a team with no open event and its Not
+ * sure album closed names none. An event a sender made is listed as any album
+ * is, from the moment it is made, to every account approved for its team, and
+ * nothing here says who made it (criterion 5).
  */
 import { openAlbums } from '../../../lib/albums.js';
 import { clipBytes, clipDayBytes, clipSeconds } from '../../../lib/photos.js';
@@ -54,5 +62,6 @@ export async function onRequestGet({ env, data }) {
     .sort((a, b) => ORDER.indexOf(a.team) - ORDER.indexOf(b.team))
     .map(({ address, team }) => ({ address, team, teamName: teamName(team) }));
   const clip = { seconds: clipSeconds(session), bytes: clipBytes(session), dayBytes: clipDayBytes(session) };
-  return Response.json({ albums, other, clip }, { headers: { 'Cache-Control': 'no-store' } });
+  const teams = ORDER.filter((team) => session.teams.includes(team)).map((team) => ({ team, teamName: teamName(team) }));
+  return Response.json({ albums, other, clip, teams }, { headers: { 'Cache-Control': 'no-store' } });
 }

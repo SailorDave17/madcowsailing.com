@@ -361,7 +361,7 @@ async function openCall(env) {
   }
   const cookie = await signAccountSession(ADMIN_KEY, { accountId: SENDER, version: 1 }, nowSeconds());
   const request = new Request(`${SITE}/api/albums/open`, { headers: { Cookie: `${ACCOUNT_COOKIE}=${cookie}` } });
-  return (await chain([root, albumsGuard, openList], request, { ...env, SESSION_SIGNING_KEY: ADMIN_KEY })).json();
+  return (await chain([root, ...albumsGuard, openList], request, { ...env, SESSION_SIGNING_KEY: ADMIN_KEY })).json();
 }
 
 test('#228 criterion 1: the open list gives each team\'s Not sure album apart from the events, and a closed one is not offered', async () => {
@@ -666,7 +666,9 @@ test('#270: when the read that places a Move\'s landing fails, the answer is sti
   const boom = async () => { throw new Error('transient D1 error'); };
   // Another admin approves the photo while the event is being made, after
   // the press read it as waiting; and, when `orderFails`, the queue's order
-  // cannot be read.
+  // cannot be read. createAlbum is one INSERT since #273, so this lands once,
+  // just before the event is written, where until then it landed before each
+  // try.
   const raced = (orderFails) => ({
     ...env.DB,
     prepare: (sql) => {
@@ -694,9 +696,14 @@ test('#270: when the read that places a Move\'s landing fails, the answer is sti
 // count below leaves out, as test/queue.test.js's does.
 const GUARD_READ = /^SELECT a\.id, a\.name, a\.email, a\.admin_role FROM accounts AS a /;
 
-test('#270: a Move is five statements into an event, its read traded for createAlbum\'s tries into a new one, as CLAUDE.md counts them', async () => {
+test('#270, #273: a Move is five statements, into an event or into a new one whether or not its first address is held, as CLAUDE.md counts them', async () => {
   // review-fanout at #270's review: CLAUDE.md's counts were reasoned, and
   // wrong. Every press sends each photo's caption, as the page's form does.
+  // Into a new event, createAlbum takes the place of the event's read. Until
+  // #273 it tried each address in turn, so a new event whose first address
+  // was held cost a statement more, six; since #273 it picks the first free
+  // address inside its one INSERT (lib/albums.js), so the held case is five
+  // too, and still lands at -2, which is what keeps it the held case.
   const { env, fall, districts } = await site();
   const count = async (fn) => {
     env.DB.statements.length = 0;
@@ -715,9 +722,11 @@ test('#270: a Move is five statements into an event, its read traded for createA
   env.DB.sqlite.prepare('DELETE FROM photos').run();
   one = id();
   assert.equal(await press(one, 'new', NEW), 5, 'into a new event at its first address');
+  assert.equal(photo(env, one).address, '2026-10-03-league-day');
   env.DB.sqlite.prepare('DELETE FROM photos').run();
   one = id();
-  assert.equal(await press(one, 'new', NEW), 6, 'into a new event whose first address is held: one more try');
+  assert.equal(await press(one, 'new', NEW), 5, 'into a new event whose first address is held: five too since #273');
+  assert.equal(photo(env, one).address, '2026-10-03-league-day-2', 'the first address was held, so the event took the next');
   env.DB.sqlite.prepare('DELETE FROM photos').run();
   one = id();
   assert.equal(await press(one, districts), 4, 'another team\'s event, refused: the event read, and nothing moved');
@@ -817,25 +826,32 @@ test('#228 criterion 4: an approve press naming a Not sure photo leaves it waiti
     new RegExp(`<p role="status">Approved photo ${shown}\\. 1 photo was left waiting\\. A photo in "Not sure / other event" has no event`));
 });
 
-test('"Hide all their photos" takes down an account\'s Not sure photo with the rest, and "Put it back" returns it to the queue, still in Not sure', async () => {
+test('"Hide all" takes down an account\'s Not sure photo and, since #310, its Not sure clip with the rest, and "Put it back" returns each to the queue, still in Not sure', async () => {
   // review-fanout at #228's review: the first build of 0015 refused this, so
-  // Hide all rolled back whole and left the person's public photo up.
+  // Hide all rolled back whole and left the person's public photo up. 0015's
+  // triggers name no kind, so a waiting clip in Not sure is hidden only with
+  // the placeholder a waiting photo takes (WAITING_WHEN_HIDDEN, 0): any other
+  // would roll the whole press back the same way.
   const { env, fall } = await site();
   const { sqlite } = env.DB;
   sqlite.prepare("INSERT INTO accounts (id, email, name, role, requested_at) VALUES (2, 'pat@example.org', 'Pat Parent', 'parent', 1)").run();
   const shown = seedPhoto(env, fall, { state: 'approved' });
   const held = seedPhoto(env, NOT_SURE['hoover-jrt']);
   const other = seedPhoto(env, NOT_SURE['hoover-jrt']); // the invite link's, which Hide all leaves alone
-  sqlite.prepare('UPDATE photos SET account_id = 2, code_generation = 0, session_issued = 0 WHERE id IN (?, ?)').run(shown, held);
-  assert.deepEqual(await hidePhotos(env.DB, { accountId: 2, admin: 'owner@example.org', now: T0 + 50 }), { hidden: 2, waiting: 1 });
-  assert.deepEqual([shown, held, other].map((id) => photo(env, id).state), ['hidden', 'hidden', 'pending']);
-  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM admin_log WHERE action = 'hide'").get().n, 1);
-  assert.equal(sqlite.prepare('SELECT approved_at FROM photos WHERE id = ?').get(held).approved_at, WAITING_WHEN_HIDDEN);
+  const heldClip = seedClip(env, NOT_SURE['hoover-jrt'], { sentAt: T0 + 1 });
+  sqlite.prepare('UPDATE photos SET account_id = 2, code_generation = 0, session_issued = 0 WHERE id IN (?, ?, ?)').run(shown, held, heldClip);
+  assert.deepEqual(await hidePhotos(env.DB, { accountId: 2, admin: 'owner@example.org', now: T0 + 50 }), { hidden: 3, waiting: 2, clips: 1 });
+  assert.deepEqual([shown, held, heldClip, other].map((id) => photo(env, id).state), ['hidden', 'hidden', 'hidden', 'pending']);
+  assert.deepEqual(sqlite.prepare("SELECT detail FROM admin_log WHERE action = 'hide'").all().map((row) => row.detail), ['2 photos and 1 clip']);
+  for (const id of [held, heldClip]) assert.equal(sqlite.prepare('SELECT approved_at FROM photos WHERE id = ?').get(id).approved_at, WAITING_WHEN_HIDDEN, `row ${id}`);
   // Nothing in Not sure is public before, during or after.
   assert.equal((await publicGet(env, `/photos/${held}/grid`)).status, 404);
-  assert.equal(await restorePhoto(env.DB, held), 'pending');
+  assert.deepEqual(await restorePhoto(env.DB, held), { state: 'pending', kind: 'photo' });
   assert.deepEqual(photo(env, held), { state: 'pending', caption: null, batch: BATCH_A, address: NOT_SURE['hoover-jrt'] });
-  assert.equal(await restorePhoto(env.DB, shown), 'approved', 'the control: the event photo goes back public');
+  assert.deepEqual(await restorePhoto(env.DB, heldClip), { state: 'pending', kind: 'clip' });
+  assert.deepEqual(photo(env, heldClip), { state: 'pending', caption: null, batch: BATCH_A, address: NOT_SURE['hoover-jrt'] });
+  assert.equal(sqlite.prepare('SELECT approved_at FROM photos WHERE id = ?').get(heldClip).approved_at, null);
+  assert.deepEqual(await restorePhoto(env.DB, shown), { state: 'approved', kind: 'photo' }, 'the control: the event photo goes back public');
   assert.equal((await publicGet(env, `/photos/${held}/grid`)).status, 404);
 });
 

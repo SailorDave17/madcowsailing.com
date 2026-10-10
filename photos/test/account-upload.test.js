@@ -21,12 +21,13 @@ import { onRequest as uploadGuard } from '../functions/api/upload/_middleware.js
 import { onRequestPost as uploadRoute } from '../functions/api/upload/index.js';
 import { onRequestGet as sessionRoute } from '../functions/api/upload/session.js';
 import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js';
+import { onRequestPost as createRoute } from '../functions/api/albums/index.js';
 import { onRequestGet as openList } from '../functions/api/albums/open.js';
 import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
-import { adminQueuePage, adminRemovalsPage } from '../lib/admin-page.js';
-import { createAlbum, setAlbumOpen } from '../lib/albums.js';
+import { adminAlbumsPage, adminQueuePage, adminRemovalsPage } from '../lib/admin-page.js';
+import { allAlbums, createAlbum, setAlbumOpen, updateAlbum } from '../lib/albums.js';
 import { CLIP_SECONDS, DAILY_UPLOADS, clipSeconds, sendsAsCoach, sessionKey } from '../lib/photos.js';
-import { waitingBatches } from '../lib/queue.js';
+import { approvePhotos, provisionalAlbums, waitingBatches } from '../lib/queue.js';
 import { hiddenPhotos } from '../lib/removals.js';
 import { nowSeconds, requireUploadSession } from '../lib/session.js';
 import { d1, seedCodes } from './d1.js';
@@ -134,7 +135,7 @@ function send(env, address, cookies) {
 
 /** GET /api/albums/open through its guard: the addresses offered, in order. */
 async function offered(env, cookies) {
-  const res = await chain([root, albumsGuard, openList], new Request(`${SITE}/api/albums/open`, { headers: cookieHeader(cookies) }), env);
+  const res = await chain([root, ...albumsGuard, openList], new Request(`${SITE}/api/albums/open`, { headers: cookieHeader(cookies) }), env);
   if (res.status !== 200) return res.status;
   return (await res.json()).albums.map((album) => album.address);
 }
@@ -380,12 +381,12 @@ async function stackFor(file, method) {
   return [...stack, handler, () => new Response('static 404', { status: 404 })];
 }
 
-test('no public route, response or image names the account that sent a photo (#223, criterion 3)', async (t) => {
+test('no public route, response or image names the account that sent a photo or made an event (#223, criterion 3; #273, criterion 5)', async (t) => {
   t.mock.method(console, 'error', () => {});
   t.mock.method(console, 'warn', () => {});
   const name = 'Planted Sender Q7XK';
   const email = 'planted.sender.q7xk@example.org';
-  const { env, hoover } = await site();
+  const { env, hoover, now } = await site();
   env.DB.sqlite.prepare('UPDATE accounts SET name = ?, email = ? WHERE id = ?').run(name, email, PARENT);
   assert.equal((await send(env, hoover, { account: await account(PARENT) })).status, 201);
   assert.equal((await send(env, hoover, { account: await account(PARENT) })).status, 201);
@@ -394,10 +395,39 @@ test('no public route, response or image names the account that sent a photo (#2
   env.DB.sqlite.exec("UPDATE photos SET state = 'hidden', approved_at = 5, hidden_at = 6 WHERE id = 2");
   const id = 1;
 
+  // #273: an event the planted account made on the share page, through the
+  // route the page posts to, dated today as the phone would date it. Neither
+  // of its titles holds anything planted, so a leak is the account's alone.
+  const today = new Date(now * 1000).toISOString().slice(0, 10);
+  const made = await chain([root, ...albumsGuard, createRoute], new Request(`${SITE}/api/albums`, {
+    method: 'POST',
+    headers: { Origin: SITE, 'Content-Type': 'application/json', ...cookieHeader({ account: await account(PARENT) }) },
+    body: JSON.stringify({ title: 'Harbor Sprint', kind: 'practice', date: today }),
+  }), env);
+  assert.equal(made.status, 201);
+  const earlier = (await made.json()).address;
+  assert.equal(earlier, `${today}-harbor-sprint`);
+  // A photo sent into it, the title changed before an admin approves it, and
+  // the approval as /admin/queue presses it, with the fix read from the
+  // queue, so the address is made again from the new title (lib/albums.js,
+  // fixAddress) and the one it had is kept as its earlier address.
+  assert.equal((await send(env, earlier, { account: await account(PARENT) })).status, 201);
+  const eventPhoto = 3;
+  assert.equal(await updateAlbum(env.DB, earlier, { team: 'hoover-jrt', title: 'Lake Day Regatta', kind: 'practice', date: today }), true);
+  const fixes = provisionalAlbums(await waitingBatches(env.DB), [eventPhoto]);
+  assert.equal(fixes.length, 1, 'the queue read no provisional event to fix');
+  assert.deepEqual((await approvePhotos(env.DB, [eventPhoto], now, fixes)).approved, [eventPhoto]);
+  const event = `${today}-lake-day-regatta`;
+  assert.deepEqual({ ...env.DB.sqlite.prepare('SELECT earlier_address, created_by, provisional FROM albums WHERE address = ?').get(event) },
+    { earlier_address: earlier, created_by: PARENT, provisional: 0 });
+
   const leaks = (label, text) => {
     for (const planted of [name, email, name.toLowerCase(), email.toUpperCase(), 'Q7XK']) {
       assert.ok(!text.toLowerCase().includes(planted.toLowerCase()), `${label} names the account (${planted})`);
     }
+    // /policy: "no public page shows that address", the one the event had
+    // before its first approval.
+    assert.ok(!text.includes(earlier), `${label} shows the event's address from before its first approval`);
   };
   const read = async (res) => {
     const bytes = new Uint8Array(await res.arrayBuffer());
@@ -409,42 +439,88 @@ test('no public route, response or image names the account that sent a photo (#2
   const queue = adminQueuePage({ batches: await waitingBatches(env.DB) });
   assert.throws(() => leaks('the admin queue', queue), /names the account/);
   env.DB.sqlite.exec("UPDATE photos SET state = 'approved', approved_at = 5 WHERE id = 1");
+  // And for who made an event: /admin/albums, which names the account that
+  // made each sender's event (#273's criterion 5), reads as a leak. No photo
+  // is listed there, so the name it shows is the event's maker.
+  const albumsPage = adminAlbumsPage({ albums: await allAlbums(env.DB) });
+  assert.throws(() => leaks('/admin/albums', albumsPage), /names the account/);
+  // The earlier address's control: the open list as the share page read it
+  // before the approval named it, which reads as a leak.
+  assert.throws(() => leaks('the open list before the approval', JSON.stringify({ albums: [{ address: earlier }] })), /from before its first approval/);
 
+  // "On the site, only its admins see any of it": the list the team's other
+  // senders read offers the event, and says nothing of who made it.
+  const teammate = await read(await chain([root, ...albumsGuard, openList],
+    new Request(`${SITE}/api/albums/open`, { headers: cookieHeader({ account: await account(OTHER) }) }), env));
+  assert.match(teammate, /^200 /);
+  assert.ok(teammate.includes(`"${event}"`), 'the teammate\'s list does not offer the event, so its scan reads nothing');
+  leaks('GET /api/albums/open, as another account on the team', teammate);
+  // "No public page shows that address": the album page at it is no page,
+  // read while the event's photo is public (the takedown below hides it, and
+  // a page with no approved photo is a 404 whatever its address).
+  const stale = await chain(await stackFor('albums/[address]/index.js', 'GET'), new Request(`${SITE}/albums/${earlier}/`), env, { address: earlier });
+  assert.equal(stale.status, 404, 'the event\'s address from before its first approval is a public page');
+  leaks(`GET /albums/${earlier}/`, await read(stale));
+
+  // Each photo the scan reads: the admin's album's, and the event's.
+  const targets = [{ address: hoover, id }, { address: event, id: eventPhoto }];
   // A directory's index is served at its path with the slash (#227).
-  const pathFor = (file, size) => `/${file.replace(/\.js$/, '').replace('[address]', hoover).replace('[id]', String(id)).replace('[size]', size).replace(/(^|\/)index$/, '$1')}`;
-  const paramsFor = (size) => ({ address: hoover, id: String(id), size });
+  const pathFor = (file, size, target) => `/${file.replace(/\.js$/, '').replace('[address]', target.address).replace('[id]', String(target.id)).replace('[size]', size).replace(/(^|\/)index$/, '$1')}`;
+  const paramsFor = (size, target) => ({ address: target.address, id: String(target.id), size });
   // No public route reaches another service here: Turnstile, Resend and
   // Pwned Passwords each answer as if down.
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('no network in this test'); });
   // The takedown runs last, since it hides the photo every other route reads.
   const ordered = [...publicRoutes.filter((f) => f !== 'api/remove.js'), 'api/remove.js'];
   const answered = [];
+  const pages = new Map();
   for (const file of ordered) {
+    // A route that names no album or photo, and posts no photo's id, answers
+    // the same for both; the list at / and the team's section hold both.
+    const perPhoto = /\[(?:address|id)\]/.test(file) || /(?:^|\/)remove\.js$/.test(file);
     for (const method of ['GET', 'HEAD', 'POST']) {
       const stack = await stackFor(file, method);
       if (!stack) continue;
-      for (const size of file.includes('[size]') ? ['grid', 'screen', 'full'] : ['-']) {
-        const path = pathFor(file, size);
-        // A post carries the one field a public post reads about a photo,
-        // its id (/remove, /api/remove), from the site's own Origin.
-        const init = method === 'POST'
-          ? { method, headers: { Origin: SITE, 'Content-Type': 'application/x-www-form-urlencoded', 'CF-Connecting-IP': '192.0.2.1' }, body: `photo=${id}` }
-          : { method, headers: { 'CF-Connecting-IP': '192.0.2.1' } };
-        const res = await chain(stack, new Request(`${SITE}${path}`, init), env, paramsFor(size));
-        const text = await read(res);
-        leaks(`${method} ${path}`, text);
-        answered.push(`${method} ${path} ${res.status}`);
+      for (const target of perPhoto ? targets : targets.slice(0, 1)) {
+        for (const size of file.includes('[size]') ? ['grid', 'screen', 'full'] : ['-']) {
+          const path = pathFor(file, size, target);
+          // A post carries the one field a public post reads about a photo,
+          // its id (/remove, /api/remove), from the site's own Origin.
+          const init = method === 'POST'
+            ? { method, headers: { Origin: SITE, 'Content-Type': 'application/x-www-form-urlencoded', 'CF-Connecting-IP': '192.0.2.1' }, body: `photo=${target.id}` }
+            : { method, headers: { 'CF-Connecting-IP': '192.0.2.1' } };
+          const res = await chain(stack, new Request(`${SITE}${path}`, init), env, paramsFor(size, target));
+          const text = await read(res);
+          leaks(`${method} ${path}`, text);
+          answered.push(`${method} ${path} ${res.status} ${target.id}`);
+          if (method === 'GET') pages.set(path, text);
+        }
       }
     }
   }
-  // The routes that read the photo were reached and answered with it: the
+  // The routes that read each photo were reached and answered with it: the
   // list, the photo's section, the album, the three sizes and the takedown's
   // confirmation, each 200. A 404 here would scan a page that holds nothing.
-  for (const reached of [
-    'GET / 200', 'GET /hoover-jrt/ 200', `GET /albums/${hoover}/ 200`, `GET /photos/${id}/grid 200`,
-    `GET /photos/${id}/screen 200`, `GET /photos/${id}/full 200`, 'POST /remove 200', 'POST /api/remove 303',
-  ]) {
-    assert.ok(answered.includes(reached), `not reached: ${reached}\n${answered.join('\n')}`);
+  for (const target of targets) {
+    const reached = [
+      `GET /albums/${target.address}/ 200`, `GET /photos/${target.id}/grid 200`, `GET /photos/${target.id}/screen 200`,
+      `GET /photos/${target.id}/full 200`, 'POST /remove 200', 'POST /api/remove 303',
+    ];
+    for (const route of reached) {
+      assert.ok(answered.includes(`${route} ${target.id}`), `not reached: ${route} for photo ${target.id}\n${answered.join('\n')}`);
+    }
+  }
+  for (const route of ['GET / 200', 'GET /hoover-jrt/ 200']) {
+    assert.ok(answered.includes(`${route} ${id}`), `not reached: ${route}\n${answered.join('\n')}`);
+  }
+  // The pages the scan read held the event, so none passed by reading a page
+  // without it: / counts it among Hoover JRT's albums (#227), and its team's
+  // section and its own page show its title, public as /policy says.
+  // The scan reads bodies as latin1, so the middle dot between the counts is
+  // two characters there.
+  assert.match(pages.get('/') ?? '', /2 albums \S+ 2 photos/, '/ did not count the event when it was scanned');
+  for (const path of ['/hoover-jrt/', `/albums/${event}/`]) {
+    assert.ok(pages.get(path)?.includes('Lake Day Regatta') && pages.get(path).includes(event), `${path} did not show the event when it was scanned`);
   }
 });
 

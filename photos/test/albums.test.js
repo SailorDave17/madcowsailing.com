@@ -24,16 +24,22 @@ import * as close from '../functions/api/admin/albums/close.js';
 import * as reopen from '../functions/api/admin/albums/reopen.js';
 import * as remove from '../functions/api/admin/albums/delete.js';
 import { onRequest as albumsGuard } from '../functions/api/albums/_middleware.js';
+import { onRequestPost as makeEventRoute } from '../functions/api/albums/index.js';
 import { onRequestGet as openList } from '../functions/api/albums/open.js';
+import { onRequestPost as approveRoute } from '../functions/api/admin/queue/approve.js';
 import { ACCOUNT_COOKIE, signAccountSession } from '../lib/account-session.js';
-import { MAX_SUFFIX, baseAddress, openAlbum, slugify } from '../lib/albums.js';
+import { MAX_SUFFIX, baseAddress, createAlbum, createEvent, openAlbum, slugify } from '../lib/albums.js';
 import { CLIP_BYTES, CLIP_DAY_BYTES, CLIP_SECONDS } from '../lib/photos.js';
 import { nowSeconds } from '../lib/session.js';
+import { TEAMS } from '../lib/teams.js';
 
 // A parent's clip caps, which the list also answers since #198 so the share
 // page can refuse an over-cap clip before sending any of it, and the day's
 // clip budget, which the page names when the start refuses one past it.
 const PARENT_CLIP = { seconds: CLIP_SECONDS.everyone, bytes: CLIP_BYTES.everyone, dayBytes: CLIP_DAY_BYTES.everyone };
+// The teams an account approved for both may make an event in (#273), as the
+// open list answers them: in the teams' order (lib/teams.js).
+const BOTH_TEAMS = [{ team: 'hoover-jrt', teamName: 'Hoover JRT' }, { team: 'cohssa', teamName: 'COHSSA' }];
 import { adminCookieHeader, seedAdmin } from './admin.js';
 import { d1, seedCodes } from './d1.js';
 import { UPLOAD_COOKIE, parentCookie } from './legacy-cookies.js';
@@ -103,7 +109,7 @@ async function page(env, query = '') {
 async function openCall(env, cookie, name = ACCOUNT_COOKIE) {
   const headers = cookie ? { Cookie: `${name}=${cookie}` } : {};
   const request = new Request(`${SITE}/api/albums/open`, { headers });
-  return chain([root, albumsGuard, openList], request, env);
+  return chain([root, ...albumsGuard, openList], request, env);
 }
 
 /** The sender's live session, or one on `version` or signed with `key`. */
@@ -548,6 +554,10 @@ test('GET /api/albums/open with a session: the open albums, newest first, and no
   // Each names its team by key and by name (#227), for the share page's
   // groups and #223's narrowing. The teams' Not sure albums (#228) come
   // apart, in the teams' order, with no title: the page writes their words.
+  // Since #273 `teams` names the teams the account may make an event in, its
+  // approved ones, in the teams' order (lib/teams.js), which is not the
+  // order account_teams keeps them in (by key, so COHSSA first).
+  assert.deepEqual(TEAMS.map(({ team }) => team), ['hoover-jrt', 'cohssa']);
   assert.deepEqual(await res.json(), {
     albums: [
       { address: later, title: 'Afternoon practice', kind: 'practice', date: '2026-10-04', team: 'hoover-jrt', teamName: 'Hoover JRT' },
@@ -559,7 +569,22 @@ test('GET /api/albums/open with a session: the open albums, newest first, and no
       { address: '0001-01-01-not-sure-cohssa', team: 'cohssa', teamName: 'COHSSA' },
     ],
     clip: PARENT_CLIP,
+    teams: BOTH_TEAMS,
   });
+});
+
+test('#273 criterion 1: the open list\'s teams are the ones the account is approved for now, and no other', async () => {
+  const env = site();
+  const offered = async () => (await (await openCall(env, await session())).json()).teams;
+  // Asked for and waiting, turned down, or taken away: none is a team the
+  // account may make an event in.
+  for (const state of ['requested', 'rejected', 'revoked']) {
+    env.DB.sqlite.prepare("UPDATE account_teams SET state = ? WHERE account_id = ? AND team = 'hoover-jrt'").run(state, SENDER);
+    assert.deepEqual(await offered(), [{ team: 'cohssa', teamName: 'COHSSA' }], state);
+  }
+  // The control: approved again, it is offered again, first, in the teams' order.
+  env.DB.sqlite.prepare("UPDATE account_teams SET state = 'approved' WHERE account_id = ? AND team = 'hoover-jrt'").run(SENDER);
+  assert.deepEqual(await offered(), BOTH_TEAMS);
 });
 
 test('GET /api/albums/open without a live session: 401, and no album in the answer', async () => {
@@ -586,7 +611,7 @@ test('an open list with nothing open is empty, not an error', async () => {
   assert.deepEqual((await (await openCall(env, await session())).json()).albums, []);
   // ...and with those closed too, both lists are empty.
   for (const team of ['hoover-jrt', 'cohssa']) await post(env, 'close', { address: `0001-01-01-not-sure-${team}` });
-  assert.deepEqual(await (await openCall(env, await session())).json(), { albums: [], other: [], clip: PARENT_CLIP });
+  assert.deepEqual(await (await openCall(env, await session())).json(), { albums: [], other: [], clip: PARENT_CLIP, teams: BOTH_TEAMS });
 });
 
 // ---- The page itself ------------------------------------------------------
@@ -785,4 +810,183 @@ test('a press that arrives as a GET changes nothing, and the page says so', asyn
   }
   assert.deepEqual(rows(env).map((r) => r.address), [fall]);
   assert.match(await page(env, '?error=unchanged'), /Nothing was changed\. The press reached the site as a page load/);
+});
+
+// ---- #273: an event a sender makes, as /admin/albums shows it ---------------
+
+// A sender's event is made through the share page's own route (POST
+// /api/albums) under a fixed clock, 2026-10-05T12:00:00Z, so the date it is
+// given stays inside the window a sender may give (lib/albums.js,
+// EVENT_DAYS_BACK and EVENT_DAYS_AHEAD) whatever day the tests run. The admin
+// session and the sender's are minted on the same clock the guards read.
+const EVENT_NOW = 1_791_201_600;
+function fixClock(t) {
+  t.mock.timers.enable({ apis: ['Date'], now: EVENT_NOW * 1000 });
+  assert.equal(nowSeconds(), EVENT_NOW, 'the fixed clock did not take');
+}
+
+const CLUB_RACE = { team: 'hoover-jrt', title: 'Club race', kind: 'regatta', date: '2026-10-03' };
+
+/** The sender makes an event on the share page, and its address comes back. */
+async function makeEvent(env, fields = CLUB_RACE) {
+  const request = new Request(`${SITE}/api/albums`, {
+    method: 'POST',
+    headers: { Origin: SITE, Cookie: `${ACCOUNT_COOKIE}=${await session()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  const res = await chain([root, ...albumsGuard, makeEventRoute], request, env);
+  assert.equal(res.status, 201, await res.clone().text());
+  return (await res.json()).address;
+}
+
+/** An admin's Approve on one waiting photo, as the queue's form posts it. */
+async function approveOne(env, id) {
+  const request = new Request(`${SITE}/api/admin/queue/approve`, {
+    method: 'POST',
+    headers: { Origin: SITE, Cookie: await adminSession(), 'Content-Type': FORM },
+    body: new URLSearchParams({ ids: String(id), approve: String(id) }).toString(),
+  });
+  const res = await chain([root, ...adminApi, approveRoute], request, env);
+  assert.equal(res.status, 303);
+  return new URL(res.headers.get('Location'), SITE).searchParams.get('done');
+}
+
+// The words /admin/albums puts after a provisional address (the owner's D6
+// at #273's pickup), in its row and in the notice a save of it lands on.
+const PROVISIONAL = 'provisional: made again from the date and title when its first photo or clip is approved';
+
+/** The facts line of the album at `address` on the page `html`. */
+const factsOf = (html, address) =>
+  html.match(new RegExp(`<p class="album-facts">[^\\n]*<code>${address}</code>[^\\n]*</p>`))?.[0];
+
+test('#273 criterion 5: a sender\'s event names on /admin/albums the account that made it, as text, and an admin\'s album names no one', async (t) => {
+  fixClock(t);
+  const env = site();
+  // The control for the escape: markup planted in the name the person gave.
+  env.DB.sqlite.prepare('UPDATE accounts SET name = ? WHERE id = ?').run('Robin <b>Reed</b> & "Co"', SENDER);
+  const admins = await add(env);
+  const senders = await makeEvent(env);
+  assert.equal(senders, '2026-10-03-club-race');
+  const html = await page(env);
+  assert.equal(factsOf(html, admins),
+    '<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-04">4 October 2026</time> · <code>2026-10-04-fall-regatta</code></p>',
+    'an admin\'s album reads as it did before #273');
+  assert.equal(factsOf(html, senders),
+    `<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-03">3 October 2026</time> · <code>2026-10-03-club-race</code>, ${PROVISIONAL} · made by Robin &lt;b&gt;Reed&lt;/b&gt; &amp; &quot;Co&quot;</p>`);
+  assert.doesNotMatch(html, /<b>Reed/);
+  assert.equal(html.match(/ · made by /g).length, 1, 'only the sender\'s event names who made it');
+  // The form's paragraph says what an admin will see of such an event.
+  assert.match(html, /stays the same if either changes later, or the team does\. An event\s+a sender makes on the share page says here who made it, and its address\s+is provisional until its first photo or clip is approved\.<\/p>/);
+  assert.deepEqual(await problems(html), []);
+  // The validator's control: the same row with its address left unclosed fails.
+  assert.notDeepEqual(await problems(html.replace(`<code>${senders}</code>,`, `<code>${senders},`)), []);
+});
+
+test('#273 criterion 5: an account deleted after it made an event leaves the event, which then names no one', async (t) => {
+  fixClock(t);
+  const env = site();
+  const address = await makeEvent(env);
+  // The control: while the account is there, its name is.
+  assert.match(factsOf(await page(env), address), / · made by Sam Sender<\/p>$/);
+  // README's by-hand delete and #225's both delete the accounts row; 0018's
+  // ON DELETE SET NULL forgets who made the event, with no statement of theirs.
+  env.DB.sqlite.prepare('DELETE FROM accounts WHERE id = ?').run(SENDER);
+  assert.equal(env.DB.sqlite.prepare('SELECT created_by FROM albums WHERE address = ?').get(address).created_by, null);
+  const html = await page(env);
+  assert.equal(factsOf(html, address),
+    `<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-03">3 October 2026</time> · <code>${address}</code>, ${PROVISIONAL}</p>`);
+  assert.doesNotMatch(html, /made by/);
+});
+
+test('#273 D6: a sender\'s event reads provisional in its row and in the notice its save lands on until its first approval, and neither after', async (t) => {
+  fixClock(t);
+  const env = site();
+  const made = await makeEvent(env);
+  // Renamed before its first approval: the address stays as it was made, and
+  // the page says it will be made again.
+  const renamed = { team: 'hoover-jrt', title: 'Club race, day one', kind: 'regatta', date: '2026-10-03' };
+  const saved = landing(await post(env, 'update', { ...renamed, address: made }));
+  assert.deepEqual(saved, { done: 'saved', album: made });
+  const before = await page(env, `?${new URLSearchParams(saved)}`);
+  assert.ok(before.includes(`<p role="status">Saved Club race, day one. Its address is <code>${made}</code>, ${PROVISIONAL}.</p>`),
+    before.match(/<p role="status">[^<]*(?:<code>[^<]*<\/code>[^<]*)?<\/p>/)?.[0]);
+  assert.equal(factsOf(before, made),
+    `<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-03">3 October 2026</time> · <code>${made}</code>, ${PROVISIONAL} · made by Sam Sender</p>`);
+  assert.deepEqual(await problems(before), []);
+  assert.notDeepEqual(await problems(before.replace(`<code>${made}</code>, ${PROVISIONAL}.</p>`, `<code>${made}, ${PROVISIONAL}.</p>`)), []);
+
+  // Its first approval makes the address again from the title it has now.
+  photos(env, made, ['pending']);
+  const { id } = env.DB.sqlite.prepare('SELECT id FROM photos WHERE album_id = (SELECT id FROM albums WHERE address = ?)').get(made);
+  assert.equal(await approveOne(env, id), 'approved');
+  const fixed = '2026-10-03-club-race-day-one';
+  assert.equal(env.DB.sqlite.prepare('SELECT address FROM albums WHERE created_by = ?').get(SENDER).address, fixed);
+
+  // From then on its row and its save read as an admin's album's do, and
+  // still name who made it.
+  const again = landing(await post(env, 'update', { ...renamed, title: 'Club race, final', address: fixed }));
+  assert.deepEqual(again, { done: 'saved', album: fixed });
+  const after = await page(env, `?${new URLSearchParams(again)}`);
+  assert.ok(after.includes(`<p role="status">Saved Club race, final. Its address stays <code>${fixed}</code>.</p>`));
+  assert.equal(factsOf(after, fixed),
+    `<p class="album-facts">Hoover JRT · Regatta · <time datetime="2026-10-03">3 October 2026</time> · <code>${fixed}</code> · made by Sam Sender</p>`);
+  // The control for this one is `before`, which carried the words in both places.
+  assert.doesNotMatch(after, /provisional: made again/);
+  assert.deepEqual(await problems(after), []);
+});
+
+test('#273: createAlbum is one statement whatever address it takes, and answers null with all 50 held', async () => {
+  const env = site();
+  const made = async () => {
+    env.DB.statements.length = 0;
+    const address = await createAlbum(env.DB, FALL, 1);
+    return [address, env.DB.statements.length];
+  };
+  assert.deepEqual(await made(), ['2026-10-04-fall-regatta', 1]);
+  assert.deepEqual(await made(), ['2026-10-04-fall-regatta-2', 1]);
+  const insert = env.DB.sqlite.prepare("INSERT INTO albums (address, team, title, kind, held_on, created_at) VALUES (?, 'hoover-jrt', ?, 'regatta', '2026-10-04', 1)");
+  for (let n = 3; n < MAX_SUFFIX; n++) insert.run(`2026-10-04-fall-regatta-${n}`, `Renamed ${n}`);
+  assert.deepEqual(await made(), [`2026-10-04-fall-regatta-${MAX_SUFFIX}`, 1], 'the last address, still one statement');
+  assert.deepEqual(await made(), [null, 1], 'every address held');
+  assert.equal(rows(env).length, MAX_SUFFIX);
+  // The control: the count sees a second statement where there is one. A
+  // sender's create that is refused reads why with one more (createEvent).
+  env.DB.statements.length = 0;
+  assert.deepEqual(await createEvent(env.DB, FALL, SENDER, EVENT_NOW), { refused: 'full' });
+  assert.equal(env.DB.statements.length, 2);
+});
+
+test('#273: an address another album keeps as its earlier address is never given to a new album', async () => {
+  const env = site();
+  // An event whose first approval moved it off FALL's address, as
+  // lib/albums.js's fixAddress leaves one: a share page loaded before then
+  // still sends to it there.
+  env.DB.sqlite.prepare(
+    "INSERT INTO albums (address, earlier_address, team, title, kind, held_on, created_at) VALUES ('2026-10-04-fall-regatta-day-one', '2026-10-04-fall-regatta', 'hoover-jrt', 'Fall Regatta, day one', 'regatta', '2026-10-04', 1)",
+  ).run();
+  assert.equal(await add(env), '2026-10-04-fall-regatta-2');
+  assert.equal((await openAlbum(env.DB, '2026-10-04-fall-regatta')).address, '2026-10-04-fall-regatta-day-one', 'the stale page still reaches the event');
+  // The control: with the earlier address cleared, the same add takes FALL's own.
+  env.DB.sqlite.prepare("UPDATE albums SET earlier_address = NULL WHERE address = '2026-10-04-fall-regatta-day-one'").run();
+  assert.equal(await add(env), '2026-10-04-fall-regatta');
+});
+
+test('#273: with every address held, some as earlier addresses, adding makes nothing and says so', async () => {
+  const env = site();
+  // Odd suffixes held as addresses, even ones as the earlier addresses of
+  // events that moved to another day's.
+  const candidate = (n) => (n === 1 ? '2026-10-04-fall-regatta' : `2026-10-04-fall-regatta-${n}`);
+  const insert = env.DB.sqlite.prepare("INSERT INTO albums (address, earlier_address, team, title, kind, held_on, created_at) VALUES (?, ?, 'hoover-jrt', ?, 'regatta', '2026-10-04', 1)");
+  for (let n = 1; n <= MAX_SUFFIX; n++) {
+    if (n % 2) insert.run(candidate(n), null, `Renamed ${n}`);
+    else insert.run(`2026-10-05-moved-${n}`, candidate(n), `Moved ${n}`);
+  }
+  env.DB.statements.length = 0;
+  assert.equal(await createAlbum(env.DB, FALL, 1), null);
+  assert.equal(env.DB.statements.length, 1);
+  assert.deepEqual(landing(await post(env, 'create', FALL)), { error: 'full' });
+  assert.equal(rows(env).length, MAX_SUFFIX);
+  // The control: free one earlier address, and the same add takes it.
+  env.DB.sqlite.prepare("UPDATE albums SET earlier_address = NULL WHERE earlier_address = '2026-10-04-fall-regatta-38'").run();
+  assert.equal(await add(env), '2026-10-04-fall-regatta-38');
 });

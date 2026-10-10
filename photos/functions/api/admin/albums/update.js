@@ -6,6 +6,14 @@
  *
  * The address never changes, so every link to the album keeps working.
  *
+ * The exception, since #273, is an event a sender made on the share page
+ * whose first photo or clip is not yet approved. Its address is provisional:
+ * this keeps it as it is, and that approval makes it again from the title,
+ * kind and date saved here (lib/albums.js, fixAddress), so a rename now is
+ * in the address it goes public under, and the page says so when the save
+ * lands (lib/admin-page.js, albumsNotice). From the first approval on, a
+ * rename changes the title only, as for every album.
+ *
  * A team's Not sure album (#228) has no Edit form, and a post naming one
  * changes nothing and says so: it is only closed and reopened.
  */

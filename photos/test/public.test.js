@@ -21,11 +21,14 @@ import * as albumRoute from '../functions/albums/[address]/index.js';
 import * as imageRoute from '../functions/photos/[id]/[size].js';
 import * as hooverRoute from '../functions/hoover-jrt/index.js';
 import * as cohssaRoute from '../functions/cohssa/index.js';
-import { createAlbum, setAlbumOpen } from '../lib/albums.js';
+import { onRequest as adminApi } from '../functions/api/admin/_middleware.js';
+import { onRequestPost as approveRoute } from '../functions/api/admin/queue/approve.js';
+import { allAlbums, createAlbum, createEvent, setAlbumOpen, updateAlbum } from '../lib/albums.js';
 import { photoObjectKeys } from '../lib/photos.js';
 import { FIRST_ROW, HTML_CACHE, albumPage, renderPage } from '../lib/public-page.js';
 import { downloadName, publicAlbum, publicAlbums } from '../lib/public.js';
 import { TEAMS } from '../lib/teams.js';
+import { ADMIN_KEY, adminCookieHeader, seedAdmin } from './admin.js';
 import { d1 } from './d1.js';
 import { jpeg } from './jpeg.js';
 import { r2 } from './r2.js';
@@ -89,15 +92,19 @@ function seed(env, address, { state = 'approved', captured = T0, caption = null,
   return Number(lastInsertRowid);
 }
 
-/** An approved clip (#198's shape), which nothing public may list or serve yet. */
-function seedClip(env, address, { captured = T0 } = {}) {
+/**
+ * An approved clip (#198's shape), which nothing public may list or serve
+ * yet; or, with `state` pending, one waiting in the queue (#273's tests
+ * approve it there).
+ */
+function seedClip(env, address, { captured = T0, state = 'approved' } = {}) {
   const albumId = env.DB.sqlite.prepare('SELECT id FROM albums WHERE address = ?').get(address).id;
   const mediaKey = (++keys).toString(16).padStart(32, '0');
   const { lastInsertRowid } = env.DB.sqlite.prepare(
     'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, session_issued, ' +
     'captured_at, sent_at, width, height, bytes, content_type, duration_ms, approved_at) ' +
-    "VALUES (?, 'clip', 'approved', ?, ?, 'parent', 1, ?, ?, ?, 1920, 1080, 5000000, 'video/mp4', 30000, ?)",
-  ).run(albumId, mediaKey, '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b', T0 - 60, captured, T0, T0 + 100);
+    "VALUES (?, 'clip', ?, ?, ?, 'parent', 1, ?, ?, ?, 1920, 1080, 5000000, 'video/mp4', 30000, ?)",
+  ).run(albumId, state, mediaKey, '0f8e2c1a-7b3d-4e5f-9a6b-1c2d3e4f5a6b', T0 - 60, captured, T0, state === 'approved' ? T0 + 100 : null);
   for (const key of Object.values(photoObjectKeys(mediaKey))) {
     env.MEDIA.objects.set(key, { body: OBJECTS.full, httpMetadata: { contentType: 'image/jpeg' } });
   }
@@ -409,6 +416,92 @@ test('#227: an album page leads back to its own team\'s section, by name', async
   const cohssa = block(await (await get(env, `/albums/${districts}/`)).text(), 'main');
   assert.match(hoover, /<p class="eyebrow"><a href="\/hoover-jrt\/">Hoover JRT photos<\/a><\/p>/);
   assert.match(cohssa, /<p class="eyebrow"><a href="\/cohssa\/">COHSSA photos<\/a><\/p>/);
+});
+
+// ---- #273: an event a sender made ---------------------------------------------
+
+// The event a sender makes from the share page, dated after Hoover JRT's
+// others so it heads the section once listed, and the rename an admin gives
+// it before its first approval, which makes its address again (#273,
+// criterion 3; test/event-address.test.js holds that in full).
+const SENDERS_EVENT = { team: 'hoover-jrt', title: 'Saturday regatta', kind: 'regatta', date: '2026-10-07' };
+const SENDERS_ADDRESS = '2026-10-07-saturday-regatta';
+const RENAMED_ADDRESS = '2026-10-07-harbour-cup';
+
+/**
+ * site(), with its owner, whose session approves, and an account approved
+ * for Hoover JRT that has made SENDERS_EVENT: provisional, at
+ * SENDERS_ADDRESS, holding nothing yet.
+ */
+async function senderSite() {
+  const made = await site();
+  const env = { ...made.env, SESSION_SIGNING_KEY: ADMIN_KEY };
+  const owner = seedAdmin(env.DB);
+  const { lastInsertRowid } = env.DB.sqlite
+    .prepare("INSERT INTO accounts (email, name, role, requested_at) VALUES ('sender@example.org', 'Sam Sender', 'parent', 1)").run();
+  env.DB.sqlite.prepare("INSERT INTO account_teams (account_id, team, state) VALUES (?, 'hoover-jrt', 'approved')").run(lastInsertRowid);
+  assert.deepEqual(await createEvent(env.DB, SENDERS_EVENT, Number(lastInsertRowid), T0), { address: SENDERS_ADDRESS });
+  return { ...made, env, owner };
+}
+
+/** "Approve all" on `ids` through the admin chain, as the queue's form sends it: where the press lands. */
+async function approve(env, owner, ids) {
+  const request = new Request(`${SITE}/api/admin/queue/approve`, {
+    method: 'POST',
+    headers: { Origin: SITE, Cookie: await adminCookieHeader(owner), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ ids: ids.join(' '), approve: 'all' }).toString(),
+  });
+  const handlers = [root, ...adminApi, approveRoute];
+  const run = (i) => handlers[i]({ request, env, params: {}, data: {}, waitUntil() {}, next: () => run(i + 1) });
+  const res = await run(0);
+  assert.equal(res.status, 303);
+  return Object.fromEntries(new URL(res.headers.get('Location'), SITE).searchParams);
+}
+
+test('#273 criterion 4: a sender\'s event is on / and its section only once an admin approves a photo in it, at the address that approval made; never while it waits, nor for an approved clip alone', async () => {
+  const { env, owner, fall } = await senderSite();
+  // Fall holds an approved photo, so Hoover JRT's row and section have
+  // something to show, and every change below is the event's.
+  const fallCover = seed(env, fall);
+  const before = {
+    hoover: { href: '/hoover-jrt/', name: 'Hoover JRT', facts: '1 album · 1 photo', cover: `/photos/${fallCover}/grid`, coverLink: '/hoover-jrt/' },
+    section: [{ href: `/albums/${fall}/`, facts: 'Regatta · 4 October 2026 · 1 photo' }],
+  };
+  const shown = async () => ({
+    hoover: teamRows(await (await get(env, '/')).text())[0],
+    section: listRows(await (await get(env, '/hoover-jrt/')).text()).map(({ href, facts }) => ({ href, facts })),
+    cohssa: listRows(await (await get(env, '/cohssa/')).text()),
+  });
+  const page = async (address) => (await get(env, `/albums/${address}/`)).status;
+
+  // A photo waiting in it, as the upload route leaves one: nothing public.
+  const photo = seed(env, SENDERS_ADDRESS, { state: 'pending' });
+  assert.deepEqual(await shown(), { ...before, cohssa: [] });
+  assert.equal(await page(SENDERS_ADDRESS), 404);
+
+  // Renamed, then a clip approved alone: the approval fixes the address, made
+  // again from the new title, and still nothing is public, since a clip is
+  // shown nowhere public until #286 and every album is listed by its approved
+  // photos (#227).
+  assert.equal(await updateAlbum(env.DB, SENDERS_ADDRESS, { ...SENDERS_EVENT, title: 'Harbour cup' }), true);
+  const clip = seedClip(env, SENDERS_ADDRESS, { state: 'pending' });
+  assert.deepEqual(await approve(env, owner, [clip]), { done: 'approved', clip: String(clip), at: `photo-${photo}` });
+  assert.equal(env.DB.sqlite.prepare('SELECT address FROM albums WHERE title = ?').get('Harbour cup').address, RENAMED_ADDRESS);
+  assert.deepEqual(await shown(), { ...before, cohssa: [] });
+  assert.deepEqual([await page(SENDERS_ADDRESS), await page(RENAMED_ADDRESS)], [404, 404]);
+
+  // The photo approved: listed on / and first in its section, at the address
+  // the first approval made, and its page is there. The other team's section
+  // still shows nothing of it. Its date is a calendar day, held_on, which no
+  // zone moves (lib/admin-page.js, dayText).
+  assert.deepEqual(await approve(env, owner, [photo]), { done: 'approved', photo: String(photo) });
+  assert.deepEqual(await shown(), {
+    hoover: { ...before.hoover, facts: '2 albums · 2 photos', cover: `/photos/${photo}/grid` },
+    section: [{ href: `/albums/${RENAMED_ADDRESS}/`, facts: 'Regatta · 7 October 2026 · 1 photo' }, ...before.section],
+    cohssa: [],
+  });
+  assert.deepEqual([await page(RENAMED_ADDRESS), await page(SENDERS_ADDRESS)], [200, 404]);
+  assert.match(block(await (await get(env, `/albums/${RENAMED_ADDRESS}/`)).text(), 'main'), /<h1>Harbour cup<\/h1>/);
 });
 
 // ---- Criterion 2: the album page --------------------------------------------
@@ -868,6 +961,30 @@ test('a public GET only reads: every statement the public routes send is a SELEC
   for (const size of ['grid', 'screen', 'full']) await get(env, `/photos/${id}/${size}`);
   assert.equal(env.DB.statements.length, 5 + TEAMS.length);
   for (const sql of env.DB.statements) assert.match(sql, /^SELECT\b/, sql);
+});
+
+test('#273 criterion 4: a sender\'s event costs the public routes no statement more, and none of them reads who made it or the address it had before', async () => {
+  const { env, owner } = await senderSite();
+  const photo = seed(env, SENDERS_ADDRESS, { state: 'pending' });
+  assert.equal(await updateAlbum(env.DB, SENDERS_ADDRESS, { ...SENDERS_EVENT, title: 'Harbour cup' }), true);
+  await approve(env, owner, [photo]);
+  // The same requests as the test above, the album and its photo the
+  // sender's event's.
+  env.DB.statements.length = 0;
+  await get(env, '/');
+  for (const { team } of TEAMS) await get(env, `/${team}/`);
+  assert.equal((await get(env, `/albums/${RENAMED_ADDRESS}/`)).status, 200);
+  for (const size of ['grid', 'screen', 'full']) assert.equal((await get(env, `/photos/${photo}/${size}`)).status, 200, size);
+  assert.equal(env.DB.statements.length, 5 + TEAMS.length);
+  for (const sql of env.DB.statements) {
+    assert.match(sql, /^SELECT\b/, sql);
+    assert.doesNotMatch(sql, /created_by|earlier_address|provisional/, sql);
+  }
+  // The control for the second: the admins' list of albums reads who made
+  // each (lib/albums.js, allAlbums), so the words are the ones to look for.
+  env.DB.statements.length = 0;
+  await allAlbums(env.DB);
+  assert.match(env.DB.statements[0], /created_by/);
 });
 
 test('publicAlbum and the album page agree on what the page shows', async () => {

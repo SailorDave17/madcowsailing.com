@@ -24,7 +24,9 @@
  * Since #225 each person has "Revoke, hide or delete", a native <details>
  * holding what applies to them: Revoke, a box per approved team, none
  * ticked; "Hide all their photos", whose box names the count and must be
- * ticked (the owner's choice at pickup, 2026-10-07); and Delete, whose box
+ * ticked (the owner's choice at pickup, 2026-10-07), and which since #310
+ * hides their clips too, its words naming clips when they sent any; and
+ * Delete, whose box
  * says a reply from the account's own address confirmed the request and must
  * be ticked (the same pickup). Revoke and Delete are drawn for nobody holding
  * the admin role: the owner removes it first. People revoked from every team
@@ -37,7 +39,7 @@
  * database holds.
  */
 import { ROLES } from './accounts.js';
-import { adminPage, escapeHtml, timeElement } from './admin-page.js';
+import { adminPage, both, escapeHtml, timeElement } from './admin-page.js';
 import { ADMIN_SESSION_HOURS, REMEMBERED_SESSION_DAYS } from './admin-session.js';
 import { LINK_DAYS, LOG_SHOWN } from './people.js';
 
@@ -47,10 +49,11 @@ const STATE_NAMES = { requested: 'waiting', approved: 'approved', rejected: 'tur
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Where a press answers to: the page, with what happened. `hidden` and
- * `waiting` are hidePhotos' counts (#225).
+ * Where a press answers to: the page, with what happened. `hidden`,
+ * `waiting` and `clips` are hidePhotos' counts (#225; `clips` since #310),
+ * each left out at 0, so a press that hid photos alone answers as before.
  */
-export function peopleLocation({ done, error, account, mail, hidden, waiting } = {}) {
+export function peopleLocation({ done, error, account, mail, hidden, waiting, clips } = {}) {
   const params = new URLSearchParams();
   if (done) params.set('done', done);
   if (error) params.set('error', error);
@@ -58,6 +61,7 @@ export function peopleLocation({ done, error, account, mail, hidden, waiting } =
   if (mail) params.set('mail', mail);
   if (hidden) params.set('hidden', String(hidden));
   if (waiting) params.set('waiting', String(waiting));
+  if (clips) params.set('clips', String(clips));
   const query = params.toString();
   return query ? `/admin/people?${query}` : '/admin/people';
 }
@@ -91,8 +95,8 @@ const ERRORS = {
   'not-owner': 'Nothing was changed: only the owner removes an admin.',
   // #225
   'not-revoked': 'Nothing was changed: no ticked team is approved now, the person is an admin, whom the owner removes as one first, or the account no longer exists. The lists below are as they are now.',
-  'not-hidden': 'Nothing was changed: that account has no photo waiting or public now, or no longer exists.',
-  'hide-unticked': 'Nothing was changed: tick the box naming their photos to hide them.',
+  'not-hidden': 'Nothing was changed: that account has no photo or clip waiting or approved now, or no longer exists.',
+  'hide-unticked': 'Nothing was changed: tick the box naming their photos or clips to hide them.',
   'delete-unticked': 'Nothing was deleted: tick the box once a reply from the account\'s own address has confirmed that they asked for it.',
   'not-deleted': 'Nothing was deleted: the person is an admin, whom the owner removes as one first, or the account no longer exists.',
   address: 'Nothing was changed: type one email address, like name@example.com.',
@@ -124,8 +128,15 @@ export function peopleNotice(params, lists) {
   else if (done === 'hidden') {
     const hidden = count(params.get('hidden'));
     const waiting = count(params.get('waiting'));
+    // Since #310 a press may hide clips too, `clips` of the `hidden`. With
+    // none the notice reads as it did before clips.
+    const clips = Math.min(count(params.get('clips')), hidden);
+    const what = clips ? both(hidden - clips, clips) : plural(hidden, 'photo', 'photos');
     const which = waiting ? `, ${waiting} of them still waiting for approval` : '';
-    text = `Hid ${plural(hidden, 'photo', 'photos')} ${name} sent${which}. Each waits on <a href="/admin/removals">Removal requests</a>, to be put back or deleted for good${waiting ? '. A photo that was waiting goes back to the queue if it is put back, not onto the site' : ''}.`;
+    const back = clips
+      ? '. Any that was waiting goes back to the queue if it is put back, not onto the site'
+      : '. A photo that was waiting goes back to the queue if it is put back, not onto the site';
+    text = `Hid ${what} ${name} sent${which}. Each waits on <a href="/admin/removals">Removal requests</a>, to be put back or deleted for good${waiting ? back : ''}.`;
   } else if (done === 'deleted') text = 'Deleted the account. The photos it sent stay and no longer name it, the log keeps its entries, and if it had been revoked, its address stays held back.';
   else if (done === 'allowed') text = 'That address can ask for an account again. Nothing was emailed to it.';
   else if (Object.hasOwn(ERRORS, error)) text = ERRORS[error];
@@ -238,26 +249,51 @@ function revokeForm(person) {
         </form>`;
 }
 
+// What Hide all would take down of a person's, by kind: lib/people.js's
+// peopleLists() counts, photos waiting or public and clips waiting or
+// approved (#310).
+const hideable = ({ photos, clips }) => ({
+  photos: photos.waiting + photos.approved,
+  clips: clips.waiting + clips.approved,
+});
+
+// The kinds a person sent that Hide all would hide, as the button and the
+// disclosure name them (owner, at #310's pickup): "photos", as before clips,
+// when they sent none; "photos and clips"; or "clips". Null for nothing.
+function hideKinds(person) {
+  const { photos, clips } = hideable(person);
+  if (clips === 0) return photos ? 'photos' : null;
+  return photos ? 'photos and clips' : 'clips';
+}
+
 // "Hide all their photos" (#225), for an account with a photo waiting or
-// public. Its box names the count and must be ticked, here and by the route.
-//
-// It hides photos only (owner, at #198's pickup): a clip waits in the queue
-// beside the photos since #198, and Hide all leaves it there until #286
-// brings clips into it and into removals. So the box says what becomes of
-// their waiting clips, and where to reject them, under the box itself, which
-// counts photos alone (lib/people.js, peopleLists).
+// public, or since #310 a clip waiting or approved: Hide all takes both, the
+// owner reversing #198's photo-only choice on 2026-10-08. Its box names the
+// count and must be ticked, here and by the route. The box and the button
+// name what the person sent, and with no clip read as they did before clips.
+// An approved clip is "approved", never "public": nothing public shows a clip
+// until #286.
 function hideForm(person) {
-  const { waiting, approved } = person.photos;
-  const total = waiting + approved;
-  if (total === 0) return '';
+  const kinds = hideKinds(person);
+  if (kinds === null) return '';
+  const { photos, clips } = person;
+  const counts = hideable(person);
   const name = escapeHtml(person.name);
-  const which = [approved ? `${approved} public` : '', waiting ? `${waiting} waiting` : ''].filter(Boolean).join(', ');
+  const waiting = photos.waiting + clips.waiting;
+  const which = (counts.clips === 0
+    ? [photos.approved && `${photos.approved} public`, waiting && `${waiting} waiting`]
+    : counts.photos === 0
+      ? [clips.approved && `${clips.approved} approved`, waiting && `${waiting} waiting`]
+      : [
+        photos.approved && plural(photos.approved, 'public photo', 'public photos'),
+        clips.approved && plural(clips.approved, 'approved clip', 'approved clips'),
+        waiting && `${waiting} waiting`,
+      ]).filter(Boolean).join(', ');
   return `<form method="post" action="/api/admin/people/hide" class="album-form person-form">
           <input type="hidden" name="account" value="${person.id}">
-          <p class="choices"><label><input type="checkbox" name="confirm" value="hide" required> Hide the ${plural(total, 'photo', 'photos')} ${name} sent (${which})</label></p>
-          <p class="hint" id="hide-${person.id}-clips">Their waiting clips are not hidden. Reject those in <a href="/admin/queue">the queue</a>.</p>
+          <p class="choices"><label><input type="checkbox" name="confirm" value="hide" required> Hide the ${both(counts.photos, counts.clips)} ${name} sent (${which})</label></p>
           <p class="actions">
-            <button type="submit" class="button button-quiet" aria-label="Hide all their photos: ${name}" aria-describedby="hide-${person.id}-clips">Hide all their photos</button>
+            <button type="submit" class="button button-quiet" aria-label="Hide all their ${kinds}: ${name}">Hide all their ${kinds}</button>
           </p>
         </form>`;
 }
@@ -283,7 +319,7 @@ function deleteForm(person) {
 function moreForms(person) {
   const parts = [
     ['revoke', revokeForm(person)],
-    ['hide their photos', hideForm(person)],
+    [`hide their ${hideKinds(person)}`, hideForm(person)],
     ['delete', deleteForm(person)],
   ].filter(([, form]) => form);
   if (parts.length === 0) return '';
@@ -316,6 +352,14 @@ const peopleList = (people, empty, viewer) => (people.length
 // One log entry as a sentence. The person is named as the entry recorded
 // them, which outlives their account; an action this page does not know
 // (a later story's) is shown by its word.
+// What a 'hide' entry's detail ("3 photos", "1 clip", "2 photos and 1 clip",
+// lib/people.js) says was hidden: "photo", "clip" or "photo and clip".
+function hiddenKinds(detail) {
+  const named = (word) => new RegExp(`\\b${word}s?\\b`).test(detail ?? '');
+  if (!named('clip')) return 'photo';
+  return named('photo') ? 'photo and clip' : 'clip';
+}
+
 function logSentence({ admin, action, name, email, detail }) {
   const who = escapeHtml(admin);
   const whom = `${escapeHtml(name)} (${escapeHtml(email)})`;
@@ -333,7 +377,10 @@ function logSentence({ admin, action, name, email, detail }) {
     case 'demote': return `${who} removed ${whom} as an admin.`;
     // #225
     case 'revoke': return `${who} revoked ${whom} for ${what}.`;
-    case 'hide': return `${who} hid every photo ${whom} sent, ${what}.`;
+    // Since #310 an entry may count clips. One whose detail names no clip,
+    // every entry from before #310 among them, keeps its words, so no old
+    // entry says a clip was hidden (owner, at #310's pickup).
+    case 'hide': return `${who} hid every ${hiddenKinds(detail)} ${whom} sent, ${what}.`;
     case 'delete': return `${who} deleted the account of ${whom}, once a reply from its address confirmed the request.`;
     case 'allow': return `${who} let the address of ${whom} ask for an account again.`;
     default: return `${who}: ${escapeHtml(action)} ${whom}${what ? `, ${what}` : ''}.`;
@@ -342,7 +389,7 @@ function logSentence({ admin, action, name, email, detail }) {
 
 function logSection({ entries, total }) {
   const intro = total === 0
-    ? 'Nothing is logged yet. Every approval, turn-down, role change, link sent, admin made or removed, revoke, hidden set of photos, deleted account and address let ask again will be.'
+    ? 'Nothing is logged yet. Every approval, turn-down, role change, link sent, admin made or removed, revoke, hidden set of photos and clips, deleted account and address let ask again will be.'
     : `Newest first. The log keeps every entry, and each names the person as they were when it was made, even after their account is deleted.${total > LOG_SHOWN ? ` The newest ${LOG_SHOWN} of ${total} are shown.` : ''}`;
   const items = entries.map((entry) => `<li>${timeElement(entry.at)}: ${logSentence(entry)}</li>`).join('\n      ');
   return `<section class="wrap" aria-labelledby="admin-log">
@@ -390,8 +437,10 @@ export function adminPeoplePage({ lists, log, notice = '', viewer }) {
       ${REMEMBERED_SESSION_DAYS} days on a phone they ask the site to remember.</p>
     <p>Under each person, "Revoke" takes away the ticked teams and signs them
       out on every phone and computer; their approved photos stay up.
-      "Hide all their photos" takes down every photo they sent, waiting or
-      public, to <a href="/admin/removals">Removal requests</a>. "Delete the
+      "Hide all their photos", or their clips when they sent any, takes down
+      every photo they sent, waiting or public, and every clip, waiting or
+      approved, to
+      <a href="/admin/removals">Removal requests</a>. "Delete the
       account" is for a person who asked by email, once a reply from the
       account's own address confirms it. An admin is revoked or deleted only
       once the owner removes them as an admin.</p>

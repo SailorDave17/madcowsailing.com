@@ -43,14 +43,16 @@
  * storedClip(), which serve one each. Its state keeps a clip still arriving
  * in parts out: it is `uploading` until the server has checked it
  * (lib/clips.js), and only `pending` waits. An approved clip is kept and
- * shown nowhere public until #286, since every public and removals statement
- * still names kind = 'photo' (lib/public.js, lib/removals.js). The presses
- * name clips apart in their notices, from the kind each statement already
- * returns, so no press makes a statement more for them (CLAUDE.md, item 16,
- * counts them). Not chosen: a page of their own for clips, which would split
- * a batch's photos from its clips.
+ * shown nowhere public until #286, since every public statement still names
+ * kind = 'photo' (lib/public.js), as "Remove this photo" does
+ * (lib/removals.js). Since #310 Hide all takes an account's clips to
+ * /admin/removals with its photos, to be put back or deleted there. The
+ * presses name clips apart in their notices, from the kind each statement
+ * already returns, so no press makes a statement more for them (CLAUDE.md,
+ * item 16, counts them). Not chosen: a page of their own for clips, which
+ * would split a batch's photos from its clips.
  */
-import { CONTROL } from './albums.js';
+import { CONTROL, fixAddress } from './albums.js';
 import { clipObjectKey, photoObjectKeys, readCaption } from './photos.js';
 
 // The most photos one form shows, and so the most one press may name. A batch
@@ -239,33 +241,71 @@ const clipIds = (rows) => rows.filter((row) => row.kind === 'clip').map((row) =>
  * waiting: it has no event to be public in until an admin moves it into one
  * (movePhotos). Migration 0015 refuses the change too, whatever the kind, but
  * it would refuse the whole statement, so the rows beside it in a press would
- * not be approved either; here they are, and notSureWaiting() says why the
- * rest were not.
+ * not be approved either; here they are, and leftWaiting() says why the rest
+ * were not.
+ *
+ * Since #273 a photo or clip in an event whose address is still provisional
+ * (a sender's event before its first approval) is approved only once the
+ * address is fixed. `fixes` are those events among the press's, as the press
+ * read them from the queue (provisionalAlbums): each one's address is made
+ * again from its date and title (lib/albums.js, fixAddress) in a batch with
+ * the approval, before it, so the address and the approval land together or
+ * not at all, and no public page ever shows the address it had before. An
+ * event whose fix changed nothing (renamed while the press ran, or a press
+ * naming photos the queue's read did not hold) stays provisional, so its
+ * photos are left waiting rather than made public under an address that
+ * would change, and leftWaiting() counts them. Migration 0018 refuses such
+ * an approval too. A press with no provisional event runs the one statement
+ * it always did (CLAUDE.md, item 16, counts them), and one with a fix runs
+ * one statement more for each event it fixes.
  */
-export async function approvePhotos(db, ids, now) {
-  const { results } = await db
+export async function approvePhotos(db, ids, now, fixes = []) {
+  const approve = db
     .prepare(
       "UPDATE photos SET state = 'approved', approved_at = ? " +
       "WHERE state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
-      'AND album_id NOT IN (SELECT id FROM albums WHERE holding = 1) ' +
+      'AND album_id NOT IN (SELECT id FROM albums WHERE holding = 1 OR provisional = 1) ' +
       'RETURNING id, kind',
     )
-    .bind(now, JSON.stringify(ids))
-    .all();
+    .bind(now, JSON.stringify(ids));
+  const { results } = fixes.length
+    ? (await db.batch([...fixes.map((album) => fixAddress(db, album, ids)), approve])).at(-1)
+    : await approve.all();
   return { approved: results.map((row) => row.id), clips: clipIds(results) };
 }
 
 /**
- * How many of `ids` wait in a team's Not sure album (#228), as { photos,
- * clips } (#198): what an approval left alone, so the queue can say why.
+ * The events among the batches a press's `ids` are in whose address is still
+ * provisional (#273), each once, as approvePhotos' `fixes` take them: { id,
+ * address, title, kind, date }, as the queue's read just gave them.
  */
-export async function notSureWaiting(db, ids) {
+export function provisionalAlbums(batches, ids) {
+  const named = new Set(ids);
+  const albums = new Map();
+  for (const batch of batches) {
+    if (batch.album.provisional && batch.photos.some((photo) => named.has(photo.id))) {
+      const { id, address, title, kind, date } = batch.album;
+      albums.set(id, { id, address, title, kind, date });
+    }
+  }
+  return [...albums.values()];
+}
+
+/**
+ * What an approval left waiting among `ids`, so the queue can say why: how
+ * many photos and clips are in a team's Not sure album (#228, #198), as {
+ * photos, clips }, and how many photos and clips together are in an event
+ * whose address is still provisional (`provisional`, #273). One statement,
+ * read only when a press approved fewer than it named.
+ */
+export async function leftWaiting(db, ids) {
   return db
     .prepare(
-      "SELECT COUNT(CASE WHEN kind = 'photo' THEN 1 END) AS photos, " +
-      "COUNT(CASE WHEN kind = 'clip' THEN 1 END) AS clips FROM photos " +
-      "WHERE state = 'pending' AND id IN (SELECT value FROM json_each(?)) " +
-      'AND album_id IN (SELECT id FROM albums WHERE holding = 1)',
+      "SELECT COUNT(CASE WHEN a.holding = 1 AND p.kind = 'photo' THEN 1 END) AS photos, " +
+      "COUNT(CASE WHEN a.holding = 1 AND p.kind = 'clip' THEN 1 END) AS clips, " +
+      'COUNT(CASE WHEN a.provisional = 1 THEN 1 END) AS provisional ' +
+      'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
+      "WHERE p.state = 'pending' AND p.id IN (SELECT value FROM json_each(?))",
     )
     .bind(JSON.stringify(ids))
     .first();
@@ -315,9 +355,10 @@ export async function movePhotos(db, ids, address) {
   return { moved: results.map((row) => row.id), clips: clipIds(results) };
 }
 
-// The R2 keys a waiting row's media lies under: a photo's three sizes, or a
-// clip's one object (#198), all under its photos/<key>/ prefix.
-const objectKeys = (row) => (row.kind === 'clip'
+// The R2 keys a row's media lies under: a photo's three sizes, or a clip's
+// one object (#198), all under its photos/<key>/ prefix. A reject here and,
+// since #310, a delete on /admin/removals (lib/removals.js) both use it.
+export const objectKeys = (row) => (row.kind === 'clip'
   ? [clipObjectKey(row.media_key)]
   : Object.values(photoObjectKeys(row.media_key)));
 
@@ -426,6 +467,10 @@ export const acted = (ids, clips = []) => {
  * A batch sent to a team's "Not sure / other event" says so (`album.holding`,
  * #228), so the page offers no approval for it.
  *
+ * Each batch's album carries its kind, date and whether its address is still
+ * provisional (#273), so an approval press can fix a sender's event's address
+ * from this read, with no statement more (approvePhotos, provisionalAlbums).
+ *
  * Since #198 a batch's `photos` holds its waiting clips too, in the same sent
  * order, each with `kind` saying which it is. A photo carries its three
  * sizes; a clip its frame size and how long it runs, in milliseconds. The
@@ -433,13 +478,15 @@ export const acted = (ids, clips = []) => {
  * (waitingOrder) read it. A clip still `uploading` is not waiting.
  */
 export async function waitingBatches(db, team = null) {
-  // The columns from p.kind on are new since #198; the statement still opens
-  // on p.id, p.batch, p.sender, which test/not-sure.test.js reads it by.
+  // The columns from p.kind on are new since #198, and the album's kind, date
+  // and provisional since #273; the statement still opens on p.id, p.batch,
+  // p.sender, which test/not-sure.test.js reads it by.
   const statement = db.prepare(
     'SELECT p.id, p.batch, p.sender, p.kind, p.caption, p.captured_at, p.sent_at, p.width, p.height, ' +
     'p.grid_width, p.grid_height, p.screen_width, p.screen_height, p.duration_ms, ' +
     'a.id AS album_id, a.title AS album_title, a.address AS album_address, a.team AS album_team, ' +
-    'a.holding AS album_holding, acc.name AS account_name ' +
+    'a.holding AS album_holding, acc.name AS account_name, ' +
+    'a.kind AS album_kind, a.held_on AS album_date, a.provisional AS album_provisional ' +
     'FROM photos AS p JOIN albums AS a ON a.id = p.album_id ' +
     'LEFT JOIN accounts AS acc ON acc.id = p.account_id ' +
     "WHERE p.state = 'pending' " +
@@ -459,6 +506,9 @@ export async function waitingBatches(db, team = null) {
           address: row.album_address,
           team: row.album_team,
           holding: row.album_holding === 1,
+          kind: row.album_kind,
+          date: row.album_date,
+          provisional: row.album_provisional === 1,
         },
         sentAt: row.sent_at,
         photos: [],
@@ -501,19 +551,21 @@ export async function waitingBatches(db, team = null) {
 /**
  * What the admin home shows: how many photos wait, how many clips wait
  * (`clips`, #198), how many removal requests wait (#158: a photo taken down
- * with "Remove this photo" is hidden until an admin puts it back or deletes
- * it), and the bytes every stored row's objects take, whatever its state. One
- * query. The sum reads every row, about 11,000 at the storage allowance
- * (CLAUDE.md item 8) against D1's 5 million a day, and only an admin loads
- * the home. A clip still uploading has no bytes yet, and a removal request is
- * a photo's until #286 brings clips into removals.
+ * with "Remove this photo", or anything Hide all took down, is hidden until
+ * an admin puts it back or deletes it), and the bytes every stored row's
+ * objects take, whatever its state. One query. The sum reads every row, about
+ * 11,000 at the storage allowance (CLAUDE.md item 8) against D1's 5 million a
+ * day, and only an admin loads the home. A clip still uploading has no bytes
+ * yet. Since #310 a hidden clip is a removal request too, hidden by Hide all
+ * whether it was waiting or approved; a clip is never hidden while uploading,
+ * since 0016 lets it leave `uploading` only for `pending`.
  */
 export async function queueSummary(db) {
   const row = await db
     .prepare(
       "SELECT COUNT(CASE WHEN state = 'pending' AND kind = 'photo' THEN 1 END) AS waiting, " +
       "COUNT(CASE WHEN state = 'pending' AND kind = 'clip' THEN 1 END) AS clips, " +
-      "COUNT(CASE WHEN state = 'hidden' AND kind = 'photo' THEN 1 END) AS removals, " +
+      "COUNT(CASE WHEN state = 'hidden' THEN 1 END) AS removals, " +
       'COALESCE(SUM(bytes), 0) AS bytes FROM photos',
     )
     .first();

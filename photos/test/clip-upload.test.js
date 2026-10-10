@@ -194,7 +194,7 @@ test('each sender\'s caps: a parent\'s clip over 1 GiB or 3 minutes, a coach\'s 
 test('the open list gives each sender its own caps, so the page can refuse a clip as soon as it is chosen (#198)', async () => {
   const { env } = await site();
   const caps = async (cookies) => {
-    const res = await chain([root, albumsGuard, openList], new Request(`${SITE}/api/albums/open`, { headers: cookies }), env);
+    const res = await chain([root, ...albumsGuard, openList], new Request(`${SITE}/api/albums/open`, { headers: cookies }), env);
     return (await res.json()).clip;
   };
   const everyone = { seconds: CLIP_SECONDS.everyone, bytes: CLIP_BYTES.everyone, dayBytes: CLIP_DAY_BYTES.everyone };

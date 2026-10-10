@@ -32,6 +32,16 @@
  * Each team's list ends with "Not sure / other event" (#228), for photos
  * from an event nobody has added yet, which the page never preselects.
  *
+ * A new event (#273). The list's last choice is "Create a new event", which
+ * opens a form under it: a title, regatta or practice, a date from
+ * EVENT_DAYS_BACK days before the phone's today through EVENT_DAYS_AHEAD
+ * after, and a team when the account is approved for two. The first press of
+ * Create lists the team's open events within three days of that date, "Is it
+ * one of these?", each a button choosing that event, then "No, create" with
+ * the title (owner, at #273's pickup). With none near, or on "No, create", it
+ * posts to POST /api/albums, reads the list again and chooses the event made.
+ * Its answers go to its own status line, never to the sending summary.
+ *
  * Clips (#198; CLAUDE.md, The photo site, items 10 and 33) take a path of
  * their own: never decoded, planned by js/clip.js (loaded before this
  * script) to overwrite their location and camera details in place, refused
@@ -310,10 +320,12 @@
     takeShared();
   }
 
-  // The phone's own date, YYYY-MM-DD. Albums are dated by the day they are
-  // held, and "today" is where the parent is standing.
-  function today() {
+  // The phone's own date, YYYY-MM-DD, or the one `days` from it. Albums are
+  // dated by the day they are held, and "today" is where the parent is
+  // standing.
+  function today(days = 0) {
     const now = new Date();
+    now.setDate(now.getDate() + days);
     const two = (n) => String(n).padStart(2, '0');
     return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
   }
@@ -330,17 +342,23 @@
   // date with no time of day is a calendar day, not an instant, so it is
   // made and shown in UTC and reads the same day in every zone. Read as local
   // midnight or as UTC midnight shown locally, it slips a day on one side of
-  // UTC or the other (a finding of #155's review).
-  function heldOn(date) {
+  // UTC or the other (a finding of #155's review). Days apart are counted on
+  // the same UTC midnights (#273): local midnights either side of a change of
+  // daylight time are an hour short of whole days.
+  function utcDay(date) {
     const [year, month, day] = date.split('-').map(Number);
-    return new Date(Date.UTC(year, month - 1, day))
-      .toLocaleDateString(undefined, { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+    return Date.UTC(year, month - 1, day);
   }
+  const heldOn = (date) => new Date(utcDay(date))
+    .toLocaleDateString(undefined, { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+  // An event as the list names it, and as "Is it one of these?" does (#273).
+  const named = (album) => `${album.title} (${heldOn(album.date)})`;
 
   // `pick` is false after an album closed mid-send (409): the list then
   // preselects nothing, so the photos that failed go only to an album the
   // parent chooses, never quietly to the next one (owner, #155's review).
-  async function loadAlbums({ pick = true } = {}) {
+  // `choose` is an event just made (#273), chosen once the list holds it.
+  async function loadAlbums({ pick = true, choose = null } = {}) {
     let response;
     try {
       response = await fetch('/api/albums/open', { credentials: 'same-origin', cache: 'no-store' });
@@ -356,9 +374,10 @@
     let albums = null;
     let other = [];
     let clip = null;
+    let offered = [];
     if (response.ok) {
       try {
-        ({ albums, other = [], clip = null } = await response.json());
+        ({ albums, other = [], clip = null, teams: offered = [] } = await response.json());
       } catch {
         albums = null;
       }
@@ -370,14 +389,24 @@
       caps = { seconds: clip.seconds, bytes: clip.bytes, dayBytes };
       knowCaps();
     }
-    showAlbums(Array.isArray(albums) ? albums : null, 'listed', pick, Array.isArray(other) ? other : []);
+    if (Array.isArray(albums)) showTeams(Array.isArray(offered) ? offered : []);
+    showAlbums(Array.isArray(albums) ? albums : null, 'listed', pick, Array.isArray(other) ? other : [], choose);
   }
 
   // A team's "Not sure / other event" (#228): its words, as migration 0015
   // titles the album and lib/albums.js's NOT_SURE_TITLE says them.
   const NOT_SURE = 'Not sure / other event';
+  // The value of "Create a new event" (#273), which no address can be.
+  const NEW = 'new';
 
   let listed = false;
+  // The events last listed, which "Is it one of these?" looks through, and
+  // the teams the account may make one for (#273). `chosenBefore` is the
+  // album chosen before "Create a new event", chosen again when its form
+  // closes without making one.
+  let events = [];
+  let teams = [];
+  let chosenBefore = '';
 
   // The album list, or a note saying why there is none: no album open
   // (an empty list), or the list could not be read (null). A choice the
@@ -389,16 +418,22 @@
   // group, after the events, and never preselected: a parent who can see
   // their event should pick it. A team with no event open still gets a group
   // holding only that choice, after the teams with events.
-  function showAlbums(albums, why = 'listed', pick = true, other = []) {
+  //
+  // "Create a new event" (#273) comes last, outside the groups, once a list
+  // is read, with no album open too: a list that could not be read offers
+  // nothing to make an event in. While its form is open it stays chosen
+  // across a reload, unless the reload is choosing the event just made.
+  function showAlbums(albums, why = 'listed', pick = true, other = [], choose = null) {
     // Read before anything is hidden, as set() does: Chrome blurs a focused
     // element the moment it is hidden.
     const focused = document.activeElement;
     const any = albums !== null && albums.length + other.length > 0;
+    const canCreate = albums !== null && teams.length > 0;
     albumNote.hidden = why === 'ended' || any;
     albumAgain.hidden = albumNote.hidden;
     albumNote.textContent = albums === null
       ? "Couldn't load the albums. Check your signal, then press Check again."
-      : 'No album is taking photos right now. Check again later.';
+      : `No album is taking photos right now. ${canCreate ? 'Create a new event above, or check' : 'Check'} again later.`;
     // Check again hidden under the keyboard's focus hands it to the list.
     if (focused === albumAgain && albumAgain.hidden) albumField.focus();
     if (albums === null) {
@@ -412,7 +447,9 @@
       return;
     }
     listed = true;
-    const kept = albumField.value;
+    events = albums;
+    const making = albumField.value === NEW;
+    const kept = choose ?? (making ? chosenBefore : albumField.value);
     const listedNow = [...albums, ...other];
     const chosen = listedNow.some((album) => album.address === kept) ? kept : pick ? preselect(albums, today()) : null;
     // Grouped under each team's name (#227), so a sender sees whose event
@@ -431,8 +468,8 @@
     for (const album of albums) {
       const option = element('option');
       option.value = album.address;
-      // The title is exactly what the owner typed, markup and all: text only.
-      option.textContent = `${album.title} (${heldOn(album.date)})`;
+      // The title is exactly what was typed, markup and all: text only.
+      option.textContent = named(album);
       add(String(album.teamName ?? ''), option);
     }
     for (const album of other) {
@@ -448,12 +485,235 @@
       blank.textContent = any ? 'Choose an album' : 'No album open';
       options.unshift(blank);
     }
+    if (canCreate) {
+      const create = element('option');
+      create.value = NEW;
+      create.textContent = 'Create a new event';
+      options.push(create);
+    }
     albumField.replaceChildren(...options);
     albumField.value = chosen ?? '';
+    chosenBefore = albumField.value;
+    if (making && choose === null) {
+      if (canCreate) albumField.value = NEW;
+      else showForm(false);
+    }
     update();
   }
 
   albumAgain.addEventListener('click', () => loadAlbums());
+
+  // ---- A new event (#273)
+
+  // The dates a sender may give an event, around the phone's today
+  // (lib/albums.js, EVENT_DAYS_BACK and EVENT_DAYS_AHEAD, which the server
+  // widens by a day each way for the phone's zone; owner, at #273's pickup),
+  // and how near the team's open events must be to be asked about first.
+  // test/share.test.js holds the window to the library's.
+  const EVENT_DAYS_BACK = 30;
+  const EVENT_DAYS_AHEAD = 1;
+  const NEAR_MS = 3 * 86_400_000;
+
+  const eventForm = document.getElementById('event-form');
+  const teamField = document.getElementById('event-team');
+  const teamChoices = document.getElementById('event-teams');
+  const titleField = document.getElementById('event-title');
+  const kindRadios = [document.getElementById('event-regatta'), document.getElementById('event-practice')];
+  const dateField = document.getElementById('event-date');
+  const matches = document.getElementById('event-matches');
+  const matchList = document.getElementById('event-match-list');
+  const anyway = document.getElementById('event-anyway');
+  const eventStatus = document.getElementById('event-status');
+  const eventErrors = {
+    team: document.getElementById('event-team-error'),
+    title: document.getElementById('event-title-error'),
+    kind: document.getElementById('event-kind-error'),
+    date: document.getElementById('event-date-error'),
+  };
+  // Each field's reason, in the order the form shows them, which is the order
+  // the server names the first wrong one in. The 80 is TITLE_MAX, the title's
+  // maxlength, and the server's 'date' is a date outside the window.
+  const FIELD_WORDS = {
+    team: 'Choose the team the event is for.',
+    title: 'Give the event a title, up to 80 characters.',
+    kind: 'Choose regatta or practice.',
+    date: `Choose a date from ${EVENT_DAYS_BACK} days ago through tomorrow.`,
+  };
+  // What a create that made nothing says, by its answer; no answer at all is
+  // said as a 503 is. The 10 is EVENTS_A_DAY.
+  const EVENT_ANSWERS = {
+    409: 'Every address for that date and title is taken. Change the title.',
+    429: `You have made 10 events today, the most a day allows. Send to “${NOT_SURE}” for now, and an admin will move the photos.`,
+    503: "Couldn't create the event. Check your connection and try again.",
+    team: 'Your account is no longer approved for that team, so the photo site made no event.',
+    refused: `The photo site couldn't create the event. Try again, and if it fails again, send to “${NOT_SURE}” for now.`,
+  };
+
+  let teamRadios = [];
+  let pending = null;
+  let creating = false;
+
+  const tell = (text) => {
+    eventStatus.textContent = text;
+  };
+  const inputsOf = (name) => ({ team: teamRadios, title: [titleField], kind: kindRadios, date: [dateField] })[name];
+
+  // The teams from the album list. The form asks which only of an account
+  // approved for two, and a team chosen stays chosen across a reload that
+  // still offers it. A team's name is set as text.
+  function showTeams(list) {
+    const kept = teamRadios.find((radio) => radio.checked)?.value;
+    teams = list.filter((one) => typeof one?.team === 'string');
+    teamRadios = [];
+    teamChoices.replaceChildren(...(teams.length > 1 ? teams : []).map(({ team, teamName }) => {
+      const label = element('label');
+      const radio = element('input');
+      Object.assign(radio, { type: 'radio', name: 'event-team', value: team, required: true, checked: team === kept });
+      teamRadios.push(radio);
+      label.append(radio, ` ${teamName ?? team}`);
+      return label;
+    }));
+    teamField.hidden = teams.length < 2;
+  }
+
+  // The form shown, or hidden. Showing it never moves the focus: Chrome fires
+  // change on each arrow key in a closed select (WCAG 3.2.2). Hidden, it
+  // leaves no "Create a new event" chosen, and hands the focus to the album
+  // list when it was inside, which Chrome would drop to the page.
+  function showForm(open) {
+    const focused = document.activeElement;
+    if (open) {
+      dateField.min = today(-EVENT_DAYS_BACK);
+      dateField.max = today(EVENT_DAYS_AHEAD);
+      dateField.value ||= today();
+    } else {
+      matches.hidden = true;
+      if (albumField.value === NEW) albumField.value = chosenBefore;
+    }
+    eventForm.hidden = !open;
+    if (!open && eventForm.contains(focused)) albumField.focus();
+  }
+
+  albumField.addEventListener('change', () => {
+    const making = albumField.value === NEW;
+    if (!making) chosenBefore = albumField.value;
+    tell('');
+    showForm(making);
+  });
+  document.getElementById('event-cancel').addEventListener('click', () => showForm(false));
+  // A field changed, so the events asked about may not be the near ones, and
+  // "No, create" would name a title no longer typed.
+  eventForm.addEventListener('input', () => {
+    matches.hidden = true;
+  });
+
+  function mark(name, wrong) {
+    eventErrors[name].textContent = wrong ? FIELD_WORDS[name] : '';
+    eventErrors[name].hidden = !wrong;
+    for (const input of inputsOf(name)) input.setAttribute('aria-invalid', String(wrong));
+  }
+
+  // The fields as POST /api/albums takes them, or null, each wrong one marked
+  // and the first focused. The title goes as the server keeps it: control
+  // characters made spaces, the ends trimmed. With one team there is no
+  // choice, and that team is sent.
+  function eventFields() {
+    const fields = {
+      team: teams.length === 1 ? teams[0].team : teamRadios.find((radio) => radio.checked)?.value,
+      title: titleField.value.replace(CONTROL, ' ').trim(),
+      kind: kindRadios.find((radio) => radio.checked)?.value,
+      date: dateField.value,
+    };
+    const wrong = Object.keys(FIELD_WORDS).filter((name) =>
+      (name === 'date' ? !(fields.date >= dateField.min && fields.date <= dateField.max) : !fields[name]));
+    for (const name of Object.keys(FIELD_WORDS)) mark(name, wrong.includes(name));
+    if (!wrong.length) return fields;
+    inputsOf(wrong[0])[0]?.focus();
+    return null;
+  }
+
+  // Create. The team's open events near the date are asked about first, the
+  // list's events only, never a Not sure album; with none, the event is made
+  // at once. Each is a button choosing that event; "No, create" makes this one.
+  eventForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const fields = eventFields();
+    if (!fields) return;
+    const near = events.filter((album) => album.team === fields.team && Math.abs(utcDay(album.date) - utcDay(fields.date)) <= NEAR_MS);
+    if (!near.length) {
+      create(fields);
+      return;
+    }
+    matchList.replaceChildren(...near.map((album) => {
+      const item = element('li');
+      const choice = element('button', 'button');
+      choice.type = 'button';
+      choice.textContent = named(album);
+      choice.addEventListener('click', () => {
+        albumField.value = chosenBefore = album.address;
+        showForm(false);
+      });
+      item.append(choice);
+      return item;
+    }));
+    pending = fields;
+    anyway.textContent = `No, create ${fields.title}`;
+    matches.hidden = false;
+    matches.focus();
+  });
+  anyway.addEventListener('click', () => create(pending));
+
+  // POST /api/albums, one at a time: a second press while one is on its way
+  // would make a second event. Made, the list is read again choosing it and
+  // the form closes; anything else says why, a field's reason beside it.
+  async function create(fields) {
+    if (creating) return;
+    creating = true;
+    tell('Creating the event…');
+    try {
+      let response = null;
+      try {
+        response = await fetch('/api/albums', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields), credentials: 'same-origin', cache: 'no-store',
+        });
+      } catch {
+        // No answer: said as a 503 is, below.
+      }
+      const status = response?.status ?? 503;
+      const error = status === 201 || !response ? null : await errorOf(response);
+      if (status === 201) {
+        const address = (await response.json().catch(() => null))?.address;
+        await loadAlbums({ choose: address });
+        const chosen = albumField.value === address;
+        eventForm.reset();
+        for (const name of Object.keys(FIELD_WORDS)) mark(name, false);
+        showForm(false);
+        tell(chosen ? `Created “${fields.title}” and chose it as the album.` : `Created “${fields.title}”, but the album list didn't load. Press Check again, then choose it.`);
+      } else if (status === 400 && Object.hasOwn(FIELD_WORDS, error) && inputsOf(error).length) {
+        mark(error, true);
+        inputsOf(error)[0].focus();
+        tell('');
+      } else if (status === 401) {
+        say('ended');
+        tell(MESSAGES.ended);
+      } else if (status === 403 && error === 'team') {
+        await loadAlbums();
+        tell(EVENT_ANSWERS.team);
+      } else {
+        // No answer, or the server failing, may follow an event made (#273's
+        // review): the list is read again before the page says to try again,
+        // and the question closes, so the next press asks "Is it one of
+        // these?" about that event instead of making it twice.
+        if (!response || status >= 500) {
+          await loadAlbums();
+          matches.hidden = true;
+        }
+        tell(EVENT_ANSWERS[status] ?? EVENT_ANSWERS.refused);
+      }
+    } finally {
+      creating = false;
+    }
+  }
 
   // ---- Making a photo ready
 
@@ -952,6 +1212,10 @@
 
   // ---- Sending
 
+  // No album chosen. "Create a new event" is none (#273): sent as an album, it
+  // would be refused as one that has closed.
+  const noAlbum = () => !albumField.value || albumField.value === NEW;
+
   picker.addEventListener('change', () => {
     const files = [...picker.files];
     // Cleared, so choosing the same photos again is still a change.
@@ -966,7 +1230,7 @@
       update();
       return;
     }
-    if (!albumField.value) {
+    if (noAlbum()) {
       notice = 'Choose an album first.';
       update();
       albumField.focus();
@@ -988,7 +1252,7 @@
   // unless it is a clip whose complete got no answer (uploadClip).
   function resend(photo) {
     if (!retryable(photo)) return;
-    if (!albumField.value) {
+    if (noAlbum()) {
       notice = 'Choose an album first.';
       update();
       albumField.focus();

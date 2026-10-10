@@ -21,6 +21,18 @@
 // phone for 30 days" is a 48 px row on a phone, and the rule doing it wins
 // the cascade over the padded label every sign-in form's choices share,
 // while no other sign-in form's labels change.
+//
+// Since #310 /admin/removals lists a clip Hide all took down, and its row is
+// a photo row's on a phone (criterion 7). Its two buttons sit in the rule
+// that makes them 48 px, its words wrap by the rules a photo row's do, and
+// its player is no wider than the row. That last rests on two things: the
+// page gives the player a photo row's size, its frame scaled to a grid
+// image's 480 px long edge (clipBox), and base.css's max-width: 100% holds
+// that within a narrower row, with nothing in site.css widening it. base.css
+// alone already held every video before #310, so the size is what a revert
+// would undo, and the test reads it. Each holds with a control showing it can
+// fail. The 320 to 430 px reading of a clip's row is a browser's, in #310's
+// PR.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -30,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { adminAlbumsPage, adminHome, adminRemovalsPage, albumsNotice } from '../lib/admin-page.js';
 import { allAlbums, createAlbum, setAlbumOpen } from '../lib/albums.js';
 import { adminPeoplePage, peopleNotice } from '../lib/people-page.js';
+import { SIZES } from '../lib/photos.js';
 import { codePage } from '../lib/sign-in-page.js';
 import { d1 } from './d1.js';
 
@@ -84,13 +97,18 @@ async function albumsPage(query = '') {
 }
 
 const team = (key, state) => ({ team: key, name: key === 'cohssa' ? 'COHSSA' : 'Hoover JRT', state });
+// A person as lib/people.js's peopleLists() gives one, with its clips
+// counted beside its photos since #310: Hide all hides both, and the page
+// reads both to draw it.
 const person = (id, over) => ({
   id, name: `Person ${id}`, email: `p${id}@example.org`, role: 'parent', adminRole: null, note: null,
-  requestedAt: NOW, teams: [], photos: { waiting: 0, approved: 0 }, ...over,
+  requestedAt: NOW, teams: [], photos: { waiting: 0, approved: 0 }, clips: { waiting: 0, approved: 0 }, ...over,
 });
 // Everyone the page draws a button for: a request with a team turned down
 // beside it, an approved parent with photos (Revoke, Hide and Delete), an
 // admin (Remove admin, for the owner), the owner, one revoked, one turned down.
+// The parent sent no clip, so Hide all reads as it did before clips; its
+// words for one who did are held by test/people.test.js (#310, criterion 3).
 const LISTS = {
   waiting: [person(2, { teams: [team('hoover-jrt', 'requested'), team('cohssa', 'rejected')] })],
   approved: [
@@ -106,15 +124,34 @@ const peoplePage = (query = '') => adminPeoplePage({
   lists: LISTS, log: { entries: [], total: 0 }, notice: peopleNotice(new URLSearchParams(query), LISTS), viewer: VIEWER,
 });
 
+// Rows as lib/removals.js's hiddenPhotos() gives them since #310: a photo
+// with its grid size, and a clip with its frame size and how long it runs.
 const hidden = (id, over) => ({
-  id, caption: null, hiddenAt: NOW, note: null, waiting: false, accountName: null, grid: { width: 480, height: 360 },
-  album: { title: 'Fall Regatta', address: '2026-10-04-fall-regatta', team: 'hoover-jrt' }, ...over,
+  id, kind: 'photo', sender: 'parent', caption: null, hiddenAt: NOW, note: null, waiting: false, accountName: null,
+  album: { title: 'Fall Regatta', address: '2026-10-04-fall-regatta', team: 'hoover-jrt' },
+  grid: { width: 480, height: 360 }, ...over,
 });
+const hiddenClip = (id, over) => ({
+  id, kind: 'clip', sender: 'parent', caption: null, hiddenAt: NOW, note: null, waiting: false, accountName: null,
+  album: { title: 'Fall Regatta', address: '2026-10-04-fall-regatta', team: 'hoover-jrt' },
+  width: 1080, height: 1920, durationMs: 30_500, ...over,
+});
+// Clip 9 (#310, criterion 7): a coach's, hidden by Hide all while it still
+// waited, so with no note, from an account deleted since, so it names its
+// sender by role. Upright and full size, so its frame alone is 1080 px wide,
+// past any phone; the page draws it at 270 x 480 (clipBox).
 const removalsPage = () => adminRemovalsPage({
-  photos: [hidden(7, { accountName: 'Pat', caption: 'At the mark', note: 'Please take this down.' }), hidden(8, { waiting: true })],
+  photos: [
+    hidden(7, { accountName: 'Pat', caption: 'At the mark', note: 'Please take this down.' }),
+    hidden(8, { waiting: true }),
+    hiddenClip(9, { sender: 'coach', caption: 'Rounding the leeward mark', waiting: true }),
+  ],
 });
 
 const main = (html) => html.match(/<main[\s>][\s\S]*?<\/main>/)?.[0] ?? '';
+
+// The clip's row on the removals page, as it draws it, or '' for none.
+const clipRow = (html) => main(html).match(/<li class="removal" id="photo-9">[\s\S]*?<\/li>/)?.[0] ?? '';
 
 // What is left of a page's <main> once every block the 48 px rule covers is
 // taken out: the delete dialog, an album, a person, a takedown, and an
@@ -154,13 +191,20 @@ test('#271 criterion 1: every button on people, albums and removals is in the ru
   // Add album; each event's Save, Close or Reopen, and Delete; each team's
   // Not sure album's Close or Reopen.
   assert.equal(count(drawn.albums), 9);
-  // Each photo's Put it back and Delete permanently; the dialog's Cancel and Delete.
-  assert.equal(count(drawn.removals), 6);
+  // Each photo's and the clip's Put it back and Delete permanently (the
+  // clip's since #310); the dialog's Cancel and Delete.
+  assert.equal(count(drawn.removals), 8);
+  // #310, criterion 7: the clip's row is a row `.removal .button` takes, and
+  // holds its own two, each wearing the class that rule names.
+  assert.deepEqual([...clipRow(drawn.removals).matchAll(/<button\b[^>]*\sclass="button\b[^"]*"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]),
+    ['Put it back', 'Delete permanently']);
   for (const [name, html] of Object.entries(drawn)) {
     assert.doesNotMatch(uncovered(html), /<button\b|class="button\b/, `${name} draws a button outside every block the 48 px rule covers`);
   }
   // The control: a button outside those blocks is found.
   assert.match(uncovered(drawn.removals.replace('</main>', '<p><button type="button" class="button">Stray</button></p></main>')), /<button\b/);
+  // And so is the clip's row, were it drawn as anything but a removal row.
+  assert.match(uncovered(drawn.removals.replace('<li class="removal" id="photo-9">', '<li class="clip" id="photo-9">')), /<button\b/);
 });
 
 test('#271 criterion 1: each team filter link, on removals and the queue, is a target at least 44 px square', () => {
@@ -217,6 +261,7 @@ test('#271 criterion 1: what an admin or a requester typed wraps rather than wid
   const typed = [
     '.album h3', // an album's title (#271)
     '.album-facts code', // its address (#153)
+    '.album-facts', // its line, which names who made a sender's event (#273)
     '.removal-facts', '.removal-caption', // the album, the sender's name, the caption (#271)
     '.removal-note', // a takedown's note (#158)
     '.page-head [role="status"]', // a notice naming a person, title or address (#271)
@@ -233,6 +278,17 @@ test('#271 criterion 1: what an admin or a requester typed wraps rather than wid
     /<section class="wrap page-head">[\s\S]*?<p role="status">Approved Person 2\./);
   assert.match(main(removalsPage()), /<p class="removal-facts">In Fall Regatta · Hoover JRT · hidden <time[^>]*>[^<]*<\/time> · sent by Pat<\/p>/);
   assert.match(main(removalsPage()), /<p class="removal-caption">Caption: At the mark<\/p>/);
+  // #310, criterion 7: a hidden clip's row puts its length, frame size and
+  // sender in the same facts line, and its caption in the same caption, so
+  // the rules above wrap them as they wrap a photo's.
+  const clip = clipRow(removalsPage());
+  assert.match(clip, /<p class="removal-facts">In Fall Regatta · Hoover JRT · hidden <time[^>]*>[^<]*<\/time> · 0:31 long · 1080 × 1920 · sent by a coach · was waiting for approval, so putting it back returns it to the queue<\/p>/);
+  assert.match(clip, /<p class="removal-caption">Caption: Rounding the leeward mark<\/p>/);
+  // And no line of it is outside those rules: its paragraphs are the facts,
+  // the caption and the note, which wraps by #158's rule, all in `typed`.
+  const paragraphs = [...clip.matchAll(/<p\b([^>]*)>/g)].map((m) => m[1].match(/\sclass="([^"\s]+)/)?.[1] ?? '(no class)');
+  assert.deepEqual(paragraphs, ['removal-facts', 'removal-caption', 'removal-note']);
+  for (const name of paragraphs) assert.ok(typed.includes(`.${name}`), `.${name} is not in the list held to wrap`);
   // The queue prints the album's title as its batch heading and in each
   // card, and the sender in each card's facts (lib/admin-page.js).
   const queue = read('lib', 'admin-page.js');
@@ -251,7 +307,7 @@ test('#271 criterion 1: what an admin or a requester typed wraps rather than wid
     const kept = list.filter((s) => s !== selector);
     return `\n${kept.length ? kept.join(',\n') : '.not-it'} {${body}`;
   }).join('}');
-  for (const selector of ['.album h3', '.removal-facts', '.removal-caption', '.page-head [role="status"]', '.batch h2', '.waiting-album', '.waiting-facts']) {
+  for (const selector of ['.album h3', '.album-facts', '.removal-facts', '.removal-caption', '.page-head [role="status"]', '.batch h2', '.waiting-album', '.waiting-facts']) {
     const without = unwrap(CSS, selector);
     assert.notEqual(without, topLevel(CSS), `the control could not take ${selector} out`);
     assert.equal(wraps(without, selector), false, `${selector} still wraps with it taken out`);
@@ -278,7 +334,7 @@ test('#271 criterion 1: on a phone every field on the three pages runs the full 
       .filter(([, tag, attrs]) => tag !== 'input' || !/type="(hidden|checkbox|radio)"/.test(attrs))
       .map(([, tag, attrs]) => (tag === 'input' ? attrs.match(/type="([a-z]+)"/)[1] : tag)));
   assert.deepEqual([...new Set(fields)].sort(), ['date', 'email', 'select', 'text']);
-  // Removals has no field.
+  // Removals has no field, a clip's row (#310) included: its player is none.
   assert.doesNotMatch(main(removalsPage()), /<(input(?![^>]*type="hidden")|select|textarea)\b/);
 });
 
@@ -330,9 +386,14 @@ test('#271 criterion 2: Revoke, Hide all and Delete wait behind their disclosure
 
 test('#271 criterion 2: "Delete permanently" opens its confirm dialog, and on a phone sits alone below "Put it back", at its end', () => {
   const html = main(removalsPage());
-  const actions = html.match(/<li class="removal" id="photo-7">[\s\S]*?<div class="actions">([\s\S]*?)<\/div>/)[1];
-  // Put it back is a form; Delete permanently, after it, is a button that posts nothing itself.
-  assert.match(actions, /^\s*<form method="post" action="\/api\/admin\/removals\/restore">[\s\S]*?Put it back<\/button>\s*<\/form>\s*<button type="button" class="button button-quiet" data-delete="7"[^>]*>Delete permanently<\/button>\s*$/);
+  // A photo's row, and since #310 a clip's (criterion 7), which the phone
+  // rules below take by the same shape.
+  for (const id of [7, 9]) {
+    const actions = html.match(new RegExp(`<li class="removal" id="photo-${id}">[\\s\\S]*?<div class="actions">([\\s\\S]*?)<\\/div>`))?.[1];
+    assert.ok(actions !== undefined, `no actions in row ${id}`);
+    // Put it back is a form; Delete permanently, after it, is a button that posts nothing itself.
+    assert.match(actions, new RegExp(`^\\s*<form method="post" action="\\/api\\/admin\\/removals\\/restore">[\\s\\S]*?Put it back<\\/button>\\s*<\\/form>\\s*<button type="button" class="button button-quiet" data-delete="${id}"[^>]*>Delete permanently<\\/button>\\s*$`), `row ${id}`);
+  }
   // The dialog posts, with Cancel first and focused.
   assert.match(html, /<dialog id="delete-dialog"[^>]*>\s*<form method="post" action="\/api\/admin\/removals\/delete">[\s\S]*?<button type="submit" class="button" formmethod="dialog" autofocus>Cancel<\/button>\s*<button type="submit" class="button button-accent" id="delete-confirm"/);
   // On a phone: Put it back's form fills its row, so Delete permanently
@@ -476,4 +537,67 @@ test('#274 criterion 1: no other sign-in form\'s labels change on a phone, and o
   // The control: a phone rule restyling every sign-in choice is found.
   const planted = `${CSS}\n@media (max-width: 30rem) {\n  .ask-form .choices label {\n    display: block;\n  }\n}\n`;
   assert.deepEqual(askLabels(planted), ['.ask-form .code-remember label', '.ask-form .choices label']);
+});
+
+// ---- #310: a hidden clip's player on /admin/removals --------------------
+
+// Every width `css` sets, at any screen width, on the removals clip player or
+// on a box it sits in, as [selector, property, value]: each width, min-width,
+// max-width or inline-size form, the last declaration of a rule included
+// where it has no `;`, in a rule whose selector ends at a video, at any child
+// (*), at a div, li or ul by its tag, or at a row, the list or the clip's box
+// by class, and either names the removals list or names no class, id or
+// attribute at all, so reaches every video. The @media and @supports heads
+// are dropped first, so a rule inside one is read as any other, as `sized`
+// reads them above. Its limit: a selector reaching the player some other
+// way, by a class the row does not name, is not read. (#310's review found
+// the first form missed a declaration with no `;` and a box reached by its
+// tag, `.removal > div`.)
+const PLAYER_OR_BOX = /(?:^|[\s>+~])(?:video|div|li|ul|\*|\.removals?|\.removal-clip)(?![\w-])[^\s>+~]*$/;
+const playerWidths = (css) => uncommented(css).replace(/@(?:media|supports)[^{]*\{/g, '').split('}')
+  .map((chunk) => chunk.split('{'))
+  .filter(([, body]) => body !== undefined)
+  .flatMap(([selectors, body]) => selectors.split(',').map((s) => s.trim())
+    .filter((s) => (s.includes('.removal') || !/[.#[]/.test(s)) && PLAYER_OR_BOX.test(s))
+    .flatMap((s) => [...body.matchAll(/(?:^|[\s;])((?:min-|max-)?(?:width|inline-size))\s*:\s*([^;]+?)\s*(?=;|$)/g)].map((m) => [s, m[1], m[2].trim()])));
+
+test('#310 criterion 7: a hidden clip\'s player on /admin/removals is no wider than its row: drawn at a photo row\'s size, held to the row by base.css, and widened by nothing in site.css, at every width', () => {
+  // The player sits straight in its box, a block of the row's own after the
+  // facts line. Its frame is 1080 x 1920, past any phone; the page draws it
+  // at a photo row's size, the frame scaled to a grid image's long edge
+  // (owner, at #310's review): 270 x 480, where the frame size is what a
+  // revert of #310's sizing would put back.
+  const row = clipRow(removalsPage());
+  assert.match(row, /<\/p>\s*<div class="removal-clip">\s*<video controls preload="none" width="270" height="480" src="\/api\/admin\/clips\/9">[\s\S]*?<\/video>\s*<\/div>/);
+  assert.equal(480, SIZES.grid.longEdge);
+  assert.equal((row.match(/<video\b/g) ?? []).length, 1);
+  // A row narrower than that, a phone's, holds it by base.css's rule for
+  // every video: no wider than its box, its height following its width.
+  assert.ok(rulesFor(topLevel(BASE), 'video').some((body) => /max-width: 100%;/.test(body) && /height: auto;/.test(body)), 'base.css no longer holds a video to its box');
+  // site.css's own rule gives it night water until Play, and no width.
+  const rule = top('.removal-clip video');
+  assert.match(rule, /background: var\(--deep\);/);
+  // And nothing in site.css sizes the player or a box around it: no
+  // min-width and no fixed width, at any screen width, which would undo
+  // both the size and base.css's hold.
+  assert.deepEqual(playerWidths(CSS), []);
+  // The controls: a fixed-width player planted in a phone block is found, as
+  // is a width on its box, on every child of a row, on a div reached by its
+  // tag, and a last declaration with no `;`.
+  const planted = (rule) => playerWidths(`${CSS}\n@media (max-width: 30rem) {\n  ${rule}\n}\n`);
+  assert.deepEqual(planted('.removal-clip video { width: 100%; max-width: min(100%, calc(5 * var(--space-8))); }'),
+    [['.removal-clip video', 'width', '100%'], ['.removal-clip video', 'max-width', 'min(100%, calc(5 * var(--space-8)))']]);
+  assert.deepEqual(planted('.removal-clip video{min-width:2000px}'), [['.removal-clip video', 'min-width', '2000px']]);
+  assert.deepEqual(planted('.removal > div{min-width:2000px;}'), [['.removal > div', 'min-width', '2000px']]);
+  assert.deepEqual(planted('.removal div{width:2000px;}'), [['.removal div', 'width', '2000px']]);
+  assert.deepEqual(planted('.removal-clip video { min-width: calc(5 * var(--space-8)); }'),
+    [['.removal-clip video', 'min-width', 'calc(5 * var(--space-8))']]);
+  assert.deepEqual(planted('.removal-clip { width: calc(20 * var(--space-8)); }'),
+    [['.removal-clip', 'width', 'calc(20 * var(--space-8))']]);
+  assert.deepEqual(planted('.removal > * { min-width: calc(20 * var(--space-8)); }'),
+    [['.removal > *', 'min-width', 'calc(20 * var(--space-8))']]);
+  assert.deepEqual(planted('video { width: calc(20 * var(--space-8)); max-width: none; }'),
+    [['video', 'width', 'calc(20 * var(--space-8))'], ['video', 'max-width', 'none']]);
+  // And the queue's player, which is in no removal row, is not read as this one.
+  assert.deepEqual(planted('.waiting video { min-width: calc(5 * var(--space-8)); }'), []);
 });
