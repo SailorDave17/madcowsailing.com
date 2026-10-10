@@ -31,9 +31,12 @@
 //      Tab is pressed until focus wraps, and each stop is checked for
 //      :focus-visible with a non-zero outline. Elements never reached, or
 //      reached with no visible focus, are listed. On a page carrying a
-//      .gallery the pass then OPENS the lightbox and repeats the walk inside
-//      the dialog, twice round, which is what proves focus is trapped; it
-//      closes it again and re-walks the page. Story #50 — before it, a closed
+//      .gallery the pass then OPENS the lightbox, requires focus to open on
+//      one of its visible controls with nothing hidden laid out (#203), and
+//      repeats the walk inside the dialog, twice round, which is what proves
+//      focus is trapped; it closes it again. On a page with a clip it opens
+//      the first clip to the same two rules and steps off it with an arrow key
+//      while it holds focus (#203). Then it re-walks the page. Story #50 — before it, a closed
 //      <dialog> computed display:none and its controls were dropped by this
 //      pass's own filter, so the one interactive component on either site was
 //      silently unmeasured while the counts read clean. The progress line on
@@ -412,8 +415,10 @@ const STOP = (tag) => `(() => {
     // A stop that is a real control belonging to the PAGE rather than to an open
     // dialog. This is the escape test, and it is deliberately narrower than
     // "outside the dialog": Chrome's modal Tab cycle passes through
-    // document.body and the <dialog> element itself, neither of which is an
-    // escape and neither of which a reader can act on.
+    // document.body, which is not an escape and not something a reader can act
+    // on. On 2026-09-04 it passed through the <dialog> element itself as well;
+    // read again on 2026-10-09 (#203) it no longer does, and the dialog would
+    // not count as a page stop either way.
     pageStop: !!(el.closest && !el.closest('dialog[open]') &&
       el !== document.body && el !== document.documentElement &&
       el.matches('a[href], button, input, select, textarea, summary, [tabindex]')),
@@ -499,25 +504,92 @@ async function keyboardOnPage(cdp, sessionId) {
 // harness that supplies its own events can agree with a handler forever without
 // either being right (cairn: a-synthetic-event-cannot-test-a-hit-test, measured
 // on this very component).
+async function press(cdp, sessionId, key, windowsVirtualKeyCode) {
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code: key, windowsVirtualKeyCode }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode }, sessionId);
+}
+
+// Focus the first thumbnail `selector` matches from the page rather than
+// assuming a tab count, mark it with `marker` so focus-return can be checked,
+// then Enter. `.focus()` here only positions the caret; the OPEN itself is the
+// trusted key event, which is the part being measured. Returns { opened, why }:
+// the dialog must open, and on the item that thumbnail is, so a pass can never
+// measure a different item than the one it names.
+async function openFrame(cdp, sessionId, selector, marker) {
+  const at = await evaluate(cdp, sessionId, `(() => {
+    const frames = [...document.querySelectorAll('.gallery a.frame')];
+    const f = document.querySelector(${JSON.stringify(selector)});
+    f.dataset.${marker} = '1';
+    f.focus();
+    return { focused: document.activeElement === f, item: (frames.indexOf(f) + 1) + ' / ' + frames.length };
+  })()`);
+  if (!at.focused) return { opened: false, why: 'focus did not reach the thumbnail' };
+  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: '\r' }, sessionId);
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, sessionId);
+  const shown = await evaluate(cdp, sessionId, `document.querySelector('dialog.lightbox[open]') ? document.querySelector('dialog.lightbox .lightbox-counter').textContent : null`);
+  if (shown === null) return { opened: false, why: 'Enter on the thumbnail did not open the dialog' };
+  if (shown !== at.item) {
+    // Close what did open, so the page re-walk after this pass counts the
+    // page and not the dialog's controls as well.
+    await closeAndWait(cdp, sessionId, marker);
+    return { opened: false, why: `Enter on item ${at.item} opened ${shown}` };
+  }
+  return { opened: true };
+}
+
+// Close with Escape and read focus-return once gallery.js's `close` handler
+// has run. A modal dialog's close puts focus back on its opener at once, but
+// the `close` event is queued and gallery.js returns focus again in its
+// handler, a moment later. Read at once, focus-return passes on the
+// platform's work alone; and a pass that moves on at once can have its next
+// thumbnail's focus taken back by the late handler. That happened once in
+// four runs on #203's branch, and the clip pass opened photo 1 / 53 in place
+// of the clip. A listener added here runs after gallery.js's, so its flag
+// means the handler is done.
+async function closeAndWait(cdp, sessionId, marker) {
+  await evaluate(cdp, sessionId, `(() => {
+    window.__qfClosed = false;
+    document.querySelector('dialog.lightbox').addEventListener('close', () => { window.__qfClosed = true; }, { once: true });
+    return true;
+  })()`);
+  await press(cdp, sessionId, 'Escape', 27);
+  return evaluate(cdp, sessionId, `new Promise((resolve) => {
+    const t0 = performance.now();
+    (function poll() {
+      if (window.__qfClosed || performance.now() - t0 > 2000) {
+        const el = document.activeElement;
+        resolve({
+          closed: !document.querySelector('dialog.lightbox[open]') && window.__qfClosed,
+          focusReturned: !!(el && el.dataset && el.dataset.${marker}),
+        });
+      } else setTimeout(poll, 10);
+    })();
+  })`);
+}
+
+// Every element the open dialog hides that is laid out anyway (#203). The
+// [hidden] attribute is a user-agent rule, and base.css's reset gives img and
+// video display: block, which beats it: until #203 the sailing site laid an
+// empty player beside every photo and pushed the photo 150 px off a phone's
+// screen. Nothing else in this tool could see that. The dialog is
+// overflow: hidden in the top layer, so the document's scrollWidth never
+// moved, and focus was on Close either way. A hidden element with any client
+// rect is the reading.
+const HIDDEN_LAID_OUT = `(() => {
+  const describe = ${DESCRIBE};
+  return [...document.querySelectorAll('dialog.lightbox[open] [hidden]')]
+    .filter((el) => el.getClientRects().length > 0)
+    .map((el) => { const r = el.getBoundingClientRect(); return describe(el) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); });
+})()`;
+
 async function measureLightbox(cdp, sessionId) {
   const hasGallery = await evaluate(cdp, sessionId, `!!document.querySelector('.gallery a.frame')`);
   if (!hasGallery) return null;
 
-  // Focus the first thumbnail from the page rather than assuming a tab count,
-  // then Enter. `.focus()` here only positions the caret; the OPEN itself is
-  // the trusted key event below, which is the part being measured.
-  await evaluate(cdp, sessionId, `(() => {
-    const f = document.querySelector('.gallery a.frame');
-    f.dataset.qfOpener = '1';
-    f.focus();
-    return true;
-  })()`);
-  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, sessionId);
-  await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: '\r' }, sessionId);
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, sessionId);
-
-  const open = await evaluate(cdp, sessionId, `!!document.querySelector('dialog.lightbox[open]')`);
-  if (!open) return { opened: false };
+  const o = await openFrame(cdp, sessionId, '.gallery a.frame', 'qfOpener');
+  if (!o.opened) return { opened: false, why: o.why };
+  const hiddenLaidOut = await evaluate(cdp, sessionId, HIDDEN_LAID_OUT);
 
   // Expected is derived from the open dialog, never hard-coded: a one-photo
   // gallery has no arrows at all (gallery.js removes them rather than disabling
@@ -526,20 +598,31 @@ async function measureLightbox(cdp, sessionId) {
   // 3 would report a false miss on it.
   const expected = await evaluate(cdp, sessionId, CANDIDATES(`document.querySelector('dialog.lightbox')`, 'qfLb'));
 
-  // showModal() autofocuses the first control itself, so that stop is reached
+  // showModal() places the first focus itself, so that stop is reached
   // WITHOUT a Tab and a walk that only records what Tab produced would report
-  // it as never reached. Measured 2026-09-04: focus lands on .lightbox-close
-  // the moment the dialog opens. So the initial position is a stop like any
-  // other and is recorded before the first Tab.
+  // it as never reached. So the initial position is a stop like any other and
+  // is recorded before the first Tab.
+  //
+  // It is also checked on its own (#203): focus must open on a visible
+  // control in the dialog. Measured 2026-09-04, it landed on .lightbox-close,
+  // then the first focusable element. From #72 (2026-09-12) the hidden
+  // <video> came first and took it, and this pass recorded that stop, gave it
+  // index -1 as no control, and dropped it from controlStops below, so every
+  // run read clean. gallery.js gives Close autofocus since #203, and an
+  // opening anywhere else now fails here.
   const walk = [await evaluate(cdp, sessionId, STOP('qfLb'))];
+  const openedOn = walk[0];
 
   // Tab round twice over, then some. Chrome's modal cycle for this dialog is
-  // close -> prev -> next -> body -> dialog -> close, so the wrap passes through
-  // two stops that are not controls — `document.body` and the <dialog> element
-  // itself — and BOTH are inside the modal scope rather than an escape. Measured
-  // 2026-09-04. The trap therefore cannot be tested by "is every stop inside the
-  // dialog"; it is tested by whether any stop is a control on the PAGE, which is
-  // the property that actually matters and the one a broken trap would violate.
+  // close -> prev -> next -> body -> close (read 2026-10-09, #203), so the wrap
+  // passes through a stop that is not a control, `document.body`, which is
+  // inside the modal scope rather than an escape. On 2026-09-04 the cycle also
+  // stopped on the <dialog> element itself, and from #72 to #203 the sailing
+  // site's hidden <video> took that slot. The budget below allows for two such
+  // stops, one more than today's cycle needs. The trap therefore cannot be
+  // tested by "is every stop inside the dialog"; it is tested by whether any
+  // stop is a control on the PAGE, which is the property that actually matters
+  // and the one a broken trap would violate.
   let escaped = null;
   const rounds = (expected.length + 2) * 2 + 1;
   for (let i = 0; i < rounds && !escaped; i++) {
@@ -560,13 +643,17 @@ async function measureLightbox(cdp, sessionId) {
   // Close it again and let the close handler run. Escape is the route <dialog>
   // owns, and gallery.js hangs focus-return on the `close` event, so this also
   // leaves focus where a reader would find it.
-  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
-  const closed = await evaluate(cdp, sessionId, `!document.querySelector('dialog.lightbox[open]')`);
-  const focusReturned = await evaluate(cdp, sessionId, `!!(document.activeElement && document.activeElement.dataset && document.activeElement.dataset.qfOpener)`);
+  const { closed, focusReturned } = await closeAndWait(cdp, sessionId, 'qfOpener');
 
   return {
     opened: true,
+    openedOn: openedOn.label,
+    // A tagged index means the element passed CANDIDATES' filter in the open
+    // dialog, which is what "a visible control" means everywhere in this pass.
+    // A control tagged but laid out at zero size is not caught here: it is
+    // the first stop of firstLap, so invisibleStops reports it below.
+    openedOnControl: openedOn.index !== -1,
+    hiddenLaidOut,
     closed,
     focusReturned,
     expected: expected.length,
@@ -580,10 +667,73 @@ async function measureLightbox(cdp, sessionId) {
   };
 }
 
+// 3c. A clip, on a page that has one (#203). The pass above opens the first
+// thumbnail, a photo on every trip log, and presses no arrow key, so two of
+// #203's fixes went unexercised. A clip must open on a visible control too
+// (the owner's one rule for photos and clips), with nothing hidden laid out.
+// And stepping off a clip that holds focus must keep focus in the dialog: in
+// Chrome, hiding the focused <video> dropped focus to <body>, outside the
+// dialog whose keydown handler steps, so every arrow key after it did nothing
+// (Mullett Lake read 25, 25, 25 for Right, Left, Left). The step is one
+// trusted ArrowRight off the clip and one ArrowLeft back, and both must move
+// the counter.
+async function measureClip(cdp, sessionId) {
+  const frames = await evaluate(cdp, sessionId, `({
+    clips: document.querySelectorAll('.gallery a.frame.is-video').length,
+    all: document.querySelectorAll('.gallery a.frame').length,
+  })`);
+  if (frames.clips === 0) return null;
+
+  const o = await openFrame(cdp, sessionId, '.gallery a.frame.is-video', 'qfClipOpener');
+  if (!o.opened) return { opened: false, why: o.why };
+  await evaluate(cdp, sessionId, CANDIDATES(`document.querySelector('dialog.lightbox')`, 'qfClip'));
+  const openedOn = await evaluate(cdp, sessionId, STOP('qfClip'));
+  const hiddenLaidOut = await evaluate(cdp, sessionId, HIDDEN_LAID_OUT);
+
+  // Focus goes on the player by script: the fault depends on focus being
+  // there when the arrow is pressed, not on how a reader put it there (Tab or
+  // Shift+Tab from Close, or a click on the player). The arrows themselves
+  // are trusted key events, so they reach gallery.js the way a reader's do.
+  // A one-item gallery has nowhere to step, so the step is not measured there.
+  const counter = `document.querySelector('dialog.lightbox .lightbox-counter').textContent`;
+  let step = null;
+  if (frames.all > 1) {
+    const onPlayer = await evaluate(cdp, sessionId, `(() => {
+      const v = document.querySelector('dialog.lightbox[open] .lightbox-video');
+      v.focus();
+      return document.activeElement === v;
+    })()`);
+    const onClip = await evaluate(cdp, sessionId, counter);
+    await press(cdp, sessionId, 'ArrowRight', 39);
+    const stepped = await evaluate(cdp, sessionId, counter);
+    const focusAfter = await evaluate(cdp, sessionId, `(() => {
+      const describe = ${DESCRIBE};
+      const el = document.activeElement;
+      return { inDialog: !!(el && el.closest && el.closest('dialog[open]')), label: describe(el) };
+    })()`);
+    await press(cdp, sessionId, 'ArrowLeft', 37);
+    const back = await evaluate(cdp, sessionId, counter);
+    step = { onPlayer, onClip, stepped, back, focusStayed: focusAfter.inDialog, focusAfter: focusAfter.label };
+  }
+
+  const { closed, focusReturned } = await closeAndWait(cdp, sessionId, 'qfClipOpener');
+
+  return {
+    opened: true,
+    openedOn: openedOn.label,
+    openedOnControl: openedOn.index !== -1,
+    hiddenLaidOut,
+    step,
+    closed,
+    focusReturned,
+  };
+}
+
 async function measureKeyboard(cdp, url) {
   const { targetId, sessionId } = await openPage(cdp, url, WIDE);
   const page = await keyboardOnPage(cdp, sessionId);
   const lightbox = await measureLightbox(cdp, sessionId);
+  const clip = lightbox && lightbox.opened ? await measureClip(cdp, sessionId) : null;
   // Re-measure the page after the dialog has been opened and closed again, so
   // opening it cannot corrupt the number reported for the page that hosts it
   // (#50 AC 4). Focus is somewhere else now, so this is a real second walk and
@@ -595,7 +745,7 @@ async function measureKeyboard(cdp, url) {
     after = await keyboardOnPage(cdp, sessionId);
   }
   await closePage(cdp, targetId);
-  return { ...page, lightbox, after: after ? { expected: after.expected, reached: after.reached } : null };
+  return { ...page, lightbox, clip, after: after ? { expected: after.expected, reached: after.reached } : null };
 }
 
 // 4. contrast pairs
@@ -679,7 +829,9 @@ function kbProblems(kb) {
   }
   const lb = kb.lightbox;
   if (!lb) return out;
-  if (!lb.opened) return [...out, 'lightbox: a .gallery is present but Enter on the first thumbnail did not open the dialog'];
+  if (!lb.opened) return [...out, `lightbox: a .gallery is present but the first thumbnail did not open it: ${lb.why}`];
+  if (!lb.openedOnControl) out.push(`lightbox: focus opened on ${lb.openedOn}, not on a visible control in the dialog`);
+  out.push(...lb.hiddenLaidOut.map((h) => `lightbox: hidden but laid out in the open dialog: ${h}`));
   out.push(...lb.unreached.map((u) => `lightbox, not reached: ${u}`));
   out.push(...lb.invisible.map((u) => `lightbox, no visible focus: ${u}`));
   if (!lb.trapped) {
@@ -689,6 +841,20 @@ function kbProblems(kb) {
   }
   if (!lb.closed) out.push('lightbox: Escape did not close the dialog');
   if (!lb.focusReturned) out.push('lightbox: focus did not return to the thumbnail that opened it');
+  const clip = kb.clip;
+  if (!clip) return out;
+  if (!clip.opened) return [...out, `clip: the first clip did not open the dialog: ${clip.why}`];
+  if (!clip.openedOnControl) out.push(`clip: focus opened on ${clip.openedOn}, not on a visible control in the dialog`);
+  out.push(...clip.hiddenLaidOut.map((h) => `clip: hidden but laid out in the open dialog: ${h}`));
+  const s = clip.step;
+  if (s && !s.onPlayer) out.push('clip: focus could not be put on the player, so stepping off a focused clip was not measured');
+  if (s && s.onPlayer) {
+    if (!s.focusStayed) out.push(`clip: stepping off the focused clip moved focus out of the dialog, to ${s.focusAfter}`);
+    if (s.stepped === s.onClip) out.push(`clip: ArrowRight on the focused clip did not step (${s.onClip})`);
+    else if (s.back !== s.onClip) out.push(`clip: the next arrow key did not step back (${s.onClip}, then ${s.stepped}, then ${s.back})`);
+  }
+  if (!clip.closed) out.push('clip: Escape did not close the dialog');
+  if (!clip.focusReturned) out.push('clip: focus did not return to the clip that opened it');
   return out;
 }
 
@@ -742,13 +908,13 @@ function render(results, meta) {
   lines.push('');
   lines.push(`Desktop width (${WIDE}px). "Expected" is every visible \`a[href]\`, button, form control, summary or positive-tabindex element in DOM order; "reached" is how many distinct stops Tab produced before focus wrapped. A stop counts as visible when \`:focus-visible\` matches and the computed outline is non-zero.`);
   lines.push('');
-  lines.push(`On a page carrying a \`.gallery\` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open \`<dialog>\`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards and the page is re-walked, so the page's own count is measured before and after.`);
+  lines.push(`On a page carrying a \`.gallery\` the pass then opens the lightbox — first thumbnail, trusted Enter — and repeats the walk inside the open \`<dialog>\`, Tabbing **twice** round so that the second lap proves focus is trapped rather than merely cyclic. Focus must open on one of the dialog's visible controls, and nothing the dialog hides may be laid out (#203). The dialog's controls are enumerated from the open dialog and never assumed: a one-photo gallery has no arrows. It is closed with Escape afterwards. On a page with a clip the pass then opens the first clip, holds it to the same two rules, puts focus on the player and steps off it with a trusted ArrowRight and back with ArrowLeft, requiring focus to stay in the dialog and both arrows to move the counter (#203). The page is then re-walked, so the page's own count is measured before and after.`);
   lines.push('');
   for (const r of measured) {
     const problems = kbProblems(r.kb);
     const lb = r.kb.lightbox;
     const lbNote = lb && lb.opened
-      ? `, lightbox ${lb.reached} of ${lb.expected}${lb.trapped ? ', focus trapped' : ''}${lb.closed && lb.focusReturned ? ', closed and focus returned' : ''}`
+      ? `, lightbox ${lb.reached} of ${lb.expected}${lb.trapped ? ', focus trapped' : ''}${lb.closed && lb.focusReturned ? ', closed and focus returned' : ''}${r.kb.clip ? (r.kb.clip.opened ? ', clip opened and stepped' : ', clip NOT OPENED') : ''}`
       : lb ? ', lightbox NOT OPENED' : '';
     lines.push(`- [${problems.length ? ' ' : 'x'}] ${r.page.url.replace(/^https?:\/\//, '')} — ${r.kb.reached} of ${r.kb.expected}${lbNote}${problems.length ? '\n' + problems.map((p) => `  - ${p}`).join('\n') : ''}`);
   }
@@ -828,8 +994,13 @@ async function main() {
             ? `  lightbox ${kb.lightbox.reached}/${kb.lightbox.expected}${kb.lightbox.trapped ? ' trapped' : ' NOT TRAPPED'} outlines ${outlineColours(kb.lightbox.stops, name)}`
             : '  lightbox DID NOT OPEN')
         : '';
+      const clipLine = kb.clip
+        ? (kb.clip.opened
+            ? `  clip opened on ${kb.clip.openedOn}${kb.clip.step ? `, stepped ${kb.clip.step.onClip} -> ${kb.clip.step.stepped} -> ${kb.clip.step.back} with focus on ${kb.clip.step.focusAfter}` : ''}`
+            : '  clip DID NOT OPEN')
+        : '';
       const pf = perfFloor(page);
-      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}${pf !== FLOOR ? ' floor ' + pf : ''}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''} outlines ${outlineColours(kb.stops, name)}${lbLine}  pairs ${contrast.length}`);
+      console.error(`   perf ${lh ? lh.perf + ' (' + lh.perfRuns.join('/') + ')' : '-'}${pf !== FLOOR ? ' floor ' + pf : ''}  a11y ${lh ? lh.a11y : '-'}  cls ${lh ? fmtCls(lh.cls) : '-'}  scrollWidth@360 ${narrow.scrollWidth}  keyboard ${kb.reached}/${kb.expected}${kb.invisible.length ? ' INVISIBLE ' + kb.invisible.length : ''}${kb.unreached.length ? ' UNREACHED ' + kb.unreached.length : ''} outlines ${outlineColours(kb.stops, name)}${lbLine}${clipLine}  pairs ${contrast.length}`);
     }
   } finally {
     proc.kill();

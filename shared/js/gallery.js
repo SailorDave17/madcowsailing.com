@@ -82,7 +82,16 @@
       '<p class="lightbox-caption"></p>' +
       '<p class="lightbox-counter" aria-live="polite"></p>' +
     '</div>' +
-    '<button type="button" class="lightbox-close" aria-label="Close">' +
+    /* autofocus is what puts the first focus on Close (#203). Without it
+       showModal() focuses the first focusable element in the dialog, and
+       since #72 that has been the <video>, hidden or not: on every photo,
+       focus opened on a control nobody could see, while the photo site
+       computed it display: none. Close it is for a clip too (owner, #203),
+       one rule for both, so Space on a clip just opened closes it, and the
+       player is one Shift+Tab back or four Tabs on (prev, next, the page,
+       the player). At page load the dialog is closed, so nothing here is
+       focusable and the page's own focus is left alone. */
+    '<button type="button" class="lightbox-close" aria-label="Close" autofocus>' +
       '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
         '<path d="M5 5 19 19M19 5 5 19" />' +
       '</svg>' +
@@ -104,20 +113,40 @@
   var video = dialog.querySelector('.lightbox-video');
   var caption = dialog.querySelector('.lightbox-caption');
   var counter = dialog.querySelector('.lightbox-counter');
+  var closeButton = dialog.querySelector('.lightbox-close');
 
   /* Stopping playback is its own function because it has to happen on EVERY
      route away from a clip, and there are three: stepping to the next photo,
      stepping to the previous one, and closing the dialog. Miss one and the
      audio keeps running under whatever is on screen next - a failure with no
      visible symptom, which is the kind this repo keeps a register of.
-     Clearing src as well as pausing is what stops the download continuing. */
+     Clearing src as well as pausing is what stops the download continuing.
+
+     A clip that holds focus would lose it here, and Chrome puts it on
+     <body>, outside the dialog. The arrow keys are handled on the dialog, so
+     every arrow after that did nothing: on Mullett Lake, Right Right Left
+     Left from the photo before a clip read 23, 24, 25, 25, 25 (#203). So
+     focus moves to Close first, where the dialog opened it.
+
+     A clip shown full screen stays full screen when it is hidden or the
+     dialog closes under it: the browser kept fullscreenElement on the hidden
+     <video>, and the page was dead until full screen was left. Focus never
+     came back to the thumbnail, and no thumbnail opened the lightbox again
+     (#203's review, measured on all three routes away: an arrow, Escape and
+     Close). So any route away leaves full screen first, and returns the
+     promise the close handler waits on. */
   function stopVideo() {
+    var leaving = null;
     if (!video.hidden) {
+      if (document.fullscreenElement === video) leaving = document.exitFullscreen();
+      else if (document.webkitFullscreenElement === video) document.webkitExitFullscreen();
+      if (document.activeElement === video) closeButton.focus();
       video.pause();
       video.removeAttribute('src');
       video.load();
       video.hidden = true;
     }
+    return leaving;
   }
 
   /* A one-photo trip has nowhere to navigate, so the arrows are REMOVED rather
@@ -214,13 +243,20 @@
   /* Focus returns to the thumbnail that opened the dialog (#12 AC 4). The
      `close` event fires for every route out — Escape, the backdrop, the close
      button, and a programmatic close() — so this is the one place it belongs;
-     hanging it off each of those individually is how one route gets missed. */
+     hanging it off each of those individually is how one route gets missed.
+
+     When the clip was full screen, leaving it finishes after this handler,
+     and the thumbnail cannot take focus until it has: focusing it at once
+     left focus on <body> (#203, measured on Escape and Close). So the focus
+     waits for the exit, whether it succeeds or not. */
   dialog.addEventListener('close', function () {
-    stopVideo();
-    if (opener) {
-      opener.focus();
-      opener = null;
-    }
+    var leaving = stopVideo();
+    var back = opener;
+    opener = null;
+    if (!back) return;
+    var focusBack = function () { back.focus(); };
+    if (leaving) leaving.then(focusBack, focusBack);
+    else focusBack();
   });
 
   frames.forEach(function (frame, i) {
@@ -238,7 +274,7 @@
     });
   });
 
-  dialog.querySelector('.lightbox-close').addEventListener('click', function () {
+  closeButton.addEventListener('click', function () {
     dialog.close();
   });
   /* Delegated off the dialog rather than bound to each button, because on a
