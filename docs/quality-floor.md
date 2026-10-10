@@ -321,19 +321,41 @@ so opening the dialog did not move the number for the page that hosts it. The
 twelve pages with no `.gallery` behave exactly as before — nothing is opened and
 no lightbox figure is printed.
 
-Three things the reading rests on that are not obvious, each measured rather than
-assumed:
+Five things the reading rests on that are not obvious, each measured rather than
+assumed (the last two since #203):
 
-- **Chrome's modal Tab cycle passes through two stops that are not controls.**
-  For this dialog it is close → prev → next → `document.body` → the `<dialog>`
-  element itself → close. Neither `body` nor the dialog is an escape — both are
-  inside the modal scope and a reader can act on neither — but the first version
-  of this pass read `body` as focus having left the dialog and reported a broken
-  trap on a trap that was intact. So the trap test is *no page control is ever
-  reached*, never *every stop is inside the dialog*.
+- **Chrome's modal Tab cycle passes through a stop that is not a control.**
+  *Read 2026-10-09 (#203)*, on both sites it is close → prev → next →
+  `document.body` → close. `body` is not an escape: it is inside the modal
+  scope and a reader cannot act on it. But the first version of this pass read
+  it as focus having left the dialog and reported a broken trap on a trap that
+  was intact. So the trap test is *no page control is ever reached*, never
+  *every stop is inside the dialog*. *History*: on 2026-09-04 the cycle also
+  stopped on the `<dialog>` element itself, after `body`. From #72 to #203 the
+  sailing site's hidden `<video>` took that slot instead, an empty player with a
+  ring around it.
 - **`showModal()` places focus on the close button before any Tab.** A walk that
   only records what Tab produced reports that control as never reached; the
-  initial position is a stop and is recorded as one.
+  initial position is a stop and is recorded as one. **Since #203 it is also a
+  check**: the pass fails a page whose lightbox opens on anything but a visible
+  control. From #72 (2026-09-12) until #203, focus opened on the hidden
+  `<video>`, which comes first in the dialog. The pass recorded that stop and
+  dropped it as no control, so every run read clean. `gallery.js` gives Close
+  `autofocus` since #203.
+- **Nothing the open dialog hides may be laid out** (#203). `base.css`'s reset
+  gives `img` and `video` `display: block`, which beats the browser's `[hidden]`
+  rule. Until #203 the sailing site laid an empty player beside every photo and
+  pushed the photo 150 px off a phone's screen. No other reading here could see
+  it: the dialog is `overflow: hidden` in the top layer, so `scrollWidth` never
+  moved, and focus was where it should be. A `[hidden]` element in the open
+  dialog with any client rect fails the page.
+- **A clip is opened too, and stepped off while it holds focus** (#203). The
+  lightbox pass opens the first thumbnail, which is a photo on every trip log,
+  and presses no arrow key. So on a page with a clip, the first clip is opened
+  to the same two rules. Focus is put on its player, and one trusted
+  ArrowRight and one ArrowLeft must each move the counter, with focus still in
+  the dialog. In Chrome, hiding the focused `<video>` had dropped focus to
+  `<body>`, and every arrow key after that did nothing.
 - **Expected is derived from the open dialog, never assumed.** A one-photo gallery
   has no arrows at all — `gallery.js` removes them rather than disabling them —
   and `photos.py`'s own end-to-end run was against a single photo, so that is a
