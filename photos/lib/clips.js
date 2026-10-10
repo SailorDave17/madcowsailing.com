@@ -151,6 +151,11 @@ const message = (err) => (err instanceof Error ? err.message : String(err));
  * check and the insert are one statement, and from an account the album's team
  * must be one it is approved for now. The type, length, size and capture time
  * stay empty until the clip is checked.
+ *
+ * An event's earlier address finds it too (#273's criterion 10), as in
+ * insertPhoto. Only the start names an address: the parts and the complete
+ * go by the clip's id and its album_id, so a clip started before the event's
+ * first approval finishes after it unchanged.
  */
 export async function insertClip(db, address, clip) {
   const from = senderColumns(clip.session);
@@ -160,7 +165,7 @@ export async function insertClip(db, address, clip) {
       'INSERT INTO photos (album_id, kind, state, media_key, batch, sender, code_generation, ' +
       'session_issued, account_id, caption, sent_at, upload_id) ' +
       "SELECT id, 'clip', 'uploading', ?, ?, ?, ?, ?, ?, ?, ?, ? " +
-      'FROM albums WHERE address = ? AND closed_at IS NULL ' +
+      'FROM albums WHERE (address = ? OR earlier_address = ?) AND closed_at IS NULL ' +
       (account
         ? "AND team IN (SELECT team FROM account_teams WHERE account_id = ? AND state = 'approved') "
         : '') +
@@ -168,7 +173,7 @@ export async function insertClip(db, address, clip) {
     )
     .bind(
       clip.mediaKey, clip.batch, from.sender, from.code_generation, from.session_issued, from.account_id,
-      clip.caption, clip.sentAt, clip.uploadId, address, ...(account ? [from.account_id] : []),
+      clip.caption, clip.sentAt, clip.uploadId, address, address, ...(account ? [from.account_id] : []),
     )
     .first();
   return row?.id ?? null;

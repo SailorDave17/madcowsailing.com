@@ -540,6 +540,7 @@ a new file is listed here.
 | `0015_not_sure_albums.sql` | #228 | `holding` on `albums`, 0 for every album made before it; one "Not sure / other event" album per team, the one row a team may have with `holding` 1; six triggers: no photo in one is approved, or hidden other than while waiting, `holding` never changes, and one is never deleted, replaced, or moved to another team. **Apply it just before the code that reads it**, not at the commit gate: the older code reads its rows as events (`CLAUDE.md` item 32) |
 | `0016_clip_rules.sql` | #198 | Ten triggers on `photos` holding a clip's row to what the clip routes write: its type is `video/mp4` or `video/quicktime`; outside `uploading` it names its type and a length over 0; it names its upload id while uploading and at no other time; it leaves `uploading` only for `pending` and never goes back; and every row keeps its kind, through a `REPLACE` or a moved id too. No column, and no stored row changes |
 | `0017_clip_day_bytes.sql` | #198 | `clip_bytes` on `upload_counts`, the bytes of clips a session started that UTC day, 0 for every row before it and never below 0, read against the day's clip budget (security audit SA-1). **Apply it before the code that writes it**: a clip's start names the column, and so does every upload's give-back, a photo's included |
+| `0018_sender_events.sql` | #273 | Three columns on `albums`: `created_by`, the account that made a sender's event, NULL for every album an admin makes or made before it and set to NULL when the account is deleted (`ON DELETE SET NULL`); `provisional`, 1 on a sender's event until an admin first approves a photo or clip in it, and 0 for every other album; `earlier_address`, the address an event had before that approval made it a new one, kept for the event's life. A unique partial index on `earlier_address`, and a partial index on `created_by` and `created_at` for the daily cap; five triggers: `provisional` goes from 1 to 0 and never back, no album's address is another's earlier address, and no photo or clip in a provisional event is approved, or hidden other than while waiting. No trigger refuses a change to a fixed album's address, and none guards a REPLACE that clashes on `provisional` or `earlier_address`: no route writes either, and #288 takes the statements typed by hand. **Apply it before the code that reads it**, as `CLAUDE.md` item 6 orders: #273's code names these columns in every album read and every upload, while the older code never names them and runs unchanged on a database that has them (`CLAUDE.md` item 34) |
 
 ### The invite link, retired by #226
 
@@ -663,14 +664,19 @@ account, above).
 ### Albums
 
 Parents send photos into an album, one per regatta or practice day, kept on
-`/admin/albums` (#153) behind the admin sign-in (Signing in, below).
+`/admin/albums` (#153) behind the admin sign-in (Signing in, below). Since
+#273 a sender approved for a team can also create one for it from the share
+page (below).
 
 - **Add album** takes a team, Hoover JRT or COHSSA, a title, Regatta or
   Practice, and the date. Nothing is preselected, so the team is a choice
   every time. Its address, which a link to it names, is made then from the
   date and title (`2026-10-04-fall-regatta`) and never changes, so editing the
   team, title, kind or date under **Edit** keeps every link working. A second
-  album with the same date and title gets `-2`.
+  album with the same date and title gets `-2`, and no album is given an
+  address another event had before its first approval (below). A sender's
+  event is the one album whose address can change, and only before anything
+  in it is approved (below).
 - **The team decides which section lists the album** (#227): `/hoover-jrt/`
   or `/cohssa/` (The public albums, below). Moving an album to the other team
   under **Edit** moves it between the sections at the next load. Every album
@@ -700,6 +706,44 @@ Parents send photos into an album, one per regatta or practice day, kept on
   no public page lists or links it, and its address answers 404 like any
   album with nothing approved. The open list gives these in `other`, apart
   from `albums`, with no title.
+- **A sender creates an event from the share page** (#273; `CLAUDE.md`, The
+  photo site, item 34). An account approved for a team taps **Create a new
+  event** on `/share/` and gives a title, a date from 30 days back through
+  tomorrow by the phone's calendar, Regatta or Practice, and the team when it
+  is approved for two. The title field asks them to leave children's names
+  out. When the team has open events within 3 days of that date, the first
+  press of **Create the event** asks "Is it one of these?", with a button for each that
+  chooses it, then **No, create** followed by the new title; with none it
+  makes the event at once. The event is open from that moment: `GET /api/albums/open` lists it
+  to every account approved for its team and to no other, and the share page
+  preselects it by the rule it uses for any album. It is in the team's
+  section and on `/` only once an admin approves a photo in it, as every
+  album is. Each team's Not sure / other event stays. **An account makes at
+  most 10 events a UTC day**, counting the ones it made that day that still
+  exist, so one an admin deletes frees its place; the eleventh is refused,
+  and the page says so. The page posts to `POST /api/albums`, which takes
+  only the site's own Origin; `photos/functions/api/albums/index.js` has
+  every answer.
+- **A sender's event has a provisional address until its first approval.**
+  It is made from the date and title as Add album's is, and `/admin/albums`
+  shows it followed by "provisional: made again from the date and title when
+  its first photo or clip is approved". The first time an admin approves a
+  photo or a clip in it, the approval makes the address again from the
+  event's date and title as they are then, so a title corrected under
+  **Edit** before then is in the address it goes public under. From then on
+  the address never changes, and a rename changes the title only. If every
+  address that date and title can take is held, the event keeps the one it
+  was made with. The address it had before is kept for as long as the event
+  exists: a share page loaded before the approval still sends photos and
+  clips to it, they land in the event, and no other album is ever given it.
+  If the event is renamed while an approval is pressed, its photos and clips
+  keep waiting and the queue says so; the next press approves them. A press
+  on `/admin/albums`, or a Move in the queue, from a page loaded before the
+  address was made again still acts on the event by its earlier address.
+- **`/admin/albums` names the account that made a sender's event.** No
+  public page and no open list says who made one. When the account is
+  deleted the event stays, at its address and with its title, naming nobody
+  (`albums.created_by`, migration 0018).
 
 ### Uploads
 
@@ -882,6 +926,13 @@ stored takes.
   its event. A press naming one anyway (an old or forged page) approves
   nothing for it and says so, and migration 0015 refuses the change in the
   database too. Reject works on it as on any batch.
+- **The first approval in a sender's event fixes its address** (#273;
+  Albums, above). The press makes the address again from the event's date
+  and title in the same batch as the approval, so the two land together or
+  not at all. If the event was renamed while the press ran, its photos and
+  clips keep waiting and the page says so; the next press approves them.
+  Migration 0018 refuses an approval into an event whose address is still
+  provisional, even one typed by hand.
 - **Clips wait here too** (#198; `CLAUDE.md`, The photo site, item 33). A
   clip is a card in its batch, "Clip <id>", with how long it runs and its
   frame size, and plays when Play is pressed; nothing of it loads before.
@@ -911,8 +962,10 @@ Nothing but an approved photo is ever listed, counted or served.
   both, and the tests say so.
 - **`/albums/<address>/`** shows an album's approved photos in the order they
   were taken, in the trip logs' lightbox. The address is the one `/admin/albums`
-  shows, and it never changes, so a link sent to parents keeps working, a
-  link sent before #227 included. Its eyebrow leads back to its team's
+  shows, and once an album is listed it never changes, so a link sent to
+  parents keeps working, a link sent before #227 included. A sender's event's
+  address can change only before its first approval, while nothing in it is
+  public (#273; Albums, above). Its eyebrow leads back to its team's
   section. An album with nothing approved answers the site's 404 page.
 - **`/photos/<id>/<size>`** serves one size of an approved photo: `grid` in the
   album, `screen` in the lightbox, and `full` from **Download**, saved as
@@ -981,6 +1034,18 @@ The photo site, item 18 has the decisions.
 - **#310 named clips in the admins' log sentence**: an admin "hid every photo
   and clip it sent", since Hide all hides an account's clips too. Nothing
   public changed, and `npm test` holds the new sentence.
+- **#273 added the events an account makes**: "What an account keeps" names
+  the events the account made, and "Having an account deleted" says they
+  stay and stop naming it. The page describes an event's title and promises
+  no check of it: the team's senders see it at once, it is public from the
+  event's first approved photo, one of the site's admins can change it, and
+  children's names are to be left out of it. A public event's title stays in
+  its address after a rename, and the address an event had before its first
+  approval is kept with it. "Having an account deleted" offers to change the
+  titles of the events the person made, as it offers to take their photos
+  down; the address of an event already public stays as it is. The head comment traces each claim, and
+  `photos/test/policy.test.js`'s list of tables no longer says albums name no
+  account.
 - **The header and footer live in five files**: `photos/public/404.html`,
   `policy.html`, `share/index.html`, `photos/templates/page.html` and
   `photos/lib/admin-page.js`. The header's nav holds one link, **Team
@@ -1348,7 +1413,10 @@ is under them.
     (the owner's choice at #225's review; the cut names no kind, so it
     reaches the clips Hide all takes since #310). If they asked for what they
     sent to come down too, press Hide all first: afterwards nothing finds it
-    as a group.
+    as a group. If they asked for the titles of the events they made to
+    change, change each on `/admin/albums` first, where each names them
+    (#273); the delete leaves every event they made at its address, naming
+    nobody.
 - **A deleted account's address**, under Revoked: when a revoked account is
   deleted its address stays held back, kept only as its keyed hash, so a new
   request from it changes nothing. Type the address and press **Let it ask
@@ -1550,7 +1618,9 @@ accounts, above), for when the page cannot be reached (#219; owner,
 2026-10-05). **Only once a reply from the
 account's own address confirms the request**, since a delete cannot be undone
 and a request can come from anyone. If the request asks for the photos to come down too,
-hide them first (above). The button refuses an admin's account until the
+hide them first (above). If it asks for the titles of the events the account
+made to change, change each under **Edit** on `/admin/albums` first, where
+each names the account until the delete (#273). The button refuses an admin's account until the
 owner removes the role; this statement refuses only the owner's and the last
 admin's, so for an admin, have the owner press "Remove admin" on
 `/admin/people` first. From `photos/`, with the D1 token in `photos/.env`
@@ -1585,7 +1655,11 @@ codes go with it (`ON DELETE CASCADE`). The owner's account is never deleted,
 and nor is the last admin's: the database refuses the statement (`the owner
 account is kept`, migration 0013, #224). The photos it sent stay as they are and stop naming it: their
 `account_id` becomes NULL (`ON DELETE SET NULL`, migration 0012, #223), and
-each still says whether a coach's account sent it. `photos/test/policy.test.js`
+each still says whether a coach's account sent it. The events it made stay
+too, at their addresses and with their titles, and stop naming it: their
+`albums.created_by` becomes NULL (`ON DELETE SET NULL`, migration 0018,
+#273), with no statement of their own, and one still provisional is fixed
+at its first approval as before. `photos/test/policy.test.js`
 runs the step-3 and step-4 statements against the real schema, with a row in
 every table, and fails if any row afterwards names the account's id or
 address, or if a photo's or clip's takedown time still matches a log entry

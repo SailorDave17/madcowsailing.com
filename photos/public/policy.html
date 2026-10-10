@@ -318,9 +318,48 @@
                                          criterion 3 keeps the account off
                                          every public page, response and
                                          image
+       Which events it made              created_by in
+                                         migrations/0018_sender_events.sql,
+                                         written by createEvent in
+                                         lib/albums.js; when, created_at in
+                                         migrations/0004_albums.sql (#273's
+                                         criteria 5 and 9). Criterion 5
+                                         keeps the account off every public
+                                         page; allAlbums names it for the
+                                         admin pages alone
        On the site, only the admins      D17; D15's admin role has no team
        see it; every admin, both teams   (item 24, confirmed 2026-10-05).
                                          Resend sees what it sends (below)
+       An event is shown to its team at  openAlbums in lib/albums.js, which
+       once, and to anyone once a photo  functions/api/albums/open.js lists
+       in it is approved                 for every account approved for its
+                                         team and no other (#273's criterion
+                                         4); lib/public.js reads approved
+                                         photos only, as for every album
+                                         (#227; epic #267's decisions of
+                                         2026-10-07)
+       Its title public, and in an       fixAddress in lib/albums.js, run by
+       address made at the first         approvePhotos in lib/queue.js in the
+       approval and never changed        approval's own batch, so a rename
+       after                             before then is in the address and
+                                         none after it is (owner, 2026-10-08
+                                         and 2026-10-09; #273's criterion 3)
+       An admin can change the title;    owner, at #273's pickup, 2026-10-09
+       leave children's names out        (D9): the page describes the title
+                                         and promises no check of it. The
+                                         change is updateAlbum in
+                                         lib/albums.js, from
+                                         functions/api/admin/albums/update.js
+       The address before the first      earlier_address in
+       approval stays with the event;    migrations/0018_sender_events.sql,
+       no public page shows it           which openAlbum in lib/albums.js,
+                                         insertPhoto in lib/photos.js and
+                                         insertClip in lib/clips.js match
+                                         too (#273's criterion 10); kept for
+                                         the event's life (owner, at #273's
+                                         pickup, 2026-10-09, D2); publicAlbum
+                                         in lib/public.js reads an album by
+                                         its address alone
        The admins' log names the person, #221's criterion 5 (who, what, whom,
        and keeps it after a delete       when): admin_log in
                                          migrations/0008_admin_people.sql,
@@ -418,6 +457,22 @@
                                          time matches the log's hide entry
                                          (owner, at #225's review,
                                          2026-10-07)
+       The events stay, and no longer    ON DELETE SET NULL on created_by in
+       record the account                migrations/0018_sender_events.sql
+                                         does it, for README's by-hand delete
+                                         and deleteAccount in lib/people.js
+                                         alike, with no statement of their
+                                         own (#273's criterion 9); a public
+                                         event's address never changes
+                                         (fixAddress, above)
+       An event's title changed on       owner, at #273's pickup, 2026-10-09
+       request; its address stays        (D10), as the photos' takedown is
+                                         offered. updateAlbum never changes
+                                         an address, and fixAddress remakes
+                                         only a provisional one, at the first
+                                         approval, from the title then, so
+                                         the page promises it of a public
+                                         event only
        Restore points, up to 30 days     D1 Time Travel, always on: "30 days
                                          (Workers Paid) / 7 days (Free)" at
                                          https://developers.cloudflare.com/d1/platform/limits/
@@ -487,6 +542,23 @@
                                          the 500
        Deleted on request, by email,     README.md, Deleting a clip by hand
        with no button while not shown    (#198); the address at the top
+
+     #273 (a sender creates an event), 2026-10-09, added the events an
+     account makes from the page it sends from. What an account keeps names
+     them and when each was made, and no public page shows who made one. A
+     new paragraph says who sees an event and from when (its team's senders
+     at once, anyone from its first approved photo), that its title is then
+     public and stays in its address, made at the first approval of a photo
+     or clip and never changed after (owner, 2026-10-08 and 2026-10-09),
+     that one of the site's admins can change the title and children's
+     names stay out of it, and that the address an event had before that
+     approval stays with it and no public page shows it (owner, at #273's
+     pickup). The page promises no check of a title (D9). "Having an
+     account deleted" says the events stay and stop naming the account, and
+     offers to change an event's title as it offers to take the photos
+     down, a public event's address staying as it is (D10). Not chosen: "seen
+     only by the admins" for the earlier address, since the team's senders
+     were offered it until the approval.
 
      #310 (Hide all takes clips) changed one sentence: the admins' log
      records that an admin hid every photo and clip an account sent, since
@@ -597,7 +669,7 @@
 
 <link rel="stylesheet" href="/assets/shared/css/tokens.css?v=072074f9ae">
 <link rel="stylesheet" href="/assets/shared/css/base.css?v=85bd1ce6f0">
-<link rel="stylesheet" href="/css/site.css?v=9c9232e3e3">
+<link rel="stylesheet" href="/css/site.css?v=b36bb0e44e">
 <link rel="icon" href="/assets/shared/img/madcow-mark-512.png" sizes="512x512">
 </head>
 
@@ -847,11 +919,22 @@
         hash, which can check the link but cannot be turned back into it;</li>
       <li>if you are an admin, each code emailed to you to sign in, only as a
         hash made with a secret key, and when it was sent;</li>
+      <li>which events you made from the page you send from, and when;</li>
       <li>which photos and clips you sent from it.</li>
     </ul>
     <p>On the site, only its admins see any of it. Every admin sees every
       account, for both teams. No public page, photo or download shows who
-      sent a photo.</p>
+      sent a photo or made an event.</p>
+    <p>An event you make on the page you send from is shown there at once to
+      everyone with an account approved for its team. Anyone can see it once
+      one of the site's admins approves a photo in it, and its title is then
+      public. Its address is made from its date and title when the first
+      photo or clip in it is approved, and never changes after, so the title
+      it had then stays in its address. One of the site's admins can change
+      the title. Leave children's names out of it. If the title or date is
+      changed before that first approval, the address the event had until
+      then stays with it, so a page loaded before then still sends there, and
+      no public page shows that address.</p>
     <p>When an admin approves your account for a team, the site emails you a
       link to set your password. It can be used once, for 7 days, and a newer
       link replaces it once the newer one's email is sent. Once its 7 days are
@@ -975,6 +1058,10 @@
       day it was taken down, not the time. To have
       them taken down as well, press "Remove this photo" under each photo, or say
       so in the same email.</p>
+    <p>The events you made stay, and no longer record who made them. Once a
+      photo in one is approved, its title is public and stays in its address.
+      To have an event's title changed, say so in the same email; the address
+      of an event already public stays as it is.</p>
     <p>Some things stay. The admins' log keeps its entries about your
       account, and they still name you. If an admin had revoked the account,
       the site keeps its email address in a scrambled form, made with a

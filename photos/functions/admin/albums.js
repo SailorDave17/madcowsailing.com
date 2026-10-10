@@ -8,6 +8,11 @@
  * answers 303 back here with ?done= or ?error= saying what happened
  * (lib/admin-page.js, albumsNotice).
  *
+ * Since #273 an event a sender made on the share page is listed among them,
+ * naming the account that made it, and its address marked provisional until
+ * its first photo or clip is approved (criterion 5). allAlbums reads the name
+ * for the admin pages alone.
+ *
  * Rendered here, never a static file (CLAUDE.md, The photo site, item 4).
  */
 import { adminAlbumsPage, albumsNotice } from '../../lib/admin-page.js';

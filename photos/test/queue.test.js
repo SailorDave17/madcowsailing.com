@@ -1813,6 +1813,30 @@ test('#198: each notice names clips apart, and a press on photos alone reads as 
     [{ unsaved: null, 'unsaved-clips': null }, { unsaved: 2, 'unsaved-clips': 1 }]);
 });
 
+test('#273 criterion 3: an approval that left photos waiting because their event changed while it ran says so, and that its captions were saved', () => {
+  const say = (query) => queueNotice(new URLSearchParams(query)).replace(/^\s*<p role="status">|<\/p>$/g, '');
+  const NOTHING = 'Nothing was approved: its event changed while you pressed. Check it, then press again.';
+  // Nothing else approved: approve.js sends ?error=changed with the count.
+  assert.equal(say('error=changed&n=1'), NOTHING);
+  assert.equal(say('error=changed&n=3'), NOTHING, 'the words do not depend on the count');
+  // Beside an approval, the count, singular and plural.
+  assert.equal(say('done=approved&photo=3&changed=1'), 'Approved photo 3. 1 left waiting: its event changed while you pressed. Press again.');
+  assert.equal(say('done=approved&n=2&changed=2'), 'Approved 2 photos. 2 left waiting: their event changed while you pressed. Press again.');
+  // The press saved the batch's captions before it read the queue, so a
+  // caption not saved is said beside either shape, as beside not-sure.
+  assert.equal(say('error=changed&n=1&unsaved=1'),
+    `${NOTHING} 1 caption was not saved: its photo was approved or hidden after this page was loaded.`);
+  assert.equal(say('done=approved&photo=3&changed=1&unsaved-clips=1'),
+    'Approved photo 3. 1 left waiting: its event changed while you pressed. Press again. 1 caption was not saved: its clip was approved or hidden after this page was loaded.');
+  // The controls: an approval naming no change reads as before, and a count
+  // that is not one names nothing, so a crafted link adds no sentence.
+  assert.equal(say('done=approved&photo=3'), 'Approved photo 3.');
+  assert.equal(say('done=approved&photo=3&changed=0'), 'Approved photo 3.');
+  assert.equal(say('done=approved&photo=3&changed=<b>'), 'Approved photo 3.');
+  // And an error that saved nothing still says nothing of captions.
+  assert.equal(say('error=form&unsaved=1'), say('error=form'));
+});
+
 test('#198 the script: a clip\'s Reject names the clip and says it goes for good, and a photo\'s Reject after it puts the photo\'s words back', () => {
   const s = runScript();
   const said = () => [s.nodes['reject-title'].textContent, s.nodes['reject-text'].textContent];

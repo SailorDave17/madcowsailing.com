@@ -261,6 +261,7 @@ test('#271 criterion 1: what an admin or a requester typed wraps rather than wid
   const typed = [
     '.album h3', // an album's title (#271)
     '.album-facts code', // its address (#153)
+    '.album-facts', // its line, which names who made a sender's event (#273)
     '.removal-facts', '.removal-caption', // the album, the sender's name, the caption (#271)
     '.removal-note', // a takedown's note (#158)
     '.page-head [role="status"]', // a notice naming a person, title or address (#271)
@@ -306,7 +307,7 @@ test('#271 criterion 1: what an admin or a requester typed wraps rather than wid
     const kept = list.filter((s) => s !== selector);
     return `\n${kept.length ? kept.join(',\n') : '.not-it'} {${body}`;
   }).join('}');
-  for (const selector of ['.album h3', '.removal-facts', '.removal-caption', '.page-head [role="status"]', '.batch h2', '.waiting-album', '.waiting-facts']) {
+  for (const selector of ['.album h3', '.album-facts', '.removal-facts', '.removal-caption', '.page-head [role="status"]', '.batch h2', '.waiting-album', '.waiting-facts']) {
     const without = unwrap(CSS, selector);
     assert.notEqual(without, topLevel(CSS), `the control could not take ${selector} out`);
     assert.equal(wraps(without, selector), false, `${selector} still wraps with it taken out`);

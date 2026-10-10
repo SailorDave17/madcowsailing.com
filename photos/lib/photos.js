@@ -312,6 +312,11 @@ export function senderColumns(session) {
  * The same statement also requires the album's team to be one the account
  * is approved for now (#223), so a team revoked after the route checked it
  * takes nothing either.
+ *
+ * Since #273 an event's earlier address finds it as its address does (#273's
+ * criterion 10; lib/albums.js, openAlbum): a share page loaded before the
+ * event's first approval sends the address it had then, and the approval may
+ * land between the route's check and this insert, while the sizes are stored.
  */
 export async function insertPhoto(db, address, photo) {
   const from = senderColumns(photo.session);
@@ -321,14 +326,14 @@ export async function insertPhoto(db, address, photo) {
       'session_issued, account_id, caption, captured_at, sent_at, width, height, grid_width, grid_height, ' +
       'screen_width, screen_height, bytes) ' +
       "SELECT id, 'photo', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
-      'FROM albums WHERE address = ? AND closed_at IS NULL ' +
+      'FROM albums WHERE (address = ? OR earlier_address = ?) AND closed_at IS NULL ' +
       "AND team IN (SELECT team FROM account_teams WHERE account_id = ? AND state = 'approved') " +
       'RETURNING id',
     )
     .bind(
       photo.mediaKey, photo.batch, from.sender, from.code_generation, from.session_issued, from.account_id,
       photo.caption, photo.captured, photo.sentAt, photo.full.width, photo.full.height, photo.grid.width,
-      photo.grid.height, photo.screen.width, photo.screen.height, photo.bytes, address, from.account_id,
+      photo.grid.height, photo.screen.width, photo.screen.height, photo.bytes, address, address, from.account_id,
     )
     .first();
   return row?.id ?? null;

@@ -361,7 +361,7 @@ async function openCall(env) {
   }
   const cookie = await signAccountSession(ADMIN_KEY, { accountId: SENDER, version: 1 }, nowSeconds());
   const request = new Request(`${SITE}/api/albums/open`, { headers: { Cookie: `${ACCOUNT_COOKIE}=${cookie}` } });
-  return (await chain([root, albumsGuard, openList], request, { ...env, SESSION_SIGNING_KEY: ADMIN_KEY })).json();
+  return (await chain([root, ...albumsGuard, openList], request, { ...env, SESSION_SIGNING_KEY: ADMIN_KEY })).json();
 }
 
 test('#228 criterion 1: the open list gives each team\'s Not sure album apart from the events, and a closed one is not offered', async () => {
@@ -666,7 +666,9 @@ test('#270: when the read that places a Move\'s landing fails, the answer is sti
   const boom = async () => { throw new Error('transient D1 error'); };
   // Another admin approves the photo while the event is being made, after
   // the press read it as waiting; and, when `orderFails`, the queue's order
-  // cannot be read.
+  // cannot be read. createAlbum is one INSERT since #273, so this lands once,
+  // just before the event is written, where until then it landed before each
+  // try.
   const raced = (orderFails) => ({
     ...env.DB,
     prepare: (sql) => {
@@ -694,9 +696,14 @@ test('#270: when the read that places a Move\'s landing fails, the answer is sti
 // count below leaves out, as test/queue.test.js's does.
 const GUARD_READ = /^SELECT a\.id, a\.name, a\.email, a\.admin_role FROM accounts AS a /;
 
-test('#270: a Move is five statements into an event, its read traded for createAlbum\'s tries into a new one, as CLAUDE.md counts them', async () => {
+test('#270, #273: a Move is five statements, into an event or into a new one whether or not its first address is held, as CLAUDE.md counts them', async () => {
   // review-fanout at #270's review: CLAUDE.md's counts were reasoned, and
   // wrong. Every press sends each photo's caption, as the page's form does.
+  // Into a new event, createAlbum takes the place of the event's read. Until
+  // #273 it tried each address in turn, so a new event whose first address
+  // was held cost a statement more, six; since #273 it picks the first free
+  // address inside its one INSERT (lib/albums.js), so the held case is five
+  // too, and still lands at -2, which is what keeps it the held case.
   const { env, fall, districts } = await site();
   const count = async (fn) => {
     env.DB.statements.length = 0;
@@ -715,9 +722,11 @@ test('#270: a Move is five statements into an event, its read traded for createA
   env.DB.sqlite.prepare('DELETE FROM photos').run();
   one = id();
   assert.equal(await press(one, 'new', NEW), 5, 'into a new event at its first address');
+  assert.equal(photo(env, one).address, '2026-10-03-league-day');
   env.DB.sqlite.prepare('DELETE FROM photos').run();
   one = id();
-  assert.equal(await press(one, 'new', NEW), 6, 'into a new event whose first address is held: one more try');
+  assert.equal(await press(one, 'new', NEW), 5, 'into a new event whose first address is held: five too since #273');
+  assert.equal(photo(env, one).address, '2026-10-03-league-day-2', 'the first address was held, so the event took the next');
   env.DB.sqlite.prepare('DELETE FROM photos').run();
   one = id();
   assert.equal(await press(one, districts), 4, 'another team\'s event, refused: the event read, and nothing moved');

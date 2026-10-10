@@ -226,7 +226,7 @@ test('revoking one team takes its events out of the person\'s choices on the sha
   const id = await approved(db);
   const cookie = async (v) => ({ Cookie: `${ACCOUNT_COOKIE}=${await signAccountSession(SESSION_KEY, { accountId: id, version: v }, Math.floor(Date.now() / 1000))}` });
   const offered = async (v) => {
-    const res = await chain([root, albumsGuard, openList], new Request(`${SITE}/api/albums/open`, { headers: await cookie(v) }), env);
+    const res = await chain([root, ...albumsGuard, openList], new Request(`${SITE}/api/albums/open`, { headers: await cookie(v) }), env);
     return res.status === 200 ? (await res.json()).albums.map((a) => a.address).sort() : res.status;
   };
   const guarded = async (v) => {
